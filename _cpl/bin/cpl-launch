@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+# Launched inside an iTerm session by CPL.app. Registers this shell's PID against
+# its slot, arms an ownership-checked release on exit, cds to the project, and runs
+# the action's command. slot=0 means fullscreen (no slot bookkeeping).
+#
+# Usage: cpl-launch <mon> <slot> <name> <path> <execcmd...>
+
+mon="$1"
+slot="$2"
+name="$3"
+path="$4"
+shift 4
+execcmd="$*"
+
+if [ "$slot" != "0" ]; then
+  "$HOME/bin/cpl-slot" set-pid "$mon" "$slot" $$
+  trap '"$HOME/bin/cpl-cleanup" "$mon" "$slot" "$name"' EXIT
+fi
+
+cd "$path" || exit 1
+
+if [ -n "$execcmd" ]; then
+  eval "$execcmd"
+fi

@@ -1,0 +1,202 @@
+# Node LTS transition surfacing
+#
+# ─── Why this workflow exists ──────────────────────────────────────────────
+# Dependabot doesn't know about Node's LTS policy. If we let it propose
+# every major bump, we'd get monthly PRs for Node 25 / 26 / 27 pre-LTS
+# (6-month "Current" phase per release) that we never want to merge —
+# pure noise. If we ignore all Node majors in dependabot.yml (which we
+# do), we're blind to the ONE major bump we actually care about: the
+# Active-LTS transition.
+#
+# This workflow closes that gap. Once a month it reads the official Node
+# release schedule, compares to the pinned Node major in the Dockerfiles,
+# and if a newer Active-LTS major is available it opens a tracking issue
+# on the project board. Same pattern as dependabot-surfacing.yml —
+# silent until action is needed, loud exactly when it is.
+#
+# ─── What it does ──────────────────────────────────────────────────────────
+# 1. Fetches https://raw.githubusercontent.com/nodejs/Release/main/schedule.json
+# 2. Parses `FROM node:NN-...` from every `Dockerfile.*` in the repo root,
+#    requires them all to agree on major (fails loud if they diverge).
+# 3. Computes highest Active-LTS major: version where
+#    `lts <= today <= maintenance`.
+# 4. If highest-Active-LTS > pinned major → create/update tracking issue.
+# 5. If highest-Active-LTS <= pinned major → close any existing tracking
+#    issue (auto-cleanup after a successful bump).
+#
+# ─── Triggers ──────────────────────────────────────────────────────────────
+# - Monthly cron (1st of month, 14:00 UTC ≈ 09:00 CT)
+# - workflow_dispatch (manual trigger for ad-hoc check / testing)
+#
+# ─── Auth ─────────────────────────────────────────────────────────────────
+# Uses the `{{RELEASE_BOT_APP}}` App installation token (same pattern as
+# dependabot-surfacing.yml). App permissions needed: Issues R/W,
+# Contents R (for Dockerfile reads), Metadata R.
+# ============================================================================
+
+name: node-lts-check
+
+on:
+  schedule:
+    - cron: '0 14 1 * *'   # 1st of each month, 14:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # ─── Self-gate on bot-App configuration ────────────────────────────────────
+  # Same model as dependabot-surfacing.yml: this workflow mints a GitHub App
+  # installation token from the `BOT_APP_*` secrets, which /sync-starter-kit's
+  # substitution engine cannot supply (it injects file strings, not GHA secrets).
+  # A repo that syncs this template without installing the bot App would have a
+  # standing-red monthly cron failing at the token-mint step. `secrets` is not
+  # available in a job-level `if:`, so a cheap preflight job maps the secret's
+  # PRESENCE to an output; `check` runs only when it's set. Absent → `check` is
+  # skipped (neutral, not failed) with a notice explaining how to enable. Ship
+  # always, inert until configured, self-activating when the bot secret lands.
+  preflight:
+    name: Check release-bot App is configured
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.gate.outputs.enabled }}
+    steps:
+      - id: gate
+        env:
+          # Presence-only check. The value is redacted in logs; we test -n, never print it.
+          BOT_APP_CLIENT_ID: ${{ secrets.BOT_APP_CLIENT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -n "${BOT_APP_CLIENT_ID:-}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "Release-bot App secret present — proceeding."
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=node-lts-check skipped::BOT_APP_CLIENT_ID secret is not set — this repo has no release-bot GitHub App installed, so Node LTS surfacing is disabled. Install the bot App and add BOT_APP_CLIENT_ID + BOT_APP_PRIVATE_KEY secrets (HANDBOOK §11.3) to activate."
+          fi
+
+  check:
+    name: Surface Node LTS transitions
+    runs-on: ubuntu-latest
+    needs: preflight
+    if: needs.preflight.outputs.enabled == 'true'
+    steps:
+      - name: Mint GitHub App installation token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          client-id: ${{ secrets.BOT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Ensure tracking label exists
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          gh label create "node-lts-transition" \
+            --color "0052CC" \
+            --description "Node.js has a newer Active-LTS version than the one pinned in Dockerfiles" \
+            --force >/dev/null
+
+      - name: Resolve pinned Node major from Dockerfiles
+        id: pinned
+        run: |
+          set -euo pipefail
+          # Extract major from `FROM node:NN-...` or `FROM node:NN.X-...`.
+          # Works with both `node:24-bookworm-slim` and `node:24.0.1-alpine`.
+          majors=$(grep -hE '^FROM node:[0-9]+' Dockerfile.* | sed -E 's/^FROM node:([0-9]+).*/\1/' | sort -u)
+          count=$(echo "$majors" | wc -l | tr -d ' ')
+          if [ "$count" -ne 1 ]; then
+            echo "::error::Dockerfiles disagree on Node major. Found: $majors. Align them before this workflow can run."
+            exit 1
+          fi
+          echo "pinned_major=$majors" >> "$GITHUB_OUTPUT"
+          echo "Pinned Node major: $majors"
+
+      - name: Fetch Node release schedule
+        id: schedule
+        run: |
+          set -euo pipefail
+          curl -sSfL -o schedule.json \
+            "https://raw.githubusercontent.com/nodejs/Release/main/schedule.json"
+          # Compute highest-Active-LTS major:
+          # version is Active LTS when lts <= today <= maintenance.
+          # Schedule keys are like "v24"; strip leading 'v', keep numeric.
+          today=$(date -u +%Y-%m-%d)
+          active_lts=$(jq -r --arg today "$today" '
+            to_entries
+            | map(select(.value.lts != null and .value.maintenance != null))
+            | map(select(.value.lts <= $today and .value.maintenance > $today))
+            | map(.key | ltrimstr("v") | tonumber)
+            | max // empty
+          ' schedule.json)
+          if [ -z "$active_lts" ]; then
+            echo "::error::Could not resolve current Active-LTS major from schedule.json"
+            exit 1
+          fi
+          echo "active_lts_major=$active_lts" >> "$GITHUB_OUTPUT"
+          echo "Current Active-LTS major: $active_lts"
+
+      - name: Compare and surface / close issue
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PINNED: ${{ steps.pinned.outputs.pinned_major }}
+          ACTIVE_LTS: ${{ steps.schedule.outputs.active_lts_major }}
+        run: |
+          set -euo pipefail
+
+          # Find any existing open tracking issue for this workflow.
+          existing=$(gh issue list \
+            --label "node-lts-transition" \
+            --state open \
+            --json number,title \
+            --limit 5)
+          existing_num=$(echo "$existing" | jq -r '.[0].number // ""')
+
+          if [ "$ACTIVE_LTS" -le "$PINNED" ]; then
+            echo "Pinned ($PINNED) is already at or above current Active-LTS ($ACTIVE_LTS). Nothing to surface."
+            if [ -n "$existing_num" ]; then
+              echo "Closing stale tracking issue #$existing_num."
+              gh issue close "$existing_num" --comment "Dockerfiles now pinned to Node $PINNED (>= Active-LTS $ACTIVE_LTS). Closing automatically."
+            fi
+            exit 0
+          fi
+
+          # Newer Active-LTS is available.
+          next_lts_end=$(jq -r --arg v "v$PINNED" '.[$v].end // "unknown"' schedule.json)
+          title="Node $ACTIVE_LTS is now Active LTS — consider bumping from Node $PINNED"
+          body=$(cat <<EOF
+          ## Node LTS transition available
+
+          The Dockerfiles currently pin Node **$PINNED**. Node **$ACTIVE_LTS** is
+          now Active LTS per the [official schedule](https://github.com/nodejs/Release/blob/main/schedule.json).
+
+          **Pinned Node $PINNED EOL**: \`$next_lts_end\`
+
+          ## What to do
+
+          1. Bump \`FROM node:$PINNED-bookworm-slim\` → \`FROM node:$ACTIVE_LTS-bookworm-slim\` in both Dockerfiles.
+          2. Bump the CI \`node-version\` in \`.github/workflows/*.yml\` to match.
+          3. Full smoke test of the app(s) after deploy — Node majors can surface undici / HTTP / TLS behavior changes.
+
+          ## How this issue behaves
+
+          - This workflow runs on the 1st of each month. It will refresh this issue's body on subsequent runs while the condition holds.
+          - Once Dockerfiles are bumped to >= Node $ACTIVE_LTS, the next run will close this issue automatically.
+          EOF
+          )
+
+          if [ -n "$existing_num" ]; then
+            echo "Refreshing existing tracking issue #$existing_num"
+            gh issue edit "$existing_num" \
+              --title "$title" \
+              --body "$body"
+          else
+            echo "Creating new tracking issue."
+            gh issue create \
+              --title "$title" \
+              --body "$body" \
+              --label "node-lts-transition,dependencies"
+          fi

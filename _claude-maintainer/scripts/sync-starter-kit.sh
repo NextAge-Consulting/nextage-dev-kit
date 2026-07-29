@@ -1,0 +1,811 @@
+#!/bin/bash
+# Sync Starter Kit — three-way diff/review sync from kit template to consumer project.
+#
+# Modes:
+#   --scan                  Output JSON report of state per file. Non-interactive.
+#   --apply-file <kit-rel>  Apply one kit file to project + update lockfile entry.
+#   --apply-gitignore       Append missing .gitignore-additions entries to project .gitignore.
+#   --finalize              Update lockfile kit commit SHA + timestamp after all decisions applied.
+#
+# Claude invokes --scan, reviews the report interactively with the user, invokes
+# --apply-file for each accepted change, then invokes --finalize at the end.
+#
+# Lockfile: .claude/.kit-sync.json in the consumer project (committed).
+
+set -e
+
+MODE=""
+APPLY_FILE=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --scan)             MODE="scan"; shift 1 ;;
+        --apply-file)       MODE="apply"; APPLY_FILE="$2"; shift 2 ;;
+        --apply-gitignore)  MODE="apply-gitignore"; shift 1 ;;
+        --finalize)         MODE="finalize"; shift 1 ;;
+        *) echo "sync-starter-kit.sh: unknown option: $1" >&2; exit 2 ;;
+    esac
+done
+
+if [ -z "$MODE" ]; then
+    echo "sync-starter-kit.sh: mode required (--scan | --apply-file <path> | --apply-gitignore | --finalize)" >&2
+    exit 2
+fi
+
+# ---------------------------------------------------------------------------
+# Locate kit
+# ---------------------------------------------------------------------------
+CONFIG_FILE="$HOME/.claude/starter-kit-config.json"
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "sync-starter-kit.sh: $CONFIG_FILE missing. Run install-kit handbook steps first." >&2
+    exit 3
+fi
+
+KIT_PATH=$(jq -r '.kit_path // .starterKitPath // empty' "$CONFIG_FILE")
+if [ -z "$KIT_PATH" ] || [ ! -d "$KIT_PATH/_claude-project" ]; then
+    echo "sync-starter-kit.sh: invalid kit path: $KIT_PATH" >&2
+    exit 3
+fi
+
+PROJECT_PATH="${PWD}"
+
+# Refuse to run from inside a worktree (a worktree under .claude/worktrees/).
+# Sync modifies .claude/ — the same mechanism that runs gitflow. Operating from
+# a worktree creates a bootstrap problem ("which version of /commit runs after
+# sync?"). Run from primary instead. Sync does NO git at all: it applies kit
+# updates to the working tree and stamps the lockfile, leaving the changes
+# uncommitted. The user lands them with /ship-main (or any commit path). This
+# keeps committing as gitflow's job, not sync's.
+# See HANDBOOK §9 for the design rationale.
+GIT_COMMON_DIR=$(git rev-parse --git-common-dir 2>/dev/null || echo "")
+if [ -n "$GIT_COMMON_DIR" ]; then
+    PRIMARY_ROOT=$(cd "$(dirname "$GIT_COMMON_DIR")" && pwd)
+    if [ "$PROJECT_PATH" != "$PRIMARY_ROOT" ]; then
+        echo "sync-starter-kit.sh: invoked from worktree '$PROJECT_PATH'." >&2
+        echo "  Sync must run from the primary repo root: $PRIMARY_ROOT" >&2
+        echo "  cd '$PRIMARY_ROOT' and re-run /sync-starter-kit." >&2
+        exit 4
+    fi
+fi
+
+# Refuse unless the primary checkout is on `main`. The kit model (worktree.md)
+# keeps primary always on main, clean. Syncing on a feature branch would tangle
+# kit updates into unrelated work and stamp the lockfile against the wrong base.
+if [ -n "$GIT_COMMON_DIR" ]; then
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+    if [ "$CURRENT_BRANCH" != "main" ]; then
+        echo "sync-starter-kit.sh: primary is on branch '$CURRENT_BRANCH', not 'main'." >&2
+        echo "  Kit sync must run on main. Switch to main and re-run /sync-starter-kit." >&2
+        exit 4
+    fi
+
+    # Refuse when ANY worktree is open. A sibling worktree may be carrying kit
+    # files on a feature branch; syncing into main while that work is in flight
+    # double-applies and races the eventual merge. It does not matter whether the
+    # worktree touches kit files — the invariant is: sync only on a clean main
+    # with no open worktrees. `git worktree list` includes primary itself, so
+    # more than one entry means real worktrees are open.
+    WORKTREE_COUNT=$(git worktree list --porcelain 2>/dev/null | grep -c '^worktree ')
+    if [ "${WORKTREE_COUNT:-0}" -gt 1 ]; then
+        echo "sync-starter-kit.sh: $WORKTREE_COUNT worktrees open (expected only primary)." >&2
+        echo "  Kit sync requires a clean slate: merge or discard all worktrees first, then re-run." >&2
+        echo "  Open worktrees:" >&2
+        git worktree list >&2
+        exit 4
+    fi
+fi
+
+# Refuse to run from inside the kit itself
+if [ "$PROJECT_PATH" = "$KIT_PATH" ]; then
+    echo "sync-starter-kit.sh: running from the kit repo itself is not supported." >&2
+    echo "  To update kit bootstrap in ~/.claude/, use /install-kit." >&2
+    exit 4
+fi
+
+LOCKFILE="${PROJECT_PATH}/.claude/.kit-sync.json"
+# Global bootstrap files live in kit's `_claude-global/` — not scanned here.
+# Project-owned rules under `_claude-project/rules/project/` are matched by pattern
+# below (is_skipped function), not by explicit list.
+SKIP_LIST=(
+    "_claude-project/templates/README.md"
+    # sync-substitutions.json is project-specific from the moment it's filled
+    # in; every project's values differ, so kit's empty-template version
+    # always conflicts after first sync. Skip unconditionally. First-time
+    # bootstrap (copying the template) is handled via /install-kit or
+    # manually per HANDBOOK instructions.
+    "_claude-project/sync-substitutions.json"
+)
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+sha256() {
+    [ -f "$1" ] || { echo ""; return; }
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        shasum -a 256 "$1" | awk '{print $1}'
+    fi
+}
+
+# ─── Substitutions (project-specific placeholder resolution) ───────────────
+# Kit templates use `{{KEY}}` markers for values that are project-specific
+# (org name, repo slug, release-bot App slug, etc.). Consumer projects define
+# the actual values in `.claude/sync-substitutions.json`:
+#
+#   {
+#     "OWNER_REPO": "acme/widget",
+#     "RELEASE_BOT_APP": "acme-release-bot",
+#     "ORG": "acme"
+#   }
+#
+# sync-starter-kit applies these substitutions to kit content in two places:
+#   1. During scan — computes kit SHA against substituted content, so a kit
+#      template with `{{OWNER_REPO}}` matching a project file with `acme/widget`
+#      reports `clean`, not `conflict`.
+#   2. During apply — writes substituted content into the project, so the
+#      project file on disk has real values, not placeholders.
+#
+# Missing substitutions file OR missing individual keys → no substitution
+# for that token → kit content used as-is. Behavior is identical to the
+# pre-substitution version of this script when no substitutions file exists
+# (backward compat hard requirement).
+SUBSTITUTIONS_JSON="{}"
+
+load_substitutions() {
+    local sub_file="${PROJECT_PATH}/.claude/sync-substitutions.json"
+    local kit_template="${KIT_PATH}/_claude-project/sync-substitutions.json"
+
+    # Bootstrap on first sync: the substitutions file is in SKIP_LIST (so
+    # /sync-starter-kit never overwrites consumer values once populated),
+    # and /install-kit does not handle it either. Without bootstrap, every
+    # consumer project ends up missing the file entirely and kit templates
+    # land with literal {{KEY}} markers. Copy the kit template on first
+    # encounter; subsequent runs see the file exists and skip bootstrap.
+    # The template ships with empty values, which is the explicit "feature
+    # disabled" state for every gated placeholder (e.g. GITFLOW_*).
+    if [ ! -f "$sub_file" ] && [ -f "$kit_template" ]; then
+        mkdir -p "$(dirname "$sub_file")"
+        cp "$kit_template" "$sub_file"
+        echo "sync-starter-kit.sh: bootstrapped .claude/sync-substitutions.json from kit template (populate values to override placeholders, leave empty to disable gated features)" >&2
+    fi
+
+    # Additive key merge — the kit owns the KEY SET, the consumer owns the VALUES.
+    #
+    # HANDBOOK §9.7 "Adding a new placeholder" step 6 assumed a new kit key reaches
+    # existing consumers because this file syncs as a `kit-only` diff. It does not:
+    # the file is in SKIP_LIST (every project's values differ, so the kit's empty
+    # template would conflict forever after first sync), so that delivery path does
+    # not exist and bootstrap only ever fires on a project that lacks the file. A
+    # key added to the kit AFTER a project bootstrapped therefore never arrived.
+    # Canonical `{{KEY}}` placeholders at least nagged — the unsubstituted marker
+    # survived into the synced file as a standing diff. Runtime-read keys (read via
+    # `jq` at execution time, never substituted into any template — AWS_*, and see
+    # HANDBOOK §9.7 "Runtime-read placeholders") have no marker anywhere, so they
+    # failed SILENTLY: the rule that reads them shipped, its config surface did not.
+    #
+    # Merging only keys the consumer LACKS restores step 6's intent without
+    # resurrecting the conflict problem. New keys land carrying the kit's empty
+    # default, i.e. empty + absent from `_intentionally_empty` — the "deferred
+    # decision" state that the §9.8 walkthrough re-surfaces every sync until the
+    # user populates or explicitly disables it.
+    #
+    # Exactly two things in this file are the consumer's; everything else is the
+    # kit's and syncs like any other kit content:
+    #   - VALUES for non-`_` keys        — the project's real strings. Consumer wins.
+    #   - `_intentionally_empty`         — the project's list of deliberately-blank
+    #                                      keys. That's DATA, not prose. Consumer wins.
+    # Every other `_` key is a COMMENT BLOCK the kit authors (`_comment`,
+    # `_placeholders_referenced_by_kit`, `_documented_behavior`,
+    # `_intentionally_empty_doc`). They are documentation of kit-owned settings and
+    # are overwritten from the kit on every sync. Do NOT add "preserve consumer
+    # prose" logic here: nothing but an AI has ever written these, they describe the
+    # kit's own settings, and letting them drift per-project is what left this file
+    # documenting 8 settings while the kit shipped 15 — the stale copy then misleads
+    # the next reader. Project-specific prose does not belong in a kit comment block.
+    if [ -f "$sub_file" ] && [ -f "$kit_template" ]; then
+        local merged added
+        if merged=$(jq -s '
+            .[0] as $kit | .[1] as $proj
+            | ($kit  | with_entries(select(.key | startswith("_") | not))) as $kitvals
+            | ($proj | with_entries(select(.key | startswith("_") | not))) as $projvals
+            | ($kit  | with_entries(select(.key | startswith("_"))))       as $kitnotes
+            | ($kitvals + $projvals)
+              + $kitnotes
+              + (if ($proj | has("_intentionally_empty"))
+                 then { _intentionally_empty: $proj._intentionally_empty }
+                 else {} end)
+        ' "$kit_template" "$sub_file" 2>/dev/null) && [ -n "$merged" ]; then
+            if [ "$(jq -S . <<<"$merged" 2>/dev/null)" != "$(jq -S . "$sub_file" 2>/dev/null)" ]; then
+                added=$(jq -r -s '
+                    (.[0] | keys_unsorted | map(select(startswith("_") | not))) as $kit
+                    | (.[1] | keys_unsorted) as $proj
+                    | ($kit - $proj) | join(", ")
+                ' "$kit_template" "$sub_file" 2>/dev/null)
+                printf '%s\n' "$merged" > "$sub_file"
+                if [ -n "$added" ]; then
+                    echo "sync-starter-kit.sh: added new kit placeholder key(s) to .claude/sync-substitutions.json: ${added} — Step 1.5 will walk you through populating them" >&2
+                else
+                    echo "sync-starter-kit.sh: refreshed kit comment blocks in .claude/sync-substitutions.json (values and _intentionally_empty untouched)" >&2
+                fi
+            fi
+        fi
+    fi
+
+    if [ -f "$sub_file" ]; then
+        if ! SUBSTITUTIONS_JSON=$(jq -c '. // {}' "$sub_file" 2>/dev/null); then
+            echo "sync-starter-kit.sh: warning — could not parse $sub_file, proceeding without substitutions" >&2
+            SUBSTITUTIONS_JSON="{}"
+        fi
+    else
+        SUBSTITUTIONS_JSON="{}"
+    fi
+}
+
+# apply_substitutions — reads stdin, applies {{KEY}} → value for every non-empty
+# entry in SUBSTITUTIONS_JSON, writes to stdout. Uses `sed` so the byte stream
+# is preserved exactly (including trailing newlines). Earlier bash parameter-
+# expansion version via $(cat) stripped trailing newlines on the round trip,
+# which corrupted kit SHAs even on the no-substitution fast path.
+#
+# Filter rules for SUBSTITUTIONS_JSON entries:
+#   - Skip keys starting with `_` (reserved for JSON metadata / inline docs,
+#     e.g. `_comment`, `_placeholders_referenced_by_kit`).
+#   - Skip values that are null (key absent intent — leave {{KEY}} visible
+#     so the consumer is prompted to configure it).
+#   - Empty string is a VALID substitution: `{{KEY}}` → empty. This is the
+#     explicit opt-out path — the consumer has acknowledged the placeholder
+#     and chosen to disable the feature it gates (e.g. gitflow project
+#     integration). Missing key vs. empty key carries different meaning:
+#       missing → "not yet configured" (placeholder survives → diff noise
+#                  on every scan → forces consumer to address it)
+#       empty   → "intentionally off" (substituted to empty string → conf
+#                  ends up with real empty value → runtime treats as off)
+#   - Require string values (skip objects / arrays that appear as metadata).
+apply_substitutions() {
+    local empty
+    empty=$(printf '%s' "$SUBSTITUTIONS_JSON" | jq -r 'length')
+    if [ "$empty" = "0" ] || [ -z "$empty" ]; then
+        cat
+        return
+    fi
+
+    # Build a single sed script: `s/{{KEY}}/value/g` per entry. KEY and value
+    # are escaped for sed's BRE syntax — KEY on the pattern side (only brace
+    # and backslash in practice, since uppercase-underscore keys are the
+    # convention), value on the replacement side (`\`, `&`, `/` must be
+    # escaped).
+    local sed_script=""
+    local pairs
+    pairs=$(printf '%s' "$SUBSTITUTIONS_JSON" | jq -r 'to_entries[] | select(.key | startswith("_") | not) | select(.value != null and (.value | type) == "string") | "\(.key)\t\(.value)"')
+    while IFS=$'\t' read -r key value; do
+        [ -z "$key" ] && continue
+        local k_esc v_esc
+        # Pattern-side escape: backslash + regex metas. Keys are typically
+        # safe (A-Z, _) but escape defensively.
+        k_esc=$(printf '%s' "$key" | sed 's/[][\\/.^$*]/\\&/g')
+        # Replacement-side escape: `\`, `&`, `/`.
+        v_esc=$(printf '%s' "$value" | sed 's/[\\/&]/\\&/g')
+        sed_script+="s/{{${k_esc}}}/${v_esc}/g;"
+    done <<< "$pairs"
+
+    if [ -z "$sed_script" ]; then
+        cat
+        return
+    fi
+
+    sed "$sed_script"
+}
+
+# sha256_substituted — SHA of a kit file AFTER placeholder substitution.
+# When SUBSTITUTIONS_JSON is empty, identical to sha256() on the raw file.
+sha256_substituted() {
+    local kit_full="$1"
+    [ -f "$kit_full" ] || { echo ""; return; }
+    if command -v sha256sum >/dev/null 2>&1; then
+        apply_substitutions < "$kit_full" | sha256sum | awk '{print $1}'
+    else
+        apply_substitutions < "$kit_full" | shasum -a 256 | awk '{print $1}'
+    fi
+}
+
+# ─── settings.json silent overlay (project-owned fields) ───────────────────
+# Kit's `_claude-project/settings.json` ships `worktree.postCreate: []` as
+# the empty default. Once the consumer populates it (typically via the §1.6
+# walkthrough that suggests `npm install`/`pnpm install`/etc.), that value
+# is operational config — the kit must never overwrite it. Without this
+# overlay, every sync after first population flags settings.json as
+# kit-only and recommends overwriting the consumer's value.
+#
+# Reconciliation: before computing SHAs for settings.json, splice the
+# consumer's populated postCreate onto kit's content. Both kit and project
+# SHAs are computed against jq-canonicalized JSON so whitespace / key-order
+# differences don't surface as diffs either. Apply path uses the same
+# overlay so accepted applies preserve postCreate. Every OTHER field
+# (hooks, permissions, env, symlinkDirectories, symlinkPaths) flows
+# through normal 3-way state.
+#
+# See HANDBOOK §9.6.
+is_settings_json() {
+    [ "$1" = "_claude-project/settings.json" ]
+}
+
+# overlay_settings_project_owned — read kit JSON on stdin, splice in the
+# project's populated worktree.postCreate (if any), emit jq-canonicalized
+# JSON on stdout. Empty/missing project file or empty postCreate → kit
+# content passed through canonicalized.
+overlay_settings_project_owned() {
+    local proj_full="$1"
+    local kit_json
+    kit_json=$(cat)
+    [ -z "$kit_json" ] && return
+
+    if [ ! -f "$proj_full" ]; then
+        printf '%s' "$kit_json" | jq '.'
+        return
+    fi
+
+    local proj_pc proj_pc_len
+    proj_pc=$(jq -c '.worktree.postCreate // []' "$proj_full" 2>/dev/null || echo "[]")
+    proj_pc_len=$(printf '%s' "$proj_pc" | jq 'length' 2>/dev/null || echo "0")
+
+    if [ "$proj_pc_len" = "0" ]; then
+        printf '%s' "$kit_json" | jq '.'
+        return
+    fi
+
+    printf '%s' "$kit_json" | jq --argjson pc "$proj_pc" '.worktree.postCreate = $pc'
+}
+
+# sha256_settings_kit — SHA of kit settings.json after substitution +
+# canonicalization + project-owned overlay. Replaces sha256_substituted()
+# for the settings.json path so postCreate divergence doesn't surface as
+# a false-positive diff.
+sha256_settings_kit() {
+    local kit_full="$1"
+    local proj_full="$2"
+    [ -f "$kit_full" ] || { echo ""; return; }
+    local tmp_subst
+    tmp_subst=$(mktemp)
+    apply_substitutions < "$kit_full" > "$tmp_subst"
+    local content
+    content=$(overlay_settings_project_owned "$proj_full" < "$tmp_subst")
+    rm -f "$tmp_subst"
+    [ -z "$content" ] && { echo ""; return; }
+    if command -v sha256sum >/dev/null 2>&1; then
+        printf '%s' "$content" | sha256sum | awk '{print $1}'
+    else
+        printf '%s' "$content" | shasum -a 256 | awk '{print $1}'
+    fi
+}
+
+# sha256_settings_proj — SHA of project settings.json after canonicalization.
+# Matches sha256_settings_kit's jq normalization so equivalent JSON content
+# reports equal SHAs regardless of whitespace / key-order.
+sha256_settings_proj() {
+    local proj_full="$1"
+    [ -f "$proj_full" ] || { echo ""; return; }
+    local content
+    content=$(jq '.' "$proj_full" 2>/dev/null)
+    [ -z "$content" ] && { echo ""; return; }
+    if command -v sha256sum >/dev/null 2>&1; then
+        printf '%s' "$content" | sha256sum | awk '{print $1}'
+    else
+        printf '%s' "$content" | shasum -a 256 | awk '{print $1}'
+    fi
+}
+
+is_skipped() {
+    local path="$1"
+    for skip in "${SKIP_LIST[@]}"; do
+        [ "$path" = "$skip" ] && return 0
+    done
+    case "$path" in
+        _claude-project/rules/project/*) return 0 ;;
+        *.DS_Store) return 0 ;;
+    esac
+    return 1
+}
+
+# Map kit path to consumer destination path (relative to project root).
+# Convention: `_<name>-project/` in the kit maps 1:1 to `.<name>/` in the consumer.
+#   _claude-project/  → .claude/
+#   _github-project/  → .github/
+#   _gemini-project/  → .gemini/
+# Root-level dotfiles (.mcp.json, .commitlintrc.json, .gitignore) live under
+# _claude-project/templates/ and require explicit mappings here.
+dest_for_kit_path() {
+    local kit_rel="$1"
+    case "$kit_rel" in
+        _claude-project/templates/.mcp.json)
+            echo ".mcp.json"
+            ;;
+        _claude-project/templates/.commitlintrc.json)
+            echo ".commitlintrc.json"
+            ;;
+        _claude-project/templates/biome.json)
+            echo "biome.json"
+            ;;
+        _claude-project/templates/.semgrepignore)
+            echo ".semgrepignore"
+            ;;
+        _claude-project/templates/scripts/check-dep-alignment.mjs)
+            echo "scripts/check-dep-alignment.mjs"
+            ;;
+        _gemini-project/*)
+            echo ".gemini/${kit_rel#_gemini-project/}"
+            ;;
+        _claude-project/templates/*)
+            # README.md and other meta files — skipped via SKIP_LIST or unmapped.
+            echo ""
+            ;;
+        _claude-project/*)
+            echo ".claude/${kit_rel#_claude-project/}"
+            ;;
+        _github-project/*)
+            echo ".github/${kit_rel#_github-project/}"
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
+load_baseline_sha() {
+    local dest_rel="$1"
+    [ -f "$LOCKFILE" ] || { echo ""; return; }
+    jq -r --arg k "$dest_rel" '.files[$k] // ""' "$LOCKFILE"
+}
+
+update_lockfile_file() {
+    local dest_rel="$1"
+    local new_sha="$2"
+
+    mkdir -p "$(dirname "$LOCKFILE")"
+    if [ ! -f "$LOCKFILE" ]; then
+        echo '{"kitRepo":"","lastSyncedCommit":"","lastSyncedAt":"","files":{}}' > "$LOCKFILE"
+    fi
+
+    local tmp
+    tmp=$(mktemp)
+    if [ -n "$new_sha" ]; then
+        jq --arg k "$dest_rel" --arg v "$new_sha" '.files[$k] = $v' "$LOCKFILE" > "$tmp"
+    else
+        jq --arg k "$dest_rel" 'del(.files[$k])' "$LOCKFILE" > "$tmp"
+    fi
+    mv "$tmp" "$LOCKFILE"
+}
+
+# ---------------------------------------------------------------------------
+# Mode: scan
+# ---------------------------------------------------------------------------
+
+if [ "$MODE" = "scan" ]; then
+    cd "$KIT_PATH"
+
+    # Load per-project placeholder substitutions (if any). Must happen before
+    # the per-file SHA loop so kit SHAs reflect substituted content.
+    load_substitutions
+
+    KIT_CLEAN=true
+    if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+        KIT_CLEAN=false
+    fi
+
+    KIT_BEHIND=false
+    git fetch origin >/dev/null 2>&1 || true
+    LOCAL=$(git rev-parse HEAD 2>/dev/null || echo "")
+    REMOTE=$(git rev-parse '@{u}' 2>/dev/null || echo "")
+    if [ -n "$LOCAL" ] && [ -n "$REMOTE" ] && [ "$LOCAL" != "$REMOTE" ]; then
+        BASE=$(git merge-base HEAD '@{u}' 2>/dev/null || echo "")
+        [ "$LOCAL" = "$BASE" ] && KIT_BEHIND=true
+    fi
+
+    KIT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "")
+
+    cd "$PROJECT_PATH"
+
+    # Scan every kit template surface that exists. `_claude-project` is required;
+    # other `_<dir>-project` surfaces are optional (introduced as needed).
+    KIT_DIRS=()
+    [ -d "${KIT_PATH}/_claude-project" ] && KIT_DIRS+=("_claude-project")
+    [ -d "${KIT_PATH}/_github-project" ] && KIT_DIRS+=("_github-project")
+    [ -d "${KIT_PATH}/_gemini-project" ] && KIT_DIRS+=("_gemini-project")
+    KIT_FILES=$(cd "$KIT_PATH" && find "${KIT_DIRS[@]}" -type f ! -name ".DS_Store" 2>/dev/null | sort)
+
+    FILE_ENTRIES="[]"
+    while IFS= read -r kit_rel; do
+        [ -z "$kit_rel" ] && continue
+        is_skipped "$kit_rel" && continue
+
+        dest_rel=$(dest_for_kit_path "$kit_rel")
+        [ -z "$dest_rel" ] && continue
+
+        kit_full="${KIT_PATH}/${kit_rel}"
+        proj_full="${PROJECT_PATH}/${dest_rel}"
+
+        # kit_sha reflects content AFTER placeholder substitution, so a kit
+        # template with {{KEY}} matches a project file with the real value.
+        # proj_sha is the raw project file (already the real values).
+        # settings.json takes a separate path: project-owned worktree.postCreate
+        # is overlaid onto kit content + both sides canonicalized via jq before
+        # SHA. See HANDBOOK §9.6.
+        if is_settings_json "$kit_rel"; then
+            kit_sha=$(sha256_settings_kit "$kit_full" "$proj_full")
+            proj_sha=$(sha256_settings_proj "$proj_full")
+        else
+            kit_sha=$(sha256_substituted "$kit_full")
+            proj_sha=$(sha256 "$proj_full")
+        fi
+        baseline_sha=$(load_baseline_sha "$dest_rel")
+
+        [ -z "$kit_sha" ] && continue
+
+        if [ -z "$proj_sha" ] && [ -z "$baseline_sha" ]; then
+            state="new-kit"
+        elif [ -z "$proj_sha" ] && [ -n "$baseline_sha" ]; then
+            state="project-deleted"
+        elif [ "$kit_sha" = "$baseline_sha" ] && [ "$proj_sha" = "$baseline_sha" ]; then
+            state="clean"
+        elif [ "$kit_sha" != "$baseline_sha" ] && [ "$proj_sha" = "$baseline_sha" ]; then
+            state="kit-only"
+        elif [ "$kit_sha" = "$baseline_sha" ] && [ "$proj_sha" != "$baseline_sha" ]; then
+            state="project-only"
+        elif [ "$kit_sha" != "$baseline_sha" ] && [ "$proj_sha" != "$baseline_sha" ]; then
+            if [ "$kit_sha" = "$proj_sha" ]; then
+                state="clean-converged"
+            else
+                state="conflict"
+            fi
+        elif [ -z "$baseline_sha" ] && [ -n "$proj_sha" ]; then
+            if [ "$kit_sha" = "$proj_sha" ]; then
+                state="clean-first"
+            else
+                state="conflict-first"
+            fi
+        else
+            state="unknown"
+        fi
+
+        FILE_ENTRIES=$(echo "$FILE_ENTRIES" | jq \
+            --arg kit_path "$kit_rel" \
+            --arg dest_path "$dest_rel" \
+            --arg state "$state" \
+            --arg kit_sha "$kit_sha" \
+            --arg proj_sha "$proj_sha" \
+            --arg baseline_sha "$baseline_sha" \
+            '. + [{kit_path: $kit_path, dest_path: $dest_path, state: $state, kit_sha: $kit_sha, project_sha: $proj_sha, baseline_sha: $baseline_sha}]')
+    done <<< "$KIT_FILES"
+
+    # Removed-from-kit: files in lockfile not present in kit
+    if [ -f "$LOCKFILE" ]; then
+        LOCKED_FILES=$(jq -r '.files | keys[]' "$LOCKFILE" 2>/dev/null || echo "")
+        while IFS= read -r dest_rel; do
+            [ -z "$dest_rel" ] && continue
+            still_in_kit=$(echo "$FILE_ENTRIES" | jq --arg d "$dest_rel" 'any(.[]; .dest_path == $d)')
+            if [ "$still_in_kit" = "false" ]; then
+                proj_full="${PROJECT_PATH}/${dest_rel}"
+                proj_sha=$(sha256 "$proj_full")
+                baseline_sha=$(load_baseline_sha "$dest_rel")
+                FILE_ENTRIES=$(echo "$FILE_ENTRIES" | jq \
+                    --arg dest_path "$dest_rel" \
+                    --arg proj_sha "$proj_sha" \
+                    --arg baseline_sha "$baseline_sha" \
+                    '. + [{kit_path: "", dest_path: $dest_path, state: "removed-kit", kit_sha: "", project_sha: $proj_sha, baseline_sha: $baseline_sha}]')
+            fi
+        done <<< "$LOCKED_FILES"
+    fi
+
+    GITIGNORE_ADDITIONS_FILE="${KIT_PATH}/_claude-project/templates/.gitignore-additions"
+    MISSING_ENTRIES="[]"
+    if [ -f "$GITIGNORE_ADDITIONS_FILE" ]; then
+        while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            case "$line" in \#*) continue ;; esac
+            if [ ! -f "${PROJECT_PATH}/.gitignore" ] || ! grep -Fxq "$line" "${PROJECT_PATH}/.gitignore"; then
+                MISSING_ENTRIES=$(echo "$MISSING_ENTRIES" | jq --arg e "$line" '. + [$e]')
+            fi
+        done < "$GITIGNORE_ADDITIONS_FILE"
+    fi
+
+    jq -n \
+        --arg kit_path "$KIT_PATH" \
+        --arg kit_commit "$KIT_COMMIT" \
+        --argjson kit_clean "$KIT_CLEAN" \
+        --argjson kit_behind "$KIT_BEHIND" \
+        --argjson files "$FILE_ENTRIES" \
+        --argjson gitignore_missing "$MISSING_ENTRIES" \
+        '{kit_path: $kit_path, kit_commit: $kit_commit, kit_clean: $kit_clean, kit_behind_remote: $kit_behind, files: $files, gitignore_additions_missing: $gitignore_missing}'
+
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Mode: apply-file
+# ---------------------------------------------------------------------------
+
+if [ "$MODE" = "apply" ]; then
+    [ -z "$APPLY_FILE" ] && { echo "sync-starter-kit.sh: --apply-file requires a kit-relative path" >&2; exit 2; }
+
+    # Apply mode uses substitutions when writing kit content into the project.
+    load_substitutions
+
+    kit_full="${KIT_PATH}/${APPLY_FILE}"
+    dest_rel=$(dest_for_kit_path "$APPLY_FILE")
+    [ -z "$dest_rel" ] && { echo "sync-starter-kit.sh: no destination mapping for $APPLY_FILE" >&2; exit 4; }
+
+    if [ ! -f "$kit_full" ]; then
+        # Removed from kit — delete from project + lockfile
+        proj_full="${PROJECT_PATH}/${dest_rel}"
+        rm -f "$proj_full"
+        update_lockfile_file "$dest_rel" ""
+        echo "sync-starter-kit.sh: removed $dest_rel (kit-removed)" >&2
+        exit 0
+    fi
+
+    proj_full="${PROJECT_PATH}/${dest_rel}"
+    mkdir -p "$(dirname "$proj_full")"
+    # Write SUBSTITUTED content, not raw kit bytes. If no substitutions are
+    # defined, apply_substitutions is a pass-through so behavior matches
+    # the pre-substitution cp.
+    # settings.json takes a separate path: project-owned worktree.postCreate
+    # is overlaid onto kit content + canonicalized via jq so the accepted
+    # apply preserves the consumer's populated value. See HANDBOOK §9.6.
+    if is_settings_json "$APPLY_FILE"; then
+        tmp_subst=$(mktemp)
+        tmp_final=$(mktemp)
+        apply_substitutions < "$kit_full" > "$tmp_subst"
+        overlay_settings_project_owned "$proj_full" < "$tmp_subst" > "$tmp_final"
+        if [ ! -s "$tmp_final" ]; then
+            rm -f "$tmp_subst" "$tmp_final"
+            echo "sync-starter-kit.sh: failed to compose settings.json (jq returned empty)" >&2
+            exit 5
+        fi
+        mv "$tmp_final" "$proj_full"
+        rm -f "$tmp_subst"
+        new_sha=$(sha256_settings_proj "$proj_full")
+    else
+        apply_substitutions < "$kit_full" > "$proj_full"
+        case "$APPLY_FILE" in
+            *.sh) chmod +x "$proj_full" ;;
+        esac
+        new_sha=$(sha256 "$proj_full")
+    fi
+
+    # Lockfile baseline SHA tracks the SUBSTITUTED (and for settings.json,
+    # overlaid + canonicalized) kit content — same as what got written to
+    # the project. This keeps subsequent scans clean until the kit template
+    # changes or the substitution value changes.
+    update_lockfile_file "$dest_rel" "$new_sha"
+
+    echo "sync-starter-kit.sh: applied $dest_rel ($new_sha)" >&2
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Mode: apply-gitignore
+# ---------------------------------------------------------------------------
+
+if [ "$MODE" = "apply-gitignore" ]; then
+    ADD_FILE="${KIT_PATH}/_claude-project/templates/.gitignore-additions"
+    [ -f "$ADD_FILE" ] || { echo "sync-starter-kit.sh: no .gitignore-additions in kit" >&2; exit 4; }
+
+    touch "${PROJECT_PATH}/.gitignore"
+
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        case "$line" in \#*)
+            if ! grep -Fxq "$line" "${PROJECT_PATH}/.gitignore"; then
+                echo "$line" >> "${PROJECT_PATH}/.gitignore"
+            fi
+            continue
+            ;;
+        esac
+        if ! grep -Fxq "$line" "${PROJECT_PATH}/.gitignore"; then
+            echo "$line" >> "${PROJECT_PATH}/.gitignore"
+            echo "sync-starter-kit.sh: added '$line' to .gitignore" >&2
+        fi
+    done < "$ADD_FILE"
+
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Mode: finalize
+# ---------------------------------------------------------------------------
+
+if [ "$MODE" = "finalize" ]; then
+    cd "$KIT_PATH"
+    KIT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "")
+    KIT_REMOTE=$(git config --get remote.origin.url 2>/dev/null || echo "")
+    cd "$PROJECT_PATH"
+
+    if [ ! -f "$LOCKFILE" ]; then
+        mkdir -p "$(dirname "$LOCKFILE")"
+        echo '{"kitRepo":"","lastSyncedCommit":"","lastSyncedAt":"","files":{}}' > "$LOCKFILE"
+    fi
+
+    NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # ─── Backfill: record every already-matching kit file ──────────────────
+    #
+    # A file whose project copy has ALWAYS matched the kit is never handed to
+    # --apply-file (it scans `clean` / `clean-converged`, gets silently skipped),
+    # so it never earned a lockfile entry. That looks harmless — the content is
+    # correct — but it silently breaks DELETION for that file forever:
+    #
+    #   `removed-kit` is detected by finding a lockfile entry whose kit file no
+    #   longer exists. No entry → when the kit later deletes the file, it is gone
+    #   from the kit (so the scan does not walk it) AND absent from the lockfile
+    #   (so nothing records it was ever kit-managed). The scan reports NOTHING for
+    #   it — not `removed-kit`, just invisible — and the dead file lives on in
+    #   every consumer permanently.
+    #
+    # This is not hypothetical: `rules/kit-consumer.md` shipped 2026-06-18, was
+    # retired from the kit 2026-07-14 and replaced by kit-maintainer.md, and
+    # survived in four consumer projects because it had never once differed.
+    #
+    # So finalize records an entry for every kit file whose project copy matches
+    # the kit's substituted content. Entries written by --apply-file are already
+    # current and are overwritten with the identical value (both sides are the
+    # SHA of what is on disk). Files that DIFFER are deliberately left alone —
+    # an un-applied difference must stay un-baselined so the next scan still
+    # surfaces it for review.
+    load_substitutions
+
+    KIT_DIRS=()
+    [ -d "${KIT_PATH}/_claude-project" ] && KIT_DIRS+=("_claude-project")
+    [ -d "${KIT_PATH}/_github-project" ] && KIT_DIRS+=("_github-project")
+    [ -d "${KIT_PATH}/_gemini-project" ] && KIT_DIRS+=("_gemini-project")
+    ALL_KIT_FILES=$(cd "$KIT_PATH" && find "${KIT_DIRS[@]}" -type f ! -name ".DS_Store" 2>/dev/null | sort)
+
+    BACKFILL="{}"
+    BACKFILL_N=0
+    while IFS= read -r kit_rel; do
+        [ -z "$kit_rel" ] && continue
+        is_skipped "$kit_rel" && continue
+        dest_rel=$(dest_for_kit_path "$kit_rel")
+        [ -z "$dest_rel" ] && continue
+        [ -f "${PROJECT_PATH}/${dest_rel}" ] || continue
+
+        kit_sha=$(sha256_substituted "${KIT_PATH}/${kit_rel}" "$kit_rel")
+        proj_sha=$(sha256 "${PROJECT_PATH}/${dest_rel}")
+        [ -n "$kit_sha" ] && [ "$kit_sha" = "$proj_sha" ] || continue
+
+        already=$(jq -r --arg k "$dest_rel" '.files[$k] // ""' "$LOCKFILE")
+        [ "$already" = "$kit_sha" ] && continue
+
+        BACKFILL=$(jq -c --arg k "$dest_rel" --arg v "$kit_sha" '. + {($k): $v}' <<<"$BACKFILL")
+        BACKFILL_N=$((BACKFILL_N + 1))
+    done <<< "$ALL_KIT_FILES"
+
+    tmp=$(mktemp)
+    jq --arg repo "$KIT_REMOTE" --arg commit "$KIT_COMMIT" --arg ts "$NOW" \
+        --argjson backfill "$BACKFILL" \
+        '.kitRepo = $repo | .lastSyncedCommit = $commit | .lastSyncedAt = $ts
+         | .files = (.files + $backfill)' \
+        "$LOCKFILE" > "$tmp"
+    mv "$tmp" "$LOCKFILE"
+
+    echo "sync-starter-kit.sh: lockfile finalized (kit commit $KIT_COMMIT)" >&2
+    if [ "$BACKFILL_N" -gt 0 ]; then
+        echo "sync-starter-kit.sh: baselined $BACKFILL_N already-matching file(s) that had no lockfile entry — the kit can now propagate their deletion." >&2
+    fi
+
+    # That's the whole job: sync APPLIES kit updates to the working tree (via
+    # --apply-file) and stamps the lockfile. It does NOT commit or push —
+    # committing is gitflow's job, not sync's. The synced `.claude/` changes
+    # plus the lockfile bump are left as a normal uncommitted change for the
+    # user to land however they want. `/ship-main` is the natural fit (commits
+    # + pushes straight to main in one step). Keeping git entirely out of sync
+    # removes the bootstrap "which /commit runs after sync?" problem and stops
+    # duplicating logic that now lives in ship-main.sh / deploy.sh.
+    if [ -n "$(git status --porcelain)" ]; then
+        echo "sync-starter-kit.sh: synced — kit updates + lockfile are uncommitted in your working tree." >&2
+        echo "  Land them with /ship-main (commits + pushes straight to main)." >&2
+    else
+        echo "sync-starter-kit.sh: already in sync — nothing to commit." >&2
+    fi
+    exit 0
+fi

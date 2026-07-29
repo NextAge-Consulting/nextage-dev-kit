@@ -1,0 +1,42 @@
+# Sensitive files
+.env
+*.key
+*.pem
+.auth_token
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Claude Code per-developer state
+.claude/settings.local.json
+.claude/.kit-sync.json
+.claude/scheduled_tasks.lock
+
+# Build artifacts
+/dist/
+/build/
+/out/
+/*.o
+/*.pyc
+/*.class
+
+# Dependency directories
+/node_modules/
+/vendor/
+
+/# Logs and runtime files
+*.log
+*.tmp
+/logs/
+
+# IDE/Editor folders
+server/public
+vite.config.ts.*
+*.tar.gz
+.vscode
+.claude/master.txt
+
+# CPL compiled binaries (built by sync-cpl.sh)
+_cpl/bin/cpl-picker
+_cpl/bin/cpl-close-zed

@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Monitor-aware slot manager. Slot files: ~/.cpl-slots/mon<M>-<N>
+#   line 1 = session/project name, line 2 = owning process PID.
+# maxSlots is per-monitor and supplied by the caller (cpl-picker), which reads it
+# from the active profile in ~/.cpl.json. This script holds no config knowledge.
+
+SLOT_DIR="$HOME/.cpl-slots"
+mkdir -p "$SLOT_DIR"
+
+slot_file() { echo "$SLOT_DIR/mon$1-$2"; }
+
+# Remove orphan slot files for a monitor (index > maxSlots) — happens when the
+# user reduces maxSlots while a higher-numbered slot is occupied.
+remove_orphan_slots() {
+  local mon="$1" maxn="$2" f base idx
+  for f in "$SLOT_DIR"/mon"$mon"-*; do
+    [ -e "$f" ] || continue
+    base=$(basename "$f")
+    idx="${base#mon"$mon"-}"
+    if [[ "$idx" =~ ^[0-9]+$ ]] && [ "$idx" -gt "$maxn" ]; then
+      rm -f "$f"
+    fi
+  done
+}
+
+# Mark slots stale where the recorded PID is dead or missing.
+clean_stale_slots() {
+  local mon="$1" maxn="$2" i f pid
+  for ((i=1; i<=maxn; i++)); do
+    f=$(slot_file "$mon" "$i")
+    if [ -f "$f" ]; then
+      pid=$(sed -n '2p' "$f" 2>/dev/null || echo "")
+      if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
+        rm -f "$f"
+      fi
+    fi
+  done
+}
+
+case "${1:-}" in
+  claim)
+    mon="${2:?monitor required}"
+    maxn="${3:?maxSlots required}"
+    name="${4:?session name required}"
+    forced="${5:-}"
+    remove_orphan_slots "$mon" "$maxn"
+    clean_stale_slots "$mon" "$maxn"
+
+    # Forced slot (pin): claim it directly, overwriting whatever is there.
+    if [ -n "$forced" ]; then
+      echo "$name" > "$(slot_file "$mon" "$forced")"
+      echo "$forced"
+      exit 0
+    fi
+
+    # First empty slot 1..maxSlots.
+    for ((i=1; i<=maxn; i++)); do
+      f=$(slot_file "$mon" "$i")
+      if [ ! -f "$f" ]; then
+        echo "$name" > "$f"
+        echo "$i"
+        exit 0
+      fi
+    done
+
+    # All full — cycle back to slot 1 (overwrite). The displaced session's window
+    # stays at its position; ownership-checked release keeps it from deleting the
+    # new occupant's file when its EXIT trap fires.
+    echo "$name" > "$(slot_file "$mon" 1)"
+    echo "1"
+    ;;
+  set-pid)
+    mon="${2:?monitor required}"
+    slot="${3:?slot required}"
+    pid="${4:?pid required}"
+    f=$(slot_file "$mon" "$slot")
+    if [ -f "$f" ]; then
+      name=$(head -1 "$f")
+      printf '%s\n%s\n' "$name" "$pid" > "$f"
+    fi
+    ;;
+  release)
+    mon="${2:?monitor required}"
+    slot="${3:?slot required}"
+    expected_name="${4:-}"
+    f=$(slot_file "$mon" "$slot")
+    if [ -f "$f" ]; then
+      if [ -n "$expected_name" ]; then
+        actual_name=$(head -1 "$f")
+        if [ "$actual_name" = "$expected_name" ]; then
+          rm -f "$f"
+        fi
+      else
+        rm -f "$f"
+      fi
+    fi
+    ;;
+  clean)
+    rm -f "$SLOT_DIR"/mon*-* 2>/dev/null || true
+    echo "All slots cleared"
+    ;;
+  status)
+    shopt -s nullglob
+    found=0
+    for f in "$SLOT_DIR"/mon*-*; do
+      base=$(basename "$f")
+      name=$(head -1 "$f" 2>/dev/null || echo "?")
+      echo "${base}: ${name}"
+      found=1
+    done
+    [ "$found" -eq 0 ] && echo "No slots claimed"
+    ;;
+  *)
+    echo "Usage: cpl-slot {claim <mon> <maxSlots> <name> [forced]|set-pid <mon> <slot> <pid>|release <mon> <slot> [name]|clean|status}" >&2
+    exit 1
+    ;;
+esac

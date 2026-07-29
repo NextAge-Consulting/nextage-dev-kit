@@ -1,0 +1,12 @@
+{
+  "Profiles": [
+    {
+      "Name": "CPL",
+      "Guid": "CPL-CLAUDE-PROJECT-LAUNCHER-001",
+      "Dynamic Profile Parent Name": "Default",
+      "Allow Title Setting": false,
+      "Title Components": 1,
+      "Custom Directory": "Recycle"
+    }
+  ]
+}

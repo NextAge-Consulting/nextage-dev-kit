@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+mon="${1:?monitor required}"
+slot="${2:?slot required}"
+name="${3:-}"
+
+# Pass the session name through so cpl-slot can ownership-check the release. If
+# this slot was cycled back over by a later claim, the file's name won't match
+# $name and the new occupant's file is preserved.
+"$HOME/bin/cpl-slot" release "$mon" "$slot" "$name"

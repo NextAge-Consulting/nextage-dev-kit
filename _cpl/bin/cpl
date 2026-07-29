@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$HOME/projects"
+
+if [ $# -ge 1 ]; then
+  # Project name provided: go to ~/projects/<name>
+  name="$1"
+  proj="$root/$name"
+
+  if [ ! -d "$proj" ]; then
+    echo "No such project: $proj" >&2
+    exit 1
+  fi
+
+  cd "$proj"
+else
+  # No name: stay in current directory
+  proj="$PWD"
+  name="${PWD##*/}"
+fi
+
+# Update iTerm2 tab/window title (ignores failure if not in iTerm2)
+~/bin/it_title "$name" >/dev/null 2>&1 || true
+
+# Run Claude Code in foreground
+claude
