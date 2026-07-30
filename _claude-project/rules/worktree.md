@@ -4,7 +4,7 @@
 
 ## The model
 
-All Claude-driven editing happens inside a git worktree under `<project>/.claude/worktrees/`. The primary repo folder always sits on `main`, clean — it is reserved for git substrate and for plain-CLI workflows (e.g. `/sync-starter-kit`) that expect a clean `main` checkout. One body of work → one worktree → one branch → one PR.
+All Claude-driven editing happens inside a git worktree under `<project>/.claude/worktrees/`. The primary repo folder always sits on `main`, clean — it is reserved for git substrate and for plain-CLI workflows (e.g. `/sync-dev-kit`) that expect a clean `main` checkout. One body of work → one worktree → one branch → one PR.
 
 `/work` is the only authorized entry point. Re-entering an existing worktree, creating a new one off `origin/main`, retrieving a teammate's branch, opening a parallel compartment — all of them route through `/work`. The script handles `git worktree add`, the `EnterWorktree` tool call, and (critically) the setup steps below.
 
@@ -50,7 +50,7 @@ The hook does NOT block. It is advisory because (a) the system prompt actively p
 
 ## When the rule does NOT apply
 
-- Plain-CLI workflows that operate against primary by design (`/sync-starter-kit`) — these expect to run against `main` in the primary checkout, not in a worktree
+- Plain-CLI workflows that operate against primary by design (`/sync-dev-kit`) — these expect to run against `main` in the primary checkout, not in a worktree
 - **`/ship-main` — the sanctioned direct-to-main exception.** Quick infra / config / emergency work is done in the primary repo on `main` and committed straight there via `/ship-main` (no branch, no PR, no worktree). The worktree's only value is an isolated runtime feedback loop for application code; infra YAML / Dockerfiles / workflow edits have no such loop, so the worktree is friction without benefit. `/ship-main` is the explicit, by-name verb for this — never inferred (a bare `/commit` on `main` still auto-branches). See `commands/ship-main.md`.
 - Read-only inspection of the primary (running `git status`, `git log`, etc.) when you just need to see substrate state
 

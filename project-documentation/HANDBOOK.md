@@ -1,6 +1,6 @@
-# Starter Kit Handbook
+# Dev Kit Handbook
 
-The authoritative reference for how projects using this starter kit are configured, how the git workflow operates, and how changes propagate from the kit to consumer projects.
+The authoritative reference for how projects using this dev kit are configured, how the git workflow operates, and how changes propagate from the kit to consumer projects.
 
 This doc is the architectural anchor. When something in the kit, a hook, a command, or a rule is unclear or appears to conflict with another piece, this handbook wins. Update the handbook first, then update the kit to match.
 
@@ -12,11 +12,11 @@ The kit is just another project — it has its own `.claude/` with project-custo
 
 | Path | Destination | Purpose |
 |------|-------------|---------|
-| `_claude-project/` | consumer `<project>/.claude/` via `/sync-starter-kit` | Project-level config that should exist in every project: rules, hooks, skills, the gitflow commands, agents, `settings.json`, `templates/` |
-| `_github-project/` | consumer `<project>/.github/` via `/sync-starter-kit` | GitHub Actions workflows + dependabot config |
-| `_gemini-project/` | consumer `<project>/.gemini/` via `/sync-starter-kit` | Gemini Code Assist config + styleguide (PR-time AI reviewer) |
+| `_claude-project/` | consumer `<project>/.claude/` via `/sync-dev-kit` | Project-level config that should exist in every project: rules, hooks, skills, the gitflow commands, agents, `settings.json`, `templates/` |
+| `_github-project/` | consumer `<project>/.github/` via `/sync-dev-kit` | GitHub Actions workflows + dependabot config |
+| `_gemini-project/` | consumer `<project>/.gemini/` via `/sync-dev-kit` | Gemini Code Assist config + styleguide (PR-time AI reviewer) |
 | `_claude-global/` | `~/.claude/` via `/install-kit` | The CONSUMER global bootstrap — every dev gets this: `commands/work.md`. `/work` must be invokable from the agents view before the session is inside any repo, so it cannot ship per-project. Nothing else belongs here. |
-| `_claude-maintainer/` | `~/.claude/` via `/install-kit --maintainer` | The MAINTAINER surface — only the person who syncs the kit into projects: `scripts/sync-starter-kit.sh`, `commands/sync-starter-kit.md`, `kit-maintainer.md`. A consumer machine never receives the sync machinery, so it cannot run a sync. |
+| `_claude-maintainer/` | `~/.claude/` via `/install-kit --maintainer` | The MAINTAINER surface — only the person who syncs the kit into projects: `scripts/sync-dev-kit.sh`, `commands/sync-dev-kit.md`, `kit-maintainer.md`. A consumer machine never receives the sync machinery, so it cannot run a sync. |
 | `_statusline/statusline.sh` | `~/.claude/statusline.sh` via `/install-statusline` (one-time) | The kit's custom statusline asset; referenced by `install-statusline.md`. |
 | `.claude/` | This kit repo's own active config | Mirror of `_claude-project/` PLUS kit-custom commands and scripts that only make sense in this repo: `install-kit`, `install-cpl`, `install-statusline` (commands + their helper scripts). These never propagate anywhere. |
 
@@ -24,17 +24,17 @@ The kit is just another project — it has its own `.claude/` with project-custo
 
 `/work` is the session entry point: it is launched from the agents view before the session is inside any repo, so a per-project command would not exist yet at that moment. Every dev needs it, so it ships in `_claude-global/`.
 
-`/sync-starter-kit` is also global by necessity — it must run from any project directory — but it is installed ONLY by `/install-kit --maintainer`. The maintainer syncs projects ahead of the other devs; a consumer machine that could sync would clobber that work. Withholding the script is stronger than guarding it: there is nothing to bypass.
+`/sync-dev-kit` is also global by necessity — it must run from any project directory — but it is installed ONLY by `/install-kit --maintainer`. The maintainer syncs projects ahead of the other devs; a consumer machine that could sync would clobber that work. Withholding the script is stronger than guarding it: there is nothing to bypass.
 
-Historically: `/sync-starter-kit` resolves the kit path from `~/.claude/starter-kit-config.json` and runs from any project directory.
+Historically: `/sync-dev-kit` resolves the kit path from `~/.claude/dev-kit-config.json` and runs from any project directory.
 
 Every other kit-adjacent command (`/install-kit`, `/install-cpl`, `/install-statusline`) is meaningful only when you are inside the kit repo. No reason to pollute global command space with them — they live in the kit's own `.claude/commands/`.
 
 ### Sync flow summary
 
-- **`_claude-project/` → consumer `.claude/`** via `/sync-starter-kit` (diff/review, lockfile at `<project>/.claude/.kit-sync.json`).
-- **`_github-project/` → consumer `.github/`** via `/sync-starter-kit` (same lockfile, same flow).
-- **`_gemini-project/` → consumer `.gemini/`** via `/sync-starter-kit` (same lockfile, same flow).
+- **`_claude-project/` → consumer `.claude/`** via `/sync-dev-kit` (diff/review, lockfile at `<project>/.claude/.kit-sync.json`).
+- **`_github-project/` → consumer `.github/`** via `/sync-dev-kit` (same lockfile, same flow).
+- **`_gemini-project/` → consumer `.gemini/`** via `/sync-dev-kit` (same lockfile, same flow).
 - **`_claude-global/` → `~/.claude/`** via `/install-kit` (kit-local command; straight install).
 - **`_statusline/statusline.sh` → `~/.claude/statusline.sh`** via `/install-statusline` (kit-local command; one-time).
 
@@ -46,7 +46,7 @@ The kit isn't enforcing 100% compliance. It's a baseline sync — consumer proje
 
 The kit has exactly two human consumers:
 
-- **Pete** — kit author, master of every project. The only maintainer: runs `/sync-starter-kit`, and is the only one who installs the maintainer surface (`/install-kit --maintainer`). Maintains opinions centrally in `_claude-project/`.
+- **Pete** — kit author, master of every project. The only maintainer: runs `/sync-dev-kit`, and is the only one who installs the maintainer surface (`/install-kit --maintainer`). Maintains opinions centrally in `_claude-project/`.
 - **Alan** — second developer. Never touches the kit directly. Clones projects, gets a working setup from the repo. See `DEVELOPER-ONBOARDING.md`.
 
 Anything else in this handbook is for Claude (local or cloud) to follow mechanically.
@@ -62,7 +62,7 @@ Anything else in this handbook is for Claude (local or cloud) to follow mechanic
 | Repo `.claude/` (committed) | Local Claude, cloud Claude, every dev on the project | Rules, hooks, skills, commands, scripts, agents, `settings.json` |
 | Repo `.mcp.json` (committed) | Local Claude, cloud Claude | MCP server declarations (Ref, Exa) with env var expansion for keys |
 | Repo `.claude/settings.local.json` (gitignored) | Local Claude only on the dev's machine | Per-dev permission allowlist, machine-specific paths |
-| `~/.claude/` (user-global, not synced) | Local Claude only on that dev's machine | Global Claude Code settings, plugins, auto-memory, the starter-kit bootstrap for Pete |
+| `~/.claude/` (user-global, not synced) | Local Claude only on that dev's machine | Global Claude Code settings, plugins, auto-memory, the dev-kit bootstrap for Pete |
 
 ### 2.2. What's committed vs gitignored
 
@@ -128,7 +128,7 @@ Every layer exists simultaneously. Dropping any layer reduces the reliability fl
 
 ### 3.2. Working in worktrees
 
-All Claude-driven editing happens inside a git worktree under `<project>/.claude/worktrees/`. The primary repo folder always sits on `main`, clean — it is reserved for git substrate and for plain-CLI workflows (notably `/sync-starter-kit`) that expect a clean `main` checkout to operate against.
+All Claude-driven editing happens inside a git worktree under `<project>/.claude/worktrees/`. The primary repo folder always sits on `main`, clean — it is reserved for git substrate and for plain-CLI workflows (notably `/sync-dev-kit`) that expect a clean `main` checkout to operate against.
 
 **Why this exists.** Claude Code's background sessions (agents view, cloud) require an isolated worktree before editing files. Rather than fight that requirement, gitflow embraces it as the workflow primitive — and applies the same model to standalone CLI sessions for a uniform mental model across surfaces. "Where does the work live?" has the same answer regardless of how Claude Code was launched.
 
@@ -176,7 +176,7 @@ Each project's `.gitignore` MUST cover every entry in `symlinkDirectories`/`syml
 
 **Editor implications:** open the worktree path (`<project>/.claude/worktrees/current/`) in your editor — NOT the primary `<project>/` folder. Editor sees current branch state because that's what's checked out in the worktree. After `/merge`, `current/` is removed; the next `/work` re-creates it on the same path on a new branch, so the editor's recent-projects entry stays valid.
 
-**Why primary stays on `main`, always.** Primary stays on `main` forever and `current/` gets its own branch from day one. Parking the primary on a placeholder ref so `current/` could hold `main` would break `/sync-starter-kit` (which expects a clean primary on `main` to branch off) and any plain-CLI workflow that operates against the primary. The trade is a tiny UX wrinkle ("you never see `current/` on `main`") for substantial sync-pipeline simplicity.
+**Why primary stays on `main`, always.** Primary stays on `main` forever and `current/` gets its own branch from day one. Parking the primary on a placeholder ref so `current/` could hold `main` would break `/sync-dev-kit` (which expects a clean primary on `main` to branch off) and any plain-CLI workflow that operates against the primary. The trade is a tiny UX wrinkle ("you never see `current/` on `main`") for substantial sync-pipeline simplicity.
 
 **Local main is refreshed before any new worktree create (added 2026-05-18).** When `/work` is about to create a NEW worktree — no `current/` yet, `--new <name>`, or `--retrieve <branch>` — `create_worktree` in `work.sh` first invokes `fast_forward_local_main` (in `branch_helpers.sh`) against the primary repo. This fetches `origin/main` and fast-forwards local main BEFORE the worktree's branch is created off it. **Fail-loud:** if the fetch fails (offline, expired auth, missing scope) or local main has diverged from origin/main (has local-only commits — anomalous under gitflow's model), worktree creation aborts with the underlying cause surfaced. Previous behavior was `git fetch origin main >/dev/null 2>&1 || true` — silently swallowed every failure and produced worktrees built off stale bases without warning. Re-entering an existing `current/` does NOT refresh anything; that's by design (you're in the middle of a body of work, use `/sync` when you want to integrate latest main into the feature branch). The freshness guarantee is uniform with `/sync`'s on-main path because both delegate to the same helper — see §4.6.
 
@@ -408,7 +408,7 @@ Note: `/open-pr` does NOT touch `changelog.md`; `/deploy` is the single changelo
 
 ### 6.5. `/deploy` procedure (direct-push to main)
 
-> **`/deploy` pushes the version bump DIRECTLY to `main`** — no release branch, no PR, no admin-merge. It reuses the same direct-to-main mechanism as `/ship-main` (§6.8). The bump commit + tag ARE the release record. This works because the pipeline uses no branch protection and `main` does not require a PR (PIPELINE.md §1.1, NEW-PROJECT-SETUP.md step 3). No command admin-merges: `/deploy` direct-pushes the bump, and `/sync-starter-kit` does no git at all (it stamps the lockfile and leaves the synced files for the user to land via `/ship-main`). So `enforce_admins: false` is not required by anything.
+> **`/deploy` pushes the version bump DIRECTLY to `main`** — no release branch, no PR, no admin-merge. It reuses the same direct-to-main mechanism as `/ship-main` (§6.8). The bump commit + tag ARE the release record. This works because the pipeline uses no branch protection and `main` does not require a PR (PIPELINE.md §1.1, NEW-PROJECT-SETUP.md step 3). No command admin-merges: `/deploy` direct-pushes the bump, and `/sync-dev-kit` does no git at all (it stamps the lockfile and leaves the synced files for the user to land via `/ship-main`). So `enforce_admins: false` is not required by anything.
 
 `/deploy` is the **human-serialized release boundary**: bump and deploy fire in one invocation, in order, so the source-of-truth version and the deployed artifact match by construction — no skew. The bump commit lands on `main` moments before `gh workflow run deploy.yml` fires; the deploy reads the just-bumped source. (See §11.2 for why auto-bump-on-merge is forbidden.)
 
@@ -453,9 +453,9 @@ File: `.claude/skills/gitflow/scripts/deploy.sh` (per project, kit-synced). Slas
 - Does NOT auto-bump on every feature-PR merge (the bot-PR pattern caused version-skew; see §11.2).
 - Does NOT infer the changelog from PR descriptions — uses commit subjects since last tag.
 
-**`/sync-starter-kit` does NO git.** Sync only applies the accepted kit updates to the working tree and stamps the lockfile — it does not commit or push. The synced files are left uncommitted; the user lands them with `/ship-main` (or `/commit`). Committing is gitflow's job, not sync's — see §9.4.1.
+**`/sync-dev-kit` does NO git.** Sync only applies the accepted kit updates to the working tree and stamps the lockfile — it does not commit or push. The synced files are left uncommitted; the user lands them with `/ship-main` (or `/commit`). Committing is gitflow's job, not sync's — see §9.4.1.
 
-**Migration audit when adopting direct-push deploy:** `/sync-starter-kit` brings `deploy.sh` (direct-push, no release branch / PR / admin-merge) + `commands/deploy.md`. Consumer-side checks:
+**Migration audit when adopting direct-push deploy:** `/sync-dev-kit` brings `deploy.sh` (direct-push, no release branch / PR / admin-merge) + `commands/deploy.md`. Consumer-side checks:
 1. Confirm `main` does not require a PR (the default — PIPELINE.md §1.1). With require-PR on, the direct push to main is rejected.
 2. Confirm `.commitlintrc.json` includes `"release"` in `type-enum` (the `🚀 release:` subject still flows through the bump-level scan).
 3. Confirm every workflow named in `DEPLOY_WORKFLOWS` is `workflow_dispatch:` ONLY (§11.4) — push-to-main and tag-push triggers will double-fire. Single-app consumers can leave `DEPLOY_WORKFLOWS` empty (defaults to `deploy.yml`); split-deploy consumers populate the substitution with a space-separated workflow list.
@@ -599,7 +599,7 @@ NEVER skip the bump when there are commits to deploy. "Deploy + no version chang
 
 Setting up a new project to use this kit:
 
-1. In the starter-kit repo, run `/sync-starter-kit <new-project-path>` — sync tool will create `.claude/` and `.mcp.json` from templates after review
+1. In the dev-kit repo, run `/sync-dev-kit <new-project-path>` — sync tool will create `.claude/` and `.mcp.json` from templates after review
 2. Add to project `.gitignore`:
    ```
    .claude/settings.local.json
@@ -624,7 +624,7 @@ Nothing is ever full-replaced. Every sync is a three-way comparison per file: ki
 
 ```json
 {
-  "kitRepo": "https://github.com/PeteHalsted/claude-project-starter-kit",
+  "kitRepo": "https://github.com/PeteHalsted/nextage-dev-kit",
   "lastSyncedCommit": "<kit commit SHA at last sync>",
   "lastSyncedAt": "<ISO timestamp>",
   "files": {
@@ -649,7 +649,7 @@ Committed so every dev and every cloud session has the same baseline.
 
 ### 9.4. Sync procedure
 
-`/sync-starter-kit` (must be invoked from PRIMARY repo root — refuses from any worktree under `.claude/worktrees/`. See §9.4.1 for rationale.):
+`/sync-dev-kit` (must be invoked from PRIMARY repo root — refuses from any worktree under `.claude/worktrees/`. See §9.4.1 for rationale.):
 
 1. Clone or fetch kit at HEAD into a temp location
 2. Load project lockfile (create empty if missing — first sync)
@@ -671,20 +671,20 @@ This also means:
 
 - **Sync runs from primary, not a worktree.** The script refuses (exit 4) if invoked from `.claude/worktrees/*`. The PRIMARY is the destination of the kit's changes; running from a worktree would write into an ephemeral location and leave the primary stale.
 - **After sync, the changes are uncommitted.** The interactive `--apply-file` review IS the review — each change was inspected and accepted before it landed in the working tree. Land the result with `/ship-main` (straight to `main`, no PR — there's nothing for a sync PR to gate on: `.claude/` rules, slash commands, sync scripts have no runtime surface to test). `/ship-main` requires require-PR off (the default); `enforce_admins` is irrelevant — nothing admin-merges.
-- **Other gitflow work must complete before starting sync.** If `/commit`-style work is in flight (a feature branch open elsewhere), finish or stash it before invoking `/sync-starter-kit`. Sync from primary on main is the only supported state.
+- **Other gitflow work must complete before starting sync.** If `/commit`-style work is in flight (a feature branch open elsewhere), finish or stash it before invoking `/sync-dev-kit`. Sync from primary on main is the only supported state.
 
 ### 9.4.2. Long, interrupted sessions
 
 The interactive review (steps 4–5) can stretch across multiple sessions:
 
-- Pete invokes `/sync-starter-kit`, reviews + accepts 3 files, closes the session.
+- Pete invokes `/sync-dev-kit`, reviews + accepts 3 files, closes the session.
 - The lockfile records per-file SHAs as each is applied; pending files are still surfaced in the next `--scan`.
 - Working tree has 3 uncommitted .claude/ changes between sessions. No commit yet.
-- Pete reopens `/sync-starter-kit` next session; Claude scans, picks up where left off, reviews remaining files.
+- Pete reopens `/sync-dev-kit` next session; Claude scans, picks up where left off, reviews remaining files.
 - When the review queue is empty (or Pete explicitly stops with "finalize anyway"), Claude invokes `--finalize`.
 - `--finalize` detects the accumulated uncommitted changes, commits all of them in one commit pushed directly to `main`.
 
-Pete's UX is just `/sync-starter-kit`. Claude orchestrates the modes (`--scan` → `--apply-file` per accepted change → `--finalize`). Pete never sees the internal mode flags.
+Pete's UX is just `/sync-dev-kit`. Claude orchestrates the modes (`--scan` → `--apply-file` per accepted change → `--finalize`). Pete never sees the internal mode flags.
 
 ### 9.6. Settings.json handling
 
@@ -702,7 +702,7 @@ Without the overlay, every sync after first population would flag settings.json 
 
 **Implementation:**
 
-- `overlay_settings_project_owned` in `_claude-maintainer/scripts/sync-starter-kit.sh` reads kit JSON on stdin, splices in the project's populated `worktree.postCreate` (if any), emits jq-canonicalized JSON on stdout. Empty/missing project file or empty `postCreate` → kit content passes through canonicalized only.
+- `overlay_settings_project_owned` in `_claude-maintainer/scripts/sync-dev-kit.sh` reads kit JSON on stdin, splices in the project's populated `worktree.postCreate` (if any), emits jq-canonicalized JSON on stdout. Empty/missing project file or empty `postCreate` → kit content passes through canonicalized only.
 - `sha256_settings_kit` / `sha256_settings_proj` replace the generic `sha256_substituted` / `sha256` for the `_claude-project/settings.json` path. Both sides go through `jq '.'` so whitespace / key-order differences ALSO don't surface as diffs.
 - The same overlay applies in `--apply-file _claude-project/settings.json` so an accepted apply (because kit changed hooks, say) preserves the project's populated `postCreate`.
 - The lockfile baseline SHA for settings.json tracks the canonicalized + overlaid content. After the first apply post-fix, subsequent scans show `clean`.
@@ -763,9 +763,9 @@ Current kit-referenced placeholders (authoritative list is in `_claude-project/s
 | `AWS_REGION` | `_claude-project/rules/cli-utilities.md` (runtime-read via `jq`) | Default AWS region for this project's resources, e.g. `us-east-1`. Passed as an explicit `--region` on every AWS CLI command; never the shell default, which is per-machine and routinely points elsewhere. Empty → project has no AWS. See "Runtime-read placeholders" below |
 | `AWS_PROFILE` | `_claude-project/rules/cli-utilities.md` (runtime-read via `jq`) | Named AWS CLI profile for this project's account, e.g. `acme-prod`. Passed as an explicit `--profile` on every AWS CLI command. Empty → default profile / no AWS. See "Runtime-read placeholders" below |
 
-The kit ships a template at `_claude-project/sync-substitutions.json` with empty values and inline docs of every placeholder kit templates currently reference. Consumer projects bootstrap automatically: `load_substitutions` in `sync-starter-kit.sh` copies the kit template to `.claude/sync-substitutions.json` on first run if absent. Population is then walked through interactively — see §9.8.
+The kit ships a template at `_claude-project/sync-substitutions.json` with empty values and inline docs of every placeholder kit templates currently reference. Consumer projects bootstrap automatically: `load_substitutions` in `sync-dev-kit.sh` copies the kit template to `.claude/sync-substitutions.json` on first run if absent. Population is then walked through interactively — see §9.8.
 
-**Sync flow** — `sync-starter-kit.sh` uses the substitutions in two places:
+**Sync flow** — `sync-dev-kit.sh` uses the substitutions in two places:
 
 1. **During scan**: the `kit_sha` for each file is computed AFTER substituting placeholders with project values. So a kit template with `{{OWNER_REPO}}` matches a project file with `acme/widget` and reports `clean`, not `conflict`. Three states per key, with deliberately distinct behavior:
    - **Key present, non-empty value** → normal substitution, `{{KEY}}` → value.
@@ -778,7 +778,7 @@ The kit ships a template at `_claude-project/sync-substitutions.json` with empty
 
 **Runtime-read placeholders** — recognized variant of the pattern:
 
-Most placeholders follow the canonical model: kit content has `{{KEY}}` markers, sync substitutes at apply time, the substituted value is baked into the consumer file. Changing the value requires another `/sync-starter-kit` pass to re-apply.
+Most placeholders follow the canonical model: kit content has `{{KEY}}` markers, sync substitutes at apply time, the substituted value is baked into the consumer file. Changing the value requires another `/sync-dev-kit` pass to re-apply.
 
 Some placeholders are read at runtime instead. Scripts in the kit query `.claude/sync-substitutions.json` directly via `jq` at execution time:
 
@@ -808,17 +808,17 @@ When to use each model:
 3. Add a documentation entry to `_claude-project/sync-substitutions.json`'s `_placeholders_referenced_by_kit` block. Required content: human-readable description, where the value gets consumed, **and** a discovery command if the value is programmatically obtainable (e.g. `gh api graphql ...` for the gitflow project IDs). Discovery commands let the §9.8 walkthrough fetch values rather than asking the user to paste them. For runtime-read placeholders, explicitly note "runtime-read" in the description.
 4. Add the key to the top-level body of `_claude-project/sync-substitutions.json` with an empty string value. (Empty signals "feature disabled / not yet populated"; the §9.8 walkthrough surfaces it for the consumer.)
 5. Commit kit.
-6. In every consumer project, the next `/sync-starter-kit` merges the new key into `.claude/sync-substitutions.json` carrying its empty default, and the §9.8 walkthrough surfaces it for population on that same run. The merge (`load_substitutions`) is what delivers the key. Exactly two things in that file are the consumer's — the VALUES of non-`_` keys, and `_intentionally_empty` (data, not prose). Everything else is the kit's and is overwritten from the template on every sync, including every comment block (`_comment`, `_placeholders_referenced_by_kit`, `_documented_behavior`, `_intentionally_empty_doc`) — they document kit-owned settings, so letting them drift per-project just leaves stale copies that mislead the next reader. Project-specific prose does not belong in them. The new key lands empty and absent from `_intentionally_empty`, which is the "deferred decision" state the walkthrough re-surfaces every sync until it's populated or explicitly disabled.
+6. In every consumer project, the next `/sync-dev-kit` merges the new key into `.claude/sync-substitutions.json` carrying its empty default, and the §9.8 walkthrough surfaces it for population on that same run. The merge (`load_substitutions`) is what delivers the key. Exactly two things in that file are the consumer's — the VALUES of non-`_` keys, and `_intentionally_empty` (data, not prose). Everything else is the kit's and is overwritten from the template on every sync, including every comment block (`_comment`, `_placeholders_referenced_by_kit`, `_documented_behavior`, `_intentionally_empty_doc`) — they document kit-owned settings, so letting them drift per-project just leaves stale copies that mislead the next reader. Project-specific prose does not belong in them. The new key lands empty and absent from `_intentionally_empty`, which is the "deferred decision" state the walkthrough re-surfaces every sync until it's populated or explicitly disabled.
 
    The merge exists because this file is in the sync `SKIP_LIST` — every project's values differ, so the kit's empty template would conflict forever after first sync. It is therefore never applied as a file, and `load_substitutions`'s bootstrap only fires on a project that lacks it entirely. Merging per-key is the only path by which a key added AFTER a project bootstrapped reaches that project. This matters most for runtime-read keys: canonical `{{KEY}}` placeholders would at least leave an unsubstituted marker in the synced file as a standing diff, but runtime-read keys have no marker anywhere, so a missing one fails silently — the rule that reads it ships, its config surface does not.
 
 ### 9.8. Substitutions setup walkthrough
 
-The kit ships templates with `{{KEY}}` placeholders and the consumer ships `.claude/sync-substitutions.json` with values for those keys. Section 9.7 covers the mechanism. This section covers the FIRST-RUN UX — how `/sync-starter-kit` walks a new consumer project (or an existing one with newly-empty keys) through populating values.
+The kit ships templates with `{{KEY}}` placeholders and the consumer ships `.claude/sync-substitutions.json` with values for those keys. Section 9.7 covers the mechanism. This section covers the FIRST-RUN UX — how `/sync-dev-kit` walks a new consumer project (or an existing one with newly-empty keys) through populating values.
 
 **When the walkthrough fires**
 
-After the bootstrap step inside `load_substitutions` (which copies the kit template to `.claude/sync-substitutions.json` if absent), `/sync-starter-kit` reads the consumer file, identifies every key whose value is empty string, cross-references each against `_placeholders_referenced_by_kit`, and walks the user through them one at a time. Empty-key walkthrough happens BEFORE the per-file diff loop — populating subs first means kit_shas computed during the diff loop reflect the just-populated values, eliminating false-positive diffs on files that gate on the new keys.
+After the bootstrap step inside `load_substitutions` (which copies the kit template to `.claude/sync-substitutions.json` if absent), `/sync-dev-kit` reads the consumer file, identifies every key whose value is empty string, cross-references each against `_placeholders_referenced_by_kit`, and walks the user through them one at a time. Empty-key walkthrough happens BEFORE the per-file diff loop — populating subs first means kit_shas computed during the diff loop reflect the just-populated values, eliminating false-positive diffs on files that gate on the new keys.
 
 **Per-key flow**
 
@@ -862,7 +862,7 @@ This preserves the missing-vs-empty-vs-populated invariants from §9.7 while add
 
 **Where the walkthrough lives**
 
-The orchestration is in the `/sync-starter-kit` slash command (`_claude-maintainer/commands/sync-starter-kit.md`), Step 1.5. Claude reads the substitutions file, the `_placeholders_referenced_by_kit` block, and the `_intentionally_empty` list, then drives the per-key flow with the user. Discovery commands are invoked via `Bash`. Updates are written by re-serializing the JSON via `jq`.
+The orchestration is in the `/sync-dev-kit` slash command (`_claude-maintainer/commands/sync-dev-kit.md`), Step 1.5. Claude reads the substitutions file, the `_placeholders_referenced_by_kit` block, and the `_intentionally_empty` list, then drives the per-key flow with the user. Discovery commands are invoked via `Bash`. Updates are written by re-serializing the JSON via `jq`.
 
 ### 9.9. postCreate auto-suggest walkthrough
 
@@ -870,9 +870,9 @@ Distinct from §9.8 because the value lives in `.claude/settings.json` (not `syn
 
 **When it fires.** Sync Step 1.6 (after the substitutions walkthrough, before the per-file diff loop). Checks `jq '.worktree.postCreate // []' .claude/settings.json`. If non-empty → skip. If empty → continue.
 
-**One-shot, not recurring.** The walkthrough fires only when `postCreate == []`. Once populated (by accept, by user-provided value, or by manual edit), §9.6's silent overlay takes over — `sync-starter-kit.sh` splices the populated value onto kit's empty default before SHA comparison, so settings.json never surfaces as a diff for the postCreate axis again. The walkthrough does NOT re-prompt on subsequent syncs to confirm / refresh the populated value. This is by design — the value rarely changes (one-line-per-worktree install command) and re-prompting would be noise. If the user wants to change postCreate, they edit `.claude/settings.json` directly; the next sync silently absorbs the change via §9.6 overlay.
+**One-shot, not recurring.** The walkthrough fires only when `postCreate == []`. Once populated (by accept, by user-provided value, or by manual edit), §9.6's silent overlay takes over — `sync-dev-kit.sh` splices the populated value onto kit's empty default before SHA comparison, so settings.json never surfaces as a diff for the postCreate axis again. The walkthrough does NOT re-prompt on subsequent syncs to confirm / refresh the populated value. This is by design — the value rarely changes (one-line-per-worktree install command) and re-prompting would be noise. If the user wants to change postCreate, they edit `.claude/settings.json` directly; the next sync silently absorbs the change via §9.6 overlay.
 
-**Detection.** Project root scanned for lockfiles in specificity order (full table in `_claude-maintainer/commands/sync-starter-kit.md` Step 1.6): `pnpm-lock.yaml` → `pnpm install`, `yarn.lock` → `yarn`, `bun.lockb` → `bun install`, `package-lock.json` → `npm ci`, `package.json` no-lockfile → `npm install` (bootstrap — no lockfile to install from yet), `Gemfile.lock`/`Gemfile` → `bundle install`, `uv.lock` → `uv sync`, `poetry.lock` → `poetry install`, `requirements.txt` → `pip install -r requirements.txt`. First match wins.
+**Detection.** Project root scanned for lockfiles in specificity order (full table in `_claude-maintainer/commands/sync-dev-kit.md` Step 1.6): `pnpm-lock.yaml` → `pnpm install`, `yarn.lock` → `yarn`, `bun.lockb` → `bun install`, `package-lock.json` → `npm ci`, `package.json` no-lockfile → `npm install` (bootstrap — no lockfile to install from yet), `Gemfile.lock`/`Gemfile` → `bundle install`, `uv.lock` → `uv sync`, `poetry.lock` → `poetry install`, `requirements.txt` → `pip install -r requirements.txt`. First match wins.
 
 **Three resolutions**, same shape as §9.8: accept, provide-own, skip-for-later. On accept, the walkthrough writes via `jq '.worktree.postCreate = [<cmd>]' .claude/settings.json`.
 
@@ -903,7 +903,7 @@ Pete's local: `includeGitInstructions: false` in `~/.claude/settings.json` strip
 
 ## 11. Workflow file templates
 
-Live templates ship with the kit at `_github-project/workflows/`. Consumer projects receive them via `/sync-starter-kit` — they land at `.github/workflows/`. Edit the kit files, not the snippets below; the snippets are documentation. Consult `_github-project/workflows/*.yml` for the authoritative versions.
+Live templates ship with the kit at `_github-project/workflows/`. Consumer projects receive them via `/sync-dev-kit` — they land at `.github/workflows/`. Edit the kit files, not the snippets below; the snippets are documentation. Consult `_github-project/workflows/*.yml` for the authoritative versions.
 
 ### 11.1. `commitlint.yml`
 
@@ -936,7 +936,7 @@ Version bump + tag live in the local `/deploy` command (§6.5), never in a CI wo
 
 The bot GitHub App is required ONLY for workflows that need an installation token (currently `dependabot-surfacing.yml` — see §11.6 — and `node-lts-check.yml` — see §11.14). Using a fine-grained PAT for this makes the PAT owner a bypass actor — a human who can then accidentally push to `main` from their shell. The App is an independent identity. Skip this section entirely if your project doesn't use any App-token workflow.
 
-**Self-gating — safe to sync without the bot.** Substitution injects file strings; it cannot create GHA secrets. So an App-token workflow's dependency (`BOT_APP_CLIENT_ID` / `BOT_APP_PRIVATE_KEY`) can't be supplied at sync time. Rather than make these workflows a sync-time cherry-pick (the consumer deciding every sync whether to apply them — recurring noise) or a standing-red scheduled job (failing at the token-mint step on every cron tick when the bot is absent), the kit's App-token workflows **self-gate at runtime**: a cheap `preflight` job checks whether `BOT_APP_CLIENT_ID` is set (`secrets` isn't available in a job-level `if:`, so it's mapped to an output first) and the real job runs only when it is. No bot installed → the job is **skipped (neutral, not failed)** with a `::notice::` annotation explaining how to enable. This means: always accept these on `/sync-starter-kit` (no per-sync decision), they stay inert until you complete the setup below, and they **self-activate the moment the secrets land** — no re-sync needed. This is the kit's progressive-gating model (config gated by substitution; secret-dependencies gated at runtime) applied at the Actions layer.
+**Self-gating — safe to sync without the bot.** Substitution injects file strings; it cannot create GHA secrets. So an App-token workflow's dependency (`BOT_APP_CLIENT_ID` / `BOT_APP_PRIVATE_KEY`) can't be supplied at sync time. Rather than make these workflows a sync-time cherry-pick (the consumer deciding every sync whether to apply them — recurring noise) or a standing-red scheduled job (failing at the token-mint step on every cron tick when the bot is absent), the kit's App-token workflows **self-gate at runtime**: a cheap `preflight` job checks whether `BOT_APP_CLIENT_ID` is set (`secrets` isn't available in a job-level `if:`, so it's mapped to an output first) and the real job runs only when it is. No bot installed → the job is **skipped (neutral, not failed)** with a `::notice::` annotation explaining how to enable. This means: always accept these on `/sync-dev-kit` (no per-sync decision), they stay inert until you complete the setup below, and they **self-activate the moment the secrets land** — no re-sync needed. This is the kit's progressive-gating model (config gated by substitution; secret-dependencies gated at runtime) applied at the Actions layer.
 
 **Setup (once per GitHub org):**
 
@@ -1146,7 +1146,7 @@ gh api graphql -f query='{ node(id:"<PROJECT_ID>") { ... on ProjectV2 { fields(f
 #       "Done" option's id → GITFLOW_STATUS_DONE_ID
 ```
 
-Then populate the five `GITFLOW_*` keys in `.claude/sync-substitutions.json` (via the `/sync-starter-kit` walkthrough, which offers to run the discovery commands above and parse the output for you). Re-run sync to substitute into `gitflow-project.conf` on disk.
+Then populate the five `GITFLOW_*` keys in `.claude/sync-substitutions.json` (via the `/sync-dev-kit` walkthrough, which offers to run the discovery commands above and parse the output for you). Re-run sync to substitute into `gitflow-project.conf` on disk.
 
 Kit ships a placeholder template at `_claude-project/gitflow-project.conf` with empty values. Each consumer project fills in their own IDs once (committed to the repo). To opt out of a specific transition (e.g. consumer's board has no Staged column): leave that `GITFLOW_STATUS_*_ID` empty AND list the key in `_intentionally_empty` in `sync-substitutions.json` — the walkthrough stops re-prompting and the helper silently skips that transition.
 
@@ -1215,7 +1215,7 @@ row: E67.
 
 Companion to §11.6 (surfacing) and §11.14 (Node LTS check). Where those workflows turn advisories / LTS transitions into tracking issues, `dependabot.yml` schedules the PRs that Dependabot opens for version + security updates.
 
-**Ships via:** `/sync-starter-kit` copies `_github-project/dependabot.yml` → `<consumer>/.github/dependabot.yml`. No placeholders.
+**Ships via:** `/sync-dev-kit` copies `_github-project/dependabot.yml` → `<consumer>/.github/dependabot.yml`. No placeholders.
 
 **Ecosystem coverage out of the box:**
 
@@ -1267,7 +1267,7 @@ The weekly Dependabot triage **process** is a kit skill (`_claude-project/skills
 
 Gemini Code Assist is the kit's chosen AI PR reviewer (consumer / free tier). Install via [github.com/marketplace/gemini-code-assist](https://github.com/marketplace/gemini-code-assist) at the org level. **Reviews are comment-triggered, not auto-fired on PR open** (see §11.11.1 below). The kit's `_gemini-project/config.yaml` disables Gemini's auto-trigger and the gitflow scripts post `/gemini review` comments at the deliberate moments where review is wanted.
 
-The kit ships two files via `/sync-starter-kit`:
+The kit ships two files via `/sync-dev-kit`:
 - `_gemini-project/config.yaml` → `<consumer>/.gemini/config.yaml` — reviewer behavior knobs
 - `_gemini-project/styleguide.md` → `<consumer>/.gemini/styleguide.md` — project-specific rules Gemini reads on every review
 
@@ -1348,7 +1348,7 @@ Per-app test infrastructure. Kit does NOT ship these files as sync targets becau
 ```bash
 npm install -D vitest @neondatabase/api-client pg
 mkdir -p <shared-module>/test
-KIT=~/projects/claude-project-starter-kit
+KIT=~/projects/nextage-dev-kit
 cp "$KIT"/_claude-project/templates/testing/vitest.config.ts  <shared-module>/
 cp "$KIT"/_claude-project/templates/testing/*.ts             <shared-module>/test/
 
@@ -1397,7 +1397,7 @@ Adopting projects with non-Drizzle migration runners: swap the `execSync` comman
 
 Integration tests use the `*.integration.test.ts` filename convention as the `integration` project's include glob (the `unit` project excludes it); `npm test` runs both projects in one command.
 
-**Wiring CI** — kit ships a **stack-detecting** `ci.yml` at `_github-project/workflows/ci.yml`. A fast `detect` job checks out and sets `node`/`python` outputs; the rest gate on `needs.detect.outputs.*` (NOT `hashFiles()`, which is empty at job-`if:` time — the workspace isn't checked out yet). Node (root `package.json`) → `dep-alignment`, `check-types`, `biome`, `vitest`; Python (any `pyproject.toml`) → a `python` job running `ruff check` + `pytest` via uv in each pyproject dir (monorepo layouts like `services/<x>/` work with zero config); `semgrep` always runs. (`dep-alignment` is the cross-workspace dependency-version gate — §11.13a / DEPENDENCY-MANAGEMENT.md.) Sync via `/sync-starter-kit` to land it at `<consumer>/.github/workflows/ci.yml`. The Node `vitest` job runs `npm test` — Node projects need a `test` script in root `package.json` pointing at their vitest config (see "Install steps for a consumer" above). Python projects need uv (shop standard) with `ruff`/`pytest` as dev deps — no per-project config. A repo lacking a stack simply skips that stack's jobs; `/merge` self-gates on the check-runs that actually report, so skipped jobs don't block (there are no GitHub-required checks to wait forever on a never-run job).
+**Wiring CI** — kit ships a **stack-detecting** `ci.yml` at `_github-project/workflows/ci.yml`. A fast `detect` job checks out and sets `node`/`python` outputs; the rest gate on `needs.detect.outputs.*` (NOT `hashFiles()`, which is empty at job-`if:` time — the workspace isn't checked out yet). Node (root `package.json`) → `dep-alignment`, `check-types`, `biome`, `vitest`; Python (any `pyproject.toml`) → a `python` job running `ruff check` + `pytest` via uv in each pyproject dir (monorepo layouts like `services/<x>/` work with zero config); `semgrep` always runs. (`dep-alignment` is the cross-workspace dependency-version gate — §11.13a / DEPENDENCY-MANAGEMENT.md.) Sync via `/sync-dev-kit` to land it at `<consumer>/.github/workflows/ci.yml`. The Node `vitest` job runs `npm test` — Node projects need a `test` script in root `package.json` pointing at their vitest config (see "Install steps for a consumer" above). Python projects need uv (shop standard) with `ruff`/`pytest` as dev deps — no per-project config. A repo lacking a stack simply skips that stack's jobs; `/merge` self-gates on the check-runs that actually report, so skipped jobs don't block (there are no GitHub-required checks to wait forever on a never-run job).
 
 **No required-status-check promotion.** The pipeline uses no branch protection — `/merge` self-gates by reading the PR's check-runs directly and blocks on any failure, so a job gates merges as soon as it runs on a PR, with nothing to configure on GitHub. New CI jobs are picked up automatically.
 
@@ -1421,7 +1421,7 @@ Monorepo invariant enforcement: every shared dependency is declared at **one** v
 
 **The script.** `scripts/check-dep-alignment.mjs` reads the root `package.json`, expands `workspaces` (literal dirs and trailing-glob `apps/*`; also the `{ packages: [...] }` form), and fails (exit 1) if any dependency name is declared at more than one version-range across the manifests. No install — it reads `package.json` files only. A single-package repo (no `workspaces`) has one manifest, so it's a guaranteed pass: **safe to run on any Node repo.** Fails loud on an unreadable *declared* workspace manifest (never reports "aligned" while a manifest is broken — constitution §X).
 
-**Ships via:** `/sync-starter-kit` copies `_claude-project/templates/scripts/check-dep-alignment.mjs` → `<consumer>/scripts/check-dep-alignment.mjs`. No placeholders.
+**Ships via:** `/sync-dev-kit` copies `_claude-project/templates/scripts/check-dep-alignment.mjs` → `<consumer>/scripts/check-dep-alignment.mjs`. No placeholders.
 
 **CI wiring.** The `dep-alignment` job in `ci.yml` is Node-gated (`needs: detect`, `if: needs.detect.outputs.node == 'true'`), so a Python-only consumer skips it cleanly — it never blocks a non-Node repo (§11.13 "Wiring CI"; a skipped job is neutral, and `/merge` self-gates only on the check-runs that actually report). The job runs `node scripts/check-dep-alignment.mjs` directly (no `npm ci`).
 
@@ -1441,7 +1441,7 @@ Closes a real gap that `dependabot.yml` alone can't: Dependabot doesn't understa
 
 **`node-lts-check.yml` is the targeted signal.** Monthly cron. Reads the official Node schedule JSON. Compares the Active-LTS major to the major pinned in Dockerfiles. If Active-LTS is higher, opens a tracking issue on the project board with bump instructions. Idempotent — refreshes the issue body on subsequent runs while the condition holds; auto-closes the issue once Dockerfiles catch up. Zero noise between LTS transitions (once per ~2 years on Node's cadence).
 
-**Ships via:** `/sync-starter-kit` copies `_github-project/workflows/node-lts-check.yml` → `<consumer>/.github/workflows/node-lts-check.yml`. No placeholders.
+**Ships via:** `/sync-dev-kit` copies `_github-project/workflows/node-lts-check.yml` → `<consumer>/.github/workflows/node-lts-check.yml`. No placeholders.
 
 **Triggers:**
 - Monthly cron (1st of month, 14:00 UTC ≈ 09:00 CT) — aligned with the pipeline's general Monday 14:00 UTC cadence for dep-review signals.
@@ -1473,7 +1473,7 @@ Closes a real gap that `dependabot.yml` alone can't: Dependabot doesn't understa
 **Authoring companion — `e2e-author` skill.** Writing and maintaining flow files is its own skill (`_claude-project/skills/e2e-author/SKILL.md`), sibling to the runner. It carries the flow-file format, the frontmatter spec, and a recipe library for the recurring agent-browser gotchas (off-screen click won't fire, env values with spaces truncate, mouse-move arg split, viewport, OTP-from-DB), plus a dry-run-before-done rule so new flows can't rot unrun. `/e2e` runs flows; `/e2e-author` writes them.
 
 **Consumer setup:**
-1. `/sync-starter-kit` copies the skill into `<consumer>/.claude/skills/e2e/`.
+1. `/sync-dev-kit` copies the skill into `<consumer>/.claude/skills/e2e/`.
 2. Consumer creates flow files at `apps/shared/test/e2e/*.md` (monorepo layout) or `test/e2e/*.md` (flat layout). Copy `example-flow.md` as a starting point.
 3. Each flow declares `triggers:` — glob patterns for the files it covers. The skill computes the diff∩triggers intersection **only when the user picks the diff-scoped scope option** (see below).
 
@@ -1514,7 +1514,7 @@ Closes a real gap that `dependabot.yml` alone can't: Dependabot doesn't understa
 
 **Emergency override.** `SKIP_SERVER_GUARD=1 <command>` bypasses the kill-block for cases where the user has explicitly authorized killing a specific process. Use sparingly and only when authorized.
 
-**Ships via:** `/sync-starter-kit` copies `_claude-project/rules/dev-server.md` → `<consumer>/.claude/rules/dev-server.md` and `_claude-project/hooks/dev-server-guard.sh` → `<consumer>/.claude/hooks/dev-server-guard.sh`. Hook must remain executable (`chmod +x`). Hook registration in `.claude/settings.json` is per-project — the `PreToolUse` block must reference `$CLAUDE_PROJECT_DIR/.claude/hooks/dev-server-guard.sh`; adopting projects must include that entry.
+**Ships via:** `/sync-dev-kit` copies `_claude-project/rules/dev-server.md` → `<consumer>/.claude/rules/dev-server.md` and `_claude-project/hooks/dev-server-guard.sh` → `<consumer>/.claude/hooks/dev-server-guard.sh`. Hook must remain executable (`chmod +x`). Hook registration in `.claude/settings.json` is per-project — the `PreToolUse` block must reference `$CLAUDE_PROJECT_DIR/.claude/hooks/dev-server-guard.sh`; adopting projects must include that entry.
 
 **Project-level override.** If a project still carries a `## Development Server Protocol` block in `.claude/rules/project/projectrules.md`, delete it — the kit-synced rule supersedes it.
 
@@ -1686,7 +1686,7 @@ The 5 rules in `dev-server.md` remain authoritative for any running server, rega
 
 ### 12.6. Universal across projects
 
-Lives in `_claude-project/skills/dev-server/` → synced to every consumer project via `/sync-starter-kit` (§9). Same skill works for:
+Lives in `_claude-project/skills/dev-server/` → synced to every consumer project via `/sync-dev-kit` (§9). Same skill works for:
 
 - Monorepos with multiple workspace apps (`dev:shop`, `dev:dealer`, …).
 - Flat repos with a single `dev` script (`/dev` prompts → runs the one option).
@@ -1783,9 +1783,9 @@ A new kit consumer needs to author `design.md` once before any UI work proceeds.
 
 ### 12a.7. Kit does not dogfood the skill
 
-The kit itself has no UI — no JSX/TSX, no `design.md`. The skill and its companion rule live only in `_claude-project/` (kit canonical for consumer sync) and NOT in the kit's own `.claude/` working copy. Consumer projects DO install both, automatically via `/sync-starter-kit`.
+The kit itself has no UI — no JSX/TSX, no `design.md`. The skill and its companion rule live only in `_claude-project/` (kit canonical for consumer sync) and NOT in the kit's own `.claude/` working copy. Consumer projects DO install both, automatically via `/sync-dev-kit`.
 
-The design-system skill is one entry in a larger set of template-only (not-dogfooded) items. The authoritative list — what the kit excludes from its own `.claude/` and why — is the **"Kit dogfood manifest" table in `.claude/rules/project/starter-kit-workflow.md`**, which also carries the mandate that every new kit item gets an explicit dogfood decision. This section is illustrative; that table is the single source of truth.
+The design-system skill is one entry in a larger set of template-only (not-dogfooded) items. The authoritative list — what the kit excludes from its own `.claude/` and why — is the **"Kit dogfood manifest" table in `.claude/rules/project/dev-kit-workflow.md`**, which also carries the mandate that every new kit item gets an explicit dogfood decision. This section is illustrative; that table is the single source of truth.
 
 ---
 
@@ -1832,10 +1832,10 @@ Alan didn't set `includeGitInstructions: false` in his `~/.claude/settings.json`
 
 ## 14. What's deliberately NOT here
 
-- **Automated kit-update PRs.** Single-user kit. No need for GitHub Actions that PR kit updates to consumer projects. Pete runs `/sync-starter-kit` when ready.
+- **Automated kit-update PRs.** Single-user kit. No need for GitHub Actions that PR kit updates to consumer projects. Pete runs `/sync-dev-kit` when ready.
 - **Kit versioning / releases.** Kit isn't distributed publicly. Syncs point at kit HEAD commit SHA, not a version.
 - **Install commands as slash commands.** `/install-kit`, `/install-statusline`, `/install-cpl`, `/install-kit` became handbook sections (TBD — see issue log). They're one-time ops, docs are more durable than commands.
-- **Global sync.** Dropped. The only global artifacts are the starter-kit bootstrap and statusline, installed once per machine. No ongoing sync.
+- **Global sync.** Dropped. The only global artifacts are the dev-kit bootstrap and statusline, installed once per machine. No ongoing sync.
 
 ---
 

@@ -17,7 +17,7 @@ triggers:
 ---
 # Example homepage flow (REPLACE ME)
 
-This file is a template shipped by the starter kit. Copy it to your project's flow directory and adapt:
+This file is a template shipped by the dev kit. Copy it to your project's flow directory and adapt:
 
 - **Monorepo-with-shared layout**: `apps/shared/test/e2e/<your-flow>.md`
 - **Flat layout**: `test/e2e/<your-flow>.md`

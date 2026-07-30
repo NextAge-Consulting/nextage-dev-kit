@@ -1,12 +1,12 @@
 # Vitest scaffolding — reference files
 
-**NOT synced by `/sync-starter-kit`.** These files live under
+**NOT synced by `/sync-dev-kit`.** These files live under
 `_claude-project/templates/testing/` intentionally so the `_claude-project/templates/*)
 echo ""` fallthrough in `dest_for_kit_path()` skips them. Consumer projects
 copy and adapt manually because test-directory layout is project-specific
 (monorepo with `apps/shared/`, flat `src/`, `packages/<name>/`, etc.).
 
-The pattern is documented at https://github.com/PeteHalsted/claude-project-starter-kit/blob/main/project-documentation/HANDBOOK.md#1113-vitest-scaffolding-pattern--reference-files. These files are the reference
+The pattern is documented at https://github.com/PeteHalsted/nextage-dev-kit/blob/main/project-documentation/HANDBOOK.md#1113-vitest-scaffolding-pattern--reference-files. These files are the reference
 implementation.
 
 ## What's in this directory
@@ -31,8 +31,8 @@ mkdir -p apps/shared/test
 
 # 3. Copy reference files. Substitute destination paths for flat projects.
 #    Tests live at <shared-module>/test/ — SIBLING of src/, never under src/.
-#    (See https://github.com/PeteHalsted/claude-project-starter-kit/blob/main/project-documentation/HANDBOOK.md#1113-vitest-scaffolding-pattern--reference-files placement rationale.)
-KIT=~/projects/claude-project-starter-kit
+#    (See https://github.com/PeteHalsted/nextage-dev-kit/blob/main/project-documentation/HANDBOOK.md#1113-vitest-scaffolding-pattern--reference-files placement rationale.)
+KIT=~/projects/nextage-dev-kit
 cp "$KIT"/_claude-project/templates/testing/vitest.config.ts apps/shared/
 cp "$KIT"/_claude-project/templates/testing/*.ts apps/shared/test/
 
@@ -72,4 +72,4 @@ can ship to main undetected. Close the gap:
    standalone tsc fires TS2339 even though shop/dealer tsc loads vite
    types transitively via their own `vite.config.ts`.
 
-See https://github.com/PeteHalsted/claude-project-starter-kit/blob/main/project-documentation/HANDBOOK.md#1113-vitest-scaffolding-pattern--reference-files for full context.
+See https://github.com/PeteHalsted/nextage-dev-kit/blob/main/project-documentation/HANDBOOK.md#1113-vitest-scaffolding-pattern--reference-files for full context.

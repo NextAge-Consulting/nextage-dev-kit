@@ -11,7 +11,7 @@
 #                             Everything else a project needs arrives via sync.
 #
 #   --maintainer  + MAINTAINER — also mirrors `_claude-maintainer/` → ~/.claude/
-#                             sync-starter-kit.{sh,md} + kit-maintainer.md.
+#                             sync-dev-kit.{sh,md} + kit-maintainer.md.
 #                             ONLY for the one person who syncs the kit into
 #                             projects. Every other dev receives kit updates when
 #                             the maintainer syncs their project for them.
@@ -142,13 +142,13 @@ if [ "$MAINTAINER" -eq 1 ]; then
 fi
 
 # Update config
-cat > "$GLOBAL_DIR/starter-kit-config.json" << EOF
+cat > "$GLOBAL_DIR/dev-kit-config.json" << EOF
 {
-  "starterKitPath": "$KIT_PATH",
+  "devKitPath": "$KIT_PATH",
   "lastConfigured": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 EOF
-info "Updated starter-kit-config.json"
+info "Updated dev-kit-config.json"
 
 # CPL version hint
 CPL_VER_FILE="$KIT_PATH/_cpl/VERSION"

@@ -31,18 +31,18 @@ claude --version
 For a fresh machine:
 
 1. Install Claude Code (above).
-2. Clone the starter kit.
-3. Run `/install-kit` from inside the kit repo — this installs the global bootstrap (`~/.claude/commands/sync-starter-kit.md` + script) and writes `~/.claude/starter-kit-config.json` pointing at the kit path.
+2. Clone the dev kit.
+3. Run `/install-kit` from inside the kit repo — this installs the global bootstrap (`~/.claude/commands/sync-dev-kit.md` + script) and writes `~/.claude/dev-kit-config.json` pointing at the kit path.
 4. Set `REF_API_KEY` and `EXA_API_KEY` in your shell rc (see HANDBOOK Section 10).
 5. Optional: `/install-statusline` from the kit repo — installs the custom statusline to `~/.claude/statusline.sh`.
 6. Optional: `/install-cpl` from the kit repo — builds and installs CPL launcher.
-7. Open any project and run `/sync-starter-kit` to set up its `.claude/` from the kit.
+7. Open any project and run `/sync-dev-kit` to set up its `.claude/` from the kit.
 
 ---
 
 ## Plugins
 
-Claude Code plugins are separate from the starter kit's skills/commands/hooks. Plugins come from Anthropic's plugin marketplace; they are managed via the `/plugin` slash command.
+Claude Code plugins are separate from the dev kit's skills/commands/hooks. Plugins come from Anthropic's plugin marketplace; they are managed via the `/plugin` slash command.
 
 ### Install a plugin
 
@@ -197,7 +197,7 @@ Restart Claude Code after adding or modifying skills. Skills metadata is scanned
 
 ### Kit not syncing
 
-If `/sync-starter-kit` reports "kit path invalid" or similar, your `~/.claude/starter-kit-config.json` is wrong. Re-run `/install-kit` from inside the kit to refresh the config.
+If `/sync-dev-kit` reports "kit path invalid" or similar, your `~/.claude/dev-kit-config.json` is wrong. Re-run `/install-kit` from inside the kit to refresh the config.
 
 ---
 

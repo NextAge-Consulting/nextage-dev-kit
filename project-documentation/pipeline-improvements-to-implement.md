@@ -1,7 +1,7 @@
 # Pipeline Improvements To Implement
 
 Running backlog of kit-pipeline improvements identified but not yet built. The
-pipeline template is maintained here in the starter kit; **a designated consumer
+pipeline template is maintained here in the dev kit; **a designated consumer
 project is the testbed** where each change is proven before it propagates.
 Each numbered section is a self-contained proposal — validate, implement, then
 strike it from this list.

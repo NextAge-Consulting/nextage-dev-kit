@@ -1,9 +1,9 @@
 {
-  "_comment": "Kit's own per-project substitutions, used only by RUNTIME-READ keys (currently GEMINI_NOT_INSTALLED). The kit refuses to sync to itself (sync-starter-kit.sh exits 4 from inside the kit), so this file is hand-maintained — it does NOT get bootstrapped from _claude-project/sync-substitutions.json. Template-substitution keys (OWNER_REPO, RELEASE_BOT_APP, GITFLOW_*) are listed empty here for parity with the template, but the kit ships the templates rather than consuming them, so those values are irrelevant to kit runtime. GEMINI_NOT_INSTALLED is the only runtime-relevant key today.",
+  "_comment": "Kit's own per-project substitutions, used only by RUNTIME-READ keys (currently GEMINI_NOT_INSTALLED). The kit refuses to sync to itself (sync-dev-kit.sh exits 4 from inside the kit), so this file is hand-maintained — it does NOT get bootstrapped from _claude-project/sync-substitutions.json. Template-substitution keys (OWNER_REPO, RELEASE_BOT_APP, GITFLOW_*) are listed empty here for parity with the template, but the kit ships the templates rather than consuming them, so those values are irrelevant to kit runtime. GEMINI_NOT_INSTALLED is the only runtime-relevant key today.",
   "_intentionally_empty": [
     "DEPLOY_WORKFLOWS"
   ],
-  "_intentionally_empty_doc": "Walkthrough metadata used by /sync-starter-kit Step 1.5 to suppress re-prompting on empty values that the user has explicitly decided to leave empty. Empty for the kit because the kit's runtime-relevant key (GEMINI_NOT_INSTALLED) is populated, not empty.",
+  "_intentionally_empty_doc": "Walkthrough metadata used by /sync-dev-kit Step 1.5 to suppress re-prompting on empty values that the user has explicitly decided to leave empty. Empty for the kit because the kit's runtime-relevant key (GEMINI_NOT_INSTALLED) is populated, not empty.",
   "OWNER_REPO": "",
   "RELEASE_BOT_APP": "",
   "ORG": "",

@@ -1,4 +1,4 @@
-# Claude Project Starter Kit
+# NextAge Dev Kit
 
 A developer workflow blueprint for AI-assisted development. This repository contains standardized configurations for Claude Code — rules, hooks, skills, commands, and settings — that can be synced across multiple projects.
 
@@ -13,21 +13,21 @@ A developer workflow blueprint for AI-assisted development. This repository cont
 ### First Time Setup (One Time)
 
 ```bash
-# 1. Clone this starter kit
-git clone https://github.com/youruser/claude-project-starter-kit.git
+# 1. Clone this dev kit
+git clone https://github.com/youruser/nextage-dev-kit.git
 
-# 2. From the starter kit directory, run /install-kit in Claude Code
-cd claude-project-starter-kit
+# 2. From the dev kit directory, run /install-kit in Claude Code
+cd nextage-dev-kit
 # Then in Claude Code: /install-kit
 ```
 
-This installs bootstrap commands to `~/.claude/` so `/sync-starter-kit` is available in all projects.
+This installs bootstrap commands to `~/.claude/` so `/sync-dev-kit` is available in all projects.
 
 ### For New/Existing Projects
 
 From any project directory in Claude Code:
 ```
-/sync-starter-kit
+/sync-dev-kit
 ```
 
 This command interactively syncs:
@@ -46,7 +46,7 @@ It also self-updates the bootstrap commands in `~/.claude/` and warns if the kit
 
 ### Optional Utilities
 
-From the starter kit directory:
+From the dev kit directory:
 ```
 /install-cpl          # Install Claude Project Launcher
 /install-statusline   # Install custom statusline to ~/.claude/
@@ -81,12 +81,12 @@ _claude-project/
 │   ├── agent-browser/     # Browser automation
 │   └── mfing-bible-of-tanstack/
 ├── commands/              # Slash commands
-│   ├── sync-starter-kit.md  # Shared (syncs to all projects + global)
+│   ├── sync-dev-kit.md  # Shared (syncs to all projects + global)
 │   ├── install-kit.md       # Kit-only
 │   ├── install-cpl.md       # Kit-only
 │   └── install-statusline.md # Kit-only
 └── scripts/
-    └── sync-starter-kit.sh   # Shared
+    └── sync-dev-kit.sh   # Shared
 ```
 
 ### Consumer Project (after sync)
@@ -115,11 +115,11 @@ The kit installs only bootstrap commands globally. Everything else is project-le
 ~/.claude/
 ├── settings.json              # Your UI prefs (unmanaged by kit)
 ├── statusline.sh              # Optional (install via /install-statusline)
-├── starter-kit-config.json    # Pointer to kit repo
+├── dev-kit-config.json    # Pointer to kit repo
 ├── commands/
-│   └── sync-starter-kit.md    # Bootstrap (self-updating)
+│   └── sync-dev-kit.md    # Bootstrap (self-updating)
 └── scripts/
-    └── sync-starter-kit.sh    # Bootstrap (self-updating)
+    └── sync-dev-kit.sh    # Bootstrap (self-updating)
 ```
 
 ## Project-Specific Rules
@@ -131,7 +131,7 @@ Each project can have custom rules that won't be overwritten by sync:
 └── my-custom-rules.md    # Never synced, never touched
 ```
 
-The `project/` subfolder is created automatically by `/sync-starter-kit` if it doesn't exist.
+The `project/` subfolder is created automatically by `/sync-dev-kit` if it doesn't exist.
 
 ## Key Components
 
@@ -172,7 +172,7 @@ The `project/` subfolder is created automatically by `/sync-starter-kit` if it d
 
 | Command | Available | Purpose |
 |---------|-----------|---------|
-| `/sync-starter-kit` | All projects + global | Sync project with kit |
+| `/sync-dev-kit` | All projects + global | Sync project with kit |
 | `/install-kit` | Kit only | One-time consumer setup |
 | `/install-cpl` | Kit only | Install Claude Project Launcher |
 | `/install-statusline` | Kit only | Install custom statusline |
@@ -186,7 +186,7 @@ Optimized for TypeScript/React but adaptable. Includes Python variants of consti
 
 If your project uses the old AGENTS.md/AIRules pattern or the old `_claude-global/` structure:
 
-1. Run `/sync-starter-kit` — it warns about legacy files
+1. Run `/sync-dev-kit` — it warns about legacy files
 2. Move custom rules to `.claude/rules/project/`
 3. Delete `AGENTS.md` and `AIRules/` if present
 4. Delete `_claude-global/` references if present
@@ -197,7 +197,7 @@ This is a **meta-repository** — it defines configurations for OTHER projects.
 
 **Key principle**: `_claude-project/` is the template (syncs OUT). `.claude/` is this project's own config (managed independently). When changing either, consider if the change belongs in the other.
 
-See `.claude/rules/project/starter-kit-workflow.md` for details.
+See `.claude/rules/project/dev-kit-workflow.md` for details.
 
 ## Documentation Map
 

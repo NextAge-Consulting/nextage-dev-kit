@@ -46,7 +46,7 @@ Put the ids into the project's `.claude/sync-substitutions.json`, then re-apply 
 - `GITFLOW_STATUS_IN_PROGRESS_ID` / `_STAGED_ID` / `_DONE_ID` = the matching option ids
 - remove those keys from `_intentionally_empty`
 ```bash
-~/.claude/scripts/sync-starter-kit.sh --apply-file _claude-project/gitflow-project.conf
+~/.claude/scripts/sync-dev-kit.sh --apply-file _claude-project/gitflow-project.conf
 ```
 Verify: `jq -r '.GITFLOW_PROJECT_ID, .GITFLOW_STATUS_FIELD_ID, .GITFLOW_STATUS_IN_PROGRESS_ID' .claude/sync-substitutions.json` returns all three IDs, and `.claude/gitflow-project.conf` carries the same values.
 

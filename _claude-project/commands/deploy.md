@@ -12,7 +12,7 @@ $ARGUMENTS
 
 The bump commit pushes **directly to `main`** — no release branch, no PR, no admin-merge. It reuses the same direct-to-main mechanism as `/ship-main`. The bump commit + tag ARE the release record. This works because the pipeline uses no branch protection and `main` does not require a PR (PIPELINE.md §1.1); the diff has already passed full CI on the feature PRs that landed on main, so there is nothing for a release PR to gate on.
 
-No command admin-merges — `/deploy` direct-pushes the bump and `/sync-starter-kit` does no git — so nothing depends on `enforce_admins`. See HANDBOOK §6.5.
+No command admin-merges — `/deploy` direct-pushes the bump and `/sync-dev-kit` does no git — so nothing depends on `enforce_admins`. See HANDBOOK §6.5.
 
 ## Procedure
 
@@ -136,7 +136,7 @@ done
 
 ## What this command does NOT do
 
-- Does NOT open a release PR or admin-merge anything — the bump commit pushes straight to `main` (require-PR off, the default). No command admin-merges, so nothing needs `enforce_admins: false` (`/sync-starter-kit` does no git at all).
+- Does NOT open a release PR or admin-merge anything — the bump commit pushes straight to `main` (require-PR off, the default). No command admin-merges, so nothing needs `enforce_admins: false` (`/sync-dev-kit` does no git at all).
 - Does NOT auto-bump on every feature-PR merge — auto-bump-on-merge causes version-skew between source and deployed artifact. NEVER restore it (see HANDBOOK §11.2).
 - Does NOT generate the changelog from PR descriptions — uses commit subjects since last tag
 

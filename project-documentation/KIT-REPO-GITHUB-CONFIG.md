@@ -1,6 +1,6 @@
 # Kit Repo GitHub Configuration
 
-How **this** repository (`PeteHalsted/claude-project-starter-kit`) is configured on GitHub and why it differs from the consumer projects the kit ships to.
+How **this** repository (`PeteHalsted/nextage-dev-kit`) is configured on GitHub and why it differs from the consumer projects the kit ships to.
 
 **Use this as:**
 1. The answer to "do I need to change anything on GitHub to ship X?" when adding features
@@ -47,13 +47,13 @@ Pushes branch, creates PR, prepends `Closes #N` from any branch-linked issues. N
 
 `merge.sh` probes `repos/:owner/:repo/branches/main/protection/required_status_checks`. Private repo without Pro returns **403**, which the script interprets as "no gate configured" and proceeds to squash-merge. Logs: `"no required checks configured on main — CI gate skipped"`.
 
-**Consequence:** `/merge` on the kit repo is effectively "squash-merge the PR immediately" with no CI wait — and the kit repo has no CI workflows anyway. This is the same as every project: the pipeline uses no branch protection (PIPELINE.md §1.1, NEW-PROJECT-SETUP.md step 3), and `/merge` self-gates by reading the PR's check-runs directly. The only requirement is that `main` not require a PR — the default — so the direct-push paths work: `/deploy` pushes the version bump directly to `main`, `/ship-main` pushes infra/emergency commits, and `/sync-starter-kit` leaves its applied changes for you to land with `/ship-main` (it does no git itself). `enforce_admins` is irrelevant — nothing admin-merges. Normal `/merge` always goes through a PR.
+**Consequence:** `/merge` on the kit repo is effectively "squash-merge the PR immediately" with no CI wait — and the kit repo has no CI workflows anyway. This is the same as every project: the pipeline uses no branch protection (PIPELINE.md §1.1, NEW-PROJECT-SETUP.md step 3), and `/merge` self-gates by reading the PR's check-runs directly. The only requirement is that `main` not require a PR — the default — so the direct-push paths work: `/deploy` pushes the version bump directly to `main`, `/ship-main` pushes infra/emergency commits, and `/sync-dev-kit` leaves its applied changes for you to land with `/ship-main` (it does no git itself). `enforce_admins` is irrelevant — nothing admin-merges. Normal `/merge` always goes through a PR.
 
 ---
 
 ## 3. Workflow templates NOT installed here (and why each is correct)
 
-`_github-project/workflows/` contains four workflow templates that SHIP to consumer projects via `/sync-starter-kit`. None are installed in this repo:
+`_github-project/workflows/` contains four workflow templates that SHIP to consumer projects via `/sync-dev-kit`. None are installed in this repo:
 
 | Workflow | Why not installed here |
 |----------|------------------------|
@@ -76,7 +76,7 @@ Run through this when adding/modifying anything in the kit. If any row answers *
 | Adding a new workflow to `_github-project/workflows/` | ❌ No (ships to consumers) | Only install in kit if it's useful on a manifest-less repo (rare). |
 | Adding a `package.json` / `pyproject.toml` / `biome.json` to the kit root | ✅ **Yes** | `/commit` typecheck + biome gates now fire locally. Also enables `version-bump.yml` if installed. |
 | Adding `.github/workflows/commitlint.yml` to kit | ✅ **Yes** | Needs `.commitlintrc.json` at kit root. |
-| Making kit public OR moving to a paid plan | ⚠️ Mostly no | Branch protection would become *available*, but the pipeline uses none — so there is nothing to apply. The only thing to watch: don't enable require-PR, or the direct-push paths (`/ship-main`, and `/deploy` if ever run against the kit's own repo) break. `/sync-starter-kit` does no git (you land its changes with `/ship-main`). `enforce_admins` is irrelevant — nothing admin-merges. |
+| Making kit public OR moving to a paid plan | ⚠️ Mostly no | Branch protection would become *available*, but the pipeline uses none — so there is nothing to apply. The only thing to watch: don't enable require-PR, or the direct-push paths (`/ship-main`, and `/deploy` if ever run against the kit's own repo) break. `/sync-dev-kit` does no git (you land its changes with `/ship-main`). `enforce_admins` is irrelevant — nothing admin-merges. |
 | Changing kit's merge method away from squash | ✅ **Yes** | `merge.sh` calls `gh pr merge --squash`. Repo must keep squash-merge enabled. |
 | Disabling delete-branch-on-merge | ⚠️ Cosmetic | `merge.sh` passes `--delete-branch` explicitly, so local merges still delete. Repo-wide hygiene only. |
 | Adding a new slash command that touches GitHub (issues, PRs, projects) | Depends | If it requires App tokens or org-scoped PATs: document secret requirements here and in the command's `.md`. |

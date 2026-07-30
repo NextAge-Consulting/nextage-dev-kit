@@ -2,7 +2,7 @@
 
 This directory is for rules that apply ONLY to this project and should never be synced to other projects.
 
-When `/sync-starter-kit` runs, it skips the `project/` subfolder entirely.
+When `/sync-dev-kit` runs, it skips the `project/` subfolder entirely.
 
 ## Examples
 

@@ -1,4 +1,4 @@
-// Reference-only — NOT synced by /sync-starter-kit.
+// Reference-only — NOT synced by /sync-dev-kit.
 // Copy to <test-dir>/smoke.test.ts in your project. See ../README.md.
 //
 // Phase 5 smoke test — proves the Vitest pipeline runs end-to-end:

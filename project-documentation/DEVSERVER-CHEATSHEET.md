@@ -168,7 +168,7 @@ Each `/dev <app> --tunnel` invocation spawns its own `cloudflared` process. Clou
 
 ## Universal across projects
 
-Lives in `_claude-project/skills/dev-server/` in this kit → synced to every consumer project via `/sync-starter-kit`. Same skill works for:
+Lives in `_claude-project/skills/dev-server/` in this kit → synced to every consumer project via `/sync-dev-kit`. Same skill works for:
 
 - Monorepos with multiple workspace apps (`dev:shop`, `dev:dealer`, …).
 - Flat repos with a single `dev` script (`/dev` prompts → runs the one option).

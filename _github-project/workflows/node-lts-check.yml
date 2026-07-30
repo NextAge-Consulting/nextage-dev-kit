@@ -47,7 +47,7 @@ permissions:
 jobs:
   # ─── Self-gate on bot-App configuration ────────────────────────────────────
   # Same model as dependabot-surfacing.yml: this workflow mints a GitHub App
-  # installation token from the `BOT_APP_*` secrets, which /sync-starter-kit's
+  # installation token from the `BOT_APP_*` secrets, which /sync-dev-kit's
   # substitution engine cannot supply (it injects file strings, not GHA secrets).
   # A repo that syncs this template without installing the bot App would have a
   # standing-red monthly cron failing at the token-mint step. `secrets` is not

@@ -8,7 +8,7 @@ This doc owns the **why** (durable design rationale) and the **roadmap** (what's
 - **Phase roadmap** → Part 2 (this doc)
 - **Implementation / templates / setup** → `HANDBOOK.md`
 
-**No branch protection.** This pipeline does not use GitHub branch protection. `/merge` self-gates by reading the PR's CI check-runs directly — it never depends on GitHub's "required checks" config — so the gate behaves identically on every repo regardless of plan, including a brand-new one with nothing configured. The one hard requirement: **`main` must not require a PR**, or the direct-push paths (`/ship-main`, `/deploy`, `/sync-starter-kit`) get rejected. A fresh repo has require-PR off by default, so there is nothing to set up — just don't turn it on.
+**No branch protection.** This pipeline does not use GitHub branch protection. `/merge` self-gates by reading the PR's CI check-runs directly — it never depends on GitHub's "required checks" config — so the gate behaves identically on every repo regardless of plan, including a brand-new one with nothing configured. The one hard requirement: **`main` must not require a PR**, or the direct-push paths (`/ship-main`, `/deploy`, `/sync-dev-kit`) get rejected. A fresh repo has require-PR off by default, so there is nothing to set up — just don't turn it on.
 
 ---
 
@@ -34,7 +34,7 @@ The pipeline does not rely on GitHub branch protection. The merge gate lives in 
 | `/merge` self-gates on CI | `/merge` reads the PR's check-runs and blocks on red. The gate is in the command, not in GitHub — it needs no branch-protection config to exist and can't be skipped from within gitflow. |
 | No required human approval | CI + advisory AI review is the gate, not a human. A 2-dev shop reviewing each other's every PR is theater or a bottleneck. Tag a reviewer by hand when a change genuinely warrants it. |
 
-**`main` must not require a PR.** This is the one hard requirement on the GitHub side, and it is the default on a fresh repo — so there is nothing to configure, just don't turn it on. The direct-push paths (`/ship-main`, `/deploy`'s bump push, the changes `/sync-starter-kit` leaves for you to land) push straight to `main`, and GitHub rejects those if require-PR is on. CI, commitlint, and Gemini still RUN on every PR (they fire on `pull_request` / gitflow triggers, not on protection) — they're simply not GitHub-merge-blocking, because `/merge` is the gate. `enforce_admins` is irrelevant — nothing admin-merges.
+**`main` must not require a PR.** This is the one hard requirement on the GitHub side, and it is the default on a fresh repo — so there is nothing to configure, just don't turn it on. The direct-push paths (`/ship-main`, `/deploy`'s bump push, the changes `/sync-dev-kit` leaves for you to land) push straight to `main`, and GitHub rejects those if require-PR is on. CI, commitlint, and Gemini still RUN on every PR (they fire on `pull_request` / gitflow triggers, not on protection) — they're simply not GitHub-merge-blocking, because `/merge` is the gate. `enforce_admins` is irrelevant — nothing admin-merges.
 
 **Coordinated / delayed releases** use the PR as a parking lot: open it, let CI go green, don't merge until the timing is right (after-hours, sign-off, campaign launch). No release branch needed at this scale.
 

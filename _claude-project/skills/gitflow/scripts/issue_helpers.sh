@@ -191,7 +191,7 @@ _move_issue_to_status() {
     # Configured-but-broken: PROJECT_ID set, FIELD_ID missing.
     if [ -z "${GITFLOW_STATUS_FIELD_ID:-}" ]; then
         echo "issue_helpers: ERROR — GITFLOW_PROJECT_ID is set but GITFLOW_STATUS_FIELD_ID is empty in .claude/gitflow-project.conf." >&2
-        echo "  Fix: populate GITFLOW_STATUS_FIELD_ID in .claude/sync-substitutions.json, re-run /sync-starter-kit --finalize, retry." >&2
+        echo "  Fix: populate GITFLOW_STATUS_FIELD_ID in .claude/sync-substitutions.json, re-run /sync-dev-kit --finalize, retry." >&2
         echo "  Discover the field ID with the gh api graphql query in .claude/gitflow-project.conf header." >&2
         return 1
     fi
@@ -201,7 +201,7 @@ _move_issue_to_status() {
     if [ -z "$option_id" ]; then
         echo "issue_helpers: ERROR — GITFLOW_PROJECT_ID is set but $option_id_var is empty." >&2
         echo "  This status ('$label') isn't configured for this project. Fix one of:" >&2
-        echo "    - Populate $option_id_var in .claude/sync-substitutions.json (re-run /sync-starter-kit --finalize)." >&2
+        echo "    - Populate $option_id_var in .claude/sync-substitutions.json (re-run /sync-dev-kit --finalize)." >&2
         echo "    - If this project's board doesn't have a '$label' column, add $option_id_var to _intentionally_empty in .claude/sync-substitutions.json." >&2
         return 1
     fi

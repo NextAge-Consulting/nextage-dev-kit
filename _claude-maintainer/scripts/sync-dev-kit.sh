@@ -1,5 +1,5 @@
 #!/bin/bash
-# Sync Starter Kit — three-way diff/review sync from kit template to consumer project.
+# Sync Dev Kit — three-way diff/review sync from kit template to consumer project.
 #
 # Modes:
 #   --scan                  Output JSON report of state per file. Non-interactive.
@@ -23,27 +23,27 @@ while [[ $# -gt 0 ]]; do
         --apply-file)       MODE="apply"; APPLY_FILE="$2"; shift 2 ;;
         --apply-gitignore)  MODE="apply-gitignore"; shift 1 ;;
         --finalize)         MODE="finalize"; shift 1 ;;
-        *) echo "sync-starter-kit.sh: unknown option: $1" >&2; exit 2 ;;
+        *) echo "sync-dev-kit.sh: unknown option: $1" >&2; exit 2 ;;
     esac
 done
 
 if [ -z "$MODE" ]; then
-    echo "sync-starter-kit.sh: mode required (--scan | --apply-file <path> | --apply-gitignore | --finalize)" >&2
+    echo "sync-dev-kit.sh: mode required (--scan | --apply-file <path> | --apply-gitignore | --finalize)" >&2
     exit 2
 fi
 
 # ---------------------------------------------------------------------------
 # Locate kit
 # ---------------------------------------------------------------------------
-CONFIG_FILE="$HOME/.claude/starter-kit-config.json"
+CONFIG_FILE="$HOME/.claude/dev-kit-config.json"
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "sync-starter-kit.sh: $CONFIG_FILE missing. Run install-kit handbook steps first." >&2
+    echo "sync-dev-kit.sh: $CONFIG_FILE missing. Run install-kit handbook steps first." >&2
     exit 3
 fi
 
-KIT_PATH=$(jq -r '.kit_path // .starterKitPath // empty' "$CONFIG_FILE")
+KIT_PATH=$(jq -r '.kit_path // .devKitPath // empty' "$CONFIG_FILE")
 if [ -z "$KIT_PATH" ] || [ ! -d "$KIT_PATH/_claude-project" ]; then
-    echo "sync-starter-kit.sh: invalid kit path: $KIT_PATH" >&2
+    echo "sync-dev-kit.sh: invalid kit path: $KIT_PATH" >&2
     exit 3
 fi
 
@@ -61,9 +61,9 @@ GIT_COMMON_DIR=$(git rev-parse --git-common-dir 2>/dev/null || echo "")
 if [ -n "$GIT_COMMON_DIR" ]; then
     PRIMARY_ROOT=$(cd "$(dirname "$GIT_COMMON_DIR")" && pwd)
     if [ "$PROJECT_PATH" != "$PRIMARY_ROOT" ]; then
-        echo "sync-starter-kit.sh: invoked from worktree '$PROJECT_PATH'." >&2
+        echo "sync-dev-kit.sh: invoked from worktree '$PROJECT_PATH'." >&2
         echo "  Sync must run from the primary repo root: $PRIMARY_ROOT" >&2
-        echo "  cd '$PRIMARY_ROOT' and re-run /sync-starter-kit." >&2
+        echo "  cd '$PRIMARY_ROOT' and re-run /sync-dev-kit." >&2
         exit 4
     fi
 fi
@@ -74,8 +74,8 @@ fi
 if [ -n "$GIT_COMMON_DIR" ]; then
     CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
     if [ "$CURRENT_BRANCH" != "main" ]; then
-        echo "sync-starter-kit.sh: primary is on branch '$CURRENT_BRANCH', not 'main'." >&2
-        echo "  Kit sync must run on main. Switch to main and re-run /sync-starter-kit." >&2
+        echo "sync-dev-kit.sh: primary is on branch '$CURRENT_BRANCH', not 'main'." >&2
+        echo "  Kit sync must run on main. Switch to main and re-run /sync-dev-kit." >&2
         exit 4
     fi
 
@@ -87,7 +87,7 @@ if [ -n "$GIT_COMMON_DIR" ]; then
     # more than one entry means real worktrees are open.
     WORKTREE_COUNT=$(git worktree list --porcelain 2>/dev/null | grep -c '^worktree ')
     if [ "${WORKTREE_COUNT:-0}" -gt 1 ]; then
-        echo "sync-starter-kit.sh: $WORKTREE_COUNT worktrees open (expected only primary)." >&2
+        echo "sync-dev-kit.sh: $WORKTREE_COUNT worktrees open (expected only primary)." >&2
         echo "  Kit sync requires a clean slate: merge or discard all worktrees first, then re-run." >&2
         echo "  Open worktrees:" >&2
         git worktree list >&2
@@ -97,7 +97,7 @@ fi
 
 # Refuse to run from inside the kit itself
 if [ "$PROJECT_PATH" = "$KIT_PATH" ]; then
-    echo "sync-starter-kit.sh: running from the kit repo itself is not supported." >&2
+    echo "sync-dev-kit.sh: running from the kit repo itself is not supported." >&2
     echo "  To update kit bootstrap in ~/.claude/, use /install-kit." >&2
     exit 4
 fi
@@ -140,7 +140,7 @@ sha256() {
 #     "ORG": "acme"
 #   }
 #
-# sync-starter-kit applies these substitutions to kit content in two places:
+# sync-dev-kit applies these substitutions to kit content in two places:
 #   1. During scan — computes kit SHA against substituted content, so a kit
 #      template with `{{OWNER_REPO}}` matching a project file with `acme/widget`
 #      reports `clean`, not `conflict`.
@@ -158,7 +158,7 @@ load_substitutions() {
     local kit_template="${KIT_PATH}/_claude-project/sync-substitutions.json"
 
     # Bootstrap on first sync: the substitutions file is in SKIP_LIST (so
-    # /sync-starter-kit never overwrites consumer values once populated),
+    # /sync-dev-kit never overwrites consumer values once populated),
     # and /install-kit does not handle it either. Without bootstrap, every
     # consumer project ends up missing the file entirely and kit templates
     # land with literal {{KEY}} markers. Copy the kit template on first
@@ -168,7 +168,7 @@ load_substitutions() {
     if [ ! -f "$sub_file" ] && [ -f "$kit_template" ]; then
         mkdir -p "$(dirname "$sub_file")"
         cp "$kit_template" "$sub_file"
-        echo "sync-starter-kit.sh: bootstrapped .claude/sync-substitutions.json from kit template (populate values to override placeholders, leave empty to disable gated features)" >&2
+        echo "sync-dev-kit.sh: bootstrapped .claude/sync-substitutions.json from kit template (populate values to override placeholders, leave empty to disable gated features)" >&2
     fi
 
     # Additive key merge — the kit owns the KEY SET, the consumer owns the VALUES.
@@ -225,9 +225,9 @@ load_substitutions() {
                 ' "$kit_template" "$sub_file" 2>/dev/null)
                 printf '%s\n' "$merged" > "$sub_file"
                 if [ -n "$added" ]; then
-                    echo "sync-starter-kit.sh: added new kit placeholder key(s) to .claude/sync-substitutions.json: ${added} — Step 1.5 will walk you through populating them" >&2
+                    echo "sync-dev-kit.sh: added new kit placeholder key(s) to .claude/sync-substitutions.json: ${added} — Step 1.5 will walk you through populating them" >&2
                 else
-                    echo "sync-starter-kit.sh: refreshed kit comment blocks in .claude/sync-substitutions.json (values and _intentionally_empty untouched)" >&2
+                    echo "sync-dev-kit.sh: refreshed kit comment blocks in .claude/sync-substitutions.json (values and _intentionally_empty untouched)" >&2
                 fi
             fi
         fi
@@ -235,7 +235,7 @@ load_substitutions() {
 
     if [ -f "$sub_file" ]; then
         if ! SUBSTITUTIONS_JSON=$(jq -c '. // {}' "$sub_file" 2>/dev/null); then
-            echo "sync-starter-kit.sh: warning — could not parse $sub_file, proceeding without substitutions" >&2
+            echo "sync-dev-kit.sh: warning — could not parse $sub_file, proceeding without substitutions" >&2
             SUBSTITUTIONS_JSON="{}"
         fi
     else
@@ -626,21 +626,21 @@ fi
 # ---------------------------------------------------------------------------
 
 if [ "$MODE" = "apply" ]; then
-    [ -z "$APPLY_FILE" ] && { echo "sync-starter-kit.sh: --apply-file requires a kit-relative path" >&2; exit 2; }
+    [ -z "$APPLY_FILE" ] && { echo "sync-dev-kit.sh: --apply-file requires a kit-relative path" >&2; exit 2; }
 
     # Apply mode uses substitutions when writing kit content into the project.
     load_substitutions
 
     kit_full="${KIT_PATH}/${APPLY_FILE}"
     dest_rel=$(dest_for_kit_path "$APPLY_FILE")
-    [ -z "$dest_rel" ] && { echo "sync-starter-kit.sh: no destination mapping for $APPLY_FILE" >&2; exit 4; }
+    [ -z "$dest_rel" ] && { echo "sync-dev-kit.sh: no destination mapping for $APPLY_FILE" >&2; exit 4; }
 
     if [ ! -f "$kit_full" ]; then
         # Removed from kit — delete from project + lockfile
         proj_full="${PROJECT_PATH}/${dest_rel}"
         rm -f "$proj_full"
         update_lockfile_file "$dest_rel" ""
-        echo "sync-starter-kit.sh: removed $dest_rel (kit-removed)" >&2
+        echo "sync-dev-kit.sh: removed $dest_rel (kit-removed)" >&2
         exit 0
     fi
 
@@ -659,7 +659,7 @@ if [ "$MODE" = "apply" ]; then
         overlay_settings_project_owned "$proj_full" < "$tmp_subst" > "$tmp_final"
         if [ ! -s "$tmp_final" ]; then
             rm -f "$tmp_subst" "$tmp_final"
-            echo "sync-starter-kit.sh: failed to compose settings.json (jq returned empty)" >&2
+            echo "sync-dev-kit.sh: failed to compose settings.json (jq returned empty)" >&2
             exit 5
         fi
         mv "$tmp_final" "$proj_full"
@@ -679,7 +679,7 @@ if [ "$MODE" = "apply" ]; then
     # changes or the substitution value changes.
     update_lockfile_file "$dest_rel" "$new_sha"
 
-    echo "sync-starter-kit.sh: applied $dest_rel ($new_sha)" >&2
+    echo "sync-dev-kit.sh: applied $dest_rel ($new_sha)" >&2
     exit 0
 fi
 
@@ -689,7 +689,7 @@ fi
 
 if [ "$MODE" = "apply-gitignore" ]; then
     ADD_FILE="${KIT_PATH}/_claude-project/templates/.gitignore-additions"
-    [ -f "$ADD_FILE" ] || { echo "sync-starter-kit.sh: no .gitignore-additions in kit" >&2; exit 4; }
+    [ -f "$ADD_FILE" ] || { echo "sync-dev-kit.sh: no .gitignore-additions in kit" >&2; exit 4; }
 
     touch "${PROJECT_PATH}/.gitignore"
 
@@ -704,7 +704,7 @@ if [ "$MODE" = "apply-gitignore" ]; then
         esac
         if ! grep -Fxq "$line" "${PROJECT_PATH}/.gitignore"; then
             echo "$line" >> "${PROJECT_PATH}/.gitignore"
-            echo "sync-starter-kit.sh: added '$line' to .gitignore" >&2
+            echo "sync-dev-kit.sh: added '$line' to .gitignore" >&2
         fi
     done < "$ADD_FILE"
 
@@ -788,9 +788,9 @@ if [ "$MODE" = "finalize" ]; then
         "$LOCKFILE" > "$tmp"
     mv "$tmp" "$LOCKFILE"
 
-    echo "sync-starter-kit.sh: lockfile finalized (kit commit $KIT_COMMIT)" >&2
+    echo "sync-dev-kit.sh: lockfile finalized (kit commit $KIT_COMMIT)" >&2
     if [ "$BACKFILL_N" -gt 0 ]; then
-        echo "sync-starter-kit.sh: baselined $BACKFILL_N already-matching file(s) that had no lockfile entry — the kit can now propagate their deletion." >&2
+        echo "sync-dev-kit.sh: baselined $BACKFILL_N already-matching file(s) that had no lockfile entry — the kit can now propagate their deletion." >&2
     fi
 
     # That's the whole job: sync APPLIES kit updates to the working tree (via
@@ -802,10 +802,10 @@ if [ "$MODE" = "finalize" ]; then
     # removes the bootstrap "which /commit runs after sync?" problem and stops
     # duplicating logic that now lives in ship-main.sh / deploy.sh.
     if [ -n "$(git status --porcelain)" ]; then
-        echo "sync-starter-kit.sh: synced — kit updates + lockfile are uncommitted in your working tree." >&2
+        echo "sync-dev-kit.sh: synced — kit updates + lockfile are uncommitted in your working tree." >&2
         echo "  Land them with /ship-main (commits + pushes straight to main)." >&2
     else
-        echo "sync-starter-kit.sh: already in sync — nothing to commit." >&2
+        echo "sync-dev-kit.sh: already in sync — nothing to commit." >&2
     fi
     exit 0
 fi

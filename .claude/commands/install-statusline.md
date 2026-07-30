@@ -1,12 +1,12 @@
 # Install Statusline
 
-Install or update the custom Claude Code statusline from the starter kit repo.
+Install or update the custom Claude Code statusline from the dev kit repo.
 
-This command should only be run from within the starter kit repo itself.
+This command should only be run from within the dev kit repo itself.
 
-## Step 1: Verify we're in the starter kit
+## Step 1: Verify we're in the dev kit
 
-Check for `_statusline/statusline.sh` in the current directory. If it doesn't exist, tell the user this command must be run from the starter kit repo.
+Check for `_statusline/statusline.sh` in the current directory. If it doesn't exist, tell the user this command must be run from the dev kit repo.
 
 ## Step 2: Compare versions
 

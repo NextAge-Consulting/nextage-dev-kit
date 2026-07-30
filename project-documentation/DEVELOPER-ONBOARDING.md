@@ -6,14 +6,14 @@ This document is the reference a developer's Claude Code session follows to conf
 
 ## Purpose
 
-A second developer works on projects that use the `claude-project-starter-kit`. The developer never runs the starter kit directly — they get the project's opinions, rules, hooks, skills, and commands from the project's repo (committed `.claude/` directory). The developer only needs a minimal global setup on their own machine to:
+A second developer works on projects that use the `nextage-dev-kit`. The developer never runs the dev kit directly — they get the project's opinions, rules, hooks, skills, and commands from the project's repo (committed `.claude/` directory). The developer only needs a minimal global setup on their own machine to:
 
 1. Have Claude Code itself installed and configured
 2. Have API keys for per-developer MCP servers (Ref, Exa)
 3. Optionally install Pete's statusline script (cosmetic; doesn't affect workflow)
 4. Optionally install CPL (Pete's launcher tool; optional)
 
-The developer does NOT install the starter kit. The developer does NOT run `/sync-starter-kit`. The developer does NOT run `/install-kit`. Those are Pete's tools.
+The developer does NOT install the dev kit. The developer does NOT run `/sync-dev-kit`. The developer does NOT run `/install-kit`. Those are Pete's tools.
 
 ---
 
@@ -159,7 +159,7 @@ jq '.statusLine' ~/.claude/settings.json 2>/dev/null
 
 ### If the developer wants it installed
 
-Pete will provide `statusline.sh` (or the developer clones the starter-kit repo read-only and copies `_statusline/statusline.sh` to `~/.claude/statusline.sh`). Claude guides the copy + settings update.
+Pete will provide `statusline.sh` (or the developer clones the dev-kit repo read-only and copies `_statusline/statusline.sh` to `~/.claude/statusline.sh`). Claude guides the copy + settings update.
 
 This is entirely optional. The developer can skip.
 
@@ -175,15 +175,15 @@ CPL is Pete's custom launcher tool. The developer's machine does not need it unl
 
 ### Procedure
 
-When the developer clones a project that uses the starter kit:
+When the developer clones a project that uses the dev kit:
 
 1. `git clone <repo-url>`
 2. Change into the project directory
 3. Verify the project has the expected structure:
-   - `.claude/settings.json` (if missing — project was never synced with the new starter kit; Pete needs to run `/sync-starter-kit` in the project first)
+   - `.claude/settings.json` (if missing — project was never synced with the new dev kit; Pete needs to run `/sync-dev-kit` in the project first)
    - `.claude/hooks/` with `git-guard.sh`, `pre-commit-validation.sh`, etc.
    - `.claude/skills/gitflow/` with `SKILL.md` + scripts
-   - `.claude/commands/` with `commit.md`, `checkpoint.md`, `open-pr.md`, `merge.md` (the per-project gitflow commands; `/work` and `/sync-starter-kit` are global, installed in `~/.claude`, not in the project repo)
+   - `.claude/commands/` with `commit.md`, `checkpoint.md`, `open-pr.md`, `merge.md` (the per-project gitflow commands; `/work` and `/sync-dev-kit` are global, installed in `~/.claude`, not in the project repo)
    - `.mcp.json` at repo root
 4. Start Claude Code in the project directory — the developer's setup should "just work"
 
@@ -223,12 +223,12 @@ Claude handles the commit message generation, PR title, PR body. The developer p
 
 When Pete pushes rule updates, new skills, or hook changes to a project the developer works on:
 
-1. Pete runs `/sync-starter-kit` in the project, reviews changes interactively, then lands them with `/ship-main` (sync itself does no git)
+1. Pete runs `/sync-dev-kit` in the project, reviews changes interactively, then lands them with `/ship-main` (sync itself does no git)
 2. Pete pushes the project repo
 3. The developer pulls the project repo
 4. The developer's Claude sessions in that project automatically pick up the updated `.claude/` config on next session start
 
-The developer never runs `/sync-starter-kit` themselves. That's Pete-only.
+The developer never runs `/sync-dev-kit` themselves. That's Pete-only.
 
 ---
 

@@ -26,7 +26,7 @@ The single walkthrough for taking a brand-new project from nothing to "kit insta
 - [ ] **1** — Project exists as a local git repo `[claude+you]`
 - [ ] **2** — GitHub repo created and `main` pushed `[claude+you]`
 - [ ] **3** — Confirm `main` requires no PR `[claude]`
-- [ ] **4** — `/sync-starter-kit` run; substitutions walkthrough completed `[claude+you]`
+- [ ] **4** — `/sync-dev-kit` run; substitutions walkthrough completed `[claude+you]`
 - [ ] **5** — Gemini Code Review installed + repo linked — or explicitly marked not-installed `[you]` then `[claude]`
 - [ ] **6** — Secrets & env: `.env`, GitHub Actions secrets, MCP API keys `[claude+you]`
 - [ ] **7** — Project-specific deploy workflow authored, + registry repo AND lifecycle policy per image (if this project deploys) `[claude+you]`
@@ -81,24 +81,24 @@ Both `repo` and `project` scopes are required. If either is missing: `gh auth re
 
 ### P1 — Install the kit globally `[claude]`
 
-From inside the **starter-kit repo**, run `/install-kit`. This copies `_claude-global/` into `~/.claude/` — the global `/work` bootstrap — and writes `~/.claude/starter-kit-config.json` with `kit_path`. Idempotent.
+From inside the **dev-kit repo**, run `/install-kit`. This copies `_claude-global/` into `~/.claude/` — the global `/work` bootstrap — and writes `~/.claude/dev-kit-config.json` with `kit_path`. Idempotent.
 
 > `/work` is global because it must be invokable from the agents view *before* the session is inside any repo. Everything else a project needs is per-project, delivered by sync.
 
-**The kit maintainer runs `/install-kit --maintainer` instead.** That adds the maintainer surface — `sync-starter-kit.sh`, the `/sync-starter-kit` command, and `kit-maintainer.md`. Only the person who syncs projects into the kit needs it; every other dev gets the consumer install above and receives kit updates when the maintainer syncs their project. See `HANDBOOK.md` §0.
+**The kit maintainer runs `/install-kit --maintainer` instead.** That adds the maintainer surface — `sync-dev-kit.sh`, the `/sync-dev-kit` command, and `kit-maintainer.md`. Only the person who syncs projects into the kit needs it; every other dev gets the consumer install above and receives kit updates when the maintainer syncs their project. See `HANDBOOK.md` §0.
 
 **Verify (every dev):**
 
 ```bash
 ls ~/.claude/commands/work.md                       # /work available
-jq -r .kit_path ~/.claude/starter-kit-config.json   # points at your kit clone
+jq -r .kit_path ~/.claude/dev-kit-config.json   # points at your kit clone
 ```
 
 **Verify (maintainer only):**
 
 ```bash
-test -x ~/.claude/scripts/sync-starter-kit.sh && echo "sync script installed + executable"
-ls ~/.claude/commands/sync-starter-kit.md ~/.claude/kit-maintainer.md
+test -x ~/.claude/scripts/sync-dev-kit.sh && echo "sync script installed + executable"
+ls ~/.claude/commands/sync-dev-kit.md ~/.claude/kit-maintainer.md
 grep -q '@kit-maintainer.md' ~/.claude/CLAUDE.md && echo "maintainer rule imported"
 ls ~/.claude/kitmaster                              # marker: makes block-kit-edit.sh inert
 ```
@@ -147,13 +147,13 @@ Confirm the `<owner>/<repo>` slug with you first (it becomes the `OWNER_REPO` su
 
 **No branch protection.** The pipeline does not use it. `/merge` self-gates by reading the PR's CI check-runs directly — independent of GitHub's "required checks" config — so the gate works on any repo with nothing configured. There is nothing to set up here.
 
-The one hard requirement: **`main` must not require a PR.** A fresh repo has require-PR off by default, so this is already true — just don't turn it on. The direct-push paths (`/ship-main`, `/deploy`'s bump push, the changes `/sync-starter-kit` leaves you to land) push straight to `main`, and GitHub rejects those if require-PR is on. `enforce_admins` is irrelevant — nothing admin-merges.
+The one hard requirement: **`main` must not require a PR.** A fresh repo has require-PR off by default, so this is already true — just don't turn it on. The direct-push paths (`/ship-main`, `/deploy`'s bump push, the changes `/sync-dev-kit` leaves you to land) push straight to `main`, and GitHub rejects those if require-PR is on. `enforce_admins` is irrelevant — nothing admin-merges.
 
 **Verify:** `main` does not require a PR (the default on a new repo). If a protection rule was ever added, confirm require-PR is off.
 
-### 4 — Run `/sync-starter-kit` `[claude+you]`
+### 4 — Run `/sync-dev-kit` `[claude+you]`
 
-From the **project root** (not a worktree, not inside the kit), run `/sync-starter-kit`. First-run flow:
+From the **project root** (not a worktree, not inside the kit), run `/sync-dev-kit`. First-run flow:
 
 1. **Scan** — compares kit templates against the (empty) project; bootstraps `.claude/sync-substitutions.json`.
 2. **Substitutions walkthrough (Step 1.5)** — Claude walks you through each empty placeholder, one at a time. The ones you'll almost always set:

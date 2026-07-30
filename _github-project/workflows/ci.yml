@@ -20,7 +20,7 @@
 # it never blocks; there are no GitHub-required checks to wait forever on a
 # never-run job, and nothing to promote.
 #
-# NOTE: `/deploy` and `/sync-starter-kit` push DIRECTLY to main (no PR), so this
+# NOTE: `/deploy` and `/sync-dev-kit` push DIRECTLY to main (no PR), so this
 # `pull_request`-triggered workflow never runs on a release or sync commit.
 
 name: ci

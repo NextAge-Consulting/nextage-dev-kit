@@ -1,4 +1,4 @@
-# Starter Kit Workflow
+# Dev Kit Workflow
 
 > **Companion rule:** `sync-design-pre-read.md` (this folder) — covers the pre-read requirements before recommending or executing any kit change. Read both when working on the kit.
 
@@ -8,7 +8,7 @@ The kit is a project like any other — it has its own `.claude/` with rules, ho
 
 ### `_claude-project/` — Template for consumer projects
 
-Source for what gets synced OUT to consumer `<project>/.claude/` via `/sync-starter-kit`. Contains content every project should have a baseline of: rules, hooks, skills, the gitflow commands (`/commit`, `/checkpoint`, `/open-pr`, `/merge`), agents, `settings.json`, `templates/`.
+Source for what gets synced OUT to consumer `<project>/.claude/` via `/sync-dev-kit`. Contains content every project should have a baseline of: rules, hooks, skills, the gitflow commands (`/commit`, `/checkpoint`, `/open-pr`, `/merge`), agents, `settings.json`, `templates/`.
 
 **Changes here affect every consumer project on next sync.**
 
@@ -22,9 +22,9 @@ Every OTHER kit command (`/commit`, `/checkpoint`, `/merge`, etc.) is per-projec
 
 ### `_claude-maintainer/` — Maintainer surface
 
-`kit-maintainer.md` + `commands/sync-starter-kit.md` + `scripts/sync-starter-kit.sh`. Installed to `~/.claude/` via `/install-kit --maintainer`. **Only the kit maintainer's machine gets this tier.**
+`kit-maintainer.md` + `commands/sync-dev-kit.md` + `scripts/sync-dev-kit.sh`. Installed to `~/.claude/` via `/install-kit --maintainer`. **Only the kit maintainer's machine gets this tier.**
 
-`sync-starter-kit` is global by necessity — it must run from any project directory — but it ships here, not in `_claude-global/`, because the maintainer syncs projects ahead of the other devs. A consumer machine that could sync would clobber that work. Withholding the script beats guarding it: absent tooling has nothing to bypass.
+`sync-dev-kit` is global by necessity — it must run from any project directory — but it ships here, not in `_claude-global/`, because the maintainer syncs projects ahead of the other devs. A consumer machine that could sync would clobber that work. Withholding the script beats guarding it: absent tooling has nothing to bypass.
 
 `kit-maintainer.md` is inert unless `~/.claude/CLAUDE.md` imports it (`@kit-maintainer.md`), and the separate `~/.claude/kitmaster` marker is what makes `block-kit-edit.sh` go inert. Both are per-machine and deliberately NOT shipped; `--maintainer` warns when either is missing but never creates them.
 
@@ -75,7 +75,7 @@ The kit dogfoods (mirrors into its own `.claude/`) only what it actually *uses*.
 | `rules/project/README.md` | Consumer scaffolding placeholder; the kit has its own `rules/project/` content. |
 | `hooks/block-kit-edit.sh` | Consumer-protection guard — denies edits to kit-synced files. Nonsensical inside the kit: the kit IS the source, not a consumer, and has no `.kit-sync.json` to guard. The maintainer exemption (`~/.claude/kitmaster`) makes it inert here anyway. |
 
-Anything in `_claude-project/` NOT listed above IS dogfooded (gitflow, the shared rules/hooks, the general commands). Kit-custom items (`install-*`, `starter-kit-workflow.md`, `sync-design-pre-read.md`) live only in the kit's `.claude/` and are governed by the propagation table, not this one.
+Anything in `_claude-project/` NOT listed above IS dogfooded (gitflow, the shared rules/hooks, the general commands). Kit-custom items (`install-*`, `dev-kit-workflow.md`, `sync-design-pre-read.md`) live only in the kit's `.claude/` and are governed by the propagation table, not this one.
 
 ### Mandate: every new kit item requires a conscious dogfood decision
 
@@ -88,7 +88,7 @@ When ANY new command, skill, hook, or rule is added to `_claude-project/`, you M
 
 ## Kit is a baseline sync, not compliance enforcement
 
-`/sync-starter-kit` offers diffs for the user to accept, reject, or merge. Consumer projects can consciously diverge:
+`/sync-dev-kit` offers diffs for the user to accept, reject, or merge. Consumer projects can consciously diverge:
 
 - Project-specific rules in `<project>/.claude/rules/project/` (never touched by sync)
 - Project-specific skills in `<project>/.claude/skills/<custom-name>/`

@@ -66,7 +66,7 @@ If the hook's purpose is to GATE or PREVENT something, use sync. If the hook's p
 
 ## Part 2: Token-Based Enforcement Pattern
 
-Pattern for creating secure bypass mechanisms in Claude Code hooks that AI cannot easily circumvent. Not currently used in the starter kit, but documented here for future reuse.
+Pattern for creating secure bypass mechanisms in Claude Code hooks that AI cannot easily circumvent. Not currently used in the dev kit, but documented here for future reuse.
 
 ### The problem
 

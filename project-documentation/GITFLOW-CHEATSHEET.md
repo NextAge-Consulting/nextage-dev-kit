@@ -30,12 +30,12 @@ What happens automatically (no issue, `current/` missing):
 - **Local main is fast-forwarded from `origin/main` first** — fail-loud if dirty, offline, or diverged.
 - Worktree at `current/` is created on a `wip/<abbrev>-<timestamp>` branch off fresh `origin/main`.
 - The branch keeps its `wip/` name until your first `/commit`, which renames it to `<type>/<slug>` derived from the commit message (e.g. `wip/lg-2026-05-12-153000Z` → `feat/dealer-filter-fix`).
-- `<abbrev>` resolves from `PROJECT_ABBREV` in `.claude/sync-substitutions.json` (e.g. `lg`, `kit`, `ms`); falls back to the project's directory basename if unset. Run `/sync-starter-kit` to populate. Lets the Agents view distinguish concurrent wip/ branches across projects.
+- `<abbrev>` resolves from `PROJECT_ABBREV` in `.claude/sync-substitutions.json` (e.g. `lg`, `kit`, `ms`); falls back to the project's directory basename if unset. Run `/sync-dev-kit` to populate. Lets the Agents view distinguish concurrent wip/ branches across projects.
 
 What happens automatically (no issue, `current/` already exists):
 - Re-enter the existing worktree on its existing branch. Same body of work continues.
 
-**Primary repo folder always sits on `main`, untouched.** Open `<project>/.claude/worktrees/current/` in your editor — that's where source code lives during the session. Plain-CLI workflows like `/sync-starter-kit` operate against the primary; do not edit there manually.
+**Primary repo folder always sits on `main`, untouched.** Open `<project>/.claude/worktrees/current/` in your editor — that's where source code lives during the session. Plain-CLI workflows like `/sync-dev-kit` operate against the primary; do not edit there manually.
 
 **Why current/ is always on a non-main branch.** Git refuses to check out the same branch in two worktrees, and primary owns `main`. So `current/` is given its own branch (`wip/*` or feature) from the moment it's created. The branch starts as `wip/<abbrev>-<timestamp>` for no-issue invocations, gets renamed at first commit. There is no "current/ briefly on main" intermediate state.
 
@@ -213,7 +213,7 @@ Picking up tomorrow on unfinished work: same launch, just `/work` (no args). The
 
 - Raw `git commit`, `git push`, `git merge`, `git checkout <file>`, `git reset`, `git revert`, `git clean`, `git restore` — **blocked by `git-guard.sh`**. If you genuinely need one, prefix with `SKIP_GIT_GUARD=1` and state the reason.
 - Cherry-pick specific files into a commit — gitflow always commits ALL changes. If you need to split, ask.
-- Run `/sync-starter-kit` if you're Alan — that's Pete-only.
+- Run `/sync-dev-kit` if you're Alan — that's Pete-only.
 - Run database migrations from Claude — always human-driven.
 
 ---
@@ -235,7 +235,7 @@ Picking up tomorrow on unfinished work: same launch, just `/work` (no args). The
 | `current/` doesn't exist yet | Run `/work` (no args). It creates `current/` on a fresh `wip/<abbrev>-<timestamp>` branch and enters it. |
 | `git status` shows a `.venv` (or other) symlink as a new file | Add it to `.gitignore`. Claude Code auto-symlinks listed dirs (`worktree.symlinkDirectories` in `settings.json`) and the symlink shouldn't be tracked. |
 | Dev server crashes immediately in a worktree (missing `.env` / `process.env.X` undefined), or `npm run dev` reports missing modules | You're in a half-built worktree — created via `EnterWorktree` directly instead of `/work`. The canonical `/work` path runs `apply_worktree_symlinks` (which symlinks `.env` from primary) and `run_post_create` (which runs `npm install`); `EnterWorktree(name=...)` skips both empirically. Fix: `ExitWorktree({action:"keep"})` then `/work` — re-entry heals the symlinks; if `node_modules` is still missing, `cd` into the worktree and run the project's install command. The `worktree-guard.sh` PostToolUse hook surfaces a system-reminder when this happens — read it. See HANDBOOK §3.2 and `rules/worktree.md`. |
-| `/sync-starter-kit` keeps flagging `.claude/settings.json` as `kit-only` (or `conflict`) every sync even though you haven't touched it | The silent-overlay reconciler in `sync-starter-kit.sh` (HANDBOOK §9.6) should keep populated `worktree.postCreate` from surfacing as a diff. (1) Verify `jq '.worktree.postCreate' .claude/settings.json` is a populated array (not `[]` or missing). If empty, populate via the §9.9 walkthrough (re-run `/sync-starter-kit` — Step 1.6 fires when postCreate is empty) or edit settings.json manually. (3) If postCreate IS populated and sync still flags settings.json, the overlay logic in `sync-starter-kit.sh` (`overlay_settings_project_owned` / `sha256_settings_kit`) is broken — open a kit bug. |
+| `/sync-dev-kit` keeps flagging `.claude/settings.json` as `kit-only` (or `conflict`) every sync even though you haven't touched it | The silent-overlay reconciler in `sync-dev-kit.sh` (HANDBOOK §9.6) should keep populated `worktree.postCreate` from surfacing as a diff. (1) Verify `jq '.worktree.postCreate' .claude/settings.json` is a populated array (not `[]` or missing). If empty, populate via the §9.9 walkthrough (re-run `/sync-dev-kit` — Step 1.6 fires when postCreate is empty) or edit settings.json manually. (3) If postCreate IS populated and sync still flags settings.json, the overlay logic in `sync-dev-kit.sh` (`overlay_settings_project_owned` / `sha256_settings_kit`) is broken — open a kit bug. |
 | `/commit` succeeded at commit but failed at push with "upstream branch ... does not match the name of your current branch" | Pre-fix worktree creation left the branch tracking `origin/main` instead of itself. Re-trigger just the push: `.claude/skills/gitflow/scripts/commit.sh --push-only` from inside the affected worktree. `safe_push` (in `branch_helpers.sh`) corrects the upstream and pushes. New worktrees created after the fix won't hit this (work.sh now passes `--no-track`). See HANDBOOK §4.5. |
 | `gh pr view <N>` reports `mergeable: CONFLICTING` after another PR shipped | Run `/sync` on the affected branch. It merges `origin/main` in via an explicit merge commit and pushes. On conflicts, edit the affected files, then `/sync --continue`. See HANDBOOK §4.6. |
 | `current/` is orphaned on an old branch (body of work shipped via a different compartment) | `/work --discard current --force` removes the worktree + lets the next `/work` recreate it fresh. The `--force` is required — `current/` is the persistent workspace and never auto-discards. |

@@ -1,4 +1,4 @@
-# /sync-starter-kit
+# /sync-dev-kit
 
 Interactive three-way sync of kit templates into this consumer project. Nothing is ever full-replaced — every difference is shown as a diff, you recommend a resolution, the user decides per file. Resumable via the `.claude/.kit-sync.json` lockfile.
 
@@ -6,7 +6,7 @@ $ARGUMENTS
 
 ## When to invoke
 
-User says "sync starter kit", "sync the kit", "pull latest kit updates", or types `/sync-starter-kit` explicitly.
+User says "sync dev kit", "sync the kit", "pull latest kit updates", or types `/sync-dev-kit` explicitly.
 
 **Never invoke proactively.** User must explicitly request the sync.
 
@@ -17,10 +17,10 @@ User says "sync starter kit", "sync the kit", "pull latest kit updates", or type
 Run the scan mode of the sync script:
 
 ```bash
-~/.claude/scripts/sync-starter-kit.sh --scan
+~/.claude/scripts/sync-dev-kit.sh --scan
 ```
 
-(If the project has not been synced before, the script is read from the kit location — confirm the config file at `~/.claude/starter-kit-config.json` exists, else instruct the user to follow the install-kit handbook steps.)
+(If the project has not been synced before, the script is read from the kit location — confirm the config file at `~/.claude/dev-kit-config.json` exists, else instruct the user to follow the install-kit handbook steps.)
 
 Parse the JSON output. Top-level fields:
 
@@ -30,7 +30,7 @@ Parse the JSON output. Top-level fields:
 - `files` — array of per-file state entries.
 - `gitignore_additions_missing` — array of `.gitignore` lines the kit wants present in the project that are not yet.
 
-The scan also bootstraps `.claude/sync-substitutions.json` from the kit template if it doesn't exist. Look for `sync-starter-kit.sh: bootstrapped .claude/sync-substitutions.json` on stderr — that's the signal that this is a first-time sync and Step 1.5 is going to have work to do.
+The scan also bootstraps `.claude/sync-substitutions.json` from the kit template if it doesn't exist. Look for `sync-dev-kit.sh: bootstrapped .claude/sync-substitutions.json` on stderr — that's the signal that this is a first-time sync and Step 1.5 is going to have work to do.
 
 ### Step 1.5: Substitutions walkthrough
 
@@ -74,7 +74,7 @@ If the list is empty, skip Step 1.5 entirely and proceed to Step 2.
    - Show the description's example/format hint and ask the user directly: "Value for <KEY>?"
    - **If the description contains a `Suggested default:` line with an embedded shell command** (typical: `PROJECT_ABBREV`):
      - Extract the command (it appears between backticks after `Suggested default:`).
-     - Run it via `Bash` from the consumer's project root (the cwd where `/sync-starter-kit` was invoked, since this command refuses from worktrees per §9.4.1).
+     - Run it via `Bash` from the consumer's project root (the cwd where `/sync-dev-kit` was invoked, since this command refuses from worktrees per §9.4.1).
      - Show the computed default value to the user and offer it as the prefill: "Suggested default: `<value>`. Accept with enter, or provide your own (e.g. a shorter abbrev)."
      - On accept-with-enter → write the suggested value. On user-provided value → write that. On "disable" / "skip" → fall through to the standard resolutions below.
 5. **Resolutions:**
@@ -161,7 +161,7 @@ For each file entry, the `state` field is one of:
 
 `.claude/settings.json` uses 3-way comparison like every other file with ONE silent overlay: `worktree.postCreate`. The kit ships `postCreate: []` as the empty default; the consumer's populated value (typically set via §1.6 walkthrough) is operational config the kit must NEVER overwrite.
 
-The reconciler lives in `sync-starter-kit.sh` (`overlay_settings_project_owned` + `sha256_settings_kit` + `sha256_settings_proj`). Behavior:
+The reconciler lives in `sync-dev-kit.sh` (`overlay_settings_project_owned` + `sha256_settings_kit` + `sha256_settings_proj`). Behavior:
 
 - Before scan-time SHA comparison, kit's settings.json content has the project's populated `worktree.postCreate` spliced in. Both kit and project SHAs are computed against jq-canonicalized JSON so whitespace / key-order differences don't surface either.
 - Result: project has `postCreate: ["npm ci"]` + kit has `postCreate: []` + nothing else differs → state evaluates `clean` (or `clean-converged` first time after this logic ships) → silent skip. The file is NOT presented in Step 3.
@@ -203,7 +203,7 @@ Process files in batches of 5-10 at a time to avoid overwhelming the user. Let t
 For each `y` response, invoke the script:
 
 ```bash
-~/.claude/scripts/sync-starter-kit.sh --apply-file <kit_path>
+~/.claude/scripts/sync-dev-kit.sh --apply-file <kit_path>
 ```
 
 The `kit_path` field comes from the file entry (e.g., `_claude-project/hooks/git-guard.sh`). The script copies the file to the correct destination and updates the lockfile's per-file SHA entry.
@@ -216,14 +216,14 @@ If `gitignore_additions_missing` is non-empty:
 
 - List missing entries
 - Ask: "Add these to `.gitignore`?"
-- On accept: `~/.claude/scripts/sync-starter-kit.sh --apply-gitignore`
+- On accept: `~/.claude/scripts/sync-dev-kit.sh --apply-gitignore`
 
 ### Step 6: Finalize
 
 After all decisions processed, ALWAYS run:
 
 ```bash
-~/.claude/scripts/sync-starter-kit.sh --finalize
+~/.claude/scripts/sync-dev-kit.sh --finalize
 ```
 
 `--finalize` does ONE thing: **stamps the lockfile** — sets `lastSyncedCommit` and `lastSyncedAt` (the per-file SHAs are already current because `--apply-file` updated them incrementally).
@@ -255,7 +255,7 @@ Summarize:
 - **Running from inside a worktree**: script refuses with exit code 4; sync must run from primary. Surface the primary path and tell user to `cd` there. See HANDBOOK §9 for the bootstrap-problem rationale.
 - **Primary not on `main`**: script refuses with exit code 4. Sync runs only on `main` (the kit model keeps primary on a clean main). Tell the user to switch to `main` and re-run.
 - **Any worktree open**: script refuses with exit code 4. Sync requires a clean slate — no open worktrees — regardless of whether a worktree touches kit files. A sibling worktree can be carrying kit files on a feature branch; syncing into main while that work is in flight double-applies and races the merge. Tell the user to merge or discard all worktrees first, then re-run.
-- **Script missing (`~/.claude/starter-kit-config.json` not found)**: surface install-kit handbook steps
+- **Script missing (`~/.claude/dev-kit-config.json` not found)**: surface install-kit handbook steps
 
 ## What this command does NOT do
 

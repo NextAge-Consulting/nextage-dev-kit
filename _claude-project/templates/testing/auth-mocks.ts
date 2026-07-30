@@ -1,4 +1,4 @@
-// Reference-only — NOT synced by /sync-starter-kit.
+// Reference-only — NOT synced by /sync-dev-kit.
 // Copy to <test-dir>/auth-mocks.ts in your project. See ../README.md.
 //
 // Auth context mocks for Vitest tests. Shape-only stubs; real behavior

@@ -1,4 +1,4 @@
-// Reference-only — NOT synced by /sync-starter-kit.
+// Reference-only — NOT synced by /sync-dev-kit.
 // Copy to <test-dir>/test-utils.ts in your project. See ../README.md.
 //
 // Vitest setup file + shared test utilities. Wired via `setupFiles` in

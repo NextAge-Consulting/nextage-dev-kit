@@ -254,7 +254,7 @@ echo "gitflow: syncing primary main at $PRIMARY_ROOT..." >&2
     cd "$PRIMARY_ROOT"
     # Under the new model primary is always on main. The else-branch below
     # is retained for the legacy / transition case where primary may be on
-    # some other branch (e.g. mid-sync via /sync-starter-kit).
+    # some other branch (e.g. mid-sync via /sync-dev-kit).
     git fetch origin "$BASE"
     if ! PRIMARY_HEAD=$(git branch --show-current); then
         echo "merge.sh: failed to read primary's HEAD branch. Inspect $PRIMARY_ROOT manually." >&2

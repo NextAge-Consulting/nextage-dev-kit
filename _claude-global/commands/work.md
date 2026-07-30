@@ -6,7 +6,7 @@ $ARGUMENTS
 
 ## The model
 
-Every project has a primary repo folder (e.g. `~/projects/<project>/`) that always sits on `main`, clean. The primary is reserved for git substrate and for plain-CLI workflows that need `main` (notably `/sync-starter-kit`). Work does NOT happen there. All editing happens in worktrees under `<project>/.claude/worktrees/`:
+Every project has a primary repo folder (e.g. `~/projects/<project>/`) that always sits on `main`, clean. The primary is reserved for git substrate and for plain-CLI workflows that need `main` (notably `/sync-dev-kit`). Work does NOT happen there. All editing happens in worktrees under `<project>/.claude/worktrees/`:
 
 - **`current/`** — the default worktree for a body of work. Same path used across consecutive sessions until `/merge` ships the branch. Always sits on a `wip/*` or feature branch (NEVER on `main`, because `main` is owned by the primary). Created on first `/work` after a merge; removed by `/merge`.
 - **Compartments** (`<project>/.claude/worktrees/<name>/`) — opt-in additional worktrees for parallel bodies of work or for retrieving someone else's branch without disturbing `current/`. Each compartment sits on its own `wip/<name>` or feature branch.
@@ -131,4 +131,4 @@ If `$ARGUMENTS` carried trailing free text (Step 1), treat it as the session's f
 
 ## Why primary stays on main
 
-`/sync-starter-kit` and other plain-CLI workflows expect the primary repo on a clean `main`. The earlier worktree design briefly considered "parking" the primary on a placeholder ref so `current/` could hold `main` — that created chicken-and-egg problems for kit sync and any other workflow that branches off `main` in the primary. The current model resolves the collision by giving `current/` its own branch from day one, leaving primary undisturbed forever.
+`/sync-dev-kit` and other plain-CLI workflows expect the primary repo on a clean `main`. The earlier worktree design briefly considered "parking" the primary on a placeholder ref so `current/` could hold `main` — that created chicken-and-egg problems for kit sync and any other workflow that branches off `main` in the primary. The current model resolves the collision by giving `current/` its own branch from day one, leaving primary undisturbed forever.

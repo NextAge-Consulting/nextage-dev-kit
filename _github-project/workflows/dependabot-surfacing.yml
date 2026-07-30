@@ -90,7 +90,7 @@ jobs:
   # ─── Self-gate on bot-App configuration ────────────────────────────────────
   # This workflow's load-bearing dependency is a GitHub App installation token,
   # minted from the `BOT_APP_CLIENT_ID` / `BOT_APP_PRIVATE_KEY` repo/org secrets.
-  # Those secrets cannot be supplied by /sync-starter-kit's substitution engine
+  # Those secrets cannot be supplied by /sync-dev-kit's substitution engine
   # (substitution injects strings into files; it cannot create GHA secrets). A
   # repo that syncs this template WITHOUT installing the bot App would otherwise
   # have a standing-red scheduled workflow that fails at the token-mint step on

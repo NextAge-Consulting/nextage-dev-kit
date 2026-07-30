@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # sync-cpl.sh — All-or-nothing CPL install/update
-# Source: _cpl/ in claude-project-starter-kit repo
+# Source: _cpl/ in nextage-dev-kit repo
 # Target: ~/bin/, ~/Applications/, ~/Library/Application Support/iTerm2/DynamicProfiles/
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
