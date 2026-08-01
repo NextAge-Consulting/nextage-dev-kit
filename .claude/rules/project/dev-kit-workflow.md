@@ -63,6 +63,7 @@ The kit dogfoods (mirrors into its own `.claude/`) only what it actually *uses*.
 | `skills/shadcn/**` | Kit has no `components.json` / shadcn install. |
 | `skills/mfing-bible-of-tanstack/**` | Kit has no TanStack code. |
 | `rules/drizzle-migrations.md` | Kit has no database or migrations — the drizzle mechanics never apply. |
+| `rules/postgres-collation.md` | Kit has no database and no Drizzle schema — the collation question never arises. |
 | `rules/cli-utilities.md` | Kit runs no AWS / cloud CLI — the account/region discipline never applies here. |
 | `skills/agent-browser/**`, `rules/integrations/agent-browser.md` | Kit has no web app to drive a browser against. |
 | `skills/e2e/**` | Kit has no `test/e2e/*.md` flow files. |

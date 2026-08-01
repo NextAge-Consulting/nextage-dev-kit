@@ -214,6 +214,27 @@ gemini_review_for_head() {
     [ "$count" -gt 0 ] 2>/dev/null && echo "posted" || echo "none"
 }
 
+
+# Gemini sometimes DECLINES to review — e.g. workflow-only diffs: "Gemini is
+# unable to generate a review for this pull request due to the file types
+# involved not being currently supported." That lands as an ISSUE COMMENT, not
+# a review object, so the review wait would poll to TIMEOUT (observed on
+# e.g. a small .github/workflows-only diff). A
+# decline comment newer than HEAD's committer date is terminal for this HEAD —
+# the gate treats it as reviewed-with-zero-findings. Returns: yes | no | error.
+gemini_declined_for_head() {
+    local head_date
+    if ! head_date=$(gh api "repos/$REPO/commits/$1" --jq '.commit.committer.date' 2>/dev/null); then
+        echo "error"; return
+    fi
+    local count
+    if ! count=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
+        --jq '[.[] | select(.user.login=="gemini-code-assist[bot]") | select((.body // "") | test("(?i)unable to generate a review")) | select(.created_at > "'"$head_date"'")] | length' 2>/dev/null); then
+        echo "error"; return
+    fi
+    [ "$count" -gt 0 ] 2>/dev/null && echo "yes" || echo "no"
+}
+
 START=$(date +%s)
 TIMEOUT_SEC=$((TIMEOUT_MIN * 60))
 LAST_HEAD=""
@@ -268,6 +289,9 @@ while true; do
         LAST_TRIGGER=$(gemini_trigger_for_head "$HEAD")
         if [ "$LAST_TRIGGER" = "yes" ]; then
             LAST_REVIEW=$(gemini_review_for_head "$HEAD")
+            if [ "$LAST_REVIEW" = "none" ] && [ "$(gemini_declined_for_head "$HEAD")" = "yes" ]; then
+                LAST_REVIEW="declined"
+            fi
         else
             LAST_REVIEW="n/a"
         fi
@@ -284,6 +308,10 @@ while true; do
         fi
         if [ "$LAST_TRIGGER" = "no" ]; then
             echo "wait-for-pr-ready: ready (CI=$LAST_CI, Gemini=no-trigger-for-HEAD, HEAD=${HEAD:0:7}, ${ELAPSED}s elapsed)" >&2
+            exit 0
+        fi
+        if [ "$LAST_REVIEW" = "declined" ]; then
+            echo "wait-for-pr-ready: ready (CI=$LAST_CI, Gemini=declined-unsupported-files, findings=0, HEAD=${HEAD:0:7}, ${ELAPSED}s elapsed)" >&2
             exit 0
         fi
         if [ "$LAST_REVIEW" = "posted" ]; then

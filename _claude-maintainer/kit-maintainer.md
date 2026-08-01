@@ -7,6 +7,35 @@ pass straight through. (On a consumer machine there's no marker, so it blocks.)
 So you may edit kit files, from the kit repo or from inside any consumer
 project, and propagate them out.
 
+## THE KIT IS PUBLIC — sanitize everything that goes into it
+
+`NextAge-Consulting/nextage-dev-kit` is a **public, open-source repository**.
+Anything written there is world-readable, permanently, including via forks and
+the commit history. A secret committed and reverted is still leaked.
+
+So every kit edit is also a publication decision. Before writing anything to the
+kit, strip:
+
+- **Client and project names** — no consumer project name, no customer or end-client
+  name, no branding. Write "a consumer project", "the tenant database".
+- **People** — no names, emails, usernames, or handles. Not in examples, not in
+  sample data, not in commit messages.
+- **Infrastructure identity** — hostnames, domains, database and endpoint names,
+  bucket names, account ids, ARNs, IPs, connection strings, ports that reveal a
+  deployment.
+- **Anything resembling a credential** — keys, tokens, hashes, salts. Including
+  fake-looking ones: no reader can tell.
+- **Business specifics** — schema drawn from a real client's model, row counts,
+  volumes, or measurements that identify a system.
+
+Examples must be **invented and generic**: `example.com`, `alice@example.com`,
+`app_user`, `mytable.mycolumn`. When a real case motivated the rule, describe the
+*shape* of the problem, never the instance.
+
+The consumer projects are private; the kit is not. A fact that is fine in a
+project's `project-documentation/` may be a leak in the kit's. When in doubt it
+stays in the project.
+
 **Two independent mechanisms — don't conflate them.** The `~/.claude/kitmaster`
 marker gates the HOOK (present → `block-kit-edit.sh` inert). What gates THIS
 RULE loading is the `@kit-maintainer.md` import line in `~/.claude/CLAUDE.md`,
@@ -42,11 +71,16 @@ touch ~/.claude/kitmaster                          # makes block-kit-edit.sh ine
 `--maintainer` warns when either is missing but never creates them; a consumer
 machine must not be able to self-promote.
 
-**`~/.claude/` is a snapshot, not a live view of the kit.** Editing anything under
-`_claude-maintainer/` or `_claude-global/` changes nothing until you re-run
-`/install-kit --maintainer`. Never symlink `~/.claude/` at the kit — global
-tooling would then follow whatever branch or half-finished edit the kit working
-tree happens to be sitting on.
+**`~/.claude/` is a COPY, and you propagate to it the same way you propagate to a
+consumer project — by editing both to byte-identical, not by re-running the
+installer.** A change to `_claude-maintainer/` or `_claude-global/` lands in the
+kit source AND in `~/.claude/` in the same pass, proven with `diff`. `/install-kit`
+is the BOOTSTRAP for a new machine, not the propagation step — the same
+distinction as `/sync-dev-kit`, which is how consumer machines pull, never how
+you push.
+
+Never symlink `~/.claude/` at the kit — global tooling would then follow whatever
+branch or half-finished edit the kit working tree happens to be sitting on.
 
 ## What the kit is, and where
 
@@ -103,6 +137,19 @@ Reaching for the sync command is the slow lane you keep defaulting to; don't.
    kit separately later."
 
 The durable home for kit-shared changes is editing the kit source directly.
+
+**The other two surfaces work identically, with `~/.claude/` standing in for the
+consumer's copy.** A `_claude-maintainer/` or `_claude-global/` change is edited
+in the kit source and in `~/.claude/` in the same pass, `diff`ed to prove
+byte-identity. Never leave it half-applied and tell the human to run an installer
+— that is the same "I'll update the kit separately later" failure the step above
+forbids, and it leaves the machine running instructions the kit no longer holds.
+
+| Surface | Copies to edit in one pass |
+|---|---|
+| `_claude-project/…` | kit source · kit dogfood (if dogfooded) · every consumer's `.claude/…` |
+| `_claude-maintainer/…` | kit source · `~/.claude/…` |
+| `_claude-global/…` | kit source · `~/.claude/…` |
 
 ## Discipline
 
