@@ -156,6 +156,20 @@ For each file entry, the `state` field is one of:
 | `new-kit` | Kit has a new file not in project | Recommend apply |
 | `removed-kit` | Kit deleted a file that still exists in project | Ask: delete from project or keep as project-owned? |
 | `project-deleted` | Baseline + kit still have file, but project deleted it | Ask: re-add from kit, or accept deletion? |
+| `template-drift` | Template file; kit and project both changed | The project OWNS this file. Show the kit's delta as information, recommend nothing. Never reconcile toward the kit. |
+
+### Step 2.05: file modes — `owned` vs `template`
+
+Every entry also carries a `mode` field, declared kit-side by `mode_for_kit_path()` and copied into the consumer's lockfile on apply:
+
+- **`owned`** (default, nearly everything) — the kit owns the content. `block-kit-edit.sh` denies consumer edits, and a two-sided divergence is a `conflict` to reconcile toward the kit.
+- **`template`** — the kit ships a STARTING POINT; the project owns the file and has final say. The hook permits consumer edits, and a two-sided divergence reports as `template-drift` rather than `conflict`.
+
+Only the two-sided-divergence state changes. `kit-only` still recommends apply (the project has not customized), and `project-only` is still a silent skip.
+
+**Presenting a `template-drift` is a different conversation.** Do NOT recommend applying, and do NOT frame the project's content as something to reconcile. Show what the kit changed and let the user decide whether any of it is worth adopting; "keep ours" is a perfectly good answer that needs no justification. Applying is still available via `--apply-file`, but it overwrites a file the project owns — so it happens only on an explicit request, never on your recommendation.
+
+The lockfile tolerates both schemas: a legacy bare-string value means `owned`. Entries are upgraded to `{sha, mode}` as each file is applied; there is no migration step.
 
 ### Step 2.1: settings.json reconciliation (silent, handled by the script)
 

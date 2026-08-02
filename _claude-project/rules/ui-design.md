@@ -41,6 +41,26 @@ Never add server/DB deps to the UI home, and never add React/UI to the server-sh
 
 A project that cannot yet satisfy the wall (UI still living in its server-shared package) MUST record the exception in a project-local rule that names the migration path — never silently ignore it.
 
+**Keep the server-shared package browser-free even with no headless app today.** A future REST service or worker must be able to consume shared business logic with no path that reaches a React import. Enforcing it from the start costs nothing; retrofitting it after the fact is a refactor. A headless consumer does not create this rule — it only removes the option of ignoring it.
+
+### The third tier — only when something needs it
+
+Two tiers (server-shared + UI home) cover most projects. A third appears when a project has shared code that is **neither**: client-side, used by more than one front-end app, and not presentational — a Stripe browser integration, a shared serverFn, a shipping-API client.
+
+It cannot go in the server-shared package (that stays browser-free, above), and it must not go in the UI home (which stays clean presentation so the design feed has nothing server-side to sanitize). So it earns its own workspace — conventionally `packages/web`, holding integrations and shared serverFns, and never touching the database.
+
+**Do not create this tier speculatively.** With nothing to put in it, an empty third package is pure overhead: another manifest, another path alias, and a "where does this go?" decision on every future change. Create it when the code that belongs in it actually exists — not before. Most projects never need it.
+
+### The one sanctioned crossing: contract types
+
+Row and param shapes produced by server loaders and rendered by UI components are defined **once**, in the UI home under `contracts/`, and `import type`d back by the server module that produces them. Types erase at compile, so nothing crosses at runtime.
+
+This is the only way the server-shared package may reference the UI home, and it is types-only — a runtime import is a violation. Contract modules import nothing but sibling contract modules. The alternative (declaring the shape twice, or putting it in the server tier and importing it from UI) either drifts or breaches the wall.
+
+### The guard
+
+`scripts/check-workspace-tiers.mjs` (CI job `workspace-tiers`) enforces all of the above. It **detects** which tiers a repo has — server-shared, UI home, web tier, and headless apps (an app workspace with no `react` dependency and no `.tsx`) — and checks only the walls that exist. A repo with no shared workspace is a guaranteed pass, so it runs unconditionally. Its success line names what it actually enforced; a pass with fewer tiers listed than you expect means a tier was not detected, not that it was checked and found clean.
+
 ## When this rule is wrong
 
 Almost never. The one carve-out: if the user explicitly authorizes ad-hoc styling for a single one-shot task (e.g. a debugging UI), you may proceed without the skill — but document the exception in the change and treat it as tech debt to be reconciled.

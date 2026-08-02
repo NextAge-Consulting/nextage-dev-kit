@@ -433,6 +433,9 @@ dest_for_kit_path() {
         _claude-project/templates/scripts/check-dep-alignment.mjs)
             echo "scripts/check-dep-alignment.mjs"
             ;;
+        _claude-project/templates/scripts/check-workspace-tiers.mjs)
+            echo "scripts/check-workspace-tiers.mjs"
+            ;;
         _gemini-project/*)
             echo ".gemini/${kit_rel#_gemini-project/}"
             ;;
@@ -452,15 +455,47 @@ dest_for_kit_path() {
     esac
 }
 
+# Sync mode for a kit file. Two values:
+#
+#   owned    — the kit owns the content. Consumers must not edit it
+#              (`block-kit-edit.sh` denies the write); divergence is a `conflict`
+#              reconciled toward the kit. Default, and the common case.
+#   template — the kit ships a STARTING POINT; the project owns the file and has
+#              final say. Consumers may edit it freely (the hook allows the
+#              write), and divergence reports as `template-drift`: the kit's delta
+#              is shown for the project to take or ignore, never reconciled.
+#
+# Use `template` only where content genuinely must vary per project — a value that
+# differs, not a preference that differs. When in doubt it is `owned`: a file
+# marked `template` stops receiving enforced updates, and that is hard to notice.
+#
+# Mode is a property of the KIT file, not of the consumer, so it is declared here
+# and copied into each consumer's lockfile on apply — `block-kit-edit.sh` runs on
+# machines where the kit is not checked out and cannot ask the kit at edit time.
+mode_for_kit_path() {
+    local kit_rel="$1"
+    case "$kit_rel" in
+        # No templates registered yet. Prospective members: the vitest scaffolding
+        # under _claude-project/templates/testing/ and per-project deploy
+        # workflows — neither is currently synced at all.
+        *) echo "owned" ;;
+    esac
+}
+
+# Baseline SHA from the lockfile. Tolerates both schemas: the legacy bare-string
+# value (implicitly mode `owned`) and the current {sha, mode} object.
 load_baseline_sha() {
     local dest_rel="$1"
     [ -f "$LOCKFILE" ] || { echo ""; return; }
-    jq -r --arg k "$dest_rel" '.files[$k] // ""' "$LOCKFILE"
+    jq -r --arg k "$dest_rel" '
+        (.files[$k] // "") | if type == "object" then (.sha // "") else . end
+    ' "$LOCKFILE"
 }
 
 update_lockfile_file() {
     local dest_rel="$1"
     local new_sha="$2"
+    local mode="${3:-owned}"
 
     mkdir -p "$(dirname "$LOCKFILE")"
     if [ ! -f "$LOCKFILE" ]; then
@@ -470,7 +505,8 @@ update_lockfile_file() {
     local tmp
     tmp=$(mktemp)
     if [ -n "$new_sha" ]; then
-        jq --arg k "$dest_rel" --arg v "$new_sha" '.files[$k] = $v' "$LOCKFILE" > "$tmp"
+        jq --arg k "$dest_rel" --arg v "$new_sha" --arg m "$mode" \
+            '.files[$k] = {sha: $v, mode: $m}' "$LOCKFILE" > "$tmp"
     else
         jq --arg k "$dest_rel" 'del(.files[$k])' "$LOCKFILE" > "$tmp"
     fi
@@ -568,14 +604,27 @@ if [ "$MODE" = "scan" ]; then
             state="unknown"
         fi
 
+        # Template files: the project owns the content, so a two-sided divergence
+        # is not something to reconcile toward the kit. Report it as drift — the
+        # kit's delta is informational, the project decides. Every other state
+        # keeps its meaning: `kit-only` still offers the update (the project has
+        # not customized), `project-only` is still a silent skip.
+        file_mode=$(mode_for_kit_path "$kit_rel")
+        if [ "$file_mode" = "template" ]; then
+            case "$state" in
+                conflict|conflict-first) state="template-drift" ;;
+            esac
+        fi
+
         FILE_ENTRIES=$(echo "$FILE_ENTRIES" | jq \
             --arg kit_path "$kit_rel" \
             --arg dest_path "$dest_rel" \
             --arg state "$state" \
+            --arg mode "$file_mode" \
             --arg kit_sha "$kit_sha" \
             --arg proj_sha "$proj_sha" \
             --arg baseline_sha "$baseline_sha" \
-            '. + [{kit_path: $kit_path, dest_path: $dest_path, state: $state, kit_sha: $kit_sha, project_sha: $proj_sha, baseline_sha: $baseline_sha}]')
+            '. + [{kit_path: $kit_path, dest_path: $dest_path, state: $state, mode: $mode, kit_sha: $kit_sha, project_sha: $proj_sha, baseline_sha: $baseline_sha}]')
     done <<< "$KIT_FILES"
 
     # Removed-from-kit: files in lockfile not present in kit
@@ -677,7 +726,7 @@ if [ "$MODE" = "apply" ]; then
     # overlaid + canonicalized) kit content — same as what got written to
     # the project. This keeps subsequent scans clean until the kit template
     # changes or the substitution value changes.
-    update_lockfile_file "$dest_rel" "$new_sha"
+    update_lockfile_file "$dest_rel" "$new_sha" "$(mode_for_kit_path "$APPLY_FILE")"
 
     echo "sync-dev-kit.sh: applied $dest_rel ($new_sha)" >&2
     exit 0
@@ -773,10 +822,14 @@ if [ "$MODE" = "finalize" ]; then
         proj_sha=$(sha256 "${PROJECT_PATH}/${dest_rel}")
         [ -n "$kit_sha" ] && [ "$kit_sha" = "$proj_sha" ] || continue
 
-        already=$(jq -r --arg k "$dest_rel" '.files[$k] // ""' "$LOCKFILE")
+        already=$(jq -r --arg k "$dest_rel" '
+            (.files[$k] // "") | if type == "object" then (.sha // "") else . end
+        ' "$LOCKFILE")
         [ "$already" = "$kit_sha" ] && continue
 
-        BACKFILL=$(jq -c --arg k "$dest_rel" --arg v "$kit_sha" '. + {($k): $v}' <<<"$BACKFILL")
+        BACKFILL=$(jq -c --arg k "$dest_rel" --arg v "$kit_sha" \
+            --arg m "$(mode_for_kit_path "$kit_rel")" \
+            '. + {($k): {sha: $v, mode: $m}}' <<<"$BACKFILL")
         BACKFILL_N=$((BACKFILL_N + 1))
     done <<< "$ALL_KIT_FILES"
 

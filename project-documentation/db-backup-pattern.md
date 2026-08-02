@@ -365,4 +365,4 @@ in the lifecycle rule).
 - Neon connection pooling (pooled vs direct): https://neon.com/docs/connect/connection-pooling
 - Neon automate pg_dump backups: https://neon.com/docs/manage/backup-pg-dump-automate
 - PostgreSQL APT (PGDG) repo: https://www.postgresql.org/download/linux/ubuntu/
-- OIDC migration (kit backlog): `pipeline-improvements-to-implement.md` §2
+- GitHub OIDC for AWS (replaces long-lived access keys): https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services

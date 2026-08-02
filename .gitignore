@@ -4,6 +4,10 @@
 *.pem
 .auth_token
 
+# Maintainer-private planning notes. Single-maintainer repo; this holds
+# unsanitized working detail (account ids, client context) and the kit is public.
+project-documentation/pipeline-improvements-to-implement.md
+
 # OS files
 .DS_Store
 Thumbs.db

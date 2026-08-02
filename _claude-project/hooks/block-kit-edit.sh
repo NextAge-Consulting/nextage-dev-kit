@@ -39,8 +39,19 @@ case "$FILE_PATH" in
     *)                REL="$FILE_PATH" ;;
 esac
 
-# Is this path kit-managed?
-if jq -e --arg p "$REL" '.files | has($p)' "$MANIFEST" >/dev/null 2>&1; then
+# Is this path kit-managed, and if so under which mode?
+#
+#   (absent)  → not kit-managed. Allow.
+#   owned     → the kit owns the content. Deny.
+#   template  → the kit ships a starting point; the project owns the file. Allow.
+#
+# Tolerates both lockfile schemas: a legacy bare-string value means `owned`.
+MODE=$(jq -r --arg p "$REL" '
+    .files[$p] // empty
+    | if type == "object" then (.mode // "owned") else "owned" end
+' "$MANIFEST" 2>/dev/null)
+
+if [ -n "$MODE" ] && [ "$MODE" != "template" ]; then
     REASON="$REL is synced and owned by the dev kit. Consumer projects must not edit kit-managed files. If it needs to change, describe the change to the kit maintainer — do not edit it here."
     jq -cn --arg r "$REASON" \
       '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
