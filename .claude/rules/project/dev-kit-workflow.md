@@ -60,6 +60,7 @@ The kit dogfoods (mirrors into its own `.claude/`) only what it actually *uses*.
 | `commands/deploy.md`, `skills/gitflow/scripts/deploy.sh` | Kit has nothing to deploy — no version artifact, no deploy target. |
 | `commands/dev.md`, `skills/dev-server/**` | Kit has no dev server / runnable app. |
 | `skills/design-system/**`, `rules/ui-design.md`, `rules/a11y-baseline.md` | Kit has no UI — no JSX/TSX, no `design.md` (HANDBOOK §12a.7). |
+| `skills/ui-patterns/**`, `rules/ui-patterns.md` | Kit has no UI — nothing to compose and no interactions to pattern. |
 | `skills/shadcn/**` | Kit has no `components.json` / shadcn install. |
 | `skills/mfing-bible-of-tanstack/**` | Kit has no TanStack code. |
 | `rules/drizzle-migrations.md` | Kit has no database or migrations — the drizzle mechanics never apply. |
