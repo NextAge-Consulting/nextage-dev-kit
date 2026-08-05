@@ -20,8 +20,8 @@
 #     inserted entries under the same changelog anchor — observed 2026-05-12
 #     on PRs #147/#148). Code touched by the upstream change diverges from
 #     the branch's assumptions, surfacing as runtime breakage post-merge.
-#   - Local main goes stale between sessions. Pete starts /work two days
-#     after Alan's merges + deploys; without an explicit refresh, /work
+#   - Local main goes stale between sessions. a dev starts /work two days
+#     after another dev's merges + deploys; without an explicit refresh, /work
 #     creates the new current/ off a stale view of main. Today the create
 #     path silently fetches; this primitive makes the refresh explicit and
 #     fail-loud.

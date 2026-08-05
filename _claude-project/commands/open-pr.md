@@ -111,17 +111,17 @@ Invoke the readiness wait — blocks until CI required checks pass AND (unless `
 .claude/skills/gitflow/scripts/wait-for-pr-ready.sh
 ```
 
-Status updates print every poll cycle (~30s). Pete is sitting at the keyboard during this — that's the point of the wait, no other infra needed.
+Status updates print every poll cycle (~30s). The user is sitting at the keyboard during this — that's the point of the wait, no other infra needed.
 
 Exit handling:
 - `0` → PR is ready. Continue to Step 8.
-- `2` → CI failed. Surface the failing check name and PR URL; stop. Pete fixes locally and pushes; the failing CI gate is the signal to act.
-- `3` → timeout (default 15min). Surface the diagnostic message the script printed (likely Gemini queued/rate-limited, or CI legitimately slow). Pete decides: re-invoke with `--timeout-min <larger>`, or — only if Gemini is genuinely absent — set `GEMINI_NOT_INSTALLED="true"` in `.claude/sync-substitutions.json` to opt out.
+- `2` → CI failed. Surface the failing check name and PR URL; stop. The user fixes locally and pushes; the failing CI gate is the signal to act.
+- `3` → timeout (default 15min). Surface the diagnostic message the script printed (likely Gemini queued/rate-limited, or CI legitimately slow). The user decides: re-invoke with `--timeout-min <larger>`, or — only if Gemini is genuinely absent — set `GEMINI_NOT_INSTALLED="true"` in `.claude/sync-substitutions.json` to opt out.
 - `5` → user pressed Ctrl-C. Stop cleanly, no further steps.
 
 ### Step 7: Hand off based on Gemini findings count
 
-The wait script's ready message includes a `findings=N` count whenever Gemini posted a review. Surface that count to Pete and tailor the handoff prompt to it:
+The wait script's ready message includes a `findings=N` count whenever Gemini posted a review. Surface that count to the user and tailor the handoff prompt to it:
 
 | Wait output | Prompt |
 |---|---|
@@ -130,9 +130,9 @@ The wait script's ready message includes a `findings=N` count whenever Gemini po
 | `Gemini=posted, findings=0` | `PR #<N> ready. Gemini reviewed clean — /merge when you're set.` |
 | `Gemini=posted, findings=N` (N > 0) | `PR #<N> ready. Gemini raised <N> finding(s) — run /triage to walk them, or /merge to ship without triage.` |
 
-Do NOT auto-invoke `/triage` and do NOT auto-invoke `/merge`. Pete decides per finding count. The explicit handoff prevents the "trapped in a flow" feeling and lets him abandon cleanly.
+Do NOT auto-invoke `/triage` and do NOT auto-invoke `/merge`. The user decides per finding count. The explicit handoff prevents the "trapped in a flow" feeling and lets them abandon cleanly.
 
-If Pete runs `/triage` and lands a fix commit via `/commit --review`, that push posts a fresh `/gemini review` comment which arms a new review cycle. The next `/merge` will re-run `wait-for-pr-ready.sh` (called from `merge.sh`) and gate on the new cycle automatically. If the fix commit went out via `/commit --no-review`, no trigger is posted and `/merge` proceeds on CI alone.
+If the user runs `/triage` and lands a fix commit via `/commit --review`, that push posts a fresh `/gemini review` comment which arms a new review cycle. The next `/merge` will re-run `wait-for-pr-ready.sh` (called from `merge.sh`) and gate on the new cycle automatically. If the fix commit went out via `/commit --no-review`, no trigger is posted and `/merge` proceeds on CI alone.
 
 ### Step 8: Report
 

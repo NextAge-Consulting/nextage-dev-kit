@@ -1,8 +1,24 @@
 #!/bin/bash
-# Git Guard Hook (destructive-only)
-# Blocks destructive git invocations that can cause data loss.
-# CI gates (commitlint, typecheck on PR) and /merge's self-gating handle workflow routing —
-# this hook handles only what CI cannot catch: local destructive operations.
+# Git Guard Hook
+# Blocks two classes of git invocation:
+#   1. Destructive operations that can cause data loss (reset, restore, revert,
+#      clean, checkout-of-files).
+#   2. Raw `git commit` — commits must go through the gitflow commands so the
+#      changelog, conventional-commit format, and version bookkeeping stay correct.
+#
+# The commit block does NOT interfere with gitflow itself. This hook inspects the
+# top-level command string of a Bash tool call; gitflow's own `git commit
+# --no-verify` runs as a subprocess inside commit.sh / checkpoint.sh /
+# ship-main.sh / catchup.sh / deploy.sh, which the hook never sees. No bypass
+# token or allowlist is needed.
+#
+# Scope: fires only on Claude's Bash tool calls. A human committing from a
+# terminal or an IDE is out of reach — deliberately so. The kit does not manage
+# .git/hooks (they cannot be tracked in git and do not survive a clone), so
+# terminal-side enforcement is out of scope rather than half-delivered.
+#
+# CI gates (commitlint, typecheck on PR) and /merge's self-gating remain the
+# authority on workflow routing; this hook is the local fast-fail.
 #
 # Bypass: prefix the command with SKIP_GIT_GUARD=1 under explicit user authorization.
 
@@ -71,6 +87,13 @@ for PART in "${PARTS[@]}"; do
         # Allow bare branch switch: git checkout <branch>
         echo "$PART" | grep -qE "^git checkout [a-zA-Z0-9_./-]+$" && continue
         deny "GIT CHECKOUT FILE BLOCKED\\n\\nAttempted: $PART\\n\\nDESTRUCTIVE — checking out specific files discards uncommitted changes.\\nFix issues with Read/Edit/Write instead.\\n\\nEmergency override: SKIP_GIT_GUARD=1."
+    fi
+
+    # === WORKFLOW ROUTING — blocked ===
+    # `git commit-tree` and other `git commit*` subcommands are unaffected: the
+    # (\s|$) anchor requires whitespace or end-of-string right after "commit".
+    if echo "$PART" | grep -qE "^git commit(\s|$)"; then
+        deny "GIT COMMIT BLOCKED\\n\\nAttempted: $PART\\n\\nRaw commits bypass changelog, conventional-commit format, and version bookkeeping.\\nUse the gitflow commands instead:\\n\\n  /commit       - full conventional commit with changelog\\n  /checkpoint   - quick timestamped WIP commit\\n  /ship-main    - commit and push straight to main\\n\\nEmergency override: SKIP_GIT_GUARD=1 (user authorization required)."
     fi
 done
 

@@ -26,12 +26,12 @@ Gemini reviews are comment-triggered (auto-review on PR open is OFF in `.gemini/
 .claude/skills/gitflow/scripts/wait-for-pr-ready.sh --pr <N>
 ```
 
-The script reads the trigger-comment history. If a `/gemini review` comment exists for the current HEAD and a Gemini review has been posted against it, exits ready. If no trigger exists (e.g. last `/commit` was `--no-review`), it exits ready on CI alone — meaning there's no fresh Gemini review to triage. In that case, surface to Pete: `Gemini has no review for the current HEAD — last commit was --no-review. Re-trigger with: gh pr comment <N> --body '/gemini review' and re-run /triage, or skip triage.`
+The script reads the trigger-comment history. If a `/gemini review` comment exists for the current HEAD and a Gemini review has been posted against it, exits ready. If no trigger exists (e.g. last `/commit` was `--no-review`), it exits ready on CI alone — meaning there's no fresh Gemini review to triage. In that case, surface to the user: `Gemini has no review for the current HEAD — last commit was --no-review. Re-trigger with: gh pr comment <N> --body '/gemini review' and re-run /triage, or skip triage.`
 
 Exit handling:
 - `0` → Gemini posted (or skipped — see ready message). Proceed to Step 2 only if `findings=N > 0`.
 - `2` → CI failed. Triage is pointless until CI is green. Surface the failure and stop.
-- `3` → timeout. Surface the diagnostic; Pete decides whether to extend, disable Gemini gating, or proceed manually.
+- `3` → timeout. Surface the diagnostic; The user decides whether to extend, disable Gemini gating, or proceed manually.
 - `5` → user interrupted. Stop cleanly.
 
 If `GEMINI_NOT_INSTALLED="true"` (this repo doesn't have the Gemini App): the script returns immediately on `Gemini=skipped`, so this step is effectively a no-op + CI green check. No special-casing needed in this command.

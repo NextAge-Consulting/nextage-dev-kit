@@ -54,4 +54,4 @@ When you (Claude) are about to propose a kit change:
 
 ## Why this rule is zero-tolerance
 
-Pete is the sole human consumer of this kit. Every wrong recommendation costs him cycles to identify and correct. The kit's design is heavily commented and well-documented — there is no excuse for proposing changes that contradict comments or HANDBOOK sections that are already in the repo. Read first.
+The maintainer is the sole human consumer of this kit. Every wrong recommendation costs them cycles to identify and correct. The kit's design is heavily commented and well-documented — there is no excuse for proposing changes that contradict comments or HANDBOOK sections that are already in the repo. Read first.

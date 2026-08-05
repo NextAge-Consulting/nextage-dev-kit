@@ -1,6 +1,6 @@
 ---
 name: dev-server
-description: This skill should be used when the user asks to "start dev", "run dev", "start dev server", "run the server", "start shop", "start dealer", "spin up <app>", "start main", "run main alongside", "compare with main", "start with tunnel", "tunnel <app>", "expose to alan", "run on cloudflare", "what's running", "show dev servers", or any natural-language request to launch a dev server. The canonical and ONLY authorized path for starting dev servers in a kit-enabled project. Routes to the `/dev` slash command, which opens a new iTerm tab in the correct worktree and runs the dev command, with the port auto-overridden on collision via `lsof` pre-check. `--tunnel` flag wraps the dev command with a Cloudflare named tunnel.
+description: This skill should be used when the user asks to "start dev", "run dev", "start dev server", "run the server", "start shop", "start dealer", "spin up <app>", "start main", "run main alongside", "compare with main", "start with tunnel", "tunnel <app>", "expose to a teammate", "run on cloudflare", "what's running", "show dev servers", or any natural-language request to launch a dev server. The canonical and ONLY authorized path for starting dev servers in a kit-enabled project. Routes to the `/dev` slash command, which opens a new iTerm tab in the correct worktree and runs the dev command, with the port auto-overridden on collision via `lsof` pre-check. `--tunnel` flag wraps the dev command with a Cloudflare named tunnel.
 ---
 
 # dev-server
@@ -24,7 +24,7 @@ Two problems the Agents-view + worktree workflow created that the old "cmd-t + c
 | "start shop", "spin up shop" | `/dev shop` |
 | "start shop and dealer", "run both" | `/dev shop dealer` |
 | "start main", "compare with main", "run main alongside" | `/dev <app> --main` |
-| "start shop with tunnel", "tunnel shop", "expose shop to alan", "run shop on cloudflare" | `/dev shop --tunnel` |
+| "start shop with tunnel", "tunnel shop", "expose shop to a teammate", "run shop on cloudflare" | `/dev shop --tunnel` |
 | "what's running", "show dev servers", "any dev servers up" | `/dev --status` |
 
 ## What dev-server does

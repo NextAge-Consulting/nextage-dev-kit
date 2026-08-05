@@ -44,10 +44,10 @@ The kit isn't enforcing 100% compliance. It's a baseline sync — consumer proje
 
 ## 1. Who this is for
 
-The kit has exactly two human consumers:
+The kit has two human roles:
 
-- **Pete** — kit author, master of every project. The only maintainer: runs `/sync-dev-kit`, and is the only one who installs the maintainer surface (`/install-kit --maintainer`). Maintains opinions centrally in `_claude-project/`.
-- **Alan** — second developer. Never touches the kit directly. Clones projects, gets a working setup from the repo. See `DEVELOPER-ONBOARDING.md`.
+- **Maintainer** — kit author, master of every project. The only role that runs `/sync-dev-kit`, and the only one who installs the maintainer surface (`/install-kit --maintainer`). Maintains opinions centrally in `_claude-project/`.
+- **Consumer developer** — any other developer on a project. Never touches the kit directly. Clones projects, gets a working setup from the repo. See `DEVELOPER-ONBOARDING.md`.
 
 Anything else in this handbook is for Claude (local or cloud) to follow mechanically.
 
@@ -62,7 +62,7 @@ Anything else in this handbook is for Claude (local or cloud) to follow mechanic
 | Repo `.claude/` (committed) | Local Claude, cloud Claude, every dev on the project | Rules, hooks, skills, commands, scripts, agents, `settings.json` |
 | Repo `.mcp.json` (committed) | Local Claude, cloud Claude | MCP server declarations (Ref, Exa) with env var expansion for keys |
 | Repo `.claude/settings.local.json` (gitignored) | Local Claude only on the dev's machine | Per-dev permission allowlist, machine-specific paths |
-| `~/.claude/` (user-global, not synced) | Local Claude only on that dev's machine | Global Claude Code settings, plugins, auto-memory, the dev-kit bootstrap for Pete |
+| `~/.claude/` (user-global, not synced) | Local Claude only on that dev's machine | Global Claude Code settings, plugins, auto-memory, the dev-kit bootstrap for the maintainer |
 
 ### 2.2. What's committed vs gitignored
 
@@ -115,16 +115,46 @@ Git operations use a layered defense stack. Rules alone are not enforcement — 
 | 1 | Rule in `.claude/rules/git.md` | <50% — Claude may drift | Reminder |
 | 2 | Skill `gitflow` with natural-language triggers | ~75% — Claude decides when to invoke | Discovery / routing |
 | 3 | Slash commands in `.claude/commands/` (canonical list in `skills/gitflow/SKILL.md`) | ~95% — deterministic once invoked | Primary mechanism |
-| 4 | Hooks `pre-commit-validation.sh`, `git-guard.sh` | 100% — script always fires | Enforcement |
+| 4 | Hook `git-guard.sh` | 100% of Claude's Bash calls — script always fires | Enforcement |
+| 5 | CI gates (commitlint, typecheck on PR) + `/merge` self-gating | 100% — cannot merge without passing | Backstop |
 
 Every layer exists simultaneously. Dropping any layer reduces the reliability floor.
 
 ### 3.1. Design principles
 
-- **Natural language preferred.** Pete says "commit this" or "merge to main" in natural language. The skill's trigger metadata catches this and routes to the slash command. Pete never has to memorize slash commands, but they exist as explicit fallback.
+- **Natural language preferred.** The user says "commit this" or "merge to main" in natural language. The skill's trigger metadata catches this and routes to the slash command. The user never has to memorize slash commands, but they exist as explicit fallback.
 - **Scripts own the mechanics.** Each slash command is a thin wrapper that invokes a `gitflow` skill script. Scripts are deterministic shell — no Claude judgment between invocation and execution.
-- **Hooks are the 100% layer.** Even if Claude drifts past rule, skill, and command and runs raw `git commit`, the `pre-commit-validation.sh` + `git-guard.sh` hooks catch it. `git-guard` blocks unless a command-context token exists; token is created by gitflow scripts; therefore only gitflow-originated commits proceed.
+- **The hook is the 100% layer for Claude-originated commands.** Even if Claude drifts past rule, skill, and command and runs raw `git commit`, `git-guard.sh` denies it — along with the destructive operations (`reset`, `restore`, `revert`, `clean`, `checkout <file>`).
+
+  How gitflow itself gets through: no token, no allowlist. The hook is a Claude Code `PreToolUse` hook, so it inspects the **top-level command string of a tool call**. When Claude runs `/commit`, the hook sees the invocation of `commit.sh`; the `git commit --no-verify` *inside* that script is a subprocess the hook never observes. Sanctioned commits pass because they are never top-level `git commit` calls in the first place.
+
+  (An earlier revision used a command-context token created by the gitflow scripts. That mechanism was removed — the subprocess-invisibility property makes it unnecessary. Do not reintroduce token logic.)
+
+  **Scope limit — this layer does not cover humans.** A `PreToolUse` hook fires only on Claude's tool calls. A developer committing from a terminal or an IDE is invisible to it. That is deliberate: the only way to gate those is a `.git/hooks/pre-commit`, and git hooks cannot be tracked in git or survive a clone, so the kit does not manage them (see §3.1.1). Terminal-side discipline rests on the CI gates, which no local bypass can evade.
 - **No version bump in feature-PR scripts; changelog has a single writer.** Version bumps and `changelog.md` updates are owned by `/deploy` (see §6.5). Feature-PR scripts (`commit.sh`, `open-pr.sh`, `merge.sh`) commit code only — they never touch the manifest version field or `changelog.md`. Earlier kit revisions had `open-pr.sh` insert a per-PR changelog entry on the feature branch and `deploy.sh` insert again at release time; that produced duplicate bullets in main and was removed in favor of single-writer.
+
+#### 3.1.1. Why the kit does not manage `.git/hooks/`
+
+A `.git/hooks/pre-commit` is the only mechanism that can gate a commit made from
+a terminal or an IDE. The kit deliberately does not ship one.
+
+The reason is that a git hook cannot be delivered. `.git/hooks/` is not tracked
+by git and is not copied by `git clone`, so a kit-managed hook would have to be
+installed by the sync script into every checkout, and reinstalled after every
+fresh clone, by every developer, on every machine. Miss any one of those and the
+protection is silently absent — with no signal that it is missing. A guarantee
+that fails open and quietly is worse than a documented gap.
+
+What replaces it:
+
+- **For Claude**, `git-guard.sh` denies raw `git commit` (§3.1). This syncs, is
+  tracked, and cannot go missing.
+- **For humans**, the CI gates — commitlint and typecheck on the PR — are the
+  real enforcement. They run server-side, so no local bypass (`--no-verify`,
+  `SKIP_GIT_GUARD=1`, deleting a hook) evades them.
+
+A hand-rolled commit therefore cannot reach `main` malformed; it can only be
+locally untidy until CI rejects it. That residual is accepted knowingly.
 
 ### 3.2. Working in worktrees
 
@@ -210,9 +240,9 @@ The user-facing commands (`/work`, `/commit`, `/link`, `/open-pr`, `/merge`) beh
 ### 4.1. Trigger
 
 Any of:
-- Pete says "commit this", "commit", "commit the changes"
-- Pete types `/commit` explicitly
-- Claude detects work is complete (NEVER proactively — always waits for Pete's explicit word, per `git.md` rule)
+- User says "commit this", "commit", "commit the changes"
+- User types `/commit` explicitly
+- Claude detects work is complete (NEVER proactively — always waits for the user's explicit word, per `git.md` rule)
 
 ### 4.2. Procedure
 
@@ -224,9 +254,9 @@ Any of:
    - Multi-feature: primary type + bullet list
 5. Claude invokes `/commit` (or the skill auto-invokes on natural language)
 6. The command calls `skills/gitflow/scripts/commit.sh` with the message
-7. Script creates command-context token, stages all changes, commits with `--no-verify`, pushes to origin (if on non-main branch)
-8. `pre-commit-validation.sh` hook fires on the Bash `git commit` call, runs typecheck, denies if TypeScript/Python errors exist
-9. `git-guard.sh` hook sees the token, allows the commit
+7. Script stages all changes, commits with `--no-verify`, pushes to origin (if on non-main branch)
+8. `git-guard.sh` never fires on that commit — the script's `git commit` is a subprocess, not a top-level tool call (§3.1). No token is involved.
+9. Typecheck and commitlint run as CI gates on the resulting PR, not locally
 
 ### 4.3. What the script does NOT do
 
@@ -237,7 +267,7 @@ Any of:
 
 ### 4.4. Claude's responsibility
 
-Generating a GOOD commit message is Claude's job, not Pete's. Pete saying "commit" is the only input required. Claude analyzes all diffs (current session + anything else uncommitted from previous sessions), produces one conventional commit message, and invokes the command.
+Generating a GOOD commit message is Claude's job, not the user's. The user saying "commit" is the only input required. Claude analyzes all diffs (current session + anything else uncommitted from previous sessions), produces one conventional commit message, and invokes the command.
 
 ### 4.5. Upstream tracking and `safe_push` (added 2026-05-12 evening)
 
@@ -328,15 +358,15 @@ If linearizing history is genuinely needed before opening a PR, use `SKIP_GIT_GU
 
 ### 5.1. Trigger
 
-- Pete says "checkpoint", "checkpoint this", "save progress"
+- User says "checkpoint", "checkpoint this", "save progress"
 - `/checkpoint` slash command
 
 ### 5.2. Procedure
 
 1. Claude invokes `/checkpoint` (or skill auto-invokes)
 2. Command calls `skills/gitflow/scripts/checkpoint.sh` with optional message suffix
-3. Script creates token, stages all, commits with `🔖 wip: <timestamp or message>`, pushes
-4. `pre-commit-validation.sh` recognizes checkpoint format and skips typecheck (speed over compliance for WIP)
+3. Script stages all, commits with `🔖 wip: <timestamp or message>`, pushes
+4. No local typecheck runs — checkpoints are never gated (speed over compliance for WIP)
 
 Checkpoints are meant to be fast. Skip analysis. No changelog. No version.
 
@@ -355,7 +385,7 @@ Checkpoints are meant to be fast. Skip analysis. No changelog. No version.
 | Verify CI + Gemini ready on HEAD, squash-merge PR | Claude (via `/merge`) | Local or cloud |
 | Bump version + write changelog + tag + push + trigger deploy | Claude (via `/deploy`) | Local |
 
-Dev actions per PR: `/open-pr` to start, `/triage` if Gemini has items, `/merge` to land on main. **`/merge` does NOT ship.** Multiple merged PRs accumulate on main; when ready to release, run `/deploy` to bump version, generate the consolidated changelog entry, tag, push, and fire `deploy.yml`. The readiness wait inside `/open-pr` / `/triage` / `/merge` is the same poll loop — Pete sits at the keyboard while CI/Gemini run, the script blocks until ready or fails loud on timeout.
+Dev actions per PR: `/open-pr` to start, `/triage` if Gemini has items, `/merge` to land on main. **`/merge` does NOT ship.** Multiple merged PRs accumulate on main; when ready to release, run `/deploy` to bump version, generate the consolidated changelog entry, tag, push, and fire `deploy.yml`. The readiness wait inside `/open-pr` / `/triage` / `/merge` is the same poll loop — the user sits at the keyboard while CI/Gemini run, the script blocks until ready or fails loud on timeout.
 
 ### 6.2. `/open-pr` procedure
 
@@ -373,7 +403,7 @@ Dev actions per PR: `/open-pr` to start, `/triage` if Gemini has items, `/merge`
    - Times out fail-loud after 15min with diagnostic naming likely causes (Gemini queued/rate-limited despite trigger, App not actually installed, PR in draft state, CI legitimately slow).
    - Exit 2 on CI failure, 3 on timeout, 5 on Ctrl-C.
 6. commitlint CI check gates PR title format — blocks merge if malformed.
-7. On wait exit 0: command prompts Pete to run `/triage` (if Gemini items expected) or `/merge` (if not). Explicit handoff — never auto-invokes.
+7. On wait exit 0: command prompts the user to run `/triage` (if Gemini items expected) or `/merge` (if not). Explicit handoff — never auto-invokes.
 
 Note: `/open-pr` does NOT touch `changelog.md`; `/deploy` is the single changelog writer (§6.5).
 
@@ -616,7 +646,7 @@ Setting up a new project to use this kit:
 
 ### 9.1. Philosophy
 
-Nothing is ever full-replaced. Every sync is a three-way comparison per file: kit current vs kit baseline (last sync) vs project current. Every difference is shown as a diff, Claude recommends a resolution, Pete decides. Resumable — if Pete stops mid-review, partial syncs preserve state in the lockfile.
+Nothing is ever full-replaced. Every sync is a three-way comparison per file: kit current vs kit baseline (last sync) vs project current. Every difference is shown as a diff, Claude recommends a resolution, the user decides. Resumable — if the user stops mid-review, partial syncs preserve state in the lockfile.
 
 ### 9.2. Lockfile
 
@@ -624,7 +654,7 @@ Nothing is ever full-replaced. Every sync is a three-way comparison per file: ki
 
 ```json
 {
-  "kitRepo": "https://github.com/PeteHalsted/nextage-dev-kit",
+  "kitRepo": "https://github.com/NextAge-Consulting/nextage-dev-kit",
   "lastSyncedCommit": "<kit commit SHA at last sync>",
   "lastSyncedAt": "<ISO timestamp>",
   "files": {
@@ -642,8 +672,8 @@ Committed so every dev and every cloud session has the same baseline.
 |-----------------|---------------------|-------|--------|
 | unchanged | unchanged | Clean | Silent skip |
 | changed | unchanged | Kit-only | Show diff, recommend apply, ask |
-| unchanged | changed | Project-only | Inform Pete of customization; no change |
-| changed | changed | Conflict | Three-way diff, Claude recommends merge, Pete decides |
+| unchanged | changed | Project-only | Inform the user of customization; no change |
+| changed | changed | Conflict | Three-way diff, Claude recommends merge, the user decides |
 | new file in kit | — | New kit file | Show, ask |
 | removed from kit | — | Removed kit file | Show, ask |
 
@@ -677,14 +707,14 @@ This also means:
 
 The interactive review (steps 4–5) can stretch across multiple sessions:
 
-- Pete invokes `/sync-dev-kit`, reviews + accepts 3 files, closes the session.
+- User invokes `/sync-dev-kit`, reviews + accepts 3 files, closes the session.
 - The lockfile records per-file SHAs as each is applied; pending files are still surfaced in the next `--scan`.
 - Working tree has 3 uncommitted .claude/ changes between sessions. No commit yet.
-- Pete reopens `/sync-dev-kit` next session; Claude scans, picks up where left off, reviews remaining files.
-- When the review queue is empty (or Pete explicitly stops with "finalize anyway"), Claude invokes `--finalize`.
+- User reopens `/sync-dev-kit` next session; Claude scans, picks up where left off, reviews remaining files.
+- When the review queue is empty (or the user explicitly stops with "finalize anyway"), Claude invokes `--finalize`.
 - `--finalize` detects the accumulated uncommitted changes, commits all of them in one commit pushed directly to `main`.
 
-Pete's UX is just `/sync-dev-kit`. Claude orchestrates the modes (`--scan` → `--apply-file` per accepted change → `--finalize`). Pete never sees the internal mode flags.
+The user's UX is just `/sync-dev-kit`. Claude orchestrates the modes (`--scan` → `--apply-file` per accepted change → `--finalize`). The user never sees the internal mode flags.
 
 ### 9.6. Settings.json handling
 
@@ -895,9 +925,9 @@ Cloud sessions: set these in the cloud environment's env-var editor. Per-dev, no
 
 For repos that use bot-App-token workflows (e.g., `dependabot-surfacing.yml`):
 
-- **GitHub org secrets:** `BOT_APP_CLIENT_ID` + `BOT_APP_PRIVATE_KEY` — Pete registers the bot App once per org (§11.3); secrets are visible to all repos in the org, so no per-project step. No `ANTHROPIC_API_KEY` is needed — changelog generation is fully local (single-writer `/deploy`, see §6.4).
+- **GitHub org secrets:** `BOT_APP_CLIENT_ID` + `BOT_APP_PRIVATE_KEY` — The maintainer registers the bot App once per org (§11.3); secrets are visible to all repos in the org, so no per-project step. No `ANTHROPIC_API_KEY` is needed — changelog generation is fully local (single-writer `/deploy`, see §6.4).
 
-Pete's local: `includeGitInstructions: false` in `~/.claude/settings.json` strips Claude's native git instructions from the system prompt, reducing fallback to raw git. User-level only; doesn't load in cloud. Not a required setting — hook backstop catches anything this doesn't.
+Maintainer's local: `includeGitInstructions: false` in `~/.claude/settings.json` strips Claude's native git instructions from the system prompt, reducing fallback to raw git. User-level only; doesn't load in cloud. Not a required setting — hook backstop catches anything this doesn't.
 
 ---
 
@@ -977,7 +1007,7 @@ No `on: push: branches:`. No `on: push: tags:`. No cron, no schedule, no `workfl
 
 Do NOT add `on: push: tags: ['v*.*.*']`. `/deploy` creates the tag locally AND fires the workflow directly via `gh workflow run`, so a tag-push trigger double-fires (once from the tag push, once from `gh workflow run`).
 
-Do NOT add `on: push: branches: [main]`. It reintroduces the pre-bump race (the deploy reads `package.json` before the bump) and makes *every* `/merge` ship, not just the merges Pete intends as a release. `/merge` is not `/deploy` (§6.5).
+Do NOT add `on: push: branches: [main]`. It reintroduces the pre-bump race (the deploy reads `package.json` before the bump) and makes *every* `/merge` ship, not just the merges the user intends as a release. `/merge` is not `/deploy` (§6.5).
 
 **The contract:**
 
@@ -1239,7 +1269,7 @@ Result: one monthly grouped wave per ecosystem + majors individually after 30-da
 - `chore(deps)` / `chore(deps-dev)` / `chore(ci)` / `chore(docker)` are subject-only `chore` types — `deploy.sh`'s bump-level inference (§6.5 Step 2; was `version-bump.yml`'s parser before its removal) treats them as patch under Option B (chore counts as a release-worthy bump).
 - `include: scope` is INTENTIONALLY ABSENT from all three blocks. With it set, Dependabot appends its own `(deps)` scope on top of the prefix — titles render as `chore(deps)(deps): bump foo`. The prefix already carries the scope; don't double it.
 
-**Interaction with `/deploy` (§6.5)**: dep PRs land on main via `/merge` like any other PR, but do not fire deploys on their own. They ride the next `/deploy` invocation alongside whatever else has accumulated. The monthly cadence + cooldown limits the dep-PR wave per ecosystem; whether a wave triggers a release is Pete's call at `/deploy` time. Cadence solves review burden; `/deploy` solves "when does it ship."
+**Interaction with `/deploy` (§6.5)**: dep PRs land on main via `/merge` like any other PR, but do not fire deploys on their own. They ride the next `/deploy` invocation alongside whatever else has accumulated. The monthly cadence + cooldown limits the dep-PR wave per ecosystem; whether a wave triggers a release is the maintainer's call at `/deploy` time. Cadence solves review burden; `/deploy` solves "when does it ship."
 
 **Ignore rules — one ships by default:**
 
@@ -1318,7 +1348,7 @@ Current model: **trigger reality drives wait reality.** A single observable — 
 | `/checkpoint` | Never posts. Checkpoints are mid-flight saves below the review threshold; `/commit` is the signal that work is review-ready. |
 | `/deploy` | Never posts. The bump commit pushes directly to `main` — no PR exists for Gemini to review. (Under the earlier release-PR design, deploy likewise never triggered Gemini; the direct-push model removes the PR entirely.) |
 
-The wait side reads truth, not intent. `wait-for-pr-ready.sh` queries the PR's top-level comments (via `gh api repos/{owner}/{repo}/issues/{pr}/comments`), filters to `/gemini review` body (case-insensitive, exact match — not prose like "I'll run /gemini review later"), and scopes to comments created AFTER the HEAD's committer date. If such a comment exists → wait for a Gemini review on HEAD. If absent → CI-only readiness. No author filter — manual triggers from the user (or from Alan, or from any maintainer) are honored identically to scripted triggers.
+The wait side reads truth, not intent. `wait-for-pr-ready.sh` queries the PR's top-level comments (via `gh api repos/{owner}/{repo}/issues/{pr}/comments`), filters to `/gemini review` body (case-insensitive, exact match — not prose like "I'll run /gemini review later"), and scopes to comments created AFTER the HEAD's committer date. If such a comment exists → wait for a Gemini review on HEAD. If absent → CI-only readiness. No author filter — manual triggers from the user (or from a consumer developer, or from any maintainer) are honored identically to scripted triggers.
 
 This removes the "vacuum" failure mode: a silently-failed `gh pr comment` is now fail-loud at the trigger site (`commit.sh` exits 10, `open-pr.sh` exits 9), and the downstream wait never assumes Gemini is coming when it isn't.
 
@@ -1581,7 +1611,7 @@ The Agents-view + worktree workflow makes a naive "cmd-t → `cd` → `npm run d
 1. **iTerm `cmd-t` lands in `~/projects`, not the worktree.** Agents view spawns the host shell from `~/projects` with no project context. `EnterWorktree` only changes Claude's tool-process cwd — iTerm's parent shell never learns about the worktree, so "Reuse previous session's directory" reuses the wrong directory.
 2. **Silent vite port-bump.** When `:3001` is occupied (most projects default to it), vite silently bumps to `:3002`. Browser-testing `localhost:3001` then tests the wrong project's server.
 
-Solving #1 by adjusting iTerm settings is impossible — Agents view doesn't update the host shell's cwd. Solving #2 manually requires Pete to know every project's port and check `lsof` before every `npm run dev`. Neither is scalable across multiple projects with multiple worktrees per project.
+Solving #1 by adjusting iTerm settings is impossible — Agents view doesn't update the host shell's cwd. Solving #2 manually requires the user to know every project's port and check `lsof` before every `npm run dev`. Neither is scalable across multiple projects with multiple worktrees per project.
 
 `/dev` is the structural fix: explicit `osascript`-spawned iTerm tab with the correct `cd`, plus `lsof` pre-check with `+10` port-step on collision.
 
@@ -1795,9 +1825,18 @@ The design-system skill is one entry in a larger set of template-only (not-dogfo
 
 Verify `.claude/settings.json` exists in the repo and is committed. Cloud loads from the repo only.
 
-### 12.2. `/commit` blocked by hook
+### 12.2. `git commit` blocked by hook
 
-`pre-commit-validation.sh` runs typecheck before commit. Fix the TypeScript/Python errors shown in the deny message. If checkpoint, the hook should skip — verify the commit message starts with `🔖 wip:`.
+`git-guard.sh` denies raw `git commit` — use `/commit`, `/checkpoint`, or
+`/ship-main` instead. The gitflow scripts are unaffected by the hook (§3.1), so
+if a *slash command* is what got blocked, the deny message will name some other
+operation (`reset`, `restore`, `revert`, `clean`, `checkout <file>`); read it
+rather than assuming the commit itself was refused.
+
+Typecheck and commitlint failures now surface as CI gates on the PR, not as a
+local deny. Fix them from the PR checks.
+
+Emergency override, under explicit user authorization: `SKIP_GIT_GUARD=1 git commit …`
 
 ### 12.3. MCP server fails to authenticate
 
@@ -1824,16 +1863,16 @@ Kit added new files since your last sync. The lockfile's `lastSyncedCommit` is b
 
 If `/deploy` succeeded but the deploy workflow itself failed, see the run URL in the script output and inspect Actions tab.
 
-### 12.6. Alan's Claude session keeps falling back to raw git
+### 12.6. A consumer developer's Claude session keeps falling back to raw git
 
-Alan didn't set `includeGitInstructions: false` in his `~/.claude/settings.json`. See `DEVELOPER-ONBOARDING.md`. Hooks should still catch raw git, so this is a fallback-frequency issue, not a correctness issue.
+The developer didn't set `includeGitInstructions: false` in their `~/.claude/settings.json`. See `DEVELOPER-ONBOARDING.md`. Hooks should still catch raw git, so this is a fallback-frequency issue, not a correctness issue.
 
 ---
 
 ## 14. What's deliberately NOT here
 
-- **Automated kit-update PRs.** Single-user kit. No need for GitHub Actions that PR kit updates to consumer projects. Pete runs `/sync-dev-kit` when ready.
-- **Kit versioning / releases.** Kit isn't distributed publicly. Syncs point at kit HEAD commit SHA, not a version.
+- **Automated kit-update PRs.** Single-user kit. No need for GitHub Actions that PR kit updates to consumer projects. The maintainer runs `/sync-dev-kit` when ready.
+- **Kit versioning / releases.** The kit repo is public, but is not distributed as a versioned artifact — there is no package, tag, or release to depend on. Syncs point at kit HEAD commit SHA, not a version.
 - **Install commands as slash commands.** `/install-kit`, `/install-statusline`, `/install-cpl`, `/install-kit` became handbook sections (TBD — see issue log). They're one-time ops, docs are more durable than commands.
 - **Global sync.** Dropped. The only global artifacts are the dev-kit bootstrap and statusline, installed once per machine. No ongoing sync.
 
@@ -1846,8 +1885,7 @@ Alan didn't set `includeGitInstructions: false` in his `~/.claude/settings.json`
 - `skills/gitflow/references/changelog-rules.md` — changelog entry rules
 - `skills/gitflow/scripts/*.sh` — the scripts that actually do git operations
 - `.claude/rules/git.md` — git workflow rule (reminder layer)
-- `.claude/hooks/pre-commit-validation.sh` — validation enforcement
-- `.claude/hooks/git-guard.sh` — raw-git blocker
+- `.claude/hooks/git-guard.sh` — raw-git blocker (commit + destructive ops)
 - `templates/settings.base.json` — settings.json starting point for new projects
 - `templates/.mcp.json` — MCP template for new projects
 - `DEVELOPER-ONBOARDING.md` — second-dev setup doc

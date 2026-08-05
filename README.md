@@ -37,7 +37,6 @@ This command interactively syncs:
 - `.claude/skills/` — gitpro, shadcn, agent-browser, etc.
 - `.claude/commands/` — shared commands
 - `.claude/scripts/` — shared scripts
-- `.git/hooks/` — git hooks (pre-commit validation)
 - MCP dependencies — checks Ref, Exa are installed
 - CLAUDE.md — legacy import warnings
 - Creates `.claude/rules/project/` for project-specific rules
@@ -103,9 +102,12 @@ project/
 │   ├── skills/            # Synced skills
 │   ├── commands/          # Shared commands only
 │   └── scripts/           # Shared scripts only
-├── .git/hooks/            # Git hooks (pre-commit)
 └── CLAUDE.md              # Optional
 ```
+
+The kit does NOT manage `.git/hooks/`. Git hooks cannot be tracked in git and do
+not survive a clone, so enforcement lives entirely in the Claude Code hooks under
+`.claude/hooks/` (which do sync) plus the CI gates. See HANDBOOK §3.
 
 ### Global `~/.claude/` (minimal)
 

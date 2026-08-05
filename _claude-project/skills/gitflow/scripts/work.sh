@@ -108,7 +108,7 @@ create_worktree() {
     mkdir -p "$(dirname "$path")"
 
     # Refresh local main from origin/main BEFORE branching, fail-loud. This
-    # closes the "Pete starts /work two days after Alan merged + deployed,
+    # closes the "a dev starts /work two days after another dev merged + deployed,
     # gets a worktree based on stale local main" gap. fast_forward_local_main
     # runs in the PRIMARY repo (where main is checked out) and refuses on
     # dirty / diverged main. On any failure, abort worktree creation — the

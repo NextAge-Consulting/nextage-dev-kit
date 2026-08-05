@@ -1,6 +1,6 @@
 # Developer Onboarding
 
-This document is the reference a developer's Claude Code session follows to configure their machine for working on Pete's projects. Hand this doc to the developer; their Claude reads it end-to-end and walks them through current-state-vs-desired-state comparison.
+This document is the reference a developer's Claude Code session follows to configure their machine for working on the maintainer's projects. Hand this doc to the developer; their Claude reads it end-to-end and walks them through current-state-vs-desired-state comparison.
 
 ---
 
@@ -10,10 +10,10 @@ A second developer works on projects that use the `nextage-dev-kit`. The develop
 
 1. Have Claude Code itself installed and configured
 2. Have API keys for per-developer MCP servers (Ref, Exa)
-3. Optionally install Pete's statusline script (cosmetic; doesn't affect workflow)
-4. Optionally install CPL (Pete's launcher tool; optional)
+3. Optionally install the maintainer's statusline script (cosmetic; doesn't affect workflow)
+4. Optionally install CPL (the maintainer's launcher tool; optional)
 
-The developer does NOT install the dev kit. The developer does NOT run `/sync-dev-kit`. The developer does NOT run `/install-kit`. Those are Pete's tools.
+The developer does NOT install the dev kit. The developer does NOT run `/sync-dev-kit`. The developer does NOT run `/install-kit`. Those are maintainer-only tools.
 
 ---
 
@@ -63,7 +63,7 @@ export REF_API_KEY="ref-..."      # the developer's own Ref API key
 export EXA_API_KEY="..."          # the developer's own Exa API key
 ```
 
-These are per-developer. The developer does not use Pete's keys. They get their own:
+These are per-developer. The developer does not use the maintainer's keys. They get their own:
 
 - **Ref**: https://ref.tools — sign up, create API key
 - **Exa**: https://exa.ai — sign up, create API key
@@ -136,7 +136,7 @@ Claude shows the developer what's there. Recommends removing `Ref` and `exa` ent
 
 ### Desired state
 
-If the developer wants Pete's custom statusline (shows directory, branch, context usage, rate limits):
+If the developer wants the maintainer's custom statusline (shows directory, branch, context usage, rate limits):
 
 - `~/.claude/statusline.sh` exists and is executable
 - `~/.claude/settings.json` has:
@@ -159,7 +159,7 @@ jq '.statusLine' ~/.claude/settings.json 2>/dev/null
 
 ### If the developer wants it installed
 
-Pete will provide `statusline.sh` (or the developer clones the dev-kit repo read-only and copies `_statusline/statusline.sh` to `~/.claude/statusline.sh`). Claude guides the copy + settings update.
+The maintainer will provide `statusline.sh` (or the developer clones the dev-kit repo read-only and copies `_statusline/statusline.sh` to `~/.claude/statusline.sh`). Claude guides the copy + settings update.
 
 This is entirely optional. The developer can skip.
 
@@ -167,7 +167,7 @@ This is entirely optional. The developer can skip.
 
 ## Section 6: CPL launcher (optional)
 
-CPL is Pete's custom launcher tool. The developer's machine does not need it unless they want it. Deferred to Pete when the developer wants in.
+CPL is the maintainer's custom launcher tool. The developer's machine does not need it unless they want it. Deferred to the maintainer when the developer wants in.
 
 ---
 
@@ -180,7 +180,7 @@ When the developer clones a project that uses the dev kit:
 1. `git clone <repo-url>`
 2. Change into the project directory
 3. Verify the project has the expected structure:
-   - `.claude/settings.json` (if missing — project was never synced with the new dev kit; Pete needs to run `/sync-dev-kit` in the project first)
+   - `.claude/settings.json` (if missing — project was never synced with the new dev kit; the maintainer needs to run `/sync-dev-kit` in the project first)
    - `.claude/hooks/` with `git-guard.sh`, `pre-commit-validation.sh`, etc.
    - `.claude/skills/gitflow/` with `SKILL.md` + scripts
    - `.claude/commands/` with `commit.md`, `checkpoint.md`, `open-pr.md`, `merge.md` (the per-project gitflow commands; `/work` and `/sync-dev-kit` are global, installed in `~/.claude`, not in the project repo)
@@ -194,7 +194,7 @@ Once in the project, ask Claude to:
 2. Verify MCP servers load (Ref + Exa should be available — check with a trivial `mcp__Ref__ref_search_documentation` call)
 3. Try a trivial checkpoint: the developer runs `/checkpoint test` on a throwaway file change (then reverts)
 
-If any verification fails, report to Pete with the specific failure.
+If any verification fails, report to the maintainer with the specific failure.
 
 ---
 
@@ -219,25 +219,25 @@ Claude handles the commit message generation, PR title, PR body. The developer p
 
 ---
 
-## Section 9: When Pete pushes kit updates
+## Section 9: When the maintainer pushes kit updates
 
-When Pete pushes rule updates, new skills, or hook changes to a project the developer works on:
+When the maintainer pushes rule updates, new skills, or hook changes to a project the developer works on:
 
-1. Pete runs `/sync-dev-kit` in the project, reviews changes interactively, then lands them with `/ship-main` (sync itself does no git)
-2. Pete pushes the project repo
+1. The maintainer runs `/sync-dev-kit` in the project, reviews changes interactively, then lands them with `/ship-main` (sync itself does no git)
+2. The maintainer pushes the project repo
 3. The developer pulls the project repo
 4. The developer's Claude sessions in that project automatically pick up the updated `.claude/` config on next session start
 
-The developer never runs `/sync-dev-kit` themselves. That's Pete-only.
+The developer never runs `/sync-dev-kit` themselves. That's maintainer-only.
 
 ---
 
 ## Section 10: Reporting back
 
-When the developer's Claude completes this onboarding, produce a short summary for the developer to send to Pete:
+When the developer's Claude completes this onboarding, produce a short summary for the developer to send to the maintainer:
 
 - Each section: ✓ complete, ✗ skipped (why), ⚠ partial (what's left)
 - Any unexpected findings (existing config the developer doesn't recognize, conflicts, etc.)
 - Confirm: can the developer successfully run `/commit`, `/checkpoint`, `/open-pr`, `/merge` in a test project?
 
-Pete uses this summary to verify the setup and file follow-ups if anything is off.
+The maintainer uses this summary to verify the setup and file follow-ups if anything is off.

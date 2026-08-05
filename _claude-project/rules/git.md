@@ -88,7 +88,7 @@ When the user says "commit", "checkpoint", or any commit operation, ALWAYS commi
 | "work on this", "open the project", "pick up where I left off", "start work" | `/work` slash command (via gitflow skill routing) | 2–3 |
 | "start work on #N", "work issue N" | `/work <N>` | 2–3 |
 | "new compartment", "second worktree" | `/work --new <name>` | 2–3 |
-| "retrieve branch", "pull alan's branch" | `/work --retrieve <branch>` | 2–3 |
+| "retrieve branch", "pull a teammate's branch" | `/work --retrieve <branch>` | 2–3 |
 | "discard worktree", "clean up that compartment" | `/work --discard <name>` | 2–3 |
 | "discard current", "nuke current/", "reset the workspace" | `/work --discard current --force` | 2–3 |
 | "commit", "commit this", "commit the changes" | `/commit` | 2–3 |

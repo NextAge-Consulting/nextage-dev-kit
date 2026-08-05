@@ -18,7 +18,7 @@ Rule of thumb: If violation is a CRITICAL ERROR, it's constitution. If it's lang
 4. Permanent documentation goes in `project-documentation`
 
 **Content rules:**
-- Only include current state, not historical decisions
+- Only include current state, not historical decisions — reference/operational docs are present-tense; **scrub removed things to zero, never leave a "was deleted/replaced" tombstone.** Zero tolerance: see `constitution.md` §XV.
 - Follow existing file structure and style
 - Check existing subfolders for suitable location
 

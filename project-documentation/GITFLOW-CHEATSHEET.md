@@ -12,7 +12,7 @@ Every coding session starts with `/work`. It enters (or creates) the project's w
 /work                              # re-enter current/ if it exists; otherwise create it on wip/<abbrev>-<timestamp>
 /work 23                           # re-enter or create current/ on a branch derived from issue #23's title; link the issue
 /work --new big-feature            # create a compartment at .claude/worktrees/big-feature/ on wip/big-feature for parallel work
-/work --retrieve feat/alan-fix     # fetch and check out alan's branch (in current/ if clean, compartment if dirty)
+/work --retrieve feat/teammate-fix # fetch and check out a teammate's branch (in current/ if clean, compartment if dirty)
 /work --discard big-feature        # remove a compartment (refuses if dirty unless --force)
 ```
 
@@ -213,7 +213,7 @@ Picking up tomorrow on unfinished work: same launch, just `/work` (no args). The
 
 - Raw `git commit`, `git push`, `git merge`, `git checkout <file>`, `git reset`, `git revert`, `git clean`, `git restore` — **blocked by `git-guard.sh`**. If you genuinely need one, prefix with `SKIP_GIT_GUARD=1` and state the reason.
 - Cherry-pick specific files into a commit — gitflow always commits ALL changes. If you need to split, ask.
-- Run `/sync-dev-kit` if you're Alan — that's Pete-only.
+- Run `/sync-dev-kit` if you're a consumer developer — that's maintainer-only.
 - Run database migrations from Claude — always human-driven.
 
 ---

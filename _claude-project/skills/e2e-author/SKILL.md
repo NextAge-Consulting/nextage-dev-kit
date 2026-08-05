@@ -78,7 +78,7 @@ agent-browser eval '(() => { const b = Array.from(document.querySelectorAll("but
 Use this for any full-page / below-the-fold button. (This is also the #1 debug move when a click "succeeds" but nothing happens.)
 
 ### R2. Env values with spaces — truncate under the naive loader
-`eval "$(grep ... .env | sed 's/^/export /')"` chops values at the first space: `"Sunrise Beach"` → `Sunrise`, `"Pete Testing"` → `Pete`. Always load with `cut -d= -f2-`:
+`eval "$(grep ... .env | sed 's/^/export /')"` chops values at the first space: `"Sunrise Beach"` → `Sunrise`, `"Test User"` → `Test`. Always load with `cut -d= -f2-`:
 
 ```bash
 TEST_SHOP_CUSTOMER_CITY=$(grep '^TEST_SHOP_CUSTOMER_CITY=' .env | cut -d= -f2-)

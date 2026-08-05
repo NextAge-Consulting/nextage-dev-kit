@@ -89,7 +89,7 @@ The new iTerm tab:
 
 - **Two Claude sessions, same worktree, both `/dev shop`.** First wins `:3001`, second auto-bumps to `:3011`. Independent tabs.
 - **`/dev shop --main` while worktree shop is on `:3001`.** Primary takes `:3011` (auto-bumped). Or stop worktree first, then re-run for primary on `:3001`.
-- **`/merge` tears down the worktree but the dev tab is still running.** Vite throws on the next file-watch event against the gone path. Pete sees it, ctrl-C's that tab. Acceptable — better than auto-killing across sessions.
+- **`/merge` tears down the worktree but the dev tab is still running.** Vite throws on the next file-watch event against the gone path. The user sees it, ctrl-C's that tab. Acceptable — better than auto-killing across sessions.
 - **Non-vite dev servers (Next.js, Astro, …).** Work as long as the `dev:<app>` script exists in `package.json` and the dev framework respects `-- --port <N>` after `npm run`. Port detection won't find anything in `vite.config.ts` and falls back to `3000`; user can override or add `apps/<app>/vite.config.ts` with the port to make detection work. Future enhancement: project-level `.claude/dev-server.json` map.
 
 ## Related

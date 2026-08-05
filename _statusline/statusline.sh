@@ -1,5 +1,5 @@
 #!/bin/bash
-# Custom Claude Code statusline - Pete Halsted
+# Custom Claude Code statusline
 # Line 1: Core info (directory, branch, version, model)
 # Line 2: Native Claude metrics (context, cost, duration, lines changed)
 

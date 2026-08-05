@@ -16,7 +16,7 @@ Invoke this skill when the user asks for any of:
 | "work on this", "open the project", "pick up where I left off", "start work" | `/work` |
 | "start work on #N", "work issue N" | `/work <N>` |
 | "new compartment", "second worktree", "separate workspace" | `/work --new <name>` |
-| "retrieve branch", "pull alan's branch", "check out their branch" | `/work --retrieve <branch>` |
+| "retrieve branch", "pull a teammate's branch", "check out their branch" | `/work --retrieve <branch>` |
 | "discard worktree", "clean up that compartment", "remove worktree" | `/work --discard <name>` |
 | "discard current", "reset the workspace", "nuke current/" | `/work --discard current --force` |
 | "commit", "commit this", "commit the changes" | `/commit` |
@@ -182,7 +182,7 @@ Wait for PR readiness and squash-merge the current branch's PR.
 - `merge.sh` invokes `wait-for-pr-ready.sh` (trigger-aware: waits for Gemini only if a `/gemini review` was posted for the current HEAD; otherwise proceeds CI-only). `/commit --no-review` is the user's signal that no Gemini wait is needed at merge. Bypassable via `--force-unchecked` for emergency hotfixes only (skips CI too).
 - On wait exit 0: `gh pr merge --squash --delete-branch`, switch to main, pull
 
-See `commands/merge.md`. Wait timeout is 15min by default; on timeout, surface diagnostic and stop — Pete decides whether to extend (Gemini may be rate-limited despite the trigger landing), opt this repo out of Gemini gating (`GEMINI_NOT_INSTALLED="true"` — only correct if Gemini is genuinely absent), or `--force-unchecked`.
+See `commands/merge.md`. Wait timeout is 15min by default; on timeout, surface diagnostic and stop — the user decides whether to extend (Gemini may be rate-limited despite the trigger landing), opt this repo out of Gemini gating (`GEMINI_NOT_INSTALLED="true"` — only correct if Gemini is genuinely absent), or `--force-unchecked`.
 
 ## What happens after merge
 

@@ -1,6 +1,6 @@
 # Kit Repo GitHub Configuration
 
-How **this** repository (`PeteHalsted/nextage-dev-kit`) is configured on GitHub and why it differs from the consumer projects the kit ships to.
+How **this** repository (`NextAge-Consulting/nextage-dev-kit`) is configured on GitHub and why it differs from the consumer projects the kit ships to.
 
 **Use this as:**
 1. The answer to "do I need to change anything on GitHub to ship X?" when adding features

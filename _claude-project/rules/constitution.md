@@ -219,7 +219,7 @@ When multiple approaches exist, invest the research to identify the canonical, o
 
 **Rule of thumb**: if your work surfaced the issue — even accidentally — you are the one who fixes it. The codebase must never be worse after your session than before.
 
-**Why this rule exists**: Pete is ALWAYS the next guy. Every stepped-over error lands on his desk later with context lost. This is the most-violated rule and the most costly.
+**Why this rule exists**: you are ALWAYS the next guy. Every stepped-over error lands on your desk later with context lost. This is the most-violated rule and the most costly.
 
 ## XIII. Suppression Discipline (Zero Tolerance)
 

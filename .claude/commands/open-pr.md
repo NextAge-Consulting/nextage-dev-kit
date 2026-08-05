@@ -49,66 +49,43 @@ Structure:
 
 <how this was verified — if nothing, say so>
 
-## Caller-scan attestations
+## Signature-change attestations
 
-<EXACTLY ONE LINE PER SYMBOL — see "Attestation format" below>
+<see "Attestation format" below — one type-check line, plus one file:line line per compiler-blind seam change>
 ```
 
 Draw content from the diff and commit log. Do not invent features not in the diff.
 
-### Attestation format (Zero Tolerance — Gemini regex-matches the literal string)
+### Attestation format
 
-The "Caller-scan attestations" section is matched by Gemini Code Assist against a strict regex. Prose, narrative wording, or paraphrasing fails the gate even when the information is technically present. Each line MUST be one of these exact templates, character-for-character (including the `→` U+2192 RIGHTWARDS ARROW, the periods, the parentheses, and the spacing):
+§XIV splits by whether the compiler can SEE the change. Match it:
+
+**1. Type-visible changes** (TS/TSX signatures, exported types/interfaces/enums, a Zod schema used as a TS type) — the compiler IS the caller scan; a stale caller fails `check-types`. Attest the type-check ONCE. Do not enumerate per-symbol counts:
 
 ```
-Callers scanned: <symbol> → <N> references across <M> files, all updated.
-Callers scanned: <symbol> → 0 references (private to <file>).
-No signature changes.
+Signature changes: type-checked clean — the compiler reconciles every type-visible caller.
 ```
 
-Substitute only the angle-bracketed tokens:
-- `<symbol>` — exported name, no backticks, no quotes (e.g. `loadProductDetail`, not `` `loadProductDetail` `` and not `the loadProductDetail function`)
-- `<N>` — integer count from `findReferences` / grep
-- `<M>` — integer file count
-- `<file>` — relative path from repo root (e.g. `apps/shared/src/productDetail/productDetailLoaders.ts`)
+**2. Compiler-blind seam changes** (DB / Zod / schema FIELD renames referenced by string key, raw-SQL column/table names, string-keyed dispatch, cross-process / RPC / serverFn / webhook payload shapes, cross-language) — the compiler is blind here; a rename compiles green and breaks at runtime. Enumerate the reconciled call sites as `file:line`:
 
-**Correct (Gemini passes):**
 ```
-## Caller-scan attestations
-
-Callers scanned: loadProductDetail → 7 references across 4 files, all updated.
-Callers scanned: ProductDetailPayload → 3 references across 2 files, all updated.
-Callers scanned: normalizeVariantId → 0 references (private to apps/shared/src/productDetail/productDetailLoaders.ts).
+Callers scanned: <symbol> → apps/x/foo.ts:42, apps/y/bar.ts:88 (compiler-blind: <reason>).
+Callers scanned: <symbol> → 0 callers (compiler-blind; private to apps/x/foo.ts).
 ```
 
-**WRONG — these all fail the gate even though content is present:**
-```
-## Caller-scan attestations
+Rules: `<symbol>` bare (no backticks); every listed `file:line` MUST be a site you actually opened and reconciled — the list is auditable against the diff, so do not pad it; `<reason>` names the seam (e.g. "raw-SQL column rename", "serverFn payload field"). Do **NOT** write `N references across M files` counts — that unfalsifiable count is exactly what the old format rotted into.
 
-- loadProductDetail: scanned 7 callers across 4 files, all updated.        ← bullet + prose, no →
-- The loadProductDetail signature was changed; all 7 callers updated.       ← narrative
-- Callers scanned for `loadProductDetail`: 7 refs in 4 files.               ← backticks, "refs in", missing →
-- Callers scanned: loadProductDetail -> 7 references...                     ← ASCII `->` instead of `→`
-- Callers scanned: loadProductDetail → 7 references in 4 files, updated.    ← "in" not "across", missing "all"
-```
-
-If unsure how to count: re-run `findReferences` or grep once more — do not guess and do not soften the language.
-
-**Caller-scan attestation (constitution §XIV).** Before composing the section above, grep the branch diff against main for renamed / removed / reshaped exported declarations:
+**Before composing the section**, grep the diff for the compiler-blind seams only (type-visible changes need no grep — the type-check covers them):
 
 ```bash
-git diff main..HEAD -- '*.ts' '*.tsx' '*.mts' '*.cts' \
-  | grep -E '^[-+](export (function|const|class|interface|type|enum|default)|export \{|export \*|^[A-Za-z_]+:\s+(z\.)?[A-Za-z]+\()'
+# DB / Zod / drizzle schema field renames or removals
+git diff main..HEAD -- '**/schema*.ts' '**/schema/*.ts' '*/schemas/*.ts' \
+  | grep -E '^[-][[:space:]]+[A-Za-z_]+:\s+(z\.|jsonb\(|text\(|integer\(|boolean\(|timestamp\(|uuid\(|varchar\()'
+# raw-SQL identifiers + string-keyed dispatch removed/changed in the diff
+git diff main..HEAD -- '*.ts' '*.tsx' | grep -E '^[-].*(sql`|queryKey|"type":|action:)'
 ```
 
-Also grep for Zod / database schema field renames or removals:
-
-```bash
-git diff main..HEAD -- 'apps/**/schema.ts' '*/schemas/*.ts' \
-  | grep -E '^[-+]\s+[A-Za-z_]+:\s+(z\.|jsonb\(|text\(|integer\(|boolean\(|timestamp\(|uuid\()'
-```
-
-For every changed signature surfaced, run `findReferences` (LSP) or `grep -rn 'symbolName' --include='*.ts' --include='*.tsx'` against the post-edit codebase to confirm all callers are reconciled in this branch. Each surfaced symbol becomes one attestation line. If the greps return nothing, write `No signature changes.` — empty-scan attestation is REQUIRED, not optional. The PR body without this section is incomplete.
+If either surfaces a renamed/removed identifier, grep it repo-wide (INCLUDING `.sql` / `.py` / config / other apps), reconcile each caller, and add its `file:line` line. If neither surfaces anything, the type-check line alone is the complete attestation — a compiler-blind enumeration is required ONLY when a seam actually changed.
 
 Constitution §XIV is the rule; this section is its enforcement surface.
 
@@ -134,17 +111,17 @@ Invoke the readiness wait — blocks until CI required checks pass AND (unless `
 .claude/skills/gitflow/scripts/wait-for-pr-ready.sh
 ```
 
-Status updates print every poll cycle (~30s). Pete is sitting at the keyboard during this — that's the point of the wait, no other infra needed.
+Status updates print every poll cycle (~30s). The user is sitting at the keyboard during this — that's the point of the wait, no other infra needed.
 
 Exit handling:
 - `0` → PR is ready. Continue to Step 8.
-- `2` → CI failed. Surface the failing check name and PR URL; stop. Pete fixes locally and pushes; the failing CI gate is the signal to act.
-- `3` → timeout (default 15min). Surface the diagnostic message the script printed (likely Gemini queued/rate-limited, or CI legitimately slow). Pete decides: re-invoke with `--timeout-min <larger>`, or — only if Gemini is genuinely absent — set `GEMINI_NOT_INSTALLED="true"` in `.claude/sync-substitutions.json` to opt out.
+- `2` → CI failed. Surface the failing check name and PR URL; stop. The user fixes locally and pushes; the failing CI gate is the signal to act.
+- `3` → timeout (default 15min). Surface the diagnostic message the script printed (likely Gemini queued/rate-limited, or CI legitimately slow). The user decides: re-invoke with `--timeout-min <larger>`, or — only if Gemini is genuinely absent — set `GEMINI_NOT_INSTALLED="true"` in `.claude/sync-substitutions.json` to opt out.
 - `5` → user pressed Ctrl-C. Stop cleanly, no further steps.
 
 ### Step 7: Hand off based on Gemini findings count
 
-The wait script's ready message includes a `findings=N` count whenever Gemini posted a review. Surface that count to Pete and tailor the handoff prompt to it:
+The wait script's ready message includes a `findings=N` count whenever Gemini posted a review. Surface that count to the user and tailor the handoff prompt to it:
 
 | Wait output | Prompt |
 |---|---|
@@ -153,9 +130,9 @@ The wait script's ready message includes a `findings=N` count whenever Gemini po
 | `Gemini=posted, findings=0` | `PR #<N> ready. Gemini reviewed clean — /merge when you're set.` |
 | `Gemini=posted, findings=N` (N > 0) | `PR #<N> ready. Gemini raised <N> finding(s) — run /triage to walk them, or /merge to ship without triage.` |
 
-Do NOT auto-invoke `/triage` and do NOT auto-invoke `/merge`. Pete decides per finding count. The explicit handoff prevents the "trapped in a flow" feeling and lets him abandon cleanly.
+Do NOT auto-invoke `/triage` and do NOT auto-invoke `/merge`. The user decides per finding count. The explicit handoff prevents the "trapped in a flow" feeling and lets them abandon cleanly.
 
-If Pete runs `/triage` and lands a fix commit via `/commit --review`, that push posts a fresh `/gemini review` comment which arms a new review cycle. The next `/merge` will re-run `wait-for-pr-ready.sh` (called from `merge.sh`) and gate on the new cycle automatically. If the fix commit went out via `/commit --no-review`, no trigger is posted and `/merge` proceeds on CI alone.
+If the user runs `/triage` and lands a fix commit via `/commit --review`, that push posts a fresh `/gemini review` comment which arms a new review cycle. The next `/merge` will re-run `wait-for-pr-ready.sh` (called from `merge.sh`) and gate on the new cycle automatically. If the fix commit went out via `/commit --no-review`, no trigger is posted and `/merge` proceeds on CI alone.
 
 ### Step 8: Report
 

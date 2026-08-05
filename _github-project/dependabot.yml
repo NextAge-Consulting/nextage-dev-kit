@@ -1,6 +1,6 @@
 # ---------------------------------------------------------------------------
 # Dependabot version & security updates.
-# Full design + rationale: https://github.com/PeteHalsted/nextage-dev-kit/blob/main/project-documentation/HANDBOOK.md#1110-dependabotyml-monthly--cooldown--grouping--revised-2026-04-20
+# Full design + rationale: https://github.com/NextAge-Consulting/nextage-dev-kit/blob/main/project-documentation/HANDBOOK.md#1110-dependabotyml-monthly--cooldown--grouping--revised-2026-04-20
 #
 # Cadence: monthly + cooldown. Cooldown delays PRs N days after a version
 # ships, dodging the 48-72h supply-chain-attack window (Shai-Hulud /
@@ -146,7 +146,7 @@ updates:
     # Block Node major-version bumps. Odd Node releases never become LTS;
     # evens enter Active LTS ~6 months after release. Dependabot can't
     # distinguish. Active-LTS transitions are surfaced by node-lts-check.yml
-    # (https://github.com/PeteHalsted/nextage-dev-kit/blob/main/project-documentation/HANDBOOK.md#1114-node-lts-checkyml-node-lts-transition-surfacing). Patches (24.x.y) still flow.
+    # (https://github.com/NextAge-Consulting/nextage-dev-kit/blob/main/project-documentation/HANDBOOK.md#1114-node-lts-checkyml-node-lts-transition-surfacing). Patches (24.x.y) still flow.
     ignore:
       - dependency-name: "node"
         update-types:
