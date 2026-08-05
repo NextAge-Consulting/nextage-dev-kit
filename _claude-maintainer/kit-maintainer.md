@@ -118,12 +118,24 @@ out), the kit's own **dogfood** (`.claude/…` in the kit repo), and each **cons
 synced copy (`<project>/.claude/…`). Editing before you've oriented on this is exactly
 how you grab the wrong copy. This read is a hard gate, not optional.
 
-**Then propagate by editing every copy DIRECTLY to byte-identical — do NOT run
-`/sync-dev-kit`.** This is the maintainer backdoor and it is your DEFAULT: the
-`block-kit-edit.sh` hook is inert on this machine, so you can write a consumer's kit
-file in place. `/sync-dev-kit` is the mechanism CONSUMER machines use to pull
-updates (where the hook blocks direct kit edits) — it is NOT your propagation step.
-Reaching for the sync command is the slow lane you keep defaulting to; don't.
+**Then propagate by editing THIS consumer and the kit DIRECTLY to byte-identical —
+do NOT run `/sync-dev-kit`.** This is the maintainer backdoor and it is your
+DEFAULT: the `block-kit-edit.sh` hook is inert on this machine, so you can write a
+consumer's kit file in place. `/sync-dev-kit` is the mechanism CONSUMER machines
+use to pull updates (where the hook blocks direct kit edits) — it is NOT your
+propagation step. Reaching for the sync command is the slow lane you keep
+defaulting to; don't.
+
+**"This consumer" means the project you are working in, and ONLY that one.** Nine
+times in ten a kit-shared adjustment surfaces mid-session in a consumer. The point
+of this section is that you fix it *where you are* and keep the kit byte-identical
+in the same pass — rather than the old failure of stopping, editing the kit, and
+asking the human to sync back into the project they were working in.
+
+**Never reach into another consumer's working tree.** Other projects are on their
+own schedule and their own branches; writing into one uninvited leaves the human
+uncommitted changes in a repo they did not open. They receive this change the next
+time they run `/sync-dev-kit` there, which is the workflow — not a gap in it.
 
 1. State the routing call out loud ("kit-template fix — editing the kit source, the
    kit dogfood, and this consumer's copy directly to byte-identical, no sync").
@@ -147,7 +159,7 @@ forbids, and it leaves the machine running instructions the kit no longer holds.
 
 | Surface | Copies to edit in one pass |
 |---|---|
-| `_claude-project/…` | kit source · kit dogfood (if dogfooded) · every consumer's `.claude/…` |
+| `_claude-project/…` | kit source · kit dogfood (if dogfooded) · **this** consumer's `.claude/…` |
 | `_claude-maintainer/…` | kit source · `~/.claude/…` |
 | `_claude-global/…` | kit source · `~/.claude/…` |
 

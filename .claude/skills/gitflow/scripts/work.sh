@@ -5,7 +5,7 @@
 #   work.sh                              # enter current/ worktree, create on main if missing
 #   work.sh --issue <N>                  # enter current/, ensure branch, link issue #N
 #   work.sh --new <name>                 # create compartment at .claude/worktrees/<name>/
-#   work.sh --retrieve <branch>          # fetch <branch>; into current/ if clean, else compartment
+#   work.sh --retrieve <branch>          # fetch + fast-forward <branch>; into current/ if clean, else compartment
 #   work.sh --discard <name>             # remove compartment .claude/worktrees/<name>/
 #   work.sh --discard <name> --force     # skip dirty-tree refusal; also REQUIRED to discard 'current'
 #   work.sh --discard current --force    # explicitly remove the persistent current/ worktree
@@ -417,6 +417,51 @@ mode_new() {
     emit_path "$path"
 }
 
+# Fast-forward a local branch to origin when it is strictly behind.
+#
+# Without this, --retrieve fetches origin/<branch> and then checks out the LOCAL
+# branch, so a teammate's pushed commits are fetched and ignored — you land on a
+# stale copy with no warning. That breaks the round trip the flag exists for.
+#
+# Fast-forward ONLY. A local branch carrying commits origin does not have is left
+# untouched and reported; silently rewriting it would destroy work.
+sync_local_branch() {
+    local branch="$1"
+    git show-ref --verify --quiet "refs/heads/$branch" || return 0
+    git show-ref --verify --quiet "refs/remotes/origin/$branch" || return 0
+
+    local local_sha remote_sha
+    local_sha=$(git rev-parse "refs/heads/$branch")
+    remote_sha=$(git rev-parse "refs/remotes/origin/$branch")
+    [ "$local_sha" = "$remote_sha" ] && return 0
+
+    if ! git merge-base --is-ancestor "$local_sha" "$remote_sha"; then
+        echo "work.sh: local '$branch' has commits origin does not have — leaving it as is." >&2
+        echo "work.sh:   local  $local_sha" >&2
+        echo "work.sh:   origin $remote_sha" >&2
+        echo "work.sh: reconcile the two before continuing." >&2
+        return 0
+    fi
+
+    # Strictly behind. If the branch is checked out in a worktree the merge has to
+    # happen there so index and working tree follow; otherwise moving the ref is
+    # enough. A dirty tree makes --ff-only refuse, which is the correct outcome:
+    # loud, and nothing overwritten.
+    local wt
+    wt=$(git worktree list --porcelain \
+         | awk -v b="branch refs/heads/$branch" '/^worktree /{p=$2} $0==b{print p}')
+    if [ -n "$wt" ]; then
+        echo "work.sh: fast-forwarding '$branch' to origin in $wt" >&2
+        if ! git -C "$wt" merge --ff-only "origin/$branch" >&2; then
+            echo "work.sh: could not fast-forward '$branch' in $wt (uncommitted changes?)." >&2
+            echo "work.sh: that worktree stays on the older commit." >&2
+        fi
+    else
+        echo "work.sh: fast-forwarding local '$branch' to origin" >&2
+        git update-ref "refs/heads/$branch" "$remote_sha"
+    fi
+}
+
 # ─── Mode: --retrieve <branch> ─────────────────────────────────────────────
 mode_retrieve() {
     local branch="$ARG"
@@ -430,6 +475,9 @@ mode_retrieve() {
         echo "work.sh: branch '$branch' not found on origin" >&2
         exit 4
     fi
+
+    # Fetching alone leaves an existing local branch pointing at the old commit.
+    sync_local_branch "$branch"
 
     local current_path="${WORKTREES_DIR}/current"
 

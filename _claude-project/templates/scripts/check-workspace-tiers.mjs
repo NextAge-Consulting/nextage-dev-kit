@@ -145,6 +145,8 @@ const isDbImport = (spec) =>
 const isUiFramework = (spec) =>
   /^(react|react-dom|lucide-react|radix-ui|@radix-ui\/)(\/|$)/.test(spec) ||
   /^@tanstack\/react-/.test(spec) || // react-start / react-router pull React
+  /^(class-variance-authority|clsx|tailwind-merge)(\/|$)/.test(spec) || // styling-only, but client
+  /^@fontsource/.test(spec) || // font CSS is a browser asset
   /^@stripe\/stripe-js/.test(spec); // browser Stripe SDK
 
 // --- server-shared tier: no browser/UI, no web tier ------------------------

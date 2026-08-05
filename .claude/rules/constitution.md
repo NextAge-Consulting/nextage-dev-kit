@@ -160,6 +160,33 @@ Language/framework conventions live in the respective rule files.
 
 **When writing error handlers**: Trace the FULL path from error occurrence to user visibility. If any link in the chain is broken, the error is swallowed.
 
+### Log AND show. Log-only is silent failure wearing a hat.
+
+**The default for any user-affecting failure is BOTH: full detail to the log, a
+general statement to the user.** Logging alone satisfies the developer and
+leaves the user staring at a screen that looks fine and isn't — which is the
+exact harm this section exists to prevent.
+
+**Log-only is correct in one case:** the failure genuinely does not affect what
+the user is doing or seeing, and interrupting them would be noise. If they would
+act differently knowing, they get told.
+
+**What the user sees is general. What the log holds is everything.** The message
+names the system and the impact, never the cause: no error text, no status
+codes, no key/token/credential state, no stack, no internal identifiers. Those
+are operator information and leak internals (§III).
+
+| Say this | Never this |
+|---|---|
+| "Couldn't reach QuickBooks, so the file list can't be shown." | "QuickBooks API returned 401: invalid client credentials" |
+| "Trouble saving — your changes weren't applied." | "duplicate key value violates unique constraint" |
+| "That upload didn't go through." | "S3 PutObject AccessDenied for bucket acme-prod-uploads" |
+
+**An empty state is not an error state.** A failed lookup that renders as an
+empty list tells the user the thing does not exist. Distinguish the two — a
+missing certificate and an unreachable server look identical otherwise, and one
+of those is a compliance problem.
+
 **When reviewing code**: Look for `onError`, `catch`, `.catch()`, `except` — verify each one surfaces to the user, not just to logs or dead state.
 
 ## XI. Best Solution, Not Quick Solution (Zero Tolerance)
