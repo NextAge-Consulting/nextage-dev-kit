@@ -1,7 +1,11 @@
 # Asking Questions (Zero Tolerance)
 
 **When you need input from the human, default to plain natural-language prose, ONE
-question at a time. `AskUserQuestion` (the multiple-choice chip UI) is permitted
+question at a time.** This rule governs which **mechanism** carries a question —
+the chip UI or prose. Where the question sits in the reply and how it reads live
+in the `house` output style.
+
+**`AskUserQuestion` (the multiple-choice chip UI) is permitted
 ONLY when there is exactly ONE decision on the table and it's a genuinely closed
 pick where discussion is unlikely. More than one question → prose, period.**
 
@@ -48,7 +52,6 @@ independent decisions is not.)
 - Recommend a default in the same breath as the question, so the human can say "yes"
   or redirect. ("I'd keep the schema monolithic and split lazily — that work? Or
   full per-file split up front?")
-- After the human answers, *then* surface the next decision if it still stands.
 
 | Forbidden | Why | Fix |
 |-----------|-----|-----|
