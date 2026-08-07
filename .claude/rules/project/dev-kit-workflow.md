@@ -63,6 +63,7 @@ The kit dogfoods (mirrors into its own `.claude/`) only what it actually *uses*.
 | `skills/ui-patterns/**`, `rules/ui-patterns.md` | Kit has no UI — nothing to compose and no interactions to pattern. |
 | `skills/shadcn/**` | Kit has no `components.json` / shadcn install. |
 | `skills/mfing-bible-of-tanstack/**` | Kit has no TanStack code. |
+| `tanstack-manifest.json` | Kit-blessed TanStack versions + vendored-reference provenance. Kit has no `package.json` and no TanStack dependency, so there is nothing here to pin. Consumed by the (also template-only) `scripts/check-tanstack.mjs`. |
 | `rules/drizzle-migrations.md` | Kit has no database or migrations — the drizzle mechanics never apply. |
 | `rules/postgres-collation.md` | Kit has no database and no Drizzle schema — the collation question never arises. |
 | `rules/cli-utilities.md` | Kit runs no AWS / cloud CLI — the account/region discipline never applies here. |

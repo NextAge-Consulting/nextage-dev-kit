@@ -1,330 +1,274 @@
 ---
 name: mfing-bible-of-tanstack
-description: The definitive TanStack guide covering Start, Router, and Query. Server functions with { data: params } pattern, route integration with loaderDeps, TanStack Query cache management with unified queryOptions, ServerOnly authentication, public API routes, webhooks. Use when creating routes, server functions, query hooks, mutations, implementing authentication, building webhooks, debugging data fetching, fixing loading spinners, or any TanStack Start/Router/Query work.
+description: House rules for TanStack Start, Router, Query, Table and Form — which data layer a screen uses and why, the fresh-by-default Query posture, the per-app form rule, server functions with { data: params }, unified queryOptions, server-paged browses with Table v9, and the routing index into the vendored upstream reference docs. Use when creating routes, server functions, browses or forms, wiring queries or mutations, adding a TanStack dependency, implementing authentication, building webhooks, debugging data fetching, or any TanStack Start/Router/Query/Table/Form work.
 ---
 
 # The MF'ing Bible of TanStack
 
-The definitive guide to TanStack Start, Router, and Query patterns. This skill provides indexed access to comprehensive documentation without consuming context when not needed.
+House doctrine first, then an index into `references/`. Read the section you need;
+do not read the whole file.
 
-## Version Reference
+## Versions are not listed here
 
-| Package | Version | Notes |
-|---------|---------|-------|
-| `@tanstack/react-start` | 1.145.x | fetch handler output (1.132+) |
-| `@tanstack/react-router` | 1.144.x | |
-| `@tanstack/react-query` | 5.80.x | |
-| `@tanstack/router-plugin` | 1.145.x | |
-| `hono` | 4.x | Recommended server runtime |
-| `@hono/node-server` | 1.x | Node.js adapter |
+`.claude/tanstack-manifest.json` holds the blessed version of every TanStack
+package, and `scripts/check-tanstack.mjs` enforces it in CI. Duplicating the
+numbers here would just create a second copy to go stale.
+
+Two things follow from that file and are non-negotiable:
+
+- **Lockstep is absolute.** TanStack publishes no LTS — no `lts` dist-tag, no
+  support window, one rolling line per library. The kit *is* the LTS. If a
+  project uses a TanStack library it uses the kit's version, declared **exactly**
+  (a caret range drifts off the blessed version on a fresh install).
+- **Adding or bumping a TanStack package is a kit decision**, made through the
+  kit's `/review-tanstack`. Never bump the manifest to make a build pass.
 
 ---
 
-## Quick Reference (Essential Patterns)
+## 1. Which data layer? Decide per screen, record the reason
 
-### The Three Critical Patterns
+There is no single answer, and picking by habit is the failure mode. Three
+legitimate shapes:
 
-1. **Server Function Parameters**: `{ data: params }` destructuring
-2. **Route Parameter Flow**: `loaderDeps` → `loader` → server function
-3. **Unified QueryOptions**: Single source of truth for cache keys
+| Shape | Use when | Cost of getting it wrong |
+|---|---|---|
+| **Route loader only** | The screen owns its data, is server-paged, and nothing else on the site shares it | Fine until two screens need the same data, then you refetch twice |
+| **TanStack Query** (default for interactive screens) | Anything with mutations, background refresh, optimistic updates, or data shared across screens | — |
+| **Loader over a server-side cache** | A large reference set many screens read, where per-screen invalidation would mean an enormous query | Naive Query invalidation here can turn one navigation into a five-figure row scan |
 
-### Server Function Template
+**The default is Query.** The third shape is real and legitimate, but it is a
+deliberate choice with a measured reason, not a way to avoid learning Query.
 
-```typescript
-import { createServerFn } from '@tanstack/react-start'
-import { getServerAuth } from '@/lib/auth/serverAuth'
-import { db, yourTable } from '@your-org/shared/db'
+**Whichever you pick, write the reason down where the next person will hit it** —
+a comment at the head of the server-function module, not a separate doc. A
+loader-only screen that had a good reason and an unconverted screen look
+identical from the outside; the comment is the only difference.
 
-export const functionName = createServerFn({
-  method: 'GET', // or 'POST'
-})
-  .inputValidator((params: YourParamsType) => params)
-  .handler(async ({ data: params }) => {
-    // 1. Auth context (if needed)
-    const authContext = await getServerAuth(['admin', 'manager'])
+## 2. Fresh by default is a posture, not per-screen work
 
-    // 2. CRITICAL: Safe parameter handling
-    const safeParams = params || {}
+Business screens must show current data without the user reloading. That is
+configured **once** on the QueryClient and inherited by every screen — you should
+never be adding freshness per browse:
 
-    // 3. Database operations
-    const results = await db.select().from(yourTable)
-      .where(/* conditions */)
-      .limit(safeParams.limit || 50)
-      .offset(safeParams.offset || 0)
-
-    return results
-  })
-```
-
-### Route Template
-
-```typescript
-import { createFileRoute } from '@tanstack/react-router'
-import { serverFunction } from '@/lib/serverFunctions/yourFn'
-
-export const Route = createFileRoute('/your/route/')(({
-  validateSearch: (search) => ({
-    param1: search?.param1 || undefined,
-    param2: search?.param2 || undefined,
-  }),
-
-  // loaderDeps: ONLY for search parameters (query strings)
-  loaderDeps: ({ search }) => ({
-    param1: search?.param1 || undefined,
-    param2: search?.param2 || undefined,
-  }),
-
-  loader: async ({ deps }) => {
-    const data = await serverFunction({ data: deps })
-    return { data }
+```ts
+new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,        // don't refetch on every mount
+      refetchOnWindowFocus: true, // returning to the tab shows current data
+      retry: 1,
+    },
   },
-
-  component: YourComponent,
-}))
+})
 ```
 
-### Parameter Flow
+Then per-screen, only where it genuinely differs:
 
-```
-URL: /route?search=test&status=active
-    ↓
-1. validateSearch → { search: 'test', status: 'active' }
-    ↓
-2. loaderDeps → { search: 'test', status: 'active' }
-    ↓
-3. loader → serverFunction({ data: deps })
-    ↓
-4. handler → ({ data: params }) where params = { search: 'test', status: 'active' }
-```
+- **After a mutation** — `invalidateQueries` scoped to the affected key. Never
+  `router.invalidate()` as a blanket refresh; that refetches every active loader
+  on the page to fix one list.
+- **Values that must be exact at the moment of action** (money, stock) —
+  `staleTime: 0` on that query specifically.
 
-### Path Parameters vs Search Parameters
+**Paging without a flash — which mechanism depends on who owns the page number.**
 
-```typescript
-// PATH PARAMETERS: /users/$userId → automatically available
-loader: async ({ params }) => {
-  // params.userId is automatic - NO loaderDeps needed
-  return getUserById({ data: { userId: params.userId } })
+`useSuspenseQuery` does **not** accept `placeholderData`; the option is omitted
+from its type, so `keepPreviousData` is not available on the loader-driven path.
+That is not a gap:
+
+- **Route-loader-driven paging** (page in the URL, the house default for
+  browses). `ensureQueryData` in the loader means Router holds the current page
+  rendered until the next page's data is in cache. No flash, nothing to
+  configure.
+- **Client-driven paging** (page in component state, no route change) — use
+  plain `useQuery` with `placeholderData: keepPreviousData`.
+
+Reach for the second only when the page genuinely should not be in the URL. A
+browse whose page number is not shareable or bookmarkable is usually a mistake.
+
+## 3. Router + Query wiring — two ways to get this badly wrong
+
+```ts
+// src/router.tsx
+export function getRouter() {
+  // CRITICAL: inside the factory. A module-level QueryClient is shared across
+  // SSR requests, which leaks one user's data into another's render. In a
+  // multi-tenant app that is a cross-tenant leak, not a caching bug.
+  const queryClient = new QueryClient({ /* defaults above */ })
+
+  const router = createRouter({
+    routeTree,
+    context: { queryClient },
+    scrollRestoration: true,
+    // CRITICAL: Router's own preload cache defaults to 30s and would override
+    // Query's freshness control. 0 hands caching to Query, which is the point.
+    defaultPreloadStaleTime: 0,
+  })
+
+  setupRouterSsrQueryIntegration({ router, queryClient })
+  return router
 }
-
-// SEARCH PARAMETERS: /users?search=test → requires loaderDeps
-loaderDeps: ({ search }) => ({ search: search?.search }),
-loader: async ({ deps }) => {
-  return searchUsers({ data: deps })
-}
 ```
 
----
+`setupRouterSsrQueryIntegration` (from `@tanstack/react-router-ssr-query`) is the
+whole SSR story — it wraps the app in `QueryClientProvider` and handles
+dehydrate/hydrate/streaming. Do not hand-roll `dehydrate`/`hydrate`/`Wrap`.
 
-## When to Consult Reference Files
+## 4. Unified queryOptions — one object, both sides
 
-| Task | Reference File |
-|------|----------------|
-| Creating server functions | `references/server-functions.md` |
-| Server function composition/cross-domain | `references/server-functions.md` |
-| Creating routes with loaderDeps | `references/routes-and-loaders.md` |
-| Route file naming conventions | `references/routes-and-loaders.md` |
-| Adding authentication/RBAC | `references/authentication.md` |
-| ServerOnly pattern | `references/authentication.md` |
-| Building webhooks/public API routes | `references/api-routes-webhooks.md` |
-| Global middleware | `references/api-routes-webhooks.md` |
-| TanStack Query integration | `references/tanstack-query.md` |
-| Unified queryOptions pattern | `references/tanstack-query.md` |
-| Cache invalidation/mutations | `references/tanstack-query.md` |
-| Optimistic updates | `references/tanstack-query.md` |
-| Fixing loading spinners | `references/loading-states.md` |
-| SWR behavior configuration | `references/loading-states.md` |
-| Debugging hydration issues | `references/debugging.md` |
-| CJS/ESM problems | `references/debugging.md` |
-| Testing server functions | `references/debugging.md` |
-| Production deployment | `references/production-deployment.md` |
-| Docker deployment | `references/production-deployment.md` |
-| Static file serving | `references/production-deployment.md` |
-| Hono server setup | `references/production-deployment.md` |
-| Code review for mistakes | `references/anti-patterns.md` |
-| Common errors to avoid | `references/anti-patterns.md` |
-| Dependabot / security alerts, `overrides` safety | `references/dependency-management.md` |
-| Transitive dep breaks SSR / `Cannot GET /` after override | `references/dependency-management.md` |
+The loader prefetches, the component reads, and they share **one** definition so
+the cache key can never drift:
 
----
-
-## Critical Rules Summary
-
-### Server Functions
-
-- **Always** use `{ data: params }` destructuring in handler
-- **Always** handle undefined: `const safeParams = params || {}`
-- **Use** shared database connection from `@/lib/db`
-- **Use** `Fn` suffix for server function files: `prospectsFn.ts`
-- See `references/server-functions.md` for composition patterns
-
-### Routes
-
-- `loaderDeps` is **ONLY** for search parameters (query strings)
-- Path parameters (`$prospectId`) are **automatically** available in `params`
-- **Never** use `loaderDeps` for path parameters
-- Use **descriptive names** not `index.tsx`: `prospects-pipeline.tsx`
-- See `references/routes-and-loaders.md` for complete patterns
-
-### Authentication
-
-- **Use** `createServerOnlyFn` - guarantees server-only execution
-- **Never** put auth logic directly in handlers
-- **Never** use middleware pattern for auth (tree-shaking issues)
-- See `references/authentication.md` for ServerOnly pattern
-
-### TanStack Query
-
-- Use **singular** cache keys matching DB names: `['prospect', filters]`
-- **Unified queryOptions** shared between routes and hooks
-- **Never** duplicate query definitions
-- See `references/tanstack-query.md` for cache management
-
-### Public API Routes
-
-- Use `createFileRoute` with `server.handlers` for webhooks
-- Read raw body with `request.text()` for signature verification
-- See `references/api-routes-webhooks.md` for webhook patterns
-
----
-
-## File Structure Convention
-
-```
-apps/web/
-├── src/
-│   ├── lib/
-│   │   ├── db.ts                    # Shared database connection
-│   │   └── serverFunctions/
-│   │       ├── prospectsFn.ts       # Server functions with Fn suffix
-│   │       ├── authFn.ts
-│   │       └── campaignFn.ts
-│   ├── routes/
-│   │   └── admin/prospects/
-│   │       ├── prospects-pipeline.tsx    # Descriptive name (not index.tsx)
-│   │       └── $prospectId/
-│   │           └── prospect-details.tsx
-│   └── hooks/
-│       └── useProspects.ts
-├── server.mjs                       # Hono production server wrapper
-└── dist/                            # Build output (after vite build)
-    ├── server/server.js             # TanStack fetch handler (NOT standalone!)
-    └── client/                      # Static assets (JS, CSS, images)
-```
-
----
-
-## Production Server (Quick Reference)
-
-**CRITICAL**: TanStack Start outputs a fetch handler, NOT a runnable server. Wrap with Hono:
-
-```javascript
-// server.mjs - Hono wrapper for TanStack Start
-import { Hono } from 'hono'
-import { serve } from '@hono/node-server'
-import { serveStatic } from '@hono/node-server/serve-static'
-import handler from './dist/server/server.js'
-
-const app = new Hono()
-
-// Static files FIRST (TanStack doesn't serve these!)
-app.use('/assets/*', serveStatic({ root: './dist/client' }))
-app.use('/images/*', serveStatic({ root: './dist/client' }))
-
-// TanStack Start handles everything else
-app.all('*', (c) => handler.fetch(c.req.raw))
-
-serve({ fetch: app.fetch, port: 3001 })
-```
-
-See `references/production-deployment.md` for complete patterns.
-
----
-
-## Common Patterns
-
-### Cross-Domain Server Function Calls
-
-```typescript
-// ✅ CORRECT: Use server functions for cross-domain queries
-const contact = await getContactFullProfile({ data: { contactid: input.contactid } })
-const product = await getProductDetails({ data: { productid: input.productid } })
-
-// ❌ WRONG: Direct database queries across domains
-const contact = await db.query.contact.findFirst(...)  // Don't do this from invoiceFn
-```
-
-### Same-Domain Direct Queries
-
-```typescript
-// ✅ CORRECT: Direct queries within same domain
-export const updateSubscription = createServerFn({ method: 'PUT' })
-  .handler(async ({ data: input }) => {
-    // Same-domain lookup - OK to use direct query
-    const existing = await db.query.subscription.findFirst({
-      where: eq(subscription.subscriptionid, input.subscriptionid)
-    })
-    // ...
+```ts
+// lib/queries/itemQueries.ts
+export const itemBrowseQuery = (params: ItemBrowseParams) =>
+  queryOptions({
+    queryKey: ['item', 'browse', params],
+    queryFn: () => getItemBrowse({ data: params }),
   })
 ```
 
-### Auth Patterns by Role
+```tsx
+export const Route = createFileRoute('/_authed/accounting/products/')({
+  validateSearch: searchSchema,
+  loaderDeps: ({ search }) => search,
+  loader: ({ context, deps }) =>
+    context.queryClient.ensureQueryData(itemBrowseQuery(toParams(deps))),
+  component: ProductBrowse,
+})
 
-```typescript
-// No authentication required
-const authContext = undefined  // Skip getServerAuth
-
-// Any authenticated user
-const authContext = await getServerAuthAnyRole()
-
-// Specific roles
-const authContext = await getServerAuth(['admin'])
-const authContext = await getServerAuth(['admin', 'manager'])
+function ProductBrowse() {
+  const search = Route.useSearch()
+  const { data } = useSuspenseQuery(itemBrowseQuery(toParams(search)))
+}
 ```
+
+- `ensureQueryData` in the loader — no flash of loading, no request waterfall,
+  SSR-rendered data.
+- `useSuspenseQuery` in the component — reads the warm cache and subscribes.
+- **Every server-owned slice belongs in the key.** Page, size, sort, filters. If
+  it changes what the server returns, it is part of the key.
+
+## 5. Server functions, API routes, and the production server are three things
+
+Confusing them is the most common orientation mistake.
+
+| Concept | Built with | Bundled? | Purpose |
+|---|---|---|---|
+| **Server function** | `createServerFn()` | Yes | Internal type-safe RPC — queries, auth, business logic |
+| **API route** | `createFileRoute()` + `server.handlers` | Yes | External HTTP — webhooks, third-party callbacks |
+| **Production server** | Hono, wrapping the Start fetch handler | **No** — your code | Serves static files, health checks, runs the app |
+
+Server-function shape: `.inputValidator()` then `.handler(async ({ data }) => …)`,
+auth first, then the query. Details in `references/start-server-functions.md`;
+house auth in `references/authentication.md`.
+
+## 6. Browses use Table v9
+
+Column definitions replace duplicated header/cell markup. The table is headless —
+it renders nothing, so the design-system markup, toolbar and footer stay exactly
+as they are.
+
+- Features are **opt-in** in v9: `tableFeatures({ rowPaginationFeature, … })`.
+  Register only what the browse uses.
+- Server-paged browses set `manualPagination: true` and pass the server's
+  `rowCount`. Table does not slice the rows; the server already did.
+- **Never `legacyCreateColumnHelper`** — it is the v8 compat shim and carries an
+  open upstream TypeScript defect.
+
+Full pattern: `references/table-with-query.md`, `references/table-state.md`.
+
+## 7. Forms: TanStack Form, decided per app, all-in within an app
+
+An app either uses `@tanstack/react-form` for **every** form or is listed in
+`FORM_LIB_EXEMPT_APPS`. There is no per-screen judgment — a "library when it's
+complex" rule produces one inconsistent decision per screen, which is the worst
+possible shape for an AI-written codebase. An app in neither state fails the
+build, because an unasked question and a deliberate no are not the same thing.
+
+**React Hook Form, `@hookform/resolvers` and Formik are banned.** The live hazard:
+`npx shadcn add form` installs react-hook-form as a hard dependency. **Do not use
+shadcn's form atom.** Build field components from the plain atoms (`Input`,
+`Label`, `Select`) bound to TanStack Form.
+
+Field components that bind to form state are **app-level**, not `packages/ui` —
+the design system stays presentational and form-library-agnostic so it keeps
+rendering in the design feed.
+
+Server-side validation goes through `@tanstack/react-form-start`:
+`formOptions` shares the shape, `createServerValidate` validates inside a normal
+server function, and `mergeForm` + `useTransform` merge server field errors back
+into client state. Posting to `handleForm.url` with a native `<form>` keeps the
+form working without JavaScript.
+
+## 8. Two things AI gets wrong about Router, every time
+
+- **Types are fully inferred. Never cast, never annotate an inferred value.** If
+  you are reaching for `as`, the generic parameter is the fix.
+- **Router is client-first.** Loaders run on the client by default — they are not
+  server-only like Next.js or Remix. Do not import Next.js assumptions.
 
 ---
 
-## Reference Files
+## Reference index
 
-### Detailed Documentation
+Files under `references/`. Vendored ones are marked ⇩ — they are copied verbatim
+from the SKILL.md files TanStack ships inside its npm packages, with a provenance
+header. **Do not hand-edit a vendored file**; `/review-tanstack` overwrites it.
+House guidance goes here in SKILL.md or in a house reference.
 
-- **`references/server-functions.md`** - Server function patterns, composition, cross-domain queries, database connection, input validation
-- **`references/routes-and-loaders.md`** - Route integration, loaderDeps, file naming, path vs search parameters
-- **`references/authentication.md`** - ServerOnly auth, RBAC middleware, createServerOnlyFn, auth patterns by role
-- **`references/api-routes-webhooks.md`** - Public API routes, webhooks, raw body handling, global middleware
-- **`references/tanstack-query.md`** - QueryOptions, cache keys, mutations, optimistic updates, prefetching
-- **`references/loading-states.md`** - SWR behavior, pending components, spinner fixes, shouldReload
-- **`references/debugging.md`** - Hydration issues, CJS/ESM problems, testing setup, Vite config
-- **`references/anti-patterns.md`** - Common mistakes, what NOT to do, parameter safety
-- **`references/dependency-management.md`** - Handling Dependabot/security alerts without breaking SSR; why `overrides`/`resolutions` on transitives under `@tanstack/*` or `vite` silently break SSR; how to test an override; bump-Start-instead guidance
+| Task | Reference |
+|---|---|
+| Loaders, loaderDeps, staleTime/gcTime, beforeLoad, router context, deferred data | ⇩ `router-data-loading.md` |
+| Validating, reading and writing search params | ⇩ `router-search-params.md`, ⇩ `router-search-params-validation.md` |
+| SSR, streaming, selective SSR (`ssr: true \| 'data-only' \| false`) | ⇩ `router-ssr.md` |
+| Route guards, redirects, protected layouts | ⇩ `router-auth-and-guards.md` |
+| Type inference, `Register`, why not to cast | ⇩ `router-type-safety.md` |
+| Navigation, `Link`, programmatic navigate | ⇩ `router-navigation.md` |
+| Path params | ⇩ `router-path-params.md` |
+| notFound, error components | ⇩ `router-errors.md` |
+| `createServerFn`, input validation, composition | ⇩ `start-server-functions.md` |
+| Middleware chains for server fns and routes | ⇩ `start-middleware.md` |
+| Server routes / public HTTP endpoints | ⇩ `start-server-routes.md` |
+| What runs where — isomorphic vs server-only | ⇩ `start-execution-model.md` |
+| Session/auth primitives on the server | ⇩ `start-auth-server-primitives.md` |
+| Deployment targets, Nitro/h3 | ⇩ `start-deployment.md` |
+| Table setup, column defs, `flexRender` | ⇩ `table-getting-started.md` |
+| Table state: sorting, visibility, selection, pagination | ⇩ `table-state.md` |
+| **Server-paged browse: Table + Query** | ⇩ `table-with-query.md` |
+| TanStack Query patterns, cache keys, mutations, optimistic updates | `tanstack-query.md` |
+| House auth: `getServerAuth`, RBAC, Better Auth login | `authentication.md` |
+| Webhooks, raw body handling, public API routes | `api-routes-webhooks.md` |
+| Loading states, spinners, SWR behaviour | `loading-states.md` |
+| Hydration mismatches, CJS/ESM, testing server fns | `debugging.md` |
+| Hono production server, Docker, static files, version reading | `production-deployment.md` |
+| Code review; known traps (betterAuth factory OOM, authed fns poisoning the cache, `seroval`) | `anti-patterns.md` |
+| Dependabot triage, `overrides` safety | `dependency-management.md` |
 
-### Finding Specific Patterns
+**`tanstack-query.md` and the Form guidance above have no upstream.** TanStack
+ships no Query or Form skills — verified zero across `query-core`, `react-query`,
+`form-core`, `react-form` and both repos. They are ours to maintain, and they are
+the only content here that cannot be refreshed from a package.
 
-Use grep to search reference files:
+## Something not covered here
+
+The reference set is deliberately curated, not exhaustive. TanStack ships more
+skills inside its packages than we carry — **migration guides especially, which
+are one-offs we do not keep** (`migrate-from-nextjs`, `migrate-from-react-router`,
+`migrate-v8-to-v9`).
+
+When you hit a scenario this skill does not cover:
 
 ```bash
-grep -i "optimistic" references/tanstack-query.md
-grep -i "webhook" references/api-routes-webhooks.md
-grep -i "hydration" references/debugging.md
-grep -i "loaderDeps" references/routes-and-loaders.md
+ls node_modules/@tanstack/*/skills/           # what this project's versions ship
 ```
 
----
+Read the relevant `SKILL.md` there **in the session that needs it** and let it go
+afterwards. Do not copy it into `references/` — that is how the kit accumulates
+stale content nobody refreshes. If a topic keeps coming up, that is a signal to
+add it to the manifest and vendor it properly, which is a kit decision.
 
-## Key Insight: Architecture
-
-Our application is a **modern full-stack React solution** using:
-
-- **TanStack Start**: Unified server/client routing with file-based routing
-- **TanStack Query**: All client-side data fetching with SWR caching
-- **Server Functions**: Type-safe RPC endpoints with middleware
-
-This means:
-- Single application (no separate backend)
-- Automatic refetching on focus/reconnect
-- Request deduplication
-- SSR compatibility
-- Type safety end-to-end
-
----
-
-*Never learn these patterns again. This is the way.*
+Upstream repos, when the installed version does not ship what you need:
+`TanStack/router`, `TanStack/table`, `TanStack/db` (skills live under
+`packages/*/skills/`). Official docs search without an API key:
+`npx @tanstack/cli mcp`.

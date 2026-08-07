@@ -436,6 +436,9 @@ dest_for_kit_path() {
         _claude-project/templates/scripts/check-workspace-tiers.mjs)
             echo "scripts/check-workspace-tiers.mjs"
             ;;
+        _claude-project/templates/scripts/check-tanstack.mjs)
+            echo "scripts/check-tanstack.mjs"
+            ;;
         _gemini-project/*)
             echo ".gemini/${kit_rel#_gemini-project/}"
             ;;
