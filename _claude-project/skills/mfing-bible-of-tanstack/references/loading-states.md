@@ -1,249 +1,87 @@
-# Loading States Reference
+# Loading states
 
-## Contents
+Ours, drawn from primary design-system sources: NN/g, Primer, Siemens Element,
+Octopus, Bifrost, Salesforce, Utah. The thresholds are consistent across all of
+them.
 
-- [The Loading Spinner Problem](#the-loading-spinner-problem)
-- [Root Causes](#root-causes)
-- [The Complete SWR Solution](#the-complete-swr-solution)
-- [Testing Your Fix](#testing-your-fix)
+## The ladder
 
----
+| Expected wait | Show |
+|---|---|
+| under ~1s | **nothing** |
+| 1–3s | indeterminate — spinner or skeleton |
+| 3–10s | determinate — progress bar |
+| 10s+ | run it in the background, let the user keep working, notify on completion |
 
-## The Loading Spinner Problem
+**Both ends of this are rules.** Showing an indicator below a second is not
+harmless caution: it appears and vanishes within a couple of frames, reads as a
+glitch, and measurably makes an app feel *slower*. Showing nothing above a
+second is equally wrong — the click looks like it did not register, and the user
+clicks again.
 
-**Symptom**: Loading spinner appears when changing search parameters (filters, pagination, etc.) even though you want SWR behavior.
+Which end bites depends entirely on the backend. A screen backed by a local
+database lives under the threshold and should stay silent. A screen backed by a
+slow third-party API lives above it and must not.
 
-**Expected Behavior**: Show cached data instantly, fetch fresh data in background, smooth transition when new data arrives.
+## Which indicator
 
-**Actual Behavior**: Full-page loading spinner appears, blocking UI.
+Duration picks the tier; **shape** picks the indicator.
 
----
+- **A region is being rebuilt and its layout is known** — a browse reloading
+  after a filter or page change. Use a **skeleton** in the shape of the content.
+  It holds the layout so nothing jumps, and it says what is coming rather than
+  merely that something is.
+- **A control triggered slow work** — Save, Close, Post, Approve. Use a
+  **spinner on that control**, where the user just clicked. Spinners belong on
+  actions, not on pages.
+- **The whole route is changing** — a global top-of-page bar is acceptable, but
+  prefer skeletons in the content area. A full-page spinner blocks everything
+  and causes a layout jump when it clears.
 
-## Root Causes
+Do not mix the two in one region at the same time.
 
-Check ALL of these:
+## Anti-flash gating is not optional
 
-### 1. Global `defaultPendingComponent` in router.tsx
+The same control can be fast or slow depending on cache state. Without gating,
+half the interactions flash an indicator for two frames — which is precisely the
+under-1s failure above.
 
-```typescript
-// ❌ WRONG: Shows loader for ALL navigations including search params
-const router = createTanStackRouter({
-  defaultPendingComponent: () => <Loader />,
-})
+Gate every indicator: do not show it until roughly 200ms have passed, and once
+shown hold it for roughly 400ms minimum. Fast responses show nothing; slow ones
+never blink.
 
-// ✅ CORRECT: Let routes control their own loading
-const router = createTanStackRouter({
-  // No defaultPendingComponent
-})
-```
+This is one shared hook, not a per-screen decision.
 
-### 2. Global Loading Check in `__root.tsx`
+## Busy, not disabled
 
-```typescript
-// ❌ WRONG: Shows loader for any router state change
-function RootDocument() {
-  const isFetching = useRouterState({ select: (s) => s.isLoading })
-  return (
-    <main>
-      {isFetching ? <Loader /> : <Outlet />}
-    </main>
-  )
-}
+A control performing work goes to a **busy** state — spinner, label unchanged,
+still focusable. Do **not** set `disabled`: a disabled control is removed from
+the accessibility tree, so a screen-reader user loses it mid-action.
 
-// ✅ CORRECT: Just render the outlet
-function RootDocument() {
-  return (
-    <main>
-      <Outlet />
-    </main>
-  )
-}
-```
+Reserve the spinner's slot in the layout so the control does not change size when
+it appears.
 
-### 3. Route Configuration for SWR
+`disabled` remains correct for *unavailable*, which is a different thing —
+nothing to save, no permission, wrong record status.
 
-```typescript
-// ✅ CORRECT: The three essential settings for SWR on search param changes
-export const Route = createFileRoute("/admin/prospects/")({
-  // 1. Prevent loader re-execution on search param changes
-  shouldReload: false,
+## Where this interacts with Router and Query
 
-  // 2. Disable route-level pending UI
-  pendingComponent: () => null,
-  pendingMs: Infinity,
+Router will render a route-level pending component during a loader. That is the
+wrong granularity for a filter change on a browse: the whole screen blanks,
+including the toolbar holding the filter the user just mistyped.
 
-  // Your loader and component...
-})
-```
+So keep the route pending component off for browse routes, and put the indicator
+on the region instead — driven by the query's own `isFetching`, gated as above.
+The toolbar stays live throughout.
 
-### 4. Query Configuration
+`useSuspenseQuery` has no `placeholderData`, so `keepPreviousData` is not
+available on the loader-driven path. It does not need to be: `ensureQueryData` in
+the loader means Router holds the current page rendered until the next page's
+data has arrived. Client-driven paging that does not change the route is the only
+case for `useQuery` + `keepPreviousData`.
 
-```typescript
-// In your component's useQuery:
-const { data } = useQuery({
-  ...queryOptions,
-  // 3. Keep previous data visible while fetching new data
-  placeholderData: keepPreviousData,
-})
-```
+## Never claim progress you cannot measure
 
-### 5. Navigation Configuration
-
-```typescript
-// In navigation handlers:
-router.navigate({
-  search: newSearchParams,
-  // 4. Replace history entry instead of pushing
-  replace: true,
-})
-```
-
----
-
-## The Complete SWR Solution
-
-### Why This Happens
-
-TanStack Router's navigation lifecycle ALWAYS runs for any navigation (including search param changes). Without proper configuration:
-1. Router sets `pendingLocation` state
-2. Global pending components check this state
-3. Loading UI appears even though data is cached
-
-### Step-by-Step Fix
-
-**Step 1: Remove all global loading handlers**
-
-```typescript
-// router.tsx - Remove defaultPendingComponent
-const router = createTanStackRouter({
-  routeTree,
-  context: { queryClient },
-  // No defaultPendingComponent
-})
-
-// __root.tsx - Remove isLoading check
-function RootDocument() {
-  return (
-    <main>
-      <Outlet />
-    </main>
-  )
-}
-```
-
-**Step 2: Configure route with `shouldReload: false`**
-
-```typescript
-export const Route = createFileRoute("/admin/prospects/")({
-  shouldReload: false,
-  pendingComponent: () => null,
-  pendingMs: Infinity,
-  // ...
-})
-```
-
-**Step 3: Use `placeholderData: keepPreviousData` in queries**
-
-```typescript
-import { keepPreviousData } from '@tanstack/react-query'
-
-const { data } = useQuery({
-  ...prospectQueryOptions.list(filters),
-  placeholderData: keepPreviousData,
-})
-```
-
-**Step 4: Navigate with `replace: true`**
-
-```typescript
-const handleFilterChange = (newFilters) => {
-  router.navigate({
-    search: newFilters,
-    replace: true,
-  })
-}
-```
-
-**Step 5: Set route's `pendingComponent: () => null`**
-
-```typescript
-export const Route = createFileRoute("/admin/prospects/")({
-  pendingComponent: () => null,
-  // ...
-})
-```
-
----
-
-## Testing Your Fix
-
-1. Open Network tab in DevTools
-2. Change a filter/search param
-3. You should see:
-   - NO loading spinner
-   - Previous data stays visible
-   - New data loads in background
-   - Smooth transition when new data arrives
-4. Network request should still be made (background revalidation)
-
----
-
-## Complete Route Example
-
-```typescript
-import { createFileRoute } from '@tanstack/react-router'
-import { useSuspenseQuery } from '@tanstack/react-query'
-import { keepPreviousData } from '@tanstack/react-query'
-import { prospectQueryOptions } from '@/lib/queryOptions/prospects'
-
-export const Route = createFileRoute('/admin/prospects/')({
-  validateSearch: (search) => ({
-    search: search?.search || undefined,
-    status: search?.status || undefined,
-  }),
-
-  loaderDeps: ({ search }) => ({
-    search: search?.search,
-    prospectstatus: search?.status,
-  }),
-
-  // Prevent loader re-execution on search changes
-  shouldReload: false,
-
-  // Disable route-level pending UI
-  pendingComponent: () => null,
-  pendingMs: Infinity,
-
-  loader: async ({ deps, context: { queryClient } }) => {
-    await queryClient.ensureQueryData(prospectQueryOptions.list(deps))
-    return {}
-  },
-
-  component: ProspectList,
-})
-
-function ProspectList() {
-  const search = Route.useSearch()
-  const router = useRouter()
-
-  const { data: prospects } = useSuspenseQuery({
-    ...prospectQueryOptions.list({
-      search: search.search,
-      prospectstatus: search.status,
-    }),
-    // Keep previous data while fetching
-    placeholderData: keepPreviousData,
-  })
-
-  const handleFilterChange = (newFilters) => {
-    router.navigate({
-      search: newFilters,
-      replace: true,  // Replace instead of push
-    })
-  }
-
-  return (
-    // Your component JSX
-  )
-}
-```
+A determinate bar against a third-party API is a lie — nothing reports percent
+complete. Stay indeterminate unless the work genuinely reports progress, such as
+a chunked upload.

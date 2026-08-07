@@ -1,29 +1,24 @@
 {
   "_README": [
-    "Kit-blessed TanStack versions and the provenance of our vendored reference docs.",
+    "Kit-blessed TanStack versions, and what each distilled reference was written against.",
     "",
-    "WHY THIS FILE EXISTS: TanStack publishes no LTS. There is no `lts` dist-tag on any",
-    "TanStack package and no support-window policy — only a single rolling line per",
-    "library. So there is no upstream stability signal to defer to, and THIS FILE IS THE",
-    "LTS: the kit blesses one version per package and every project runs it. One project",
-    "upgrades = all projects upgrade, decided here, not per repo.",
+    "WHY THIS FILE EXISTS: TanStack publishes no LTS. No `lts` dist-tag on any package,",
+    "no support-window policy — just one rolling line per library. There is no upstream",
+    "stability signal to defer to, so THIS FILE IS THE LTS: the kit blesses one version",
+    "per package and every project runs it. One project upgrades = all projects upgrade,",
+    "decided here.",
     "",
     "EXACT VERSIONS, NOT RANGES. A caret range lets a fresh install drift to a version",
-    "the kit never blessed, which defeats lockstep silently. Consumers declare these",
-    "versions exactly in package.json; scripts/check-tanstack.mjs fails on a range.",
+    "the kit never blessed, defeating lockstep silently.",
     "",
-    "ENFORCEMENT is scripts/check-tanstack.mjs — CI job `tanstack-standard` plus",
-    "commit.sh pre-commit. That script is deliberately HERMETIC: it reads package.json",
-    "files, this manifest and sync-substitutions.json, and never touches the network.",
-    "The `watch` block below is for the maintainer review command, which does have",
-    "network and is run by hand.",
+    "ENFORCEMENT is scripts/check-tanstack.mjs (CI job `tanstack-standard`) — hermetic,",
+    "reads manifests only, never the network.",
     "",
-    "CHANGING A VERSION is a maintainer act, via the kit's /review-tanstack command.",
-    "Do not bump a version here to make a project's build pass."
+    "MOVING A PIN is /review-tanstack: read what changed between our version and latest,",
+    "decide whether it affects how WE use TanStack, and if we take the bump, update the",
+    "references it invalidates. Never bump this file to make a build pass."
   ],
-
   "blessed_at": "2026-08-06",
-
   "packages": {
     "@tanstack/react-router": "1.170.21",
     "@tanstack/react-start": "1.168.38",
@@ -33,21 +28,17 @@
     "@tanstack/react-form-start": "1.33.3",
     "@tanstack/react-table": "9.0.0"
   },
-
   "_packages_notes": {
     "@tanstack/react-table": "v9.0.0, GA 2026-08-04 after 54 alphas + 80 betas. v8 is NOT the conservative alternative — its last release was 8.21.3 on 2025-04-14. Do not use legacyCreateColumnHelper: open upstream TS issue (aggregationFn rejects built-in string identifiers).",
     "@tanstack/react-router-ssr-query": "Glue package. Sole export setupRouterSsrQueryIntegration({router, queryClient}) — wires QueryClientProvider plus SSR dehydrate/hydrate/streaming. Required wherever Query is used with Start.",
     "@tanstack/react-form-start": "Start integration for Form: formOptions, createServerValidate, getFormData, mergeForm. Versioned in lockstep with react-form."
   },
-
   "banned": {
     "react-hook-form": "Use @tanstack/react-form. NOTE: `npx shadcn add form` installs this as a hard dependency — do not use shadcn's form atom; build field components against TanStack Form instead.",
     "@hookform/resolvers": "Companion to react-hook-form. Same replacement.",
     "formik": "Use @tanstack/react-form."
   },
-
   "form_library": "@tanstack/react-form",
-
   "_form_rule": [
     "Form-library adoption is decided PER APP, all-in within an app. Three states,",
     "and the third is a hard failure:",
@@ -60,105 +51,117 @@
     "pages, and control-plane/service apps whose UI is a couple of status screens.",
     "Data-entry apps (ERP browses and record forms) take the library."
   ],
-
   "references": [
-    { "file": "router-data-loading.md",      "package": "@tanstack/router-core",      "skill": "router-core/data-loading" },
-    { "file": "router-search-params.md",     "package": "@tanstack/router-core",      "skill": "router-core/search-params" },
-    { "file": "router-search-params-validation.md", "package": "@tanstack/router-core", "skill": "router-core/search-params", "sub": "references/validation-patterns.md" },
-    { "file": "router-ssr.md",               "package": "@tanstack/router-core",      "skill": "router-core/ssr" },
-    { "file": "router-auth-and-guards.md",   "package": "@tanstack/router-core",      "skill": "router-core/auth-and-guards" },
-    { "file": "router-type-safety.md",       "package": "@tanstack/router-core",      "skill": "router-core/type-safety" },
-    { "file": "router-navigation.md",        "package": "@tanstack/router-core",      "skill": "router-core/navigation" },
-    { "file": "router-path-params.md",       "package": "@tanstack/router-core",      "skill": "router-core/path-params" },
-    { "file": "router-errors.md",            "package": "@tanstack/router-core",      "skill": "router-core/not-found-and-errors" },
-    { "file": "start-server-functions.md",   "package": "@tanstack/start-client-core", "skill": "start-core/server-functions" },
-    { "file": "start-middleware.md",         "package": "@tanstack/start-client-core", "skill": "start-core/middleware" },
-    { "file": "start-server-routes.md",      "package": "@tanstack/start-client-core", "skill": "start-core/server-routes" },
-    { "file": "start-execution-model.md",    "package": "@tanstack/start-client-core", "skill": "start-core/execution-model" },
-    { "file": "start-auth-server-primitives.md", "package": "@tanstack/start-client-core", "skill": "start-core/auth-server-primitives" },
-    { "file": "start-deployment.md",         "package": "@tanstack/start-client-core", "skill": "start-core/deployment" },
-    { "file": "table-getting-started.md",    "package": "@tanstack/react-table",       "skill": "getting-started" },
-    { "file": "table-state.md",              "package": "@tanstack/react-table",       "skill": "table-state" },
-    { "file": "table-with-query.md",         "package": "@tanstack/react-table",       "skill": "with-tanstack-query" }
+    {
+      "file": "data-loading.md",
+      "distilled_from": [
+        "@tanstack/router-core: router-core/data-loading",
+        "@tanstack/router-core: router-core/ssr"
+      ],
+      "plus": "our router+query wiring and guard pattern"
+    },
+    {
+      "file": "search-params.md",
+      "distilled_from": [
+        "@tanstack/router-core: router-core/search-params"
+      ],
+      "plus": "URL-as-browse-state, the all-digits coercion trap"
+    },
+    {
+      "file": "server-functions.md",
+      "distilled_from": [
+        "@tanstack/start-client-core: start-core/server-functions",
+        "@tanstack/start-client-core: start-core/execution-model"
+      ],
+      "plus": "auth-in-handler position and the middleware evidence"
+    },
+    {
+      "file": "queries-and-mutations.md",
+      "distilled_from": [],
+      "plus": "entirely ours — TanStack ships no Query skill"
+    },
+    {
+      "file": "browse-tables.md",
+      "distilled_from": [
+        "@tanstack/react-table: getting-started",
+        "@tanstack/react-table: table-state",
+        "@tanstack/react-table: with-tanstack-query"
+      ],
+      "plus": "server-paged browse doctrine, URL-vs-table paging"
+    },
+    {
+      "file": "forms.md",
+      "distilled_from": [],
+      "plus": "entirely ours — TanStack ships no Form skill"
+    },
+    {
+      "file": "loading-states.md",
+      "distilled_from": [],
+      "plus": "ours, from NN/g, Primer, Siemens, Bifrost et al"
+    },
+    {
+      "file": "auth.md",
+      "distilled_from": [
+        "@tanstack/router-core: router-core/auth-and-guards",
+        "@tanstack/start-client-core: start-core/auth-server-primitives"
+      ],
+      "plus": "house auth, betterAuth pitfalls"
+    },
+    {
+      "file": "webhooks.md",
+      "distilled_from": [
+        "@tanstack/start-client-core: start-core/server-routes"
+      ],
+      "plus": "raw body, signature-first, idempotency"
+    },
+    {
+      "file": "deployment.md",
+      "distilled_from": [
+        "@tanstack/start-client-core: start-core/deployment"
+      ],
+      "plus": "our Hono entry, ssr.noExternal, runtime assets"
+    },
+    {
+      "file": "debugging.md",
+      "distilled_from": [],
+      "plus": "ours — failure shapes specific to this stack"
+    },
+    {
+      "file": "dependency-management.md",
+      "distilled_from": [],
+      "plus": "ours — overrides safety under the Start chain"
+    }
   ],
-
-  "references_rejected": {
-    "*/migrate-*": "Migrations are one-offs. Carrying a migration guide forever is exactly the stale-content problem the kit exists to avoid. SKILL.md tells a session where to read one from node_modules when it actually needs it. Covers migrate-from-nextjs, migrate-from-react-router, migrate-v8-to-v9.",
-    "@tanstack/react-start :: react-start": "The upstream Start index skill — a table of contents pointing at its sub-skills. Our SKILL.md IS our index; carrying a second one just splits navigation.",
-    "@tanstack/react-start :: react-start/server-components": "We do not use React Server Components. Revisit if that changes — it is a substantial skill with 6 worked examples and would be worth vendoring then.",
-    "@tanstack/react-table :: with-tanstack-virtual": "No @tanstack/react-virtual in the blessed set yet. Vendor when virtualised lists are adopted, not before.",
-    "@tanstack/react-table :: create-table-hook": "Covered by table-getting-started.md for our usage. Revisit if we start building shared table hooks."
-  },
-
-  "_references_rejected_notes": [
-    "Upstream skills we have consciously decided NOT to carry, with the reason.",
-    "",
-    "This block exists so /review-tanstack can tell 'decided against' apart from",
-    "'nobody has looked at this yet'. Without it every review re-surfaces the same",
-    "candidates as undecided, and a genuinely new upstream skill gets lost in the",
-    "repeat noise — the same three-state problem FORM_LIB_EXEMPT_APPS solves for",
-    "the form question."
-  ],
-
-  "link_rewrites": {
-    "../data-loading/SKILL.md": "./router-data-loading.md",
-    "../auth-server-primitives/SKILL.md": "./start-auth-server-primitives.md",
-    "../middleware/SKILL.md": "./start-middleware.md",
-    "../server-functions/SKILL.md": "./start-server-functions.md",
-    "../server-routes/SKILL.md": "./start-server-routes.md",
-    "../execution-model/SKILL.md": "./start-execution-model.md",
-    "../deployment/SKILL.md": "./start-deployment.md",
-    "../../../../router-core/skills/router-core/auth-and-guards/SKILL.md": "./router-auth-and-guards.md",
-    "../../../../start-client-core/skills/start-core/auth-server-primitives/SKILL.md": "./start-auth-server-primitives.md",
-    "../../../../react-router/skills/compositions/router-query/SKILL.md": "../SKILL.md",
-    "./references/validation-patterns.md": "./router-search-params-validation.md"
-  },
-
-  "_link_rewrites_notes": [
-    "Upstream skills link to each other by their nested paths. Vendoring flattens",
-    "them into one folder, so those links must be rewritten or they dangle.",
-    "",
-    "This map is the SINGLE SOURCE for that transform, used in BOTH directions:",
-    "re-vendoring applies it to the upstream file, and the drift check applies it",
-    "to the upstream copy before diffing. Without the second use, every rewritten",
-    "link reports as drift on every review — permanent noise that would train the",
-    "maintainer to ignore a real hand-edit.",
-    "",
-    "router-query maps to ../SKILL.md because react-router does not publish that",
-    "composition skill; our bible owns Router+Query."
-  ],
-
   "_references_notes": [
-    "Vendored from the SKILL.md files TanStack ships inside its npm packages, into",
-    ".claude/skills/mfing-bible-of-tanstack/references/ as plain .md files.",
+    "DISTILLED, not copied. Our subset in our words, scoped to what business",
+    "applications need. `distilled_from` records which upstream skills were read, so",
+    "/review-tanstack knows what to re-read when a pin moves; an empty list means",
+    "there is no upstream for it.",
     "",
-    "WHY VENDOR RATHER THAN READ node_modules: node_modules is not a skill source for",
-    "any agent tool, and the shipped files are NOT regenerated per release — every",
-    "router/start skill declares library_version 1.166.2 while riding inside packages at",
-    "1.168-1.171. So 'always current with the installed version' is not on offer, and",
-    "the auto-currency argument for pointing at node_modules buys nothing.",
+    "NOT CARRIED, deliberately: every migrate-* skill (one-offs — SKILL.md says where",
+    "to read one), server-components (we do not use RSC), offline persistence,",
+    "virtualization (until a screen needs it).",
     "",
-    "DELIBERATELY NOT VENDORED: every migrate-* skill (migrate-from-nextjs,",
-    "migrate-from-react-router, migrate-v8-to-v9). A migration is a one-off; carrying",
-    "its guide forever is the stale-content problem. The bible's discovery section says",
-    "where to read them in the session that needs one.",
-    "",
-    "NO UPSTREAM SKILL EXISTS for TanStack Query or TanStack Form — verified: zero",
-    "SKILL.md files in query-core, react-query, form-core, react-form, and no skills/",
-    "directory anywhere in the TanStack/query or TanStack/form repos. Our Query and Form",
-    "guidance is hand-written in the bible and is the only content here with no upstream",
-    "to sync from."
+    "SCOPE RULE: if we do not use a feature, it does not get pages explaining how the",
+    "feature works. Upstream already documents it and node_modules already has it."
   ],
-
   "watch": {
     "@tanstack/query-intent": {
-      "why": "TanStack/query PR #10879 (Tanner Linsley, draft since 2026-06-04) adds 29 Query Intent skills in a NEW @tanstack/query-intent workspace package — not inside react-query. When it publishes, most hand-written Query content in the bible becomes redundant and should be replaced by vendored references.",
+      "why": "TanStack/query PR #10879 (draft since 2026-06-04) adds 29 Query skills in a NEW @tanstack/query-intent package — not inside react-query. Query is currently the largest area with no upstream at all, so queries-and-mutations.md is written from scratch.",
       "pr": "https://github.com/TanStack/query/pull/10879",
-      "action": "Vendor the relevant skills, delete the superseded hand-written sections."
+      "action": "When it publishes, re-distil queries-and-mutations.md against it and keep only our decisions on top."
     },
     "@tanstack/react-table": {
-      "why": "v9.0.0 was 2 days old when blessed. Watch for 9.0.1/9.1 and for issues against the features we use (manualPagination, rowPaginationFeature, column visibility).",
+      "why": "v9.0.0 was 2 days old when blessed. Watch 9.0.1/9.1 and issues touching what we use: manualPagination, column visibility/order, row selection.",
       "action": "Bump on the next review if patches have landed."
+    },
+    "start-middleware": {
+      "why": "We deliberately do NOT use createMiddleware for auth (server-functions.md). #2783 — server middleware in the client bundle — was open Nov 2024 to Feb 2026. Still open: #7213 (middleware calling a server function in another file throws) and #7459 (createMiddleware undefined on cold-start SSR in vite dev, filed against 1.168.9).",
+      "issues": [
+        "https://github.com/TanStack/router/issues/7213",
+        "https://github.com/TanStack/router/issues/7459"
+      ],
+      "action": "If both close, the technical objection is gone — but the decision still needs a reason to adopt beyond saving lines. Middleware's only real capability over a handler-top call is running code AFTER the handler. Re-open only when something genuinely needs wrapping."
     }
   }
 }

@@ -1,179 +1,89 @@
 #!/bin/bash
-# review-tanstack.sh — data gathering for the kit's TanStack review.
+# review-tanstack.sh — gathers the raw material for a TanStack version review.
 #
 # MAINTAINER-ONLY. Ships via _claude-maintainer/, installed to ~/.claude/scripts/
 # by `/install-kit --maintainer`. A consumer machine never receives it.
 #
-# WHAT IT DOES NOT DO: decide anything. It emits JSON describing (a) how the
-# kit's blessed versions compare to what npm currently publishes, (b) whether our
-# vendored reference docs still match their upstream source at the blessed
-# version, (c) upstream skills we are NOT vendoring, and (d) the state of the
-# manifest's `watch` entries. The judgment — is this bump worth taking, does this
-# upstream change need a house note — belongs to /review-tanstack, which reads
-# this output.
+# THE QUESTION THIS SERVES: what has changed between the versions we pin and
+# what is published now, does any of it affect how WE use TanStack, and if we
+# take a bump, which of our references has to change.
 #
-# WHY npm pack RATHER THAN node_modules: the kit has no package.json, and a
-# consumer's node_modules only holds the version that consumer installed. Packing
-# lets us inspect any version — blessed or latest — from anywhere.
+# It does NOT compare our files to upstream files. Our references are DISTILLED —
+# our subset in our words — so there is nothing to diff. Staleness is judged by
+# reading what changed upstream against what we wrote, which is /review-tanstack's
+# job, not this script's.
 #
-# Modes:
-#   --check-updates   versions + watch only. Fast, no tarball downloads of
-#                     blessed versions. This is the "what's new since we pinned"
-#                     pass.
-#   (default)         the above plus vendored-doc drift and unvendored-skill
-#                     detection. Downloads one tarball per blessed package.
-#
-# Output: JSON on stdout. Progress/errors on stderr.
+# Output: JSON on stdout — pinned vs latest, the release notes in between, the
+# open-issue picture for what we use, and the manifest's watch entries. Progress
+# on stderr.
 
 set -euo pipefail
-
-MODE="full"
-[ "${1:-}" = "--check-updates" ] && MODE="updates"
 
 CONFIG="$HOME/.claude/dev-kit-config.json"
 [ -f "$CONFIG" ] || { echo "review-tanstack: $CONFIG not found — run /install-kit --maintainer" >&2; exit 4; }
 KIT_PATH=$(jq -r .devKitPath "$CONFIG")
 [ -d "$KIT_PATH" ] || { echo "review-tanstack: kit path '$KIT_PATH' does not exist" >&2; exit 4; }
-
 MANIFEST="$KIT_PATH/_claude-project/tanstack-manifest.json"
-REFDIR="$KIT_PATH/_claude-project/skills/mfing-bible-of-tanstack/references"
 [ -f "$MANIFEST" ] || { echo "review-tanstack: manifest not found at $MANIFEST" >&2; exit 4; }
 
-WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"' EXIT
-
-npm_latest() { npm view "$1" version 2>/dev/null || echo ""; }
-
-# Unpack <pkg>@<version> into $WORK/<safe-name>/package, echo that path.
-# Echoes nothing when the package or version does not exist.
-fetch_pkg() {
-    local pkg="$1" ver="$2"
-    local safe="${pkg//\//_}@${ver}"
-    local dest="$WORK/$safe"
-    if [ -d "$dest/package" ]; then echo "$dest/package"; return; fi
-    mkdir -p "$dest"
-    ( cd "$dest" && npm pack "${pkg}@${ver}" --silent >/dev/null 2>&1 ) || { echo ""; return; }
-    local tgz
-    tgz=$(find "$dest" -maxdepth 1 -name '*.tgz' | head -1)
-    [ -n "$tgz" ] || { echo ""; return; }
-    tar -xzf "$tgz" -C "$dest" 2>/dev/null || { echo ""; return; }
-    echo "$dest/package"
+# Which GitHub repo publishes releases for a package.
+repo_for() {
+    case "$1" in
+        *react-table*|*table-core*) echo "TanStack/table" ;;
+        *react-query*|*query-core*) echo "TanStack/query" ;;
+        *react-form*|*form-core*)   echo "TanStack/form" ;;
+        *)                          echo "TanStack/router" ;;   # router, start, ssr-query
+    esac
 }
 
-echo "review-tanstack: reading manifest ($(jq -r .blessed_at "$MANIFEST"))" >&2
+echo "review-tanstack: manifest blessed $(jq -r .blessed_at "$MANIFEST")" >&2
 
-# ---- versions -------------------------------------------------------------
-versions_json="[]"
-while IFS=$'\t' read -r pkg blessed; do
-    echo "review-tanstack: checking $pkg" >&2
-    latest=$(npm_latest "$pkg")
-    behind="unknown"
-    if [ -n "$latest" ]; then
-        if [ "$latest" = "$blessed" ]; then behind="current"; else behind="behind"; fi
+versions="[]"
+while IFS=$'\t' read -r pkg pinned; do
+    echo "review-tanstack: $pkg" >&2
+    latest=$(npm view "$pkg" version 2>/dev/null || echo "")
+    status="current"; [ -n "$latest" ] && [ "$latest" != "$pinned" ] && status="behind"
+    [ -z "$latest" ] && status="unknown"
+
+    # Releases newer than our pin, so the reviewer reads the actual deltas rather
+    # than guessing from version numbers. Tag shapes vary per repo, so match on
+    # the package name appearing in the tag OR a bare vX.Y.Z.
+    notes="[]"
+    if [ "$status" = "behind" ]; then
+        repo=$(repo_for "$pkg")
+        short="${pkg##*/}"
+        notes=$(curl -s "https://api.github.com/repos/$repo/releases?per_page=40" \
+          | jq --arg p "$pinned" --arg s "$short" '
+              [ .[]
+                | select(.tag_name | test($s) or test("^v?[0-9]"))
+                | {tag: .tag_name, date: .published_at[0:10],
+                   body: ((.body // "")[0:600])} ]' 2>/dev/null || echo "[]")
     fi
-    versions_json=$(jq --arg p "$pkg" --arg b "$blessed" --arg l "$latest" --arg s "$behind" \
-        '. + [{package:$p, blessed:$b, latest:$l, status:$s}]' <<<"$versions_json")
+
+    versions=$(jq --arg p "$pkg" --arg v "$pinned" --arg l "$latest" --arg s "$status" \
+        --argjson n "$notes" \
+        '. + [{package:$p, pinned:$v, latest:$l, status:$s, releases_since:$n}]' <<<"$versions")
 done < <(jq -r '.packages | to_entries[] | "\(.key)\t\(.value)"' "$MANIFEST")
 
-# ---- watch entries --------------------------------------------------------
-watch_json="[]"
-while IFS= read -r pkg; do
-    [ -n "$pkg" ] || continue
-    latest=$(npm_latest "$pkg")
-    exists=$([ -n "$latest" ] && echo true || echo false)
-    watch_json=$(jq --arg p "$pkg" --arg l "$latest" --argjson e "$exists" \
-        '. + [{package:$p, published:$e, latest:$l}]' <<<"$watch_json")
-done < <(jq -r '(.watch // {}) | keys[]' "$MANIFEST")
+# Open issues touching what we actually use. Not exhaustive — a prompt for the
+# reviewer to look, not a verdict.
+echo "review-tanstack: scanning open issues" >&2
+issues="[]"
+for q in "repo:TanStack/router+is:issue+is:open+middleware" \
+         "repo:TanStack/router+is:issue+is:open+loader" \
+         "repo:TanStack/table+is:issue+is:open+manualPagination" \
+         "repo:TanStack/form+is:issue+is:open+validation"; do
+    got=$(curl -s "https://api.github.com/search/issues?q=$q&sort=created&order=desc&per_page=5" \
+      | jq '[ .items[]? | {number, title, created: .created_at[0:10], url: .html_url} ]' 2>/dev/null || echo "[]")
+    issues=$(jq --argjson g "$got" '. + $g' <<<"$issues")
+done
+issues=$(jq 'unique_by(.number)' <<<"$issues")
 
-drift_json="[]"
-unvendored_json="[]"
-
-if [ "$MODE" = "full" ]; then
-    # ---- vendored-doc drift ------------------------------------------------
-    # Compare our vendored copy (header stripped) against the same file inside
-    # the tarball of the BLESSED version. A difference means someone hand-edited
-    # a vendored file, or the package republished content under the same version.
-    while IFS=$'\t' read -r file pkg skill sub; do
-        [ "$sub" = "null" ] && sub="SKILL.md"
-        local_file="$REFDIR/$file"
-        # Which version to compare against? NOT the blessed list — several
-        # references come from packages we never declare directly (router-core,
-        # start-client-core arrive transitively, and pinning a transitive dep
-        # would be wrong). The vendored file's own provenance header records the
-        # exact package@version it came from, so it is self-describing. Fall back
-        # to the blessed version when the reference does come from a pinned
-        # package, and skip when we can determine neither.
-        ver=$(awk -F'@' '/^     source:/ {n=split($0,a,"@"); v=a[n]; sub(/ .*/,"",v); print v; exit}' "$local_file" 2>/dev/null || echo "")
-        [ -n "$ver" ] || ver=$(jq -r --arg p "$pkg" '.packages[$p] // ""' "$MANIFEST")
-        [ -n "$ver" ] || continue
-        root=$(fetch_pkg "$pkg" "$ver")
-        if [ -z "$root" ] || [ ! -f "$root/skills/$skill/$sub" ]; then
-            drift_json=$(jq --arg f "$file" --arg s "missing-upstream" \
-                '. + [{file:$f, status:$s}]' <<<"$drift_json")
-            continue
-        fi
-        [ -f "$local_file" ] || {
-            drift_json=$(jq --arg f "$file" --arg s "missing-local" \
-                '. + [{file:$f, status:$s}]' <<<"$drift_json"); continue; }
-        # Strip our provenance header (through the first '-->' plus the blank
-        # line after it) so the comparison is content-to-content.
-        # awk, not sed: BSD sed (macOS) rejects GNU's `1{/a/,/b/d}` block form.
-        awk '
-            NR==1 && /^<!-- VENDORED/ { inhdr = 1 }
-            inhdr      { if (/-->/) { inhdr = 0; skipblank = 1 } ; next }
-            skipblank  { skipblank = 0; if ($0 == "") next }
-                       { print }
-        ' "$local_file" > "$WORK/local.md"
-        # Apply the manifest's link rewrites to the UPSTREAM copy before diffing.
-        # Vendoring flattens the skill tree, so those links legitimately differ;
-        # without this every rewritten link reports as drift on every review, and
-        # permanent noise is how a real hand-edit gets ignored.
-        cp "$root/skills/$skill/$sub" "$WORK/upstream.md"
-        while IFS=$'\t' read -r from to; do
-            [ -n "$from" ] || continue
-            python3 - "$WORK/upstream.md" "$from" "$to" <<'PY'
-import sys
-p, a, b = sys.argv[1], sys.argv[2], sys.argv[3]
-s = open(p).read().replace(f"]({a})", f"]({b})")
-open(p, "w").write(s)
-PY
-        done < <(jq -r '(.link_rewrites // {}) | to_entries[] | "\(.key)\t\(.value)"' "$MANIFEST")
-        if diff -q "$WORK/local.md" "$WORK/upstream.md" >/dev/null 2>&1; then
-            drift_json=$(jq --arg f "$file" --arg s "clean" '. + [{file:$f, status:$s}]' <<<"$drift_json")
-        else
-            n=$(diff "$WORK/local.md" "$WORK/upstream.md" | grep -c '^[<>]' || true)
-            drift_json=$(jq --arg f "$file" --arg s "drift" --argjson n "${n:-0}" \
-                '. + [{file:$f, status:$s, changed_lines:$n}]' <<<"$drift_json")
-        fi
-    done < <(jq -r '.references[] | "\(.file)\t\(.package)\t\(.skill)\t\(.sub // "null")"' "$MANIFEST")
-
-    # ---- upstream skills we do NOT vendor ----------------------------------
-    # Deliberate omissions (migrate-*) are expected — /review-tanstack knows to
-    # ignore them. Anything else is a candidate we should consciously accept or
-    # reject, so it never silently goes unnoticed.
-    while IFS= read -r pkg; do
-        blessed=$(jq -r --arg p "$pkg" '.packages[$p]' "$MANIFEST")
-        root=$(fetch_pkg "$pkg" "$blessed")
-        [ -n "$root" ] || continue
-        [ -d "$root/skills" ] || continue
-        while IFS= read -r sk; do
-            rel="${sk#"$root/skills/"}"; rel="${rel%/SKILL.md}"
-            have=$(jq -r --arg p "$pkg" --arg s "$rel" \
-                '[.references[] | select(.package==$p and .skill==$s)] | length' "$MANIFEST")
-            [ "$have" != "0" ] && continue
-            unvendored_json=$(jq --arg p "$pkg" --arg s "$rel" \
-                '. + [{package:$p, skill:$s}]' <<<"$unvendored_json")
-        done < <(find "$root/skills" -name SKILL.md 2>/dev/null)
-    done < <(jq -r '.packages | keys[]' "$MANIFEST")
-fi
-
-jq -n \
-    --arg mode "$MODE" \
-    --arg blessed_at "$(jq -r .blessed_at "$MANIFEST")" \
-    --arg kit "$KIT_PATH" \
-    --argjson versions "$versions_json" \
-    --argjson watch "$watch_json" \
-    --argjson drift "$drift_json" \
-    --argjson unvendored "$unvendored_json" \
-    '{mode:$mode, blessed_at:$blessed_at, kit_path:$kit,
-      versions:$versions, watch:$watch, vendored_drift:$drift, unvendored_skills:$unvendored}'
+jq -n --arg blessed "$(jq -r .blessed_at "$MANIFEST")" \
+      --arg kit "$KIT_PATH" \
+      --argjson versions "$versions" \
+      --argjson issues "$issues" \
+      --argjson watch "$(jq '.watch // {}' "$MANIFEST")" \
+      --argjson refs "$(jq '.references' "$MANIFEST")" \
+      '{blessed_at:$blessed, kit_path:$kit, versions:$versions,
+        open_issues:$issues, watch:$watch, references:$refs}'
