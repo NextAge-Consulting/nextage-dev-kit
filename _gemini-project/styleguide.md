@@ -49,4 +49,21 @@ Flag any new linter suppression (`// biome-ignore`, `// @ts-ignore`, `// @ts-exp
   throw at runtime — they type-check and parse correctly. Suggesting
   `z.string().email()` moves the code onto the deprecated API.
 
+- **TanStack Table v9 `<table.FlexRender>`** and **`useSelector` imported from
+  `@tanstack/react-form`**. Both are current API on the kit-pinned versions
+  (`.claude/tanstack-manifest.json`), and both are routinely mis-flagged by
+  reasoning from the previous major:
+  - react-table **v9** binds `FlexRender` to the table instance —
+    `dist/createTableHook.d.ts` declares `FlexRender: () => ReactNode`, documented
+    as "a context-bound `FlexRender`". Do not claim it does not exist or that it
+    fails at runtime. Suggesting `flexRender(...)` imported from the package is
+    the **v8** API.
+  - react-form re-exports `useSelector` at the top level
+    (`dist/index.d.ts`: `export { useSelector, useStore } from '@tanstack/react-store'`).
+    Do not claim the import is non-existent. `form.useSelector` is an alternative,
+    not a correction.
+
+  The pinned versions are the authority here, not the more common older API. If a
+  bump is ever taken, `/review-tanstack` updates this entry with it.
+
 The full rule set is in `.claude/rules/`.
