@@ -70,9 +70,21 @@ Router will render a route-level pending component during a loader. That is the
 wrong granularity for a filter change on a browse: the whole screen blanks,
 including the toolbar holding the filter the user just mistyped.
 
-So keep the route pending component off for browse routes, and put the indicator
-on the region instead — driven by the query's own `isFetching`, gated as above.
-The toolbar stays live throughout.
+So keep the route pending component off for browse routes and put the indicator
+on the region instead. The toolbar stays live throughout.
+
+**Which signal drives it depends on who triggered the fetch**, and getting this
+wrong means an indicator that never appears:
+
+- **Loader-driven** (a filter or page change — our default for browses). The
+  router holds the current page rendered while the loader runs, and the new data
+  is a *different* query key, so the visible query's `isFetching` never goes
+  true. Use the router's navigation state:
+  `useRouterState({ select: (s) => s.isLoading })`.
+- **Component-driven** (a query fired from the component, not a route change).
+  That query's own `isFetching` is the signal.
+
+Gate either one with the anti-flash hook.
 
 `useSuspenseQuery` has no `placeholderData`, so `keepPreviousData` is not
 available on the loader-driven path. It does not need to be: `ensureQueryData` in

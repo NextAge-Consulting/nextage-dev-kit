@@ -46,6 +46,35 @@ supported nesting is per-directory monorepo scope
 the only option — do not "fix" this. Project-local *rules* still belong in
 `.claude/rules/project/`; that convention does not and cannot extend to skills.
 
+## First: is it even a pattern?
+
+**A reference exists to settle a question that had more than one defensible
+answer.** Its value is not that it found the correct approach — it is that it
+commits the project to ONE, so the seventh screen does not quietly disagree with
+the first.
+
+So before reaching for the skill at all, ask:
+
+> **Would another competent developer plausibly have built this differently, and
+> would that difference show up to the user as inconsistency?**
+
+Yes → it is a pattern. Write it down (after sign-off — see below).
+No → it is just doing the job. Build it and move on.
+
+| Not a pattern — build it | A pattern — worth settling |
+|---|---|
+| Type the name to confirm a destructive action | How a list behaves while it reloads: skeleton, spinner, blank, or hold the old rows |
+| Disabling submit until a required field is filled | Whether filters show as chips or a count |
+| A spinner on the button you just pressed | What a toolbar contains and in what order |
+| Marking the current nav item as active | How a screen decides how many rows to show |
+
+The right-hand column has real forks with no objectively correct answer. The
+left-hand column has one obvious answer that anyone would reach independently —
+documenting it adds a file to read and changes no future decision.
+
+**These files record THIS project's choices, not general craft.** If the guidance
+would be equally true in any codebase, it does not belong here.
+
 ## How to use it
 
 1. **Look in `references/`** — one file per pattern, named for the pattern, first

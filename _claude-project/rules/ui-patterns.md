@@ -29,9 +29,16 @@ owned by `ui-design.md`.
 
 ## The non-negotiable
 
-If the pattern you are building has **no reference yet**, do NOT improvise from
-training data. Research primary design-system sources first, agree the approach,
-then implement AND capture it as a new `references/*.md`.
+**First, is it even a pattern?** A reference settles a question that had more
+than one defensible answer. If another competent developer would plausibly have
+built it differently, and that difference would show as inconsistency to the
+user, it is a pattern. If there is one obvious way anyone would reach on their
+own, it is craft — build it and move on. The skill carries the test and
+examples.
+
+If it IS a pattern and has **no reference yet**, do NOT improvise from training
+data. Research primary design-system sources first, agree the approach, then
+implement AND capture it as a new `references/*.md`.
 
 Two things this prevents, both of which have happened:
 

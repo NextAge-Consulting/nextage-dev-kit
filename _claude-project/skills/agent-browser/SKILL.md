@@ -221,6 +221,10 @@ agent-browser set media dark
 
 ### Visual Browser (Debugging)
 
+`--headed` is for when the user is watching. Self-verification and
+background jobs run headless — see the headed/headless table in
+`rules/integrations/agent-browser.md`.
+
 ```bash
 agent-browser --headed open https://example.com
 agent-browser highlight @e1          # Highlight element
