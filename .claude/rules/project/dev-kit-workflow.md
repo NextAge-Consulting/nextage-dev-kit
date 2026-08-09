@@ -68,6 +68,7 @@ The kit dogfoods (mirrors into its own `.claude/`) only what it actually *uses*.
 | `rules/cli-utilities.md` | Kit runs no AWS / cloud CLI — the account/region discipline never applies here. |
 | `skills/agent-browser/**`, `rules/integrations/agent-browser.md` | Kit has no web app to drive a browser against. |
 | `skills/e2e/**` | Kit has no `test/e2e/*.md` flow files. |
+| `templates/testing/**` | Kit has no `package.json`, no vitest, no Neon project — nothing to test and no deps for these files to resolve against. They sync to consumers in `template` mode via `SHARED_MODULE_DIR` (HANDBOOK §11.13); the kit is not a consumer of them. |
 | `skills/e2e-author/**` | Kit has no flow files to author. |
 | `skills/analysis/**` | Kit produces markdown analyses of itself in-repo; the shareable-HTML analysis workflow is for consumer apps, not the kit. |
 | `lib/gen-report.mjs` | Shared report generator invoked by the (template-only) e2e + analysis skills; the kit runs neither, so it never executes here. |

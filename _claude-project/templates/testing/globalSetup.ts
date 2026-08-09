@@ -67,5 +67,16 @@ export async function teardown(): Promise<void> {
   const projectId = process.env.NEON_PROJECT_ID;
   if (!apiKey || !projectId || !branchId) return;
   const api = createApiClient({ apiKey });
-  await api.deleteProjectBranch(projectId, branchId).catch(() => undefined);
+  // Object argument, NOT positional. @neondatabase/api-client changed this
+  // signature at 2.7.2 — `deleteProjectBranch(projectId, branchId)` compiles
+  // against the old typings but sends DELETE /projects/undefined/branches/
+  // undefined, which 404s. Pin `@neondatabase/api-client` to ^2.7.2 or later.
+  //
+  // The failure is NOT swallowed. A failed delete leaves a live branch that
+  // costs money, and if the cause is systematic it leaks one on every run —
+  // exactly what a `.catch(() => undefined)` here hid until someone happened to
+  // look at the branch list. `expires_at` still cleans up; the noise is the
+  // point.
+  await api.deleteProjectBranch({ projectId, branchId });
+  branchId = null;
 }

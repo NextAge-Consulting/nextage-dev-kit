@@ -1356,35 +1356,47 @@ Posting via `gh pr comment` lands the trigger under the developer's GitHub ident
 
 `GEMINI_NOT_INSTALLED="true"` in `.claude/sync-substitutions.json` short-circuits the entire path: trigger scripts skip posting, and the wait skips the Gemini check entirely (treats it as `Gemini=skipped`). Use only on repos where the Gemini App is genuinely absent — the value records a fact about the repo, not a preference.
 
-### 11.13. Vitest scaffolding (pattern + reference files)
+### 11.13. Vitest scaffolding (synced as `template` mode)
 
-Per-app test infrastructure. Kit does NOT ship these files as sync targets because test-directory layout is project-specific (monorepo with `apps/shared/`, flat `src/`, `packages/<name>/`). Instead, reference-only files live at `_claude-project/templates/testing/` and consumers copy-adapt.
+Per-app test infrastructure, shipped from `_claude-project/templates/testing/` and synced in **`template` mode**: the kit provides the starting point, the **project owns the file**. Consumers edit these freely — `block-kit-edit.sh` permits it and `/sync-dev-kit` never reverts it.
 
-**What's in the reference dir:**
+**All six files are `template`, including `globalSetup.ts` and `integration-helpers.ts`.** Those two look like project-agnostic infrastructure — one consumer had copied both byte-for-byte — and marking them `owned` would push harness fixes automatically. A second consumer settled it the other way: a dual-database project adapted `globalSetup.ts` to migrate two databases on one branch and grew `integration-helpers.ts` a second per-plane helper. Under `owned` the hook would have blocked both edits, and the project would have had no legal way to test its own topology. Database shape is project shape; the whole directory is the project's.
+
+**Destination comes from the `SHARED_MODULE_DIR` substitution**, because test layout is project-specific (`apps/shared` in a monorepo, `src` or `.` in a flat repo, `packages/<name>` elsewhere). `vitest.config.ts` lands at `<SHARED_MODULE_DIR>/vitest.config.ts`; every other file at `<SHARED_MODULE_DIR>/test/<name>`. **Empty means the project has no shared test module and the scaffolding is skipped entirely** rather than landing somewhere wrong — so this costs nothing for projects it does not apply to.
+
+**How an improvement reaches a project.** A consumer that never touched its copy sees `kit-only` and is offered the update like any other file. A consumer that adapted its copy sees `template-drift`: the kit's delta is shown, nothing is reconciled, the project decides. When the user keeps theirs, the walkthrough runs `sync-dev-kit.sh --ack-file <kit-path>`, which advances the lockfile baseline to the kit's current content **without writing the project file**. That is what stops a declined drift from re-reporting on every subsequent sync — and it is not a permanent mute, since the next kit change to that file surfaces again.
+
+Acking an `owned` file would silence a real enforced update, so `--ack-file` is offered only for `template-drift`. The script deliberately does not enforce that; the guard lives in the `/sync-dev-kit` walkthrough where the user can see the choice.
+
+**What's in the template dir:**
 
 | File | Purpose |
 |---|---|
 | `vitest.config.ts` | Node env; globals off (explicit imports from `vitest`); two projects — `unit` (parallel, no DB) and `integration` (parallel, present only when Neon creds exist); `globalSetup` → globalSetup.ts; `setupFiles` → test-utils.ts; `root` pinned to the config-file dir so `npm test` from repo root resolves include globs. |
-| `globalSetup.ts` | Integration branch lifecycle. Forks the default (production) branch once per run, runs `drizzle-kit migrate` against it, sets `DATABASE_URL` before workers spawn; deletes the branch in `teardown` (`expires_at` 30 min is the crash backstop). Uses `@neondatabase/api-client`. |
+| `globalSetup.ts` | Integration branch lifecycle. Forks the default (production) branch once per run, runs `drizzle-kit migrate` against it, sets `DATABASE_URL` before workers spawn; deletes the branch in `teardown` (`expires_at` 30 min is the crash backstop). Uses `@neondatabase/api-client` — **pin `^2.7.2` or later**: `deleteProjectBranch` takes a single `{ projectId, branchId }` object from 2.7.2, and the older positional form silently requests `/projects/undefined/branches/undefined`, 404s, and leaks a branch per run. Teardown deliberately does not swallow that failure. |
 | `integration-helpers.ts` | `dbTest(name, fn)` — the only DB entry point for integration tests. Runs `fn` inside an always-rolled-back Postgres transaction and passes the `tx` handle into the code under test, so parallel tests on the one shared branch stay MVCC-isolated. |
 | `auth-mocks.ts` | Typed `MockAuthedUser` + `mockAuthedUser()` / `mockUnauthed()` stubs. |
 | `test-utils.ts` | Setup file. Pins `process.env.TZ` (chosen per consumer — UTC for UTC-stored projects, local TZ for projects that store in local time). Exposes a deterministic UUID-v7-like helper. Re-exports auth mocks. |
 | `smoke.test.ts` | 4 assertions proving vitest picks up the config, runs the setup file, resolves module imports, runs assertions under node env. |
 
-**TS LSP diagnostics on kit-side files**: the kit repo has no npm deps (see KIT-REPO-GITHUB-CONFIG §1), so any LSP scoped to the kit will flag `Cannot find module 'vitest'` / `Cannot find name 'process'` on the reference `.ts` files. Expected — the files aren't meant to compile in the kit; they're copy-paste templates for consumers where the deps DO exist.
+**TS LSP diagnostics on kit-side files**: the kit repo has no npm deps (see KIT-REPO-GITHUB-CONFIG §1), so any LSP scoped to the kit will flag `Cannot find module 'vitest'` / `Cannot find name 'process'` on the template `.ts` files. Expected — they aren't meant to compile in the kit, only in the consumer where the deps exist.
 
-**Install steps for a consumer:**
+**Enabling it for a consumer:**
 
 ```bash
-npm install -D vitest @neondatabase/api-client pg
-mkdir -p <shared-module>/test
-KIT=~/projects/nextage-dev-kit
-cp "$KIT"/_claude-project/templates/testing/vitest.config.ts  <shared-module>/
-cp "$KIT"/_claude-project/templates/testing/*.ts             <shared-module>/test/
+# 1. Deps. Pin api-client ^2.7.2 or later — see the globalSetup.ts row above.
+npm install -D vitest '@neondatabase/api-client@^2.7.2' pg
 
-# Wire npm scripts in root package.json:
-#   "test":       "vitest run -c <shared-module>/vitest.config.ts"
-#   "test:watch": "vitest -c <shared-module>/vitest.config.ts"
+# 2. Point the substitution at the workspace holding the shared module.
+#    "apps/shared" in a monorepo, "src" or "." flat, "" if the project has none.
+jq '.SHARED_MODULE_DIR = "apps/shared"' .claude/sync-substitutions.json > tmp && mv tmp .claude/sync-substitutions.json
+
+# 3. /sync-dev-kit — the files arrive as `new-kit` and land at their mapped
+#    destinations. Every later kit improvement arrives the same way.
+
+# 4. Wire npm scripts in root package.json:
+#      "test":       "vitest run -c <shared-module>/vitest.config.ts"
+#      "test:watch": "vitest -c <shared-module>/vitest.config.ts"
 ```
 
 **Test-dir placement** — tests live at `<shared-module>/test/` (sibling of `src/`), NOT under `src/`. Keeps test code out of the production include glob and avoids special-casing test excludes in builder tooling. Runner defaults are not uniform — Mocha defaults to a `test/` directory; Vitest and Jest discover by filename glob (`.test.` / `.spec.`) and don't mandate a layout — but the sibling-of-`src/` convention is common because it works cleanly under all three when configured. `<shared-module>/tsconfig.json` should explicitly `"include": ["src/**/*", "test/**/*"]` so `check-types` still typechecks test files. Tests inside `src/` was tried and reverted after recognizing the real cost (test code leaking into the production include glob).

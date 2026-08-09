@@ -1,75 +1,51 @@
-# Vitest scaffolding — reference files
+# Vitest scaffolding — kit templates
 
-**NOT synced by `/sync-dev-kit`.** These files live under
-`_claude-project/templates/testing/` intentionally so the `_claude-project/templates/*)
-echo ""` fallthrough in `dest_for_kit_path()` skips them. Consumer projects
-copy and adapt manually because test-directory layout is project-specific
-(monorepo with `apps/shared/`, flat `src/`, `packages/<name>/`, etc.).
+These files sync to consumer projects in **`template` mode**: the kit ships the
+starting point, the **project owns the file**. A consumer may edit any of them
+freely and `/sync-dev-kit` will never revert the edit.
 
-The pattern is documented at https://github.com/NextAge-Consulting/nextage-dev-kit/blob/main/project-documentation/HANDBOOK.md#1113-vitest-scaffolding-pattern--reference-files. These files are the reference
-implementation.
+Their destination comes from the `SHARED_MODULE_DIR` substitution, because test
+layout is project-specific (`apps/shared` in a monorepo, `src` or `.` in a flat
+repo, `packages/<name>` elsewhere):
+
+| Kit file | Lands at |
+|---|---|
+| `vitest.config.ts` | `<SHARED_MODULE_DIR>/vitest.config.ts` |
+| everything else | `<SHARED_MODULE_DIR>/test/<name>` |
+
+A project with `SHARED_MODULE_DIR` empty has no shared test module, and these
+files are skipped entirely rather than landing somewhere wrong.
+
+**This README is kit-internal** — it is in `SKIP_LIST`, so it explains the
+templates to someone reading the kit and never lands in a consumer's test
+directory.
+
+## How updates reach a project
+
+| Project's copy | State on sync | What happens |
+|---|---|---|
+| untouched | `kit-only` | offered as a normal update |
+| adapted | `template-drift` | the kit's delta is shown; the project decides |
+
+A drift the user declines must be acknowledged with
+`sync-dev-kit.sh --ack-file <kit-path>`, which advances the baseline without
+writing the file. Without that, the same drift re-reports on every sync forever.
+Ack is not permanent: the next kit change to that file surfaces again.
+
+Full pattern, install steps and the integration model: HANDBOOK §11.13.
 
 ## What's in this directory
 
-| File | What it is | Where it lands in a consumer |
-|---|---|---|
-| `vitest.config.ts` | Node-env config; globals off; setupFiles wired; root pinned to config-file dir so `npm test` resolves include globs from repo root | Next to your test tree — `apps/shared/vitest.config.ts` for monorepos; `<module>/vitest.config.ts` for flat projects |
-| `auth-mocks.ts` | Typed `MockAuthedUser` shape + `mockAuthedUser()` / `mockUnauthed()` stubs | `<test-dir>/auth-mocks.ts` |
-| `test-utils.ts` | setupFile. Pins `process.env.TZ` (see constitution §VI + `feedback_db_is_cst` on projects that store in CST) — tune the TZ for your project. Exposes a deterministic UUID-v7-like helper. Re-exports auth mocks. | `<test-dir>/test-utils.ts` |
-| `smoke.test.ts` | 4 assertions proving vitest picks up the config, runs the setup file, resolves module imports, runs assertions under node env | `<test-dir>/smoke.test.ts` |
-| `globalSetup.ts` | Integration branch lifecycle. Forks the default (production) branch once per run, runs `drizzle-kit migrate` against it, sets `DATABASE_URL` before workers spawn; deletes the branch in `teardown`. Uses `@neondatabase/api-client`. | `<test-dir>/globalSetup.ts` |
-| `integration-helpers.ts` | `dbTest(name, fn)` — the only DB entry point for integration tests. Runs `fn` in an always-rolled-back Postgres transaction on the run's shared branch, so parallel tests stay MVCC-isolated. Active only when `NEON_API_KEY` + `NEON_PROJECT_ID` are set (the `integration` project is absent otherwise). | `<test-dir>/integration-helpers.ts` |
+| File | Purpose |
+|---|---|
+| `vitest.config.ts` | Two projects — `unit` (parallel, no DB) and `integration` (present only when Neon credentials exist). Pins `root` to the config-file directory so `npm test` from the repo root resolves the include globs. |
+| `globalSetup.ts` | Integration branch lifecycle. Forks the default (production) branch once per run, migrates it, sets `DATABASE_URL` before workers spawn, deletes it in teardown. Requires `@neondatabase/api-client` `^2.7.2` or later. |
+| `integration-helpers.ts` | `dbTest(name, fn)` — the only database entry point for integration tests. Runs the body in an always-rolled-back transaction, so parallel tests on the one shared branch stay MVCC-isolated. |
+| `auth-mocks.ts` | Typed `MockAuthedUser` plus `mockAuthedUser()` / `mockUnauthed()` stubs. |
+| `test-utils.ts` | Setup file. Pins `process.env.TZ` (chosen per consumer) and exposes a deterministic UUID-v7-like helper. |
+| `smoke.test.ts` | Four assertions proving vitest picks up the config, runs the setup file, resolves imports, and runs under the node environment. |
 
-## Copy-paste install
-
-```bash
-# 1. Install dependencies
-npm install -D vitest @neondatabase/api-client pg
-
-# 2. Create your test directory (path will vary per project)
-mkdir -p apps/shared/test
-
-# 3. Copy reference files. Substitute destination paths for flat projects.
-#    Tests live at <shared-module>/test/ — SIBLING of src/, never under src/.
-#    (See https://github.com/NextAge-Consulting/nextage-dev-kit/blob/main/project-documentation/HANDBOOK.md#1113-vitest-scaffolding-pattern--reference-files placement rationale.)
-KIT=~/projects/nextage-dev-kit
-cp "$KIT"/_claude-project/templates/testing/vitest.config.ts apps/shared/
-cp "$KIT"/_claude-project/templates/testing/*.ts apps/shared/test/
-
-# 4. Wire npm scripts (root package.json):
-#    "test":       "vitest run -c apps/shared/vitest.config.ts"
-#    "test:watch": "vitest -c apps/shared/vitest.config.ts"
-
-# 5. Run
-npm test   # expect 4 passing tests
-```
-
-## Monorepo-shared workspace wiring (pairs with this scaffolding)
-
-If your shared module (e.g. `apps/shared/`) is consumed via tsconfig path
-alias but is NOT a declared npm workspace, the root `npm run check-types
---workspaces --if-present` will NOT typecheck it. A real TS error there
-can ship to main undetected. Close the gap:
-
-1. Create `apps/shared/package.json`:
-   ```json
-   {
-     "name": "@your-org/shared",
-     "version": "0.0.0",
-     "private": true,
-     "type": "module",
-     "scripts": { "check-types": "tsc --noEmit" }
-   }
-   ```
-2. Add `"apps/shared"` to the root `package.json` `workspaces` array.
-3. If using Vite and `import.meta.env.VITE_*` in shared code, create
-   `apps/shared/src/vite-env.d.ts`:
-   ```ts
-   /// <reference types="vite/client" />
-   ```
-   This registers `ImportMetaEnv` globally so `import.meta.env.VITE_*`
-   resolves when `tsc` runs standalone in `apps/shared`. Without it,
-   standalone tsc fires TS2339 even though shop/dealer tsc loads vite
-   types transitively via their own `vite.config.ts`.
-
-See https://github.com/NextAge-Consulting/nextage-dev-kit/blob/main/project-documentation/HANDBOOK.md#1113-vitest-scaffolding-pattern--reference-files for full context.
+TypeScript diagnostics on these files inside the kit repo are expected — the kit
+has no npm dependencies, so `vitest`, `process` and `@neondatabase/api-client`
+do not resolve here. They resolve in the consumer, which is the only place these
+files are meant to compile.

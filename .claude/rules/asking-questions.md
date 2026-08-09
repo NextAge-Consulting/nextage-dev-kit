@@ -53,6 +53,37 @@ independent decisions is not.)
   or redirect. ("I'd keep the schema monolithic and split lazily — that work? Or
   full per-file split up front?")
 
+### An option without its consequence is not a choice (Zero Tolerance)
+
+**Every option you offer MUST carry what picking it means.** "A or B?" where A and
+B are bare labels is not a question — it is asking the human to do the analysis
+you already did and then threw away. You have the context; they are choosing
+between two futures they cannot see.
+
+Each option gets, in one line or two:
+
+- **What it costs** — work now, work later, money, or complexity that stays.
+- **What it risks** — what breaks, what you're betting on, what is hard to undo.
+- **What it buys** — the actual reason anyone would pick it.
+
+Then **say which one you'd take and why.** A recommendation is not pressure; it
+is the analysis you owe them, and it makes "yes" a valid answer.
+
+**The tell:** you write "do you want X or Y?" and the sentence before it does not
+already explain how X and Y differ in outcome. If the human has to ask "what does
+that mean for us?", the question was incomplete when you sent it.
+
+| Forbidden | Why | Fix |
+|-----------|-----|-----|
+| Bare A-or-B with no implications attached | Makes the human re-derive the analysis you already have | State cost / risk / benefit per option |
+| Options whose difference is only *mechanism* ("use X or Y?") with no outcome stated | Mechanism is your job; outcome is theirs | Translate each into what changes for them |
+| Recommending nothing "to stay neutral" | Withholding the judgement they're paying for | Recommend, and say what would change your mind |
+| Burying the cost in a later paragraph | The question is where the decision happens | Cost sits with the option, not elsewhere |
+
+This is the same requirement as `communication.md`'s "present the options with
+their costs" — repeated here with teeth because a bullet in a list gets sailed
+past, and this is the single most common way a question wastes a round-trip.
+
 | Forbidden | Why | Fix |
 |-----------|-----|-----|
 | `AskUserQuestion` with 2+ questions | Q1's answer reframes the rest | Prose, one at a time |

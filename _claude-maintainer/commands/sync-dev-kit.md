@@ -169,6 +169,18 @@ Only the two-sided-divergence state changes. `kit-only` still recommends apply (
 
 **Presenting a `template-drift` is a different conversation.** Do NOT recommend applying, and do NOT frame the project's content as something to reconcile. Show what the kit changed and let the user decide whether any of it is worth adopting; "keep ours" is a perfectly good answer that needs no justification. Applying is still available via `--apply-file`, but it overwrites a file the project owns — so it happens only on an explicit request, never on your recommendation.
 
+**When the user keeps theirs, ACK it — this is not optional.**
+
+```bash
+~/.claude/scripts/sync-dev-kit.sh --ack-file <kit_path>
+```
+
+This records the kit's current content as the new baseline WITHOUT touching the project file, so the file reports `project-only` (a silent skip) from then on. Skip it and the baseline stays behind the kit, the identical drift re-reports on **every** subsequent sync forever, and the user learns to scroll past a signal that was supposed to mean something. Ack is not a permanent mute: the next time the kit changes that file, drift surfaces again — which is exactly the behaviour wanted.
+
+Offer three outcomes on a template-drift, in this order: **keep ours** (ack), **take the kit's version** (`--apply-file`, overwrites), or **merge by hand** (the user edits, then ack). Never present it as a two-way apply/skip choice — "skip" without an ack is the option that quietly creates the recurring noise.
+
+`--ack-file` deliberately accepts any file, so do NOT offer it for an `owned` file: acking one silences a real enforced update. The guard lives here in the walkthrough, where the user can see what they are choosing, not in the script.
+
 The lockfile tolerates both schemas: a legacy bare-string value means `owned`. Entries are upgraded to `{sha, mode}` as each file is applied; there is no migration step.
 
 ### Step 2.1: settings.json reconciliation (silent, handled by the script)

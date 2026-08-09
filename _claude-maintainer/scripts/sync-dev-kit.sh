@@ -4,6 +4,10 @@
 # Modes:
 #   --scan                  Output JSON report of state per file. Non-interactive.
 #   --apply-file <kit-rel>  Apply one kit file to project + update lockfile entry.
+#   --ack-file <kit-rel>    Record the kit's current content as the baseline WITHOUT
+#                           writing the project file — "seen it, keeping mine" for a
+#                           `template` file. Silences a declined `template-drift` until
+#                           the kit changes again.
 #   --apply-gitignore       Append missing .gitignore-additions entries to project .gitignore.
 #   --finalize              Update lockfile kit commit SHA + timestamp after all decisions applied.
 #
@@ -21,6 +25,7 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --scan)             MODE="scan"; shift 1 ;;
         --apply-file)       MODE="apply"; APPLY_FILE="$2"; shift 2 ;;
+        --ack-file)         MODE="ack"; APPLY_FILE="$2"; shift 2 ;;
         --apply-gitignore)  MODE="apply-gitignore"; shift 1 ;;
         --finalize)         MODE="finalize"; shift 1 ;;
         *) echo "sync-dev-kit.sh: unknown option: $1" >&2; exit 2 ;;
@@ -28,7 +33,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$MODE" ]; then
-    echo "sync-dev-kit.sh: mode required (--scan | --apply-file <path> | --apply-gitignore | --finalize)" >&2
+    echo "sync-dev-kit.sh: mode required (--scan | --apply-file <path> | --ack-file <path> | --apply-gitignore | --finalize)" >&2
     exit 2
 fi
 
@@ -108,6 +113,11 @@ LOCKFILE="${PROJECT_PATH}/.claude/.kit-sync.json"
 # below (is_skipped function), not by explicit list.
 SKIP_LIST=(
     "_claude-project/templates/README.md"
+    # Kit-internal documentation ABOUT the testing templates, for someone
+    # reading the kit. The templates themselves sync (mode `template`, destination
+    # from SHARED_MODULE_DIR); this file explaining them would land in the
+    # consumer's test directory, where it is noise.
+    "_claude-project/templates/testing/README.md"
     # sync-substitutions.json is project-specific from the moment it's filled
     # in; every project's values differ, so kit's empty-template version
     # always conflicts after first sync. Skip unconditionally. First-time
@@ -408,6 +418,12 @@ is_skipped() {
     return 1
 }
 
+# Read one substitution value. Empty when the key is absent, null, or blank —
+# which is how a project says "this does not apply to me".
+subst_value() {
+    printf '%s' "$SUBSTITUTIONS_JSON" | jq -r --arg k "$1" '.[$k] // "" | if type == "string" then . else "" end'
+}
+
 # Map kit path to consumer destination path (relative to project root).
 # Convention: `_<name>-project/` in the kit maps 1:1 to `.<name>/` in the consumer.
 #   _claude-project/  → .claude/
@@ -438,6 +454,22 @@ dest_for_kit_path() {
             ;;
         _claude-project/templates/scripts/check-tanstack.mjs)
             echo "scripts/check-tanstack.mjs"
+            ;;
+        _claude-project/templates/testing/vitest.config.ts)
+            # Test scaffolding has no fixed home — it lands beside the shared
+            # module, which every project names differently (apps/shared,
+            # src, packages/core). SHARED_MODULE_DIR supplies it; empty means
+            # the project has no shared module and these files are skipped.
+            local shared_dir
+            shared_dir=$(subst_value "SHARED_MODULE_DIR")
+            [ -z "$shared_dir" ] && { echo ""; return; }
+            echo "${shared_dir}/vitest.config.ts"
+            ;;
+        _claude-project/templates/testing/*)
+            local shared_dir2
+            shared_dir2=$(subst_value "SHARED_MODULE_DIR")
+            [ -z "$shared_dir2" ] && { echo ""; return; }
+            echo "${shared_dir2}/test/${kit_rel#_claude-project/templates/testing/}"
             ;;
         _gemini-project/*)
             echo ".gemini/${kit_rel#_gemini-project/}"
@@ -478,9 +510,14 @@ dest_for_kit_path() {
 mode_for_kit_path() {
     local kit_rel="$1"
     case "$kit_rel" in
-        # No templates registered yet. Prospective members: the vitest scaffolding
-        # under _claude-project/templates/testing/ and per-project deploy
-        # workflows — neither is currently synced at all.
+        # Vitest scaffolding. The project owns these outright: test layout,
+        # TZ pinning, and the database topology they set up are all
+        # project-specific, and a consumer that adapts one must not have the
+        # edit reverted. The kit still ships improvements — they surface as
+        # `kit-only` (offered) when untouched, `template-drift` (informational)
+        # when adapted. Per-project deploy workflows are the other prospective
+        # member; they are not synced at all yet.
+        _claude-project/templates/testing/*) echo "template" ;;
         *) echo "owned" ;;
     esac
 }
@@ -732,6 +769,51 @@ if [ "$MODE" = "apply" ]; then
     update_lockfile_file "$dest_rel" "$new_sha" "$(mode_for_kit_path "$APPLY_FILE")"
 
     echo "sync-dev-kit.sh: applied $dest_rel ($new_sha)" >&2
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Mode: ack-file
+#
+# "I have seen this kit version and I am keeping mine." Records the kit's
+# current (substituted) content as the baseline WITHOUT touching the project
+# file.
+#
+# Why this exists: the baseline only ever advanced when a change was APPLIED,
+# so declining a `template-drift` left the baseline behind the kit and the
+# same drift re-reported on every subsequent sync, forever. A signal that
+# cannot be dismissed is one people learn to skip past, which costs more than
+# it saves. After an ack the file reports `project-only` (a silent skip) until
+# the kit changes again — at which point you are told once more, which is the
+# whole point.
+#
+# Deliberately NOT restricted to `template` files. Acking an `owned` file
+# would silence a real enforced update, so the caller (the /sync-dev-kit
+# walkthrough) offers it only for template-drift; the guard belongs there,
+# where the user can see what they are choosing.
+# ---------------------------------------------------------------------------
+
+if [ "$MODE" = "ack" ]; then
+    [ -z "$APPLY_FILE" ] && { echo "sync-dev-kit.sh: --ack-file requires a kit-relative path" >&2; exit 2; }
+
+    load_substitutions
+
+    kit_full="${KIT_PATH}/${APPLY_FILE}"
+    dest_rel=$(dest_for_kit_path "$APPLY_FILE")
+    [ -z "$dest_rel" ] && { echo "sync-dev-kit.sh: no destination mapping for $APPLY_FILE" >&2; exit 4; }
+    [ ! -f "$kit_full" ] && { echo "sync-dev-kit.sh: $APPLY_FILE does not exist in the kit" >&2; exit 4; }
+
+    # Same hash the scan computes for kit_sha, so the next scan sees the kit
+    # as unchanged and reports `project-only` rather than drift.
+    if is_settings_json "$APPLY_FILE"; then
+        ack_sha=$(sha256_settings_kit "$kit_full" "${PROJECT_PATH}/${dest_rel}")
+    else
+        ack_sha=$(sha256_substituted "$kit_full")
+    fi
+    [ -z "$ack_sha" ] && { echo "sync-dev-kit.sh: could not hash $APPLY_FILE" >&2; exit 5; }
+
+    update_lockfile_file "$dest_rel" "$ack_sha" "$(mode_for_kit_path "$APPLY_FILE")"
+    echo "sync-dev-kit.sh: acknowledged $dest_rel ($ack_sha) — project file left untouched" >&2
     exit 0
 fi
 
