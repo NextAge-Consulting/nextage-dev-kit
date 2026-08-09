@@ -2,10 +2,7 @@
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 
-# Worktree symlink targets (Claude Code worktree.symlinkDirectories in settings.json
-# auto-symlinks these from primary into every new worktree at creation time. The
-# symlinks themselves must NOT be tracked or git status inside a worktree shows
-# them as new files. Missing dirs are silently skipped by Claude Code.)
+# Local tool state — per-machine, never tracked
 .venv
 .uv
 .bin

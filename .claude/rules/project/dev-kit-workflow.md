@@ -16,9 +16,9 @@ Source for what gets synced OUT to consumer `<project>/.claude/` via `/sync-dev-
 
 `commands/work.md`. Installed to `~/.claude/` via `/install-kit`. **Every dev gets this tier.**
 
-`work` is the session-init command. It is launched from the "claude agents" view (or `@{project}`) *before* the session is inside any repo; it then enters the chosen project's worktree. If it weren't global it wouldn't exist at launch time. `work.md` itself is fully project-agnostic — it works *on* a project but is hardcoded to none; its `work.sh` script is project-level (shipped via `_claude-project`) and resolves once the session is in the project.
+`work` is the session-init command. It is launched from the "claude agents" view (or `@{project}`) *before* the session is inside any repo; it then starts the body of work in the chosen project. If it weren't global it wouldn't exist at launch time. `work.md` itself is fully project-agnostic — it works *on* a project but is hardcoded to none; its `work.sh` script is project-level (shipped via `_claude-project`) and resolves once the session is in the project.
 
-Every OTHER kit command (`/commit`, `/checkpoint`, `/merge`, etc.) is per-project (ships via `_claude-project/commands/`, synced into each consumer's `.claude/commands/`) — those only make sense once you're already inside a project's worktree, so they don't need to be global.
+Every OTHER kit command (`/commit`, `/checkpoint`, `/merge`, etc.) is per-project (ships via `_claude-project/commands/`, synced into each consumer's `.claude/commands/`) — those only make sense once you're already inside a project, so they don't need to be global.
 
 ### `_claude-maintainer/` — Maintainer surface
 
@@ -73,7 +73,6 @@ The kit dogfoods (mirrors into its own `.claude/`) only what it actually *uses*.
 | `skills/analysis/**` | Kit produces markdown analyses of itself in-repo; the shareable-HTML analysis workflow is for consumer apps, not the kit. |
 | `lib/gen-report.mjs` | Shared report generator invoked by the (template-only) e2e + analysis skills; the kit runs neither, so it never executes here. |
 | `rules/dev-server.md`, `hooks/dev-server-guard.sh` | Companion to the (excluded) dev-server feature; kit runs no dev servers. Excluding the guard also drops its two `settings.json` wirings. |
-| `rules/worktree.md`, `hooks/worktree-guard.sh` | **Deliberate opt-out.** Kit skips `EnterWorktree` enforcement so `/work` is the canonical entry without the guard. The `worktree` block in `settings.json` stays; only the enforcement rule + hook are excluded. |
 | `rules/dependencies.md`, `hooks/npm-guard.sh` | Kit has no `package.json` — nothing to install, no lockfile to protect, so the install-discipline rule and its guard never apply. Excluding the guard also drops its two `settings.json` wirings. |
 | `rules/project/README.md` | Consumer scaffolding placeholder; the kit has its own `rules/project/` content. |
 | `hooks/block-kit-edit.sh` | Consumer-protection guard — denies edits to kit-synced files. Nonsensical inside the kit: the kit IS the source, not a consumer, and has no `.kit-sync.json` to guard. The maintainer exemption (`~/.claude/kitmaster`) makes it inert here anyway. |

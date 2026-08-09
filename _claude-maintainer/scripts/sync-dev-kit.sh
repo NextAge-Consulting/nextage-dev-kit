@@ -54,51 +54,20 @@ fi
 
 PROJECT_PATH="${PWD}"
 
-# Refuse to run from inside a worktree (a worktree under .claude/worktrees/).
-# Sync modifies .claude/ — the same mechanism that runs gitflow. Operating from
-# a worktree creates a bootstrap problem ("which version of /commit runs after
-# sync?"). Run from primary instead. Sync does NO git at all: it applies kit
-# updates to the working tree and stamps the lockfile, leaving the changes
-# uncommitted. The user lands them with /ship-main (or any commit path). This
-# keeps committing as gitflow's job, not sync's.
+# Sync runs on whatever branch you are standing on, mid-feature included.
+#
+# There is deliberately NO on-main requirement. Sync does NO git at all: it
+# applies kit updates to the working tree and stamps the lockfile, leaving the
+# changes uncommitted for the user to land with any commit path. The lockfile
+# records the KIT's SHAs, so applying on a feature branch stamps exactly the
+# values it would on main — and if that branch is abandoned, the stamp is
+# discarded along with the files it describes. Consistent either way.
+#
+# Running mid-feature is the POINT. A rule you fix while working is live in
+# context for the rest of that session instead of stranded until a merge. And
+# kit updates riding the same commit as product work is the house model (one
+# body of work, one PR — rules/git.md), not something to guard against.
 # See HANDBOOK §9 for the design rationale.
-GIT_COMMON_DIR=$(git rev-parse --git-common-dir 2>/dev/null || echo "")
-if [ -n "$GIT_COMMON_DIR" ]; then
-    PRIMARY_ROOT=$(cd "$(dirname "$GIT_COMMON_DIR")" && pwd)
-    if [ "$PROJECT_PATH" != "$PRIMARY_ROOT" ]; then
-        echo "sync-dev-kit.sh: invoked from worktree '$PROJECT_PATH'." >&2
-        echo "  Sync must run from the primary repo root: $PRIMARY_ROOT" >&2
-        echo "  cd '$PRIMARY_ROOT' and re-run /sync-dev-kit." >&2
-        exit 4
-    fi
-fi
-
-# Refuse unless the primary checkout is on `main`. The kit model (worktree.md)
-# keeps primary always on main, clean. Syncing on a feature branch would tangle
-# kit updates into unrelated work and stamp the lockfile against the wrong base.
-if [ -n "$GIT_COMMON_DIR" ]; then
-    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-    if [ "$CURRENT_BRANCH" != "main" ]; then
-        echo "sync-dev-kit.sh: primary is on branch '$CURRENT_BRANCH', not 'main'." >&2
-        echo "  Kit sync must run on main. Switch to main and re-run /sync-dev-kit." >&2
-        exit 4
-    fi
-
-    # Refuse when ANY worktree is open. A sibling worktree may be carrying kit
-    # files on a feature branch; syncing into main while that work is in flight
-    # double-applies and races the eventual merge. It does not matter whether the
-    # worktree touches kit files — the invariant is: sync only on a clean main
-    # with no open worktrees. `git worktree list` includes primary itself, so
-    # more than one entry means real worktrees are open.
-    WORKTREE_COUNT=$(git worktree list --porcelain 2>/dev/null | grep -c '^worktree ')
-    if [ "${WORKTREE_COUNT:-0}" -gt 1 ]; then
-        echo "sync-dev-kit.sh: $WORKTREE_COUNT worktrees open (expected only primary)." >&2
-        echo "  Kit sync requires a clean slate: merge or discard all worktrees first, then re-run." >&2
-        echo "  Open worktrees:" >&2
-        git worktree list >&2
-        exit 4
-    fi
-fi
 
 # Refuse to run from inside the kit itself
 if [ "$PROJECT_PATH" = "$KIT_PATH" ]; then
@@ -320,67 +289,37 @@ sha256_substituted() {
     fi
 }
 
-# ─── settings.json silent overlay (project-owned fields) ───────────────────
-# Kit's `_claude-project/settings.json` ships `worktree.postCreate: []` as
-# the empty default. Once the consumer populates it (typically via the §1.6
-# walkthrough that suggests `npm install`/`pnpm install`/etc.), that value
-# is operational config — the kit must never overwrite it. Without this
-# overlay, every sync after first population flags settings.json as
-# kit-only and recommends overwriting the consumer's value.
-#
-# Reconciliation: before computing SHAs for settings.json, splice the
-# consumer's populated postCreate onto kit's content. Both kit and project
-# SHAs are computed against jq-canonicalized JSON so whitespace / key-order
-# differences don't surface as diffs either. Apply path uses the same
-# overlay so accepted applies preserve postCreate. Every OTHER field
-# (hooks, permissions, env, symlinkDirectories, symlinkPaths) flows
-# through normal 3-way state.
+# ─── settings.json canonicalization ────────────────────────────────────────
+# settings.json is compared as canonicalized JSON rather than raw bytes, so a
+# reordered key or reindented block does not surface as a diff on a file whose
+# content is semantically identical. Every field flows through normal 3-way
+# state; the kit owns them all.
 #
 # See HANDBOOK §9.6.
 is_settings_json() {
     [ "$1" = "_claude-project/settings.json" ]
 }
 
-# overlay_settings_project_owned — read kit JSON on stdin, splice in the
-# project's populated worktree.postCreate (if any), emit jq-canonicalized
-# JSON on stdout. Empty/missing project file or empty postCreate → kit
-# content passed through canonicalized.
-overlay_settings_project_owned() {
-    local proj_full="$1"
-    local kit_json
-    kit_json=$(cat)
-    [ -z "$kit_json" ] && return
-
-    if [ ! -f "$proj_full" ]; then
-        printf '%s' "$kit_json" | jq '.'
-        return
-    fi
-
-    local proj_pc proj_pc_len
-    proj_pc=$(jq -c '.worktree.postCreate // []' "$proj_full" 2>/dev/null || echo "[]")
-    proj_pc_len=$(printf '%s' "$proj_pc" | jq 'length' 2>/dev/null || echo "0")
-
-    if [ "$proj_pc_len" = "0" ]; then
-        printf '%s' "$kit_json" | jq '.'
-        return
-    fi
-
-    printf '%s' "$kit_json" | jq --argjson pc "$proj_pc" '.worktree.postCreate = $pc'
+# canonicalize_settings — read JSON on stdin, emit jq-canonicalized JSON on
+# stdout. Empty input passes through untouched.
+canonicalize_settings() {
+    local json
+    json=$(cat)
+    [ -z "$json" ] && return
+    printf '%s' "$json" | jq '.'
 }
 
 # sha256_settings_kit — SHA of kit settings.json after substitution +
-# canonicalization + project-owned overlay. Replaces sha256_substituted()
-# for the settings.json path so postCreate divergence doesn't surface as
-# a false-positive diff.
+# canonicalization. Replaces sha256_substituted() for the settings.json path
+# so key-order / whitespace differences don't surface as false-positive diffs.
 sha256_settings_kit() {
     local kit_full="$1"
-    local proj_full="$2"
     [ -f "$kit_full" ] || { echo ""; return; }
     local tmp_subst
     tmp_subst=$(mktemp)
     apply_substitutions < "$kit_full" > "$tmp_subst"
     local content
-    content=$(overlay_settings_project_owned "$proj_full" < "$tmp_subst")
+    content=$(canonicalize_settings < "$tmp_subst")
     rm -f "$tmp_subst"
     [ -z "$content" ] && { echo ""; return; }
     if command -v sha256sum >/dev/null 2>&1; then
@@ -604,11 +543,10 @@ if [ "$MODE" = "scan" ]; then
         # kit_sha reflects content AFTER placeholder substitution, so a kit
         # template with {{KEY}} matches a project file with the real value.
         # proj_sha is the raw project file (already the real values).
-        # settings.json takes a separate path: project-owned worktree.postCreate
-        # is overlaid onto kit content + both sides canonicalized via jq before
-        # SHA. See HANDBOOK §9.6.
+        # settings.json takes a separate path: both sides are canonicalized
+        # via jq before SHA. See HANDBOOK §9.6.
         if is_settings_json "$kit_rel"; then
-            kit_sha=$(sha256_settings_kit "$kit_full" "$proj_full")
+            kit_sha=$(sha256_settings_kit "$kit_full")
             proj_sha=$(sha256_settings_proj "$proj_full")
         else
             kit_sha=$(sha256_substituted "$kit_full")
@@ -738,14 +676,13 @@ if [ "$MODE" = "apply" ]; then
     # Write SUBSTITUTED content, not raw kit bytes. If no substitutions are
     # defined, apply_substitutions is a pass-through so behavior matches
     # the pre-substitution cp.
-    # settings.json takes a separate path: project-owned worktree.postCreate
-    # is overlaid onto kit content + canonicalized via jq so the accepted
-    # apply preserves the consumer's populated value. See HANDBOOK §9.6.
+    # settings.json takes a separate path: canonicalized via jq so the written
+    # file matches the SHA the scan computed. See HANDBOOK §9.6.
     if is_settings_json "$APPLY_FILE"; then
         tmp_subst=$(mktemp)
         tmp_final=$(mktemp)
         apply_substitutions < "$kit_full" > "$tmp_subst"
-        overlay_settings_project_owned "$proj_full" < "$tmp_subst" > "$tmp_final"
+        canonicalize_settings < "$tmp_subst" > "$tmp_final"
         if [ ! -s "$tmp_final" ]; then
             rm -f "$tmp_subst" "$tmp_final"
             echo "sync-dev-kit.sh: failed to compose settings.json (jq returned empty)" >&2
@@ -806,7 +743,7 @@ if [ "$MODE" = "ack" ]; then
     # Same hash the scan computes for kit_sha, so the next scan sees the kit
     # as unchanged and reports `project-only` rather than drift.
     if is_settings_json "$APPLY_FILE"; then
-        ack_sha=$(sha256_settings_kit "$kit_full" "${PROJECT_PATH}/${dest_rel}")
+        ack_sha=$(sha256_settings_kit "$kit_full")
     else
         ack_sha=$(sha256_substituted "$kit_full")
     fi

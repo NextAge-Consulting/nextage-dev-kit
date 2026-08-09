@@ -77,9 +77,8 @@ When the user says "commit", "checkpoint", or any commit operation, ALWAYS commi
 - `git merge` — `/merge` ships PRs to main; `/catchup` pulls main into a feature branch; both go through the gitflow subsystem
 - `git checkout -b` / `git switch -b` — create branches via `/work <issue>` (issue-mode) or let `/commit`/`/checkpoint` auto-create
 - `git branch -m` — branch renames happen automatically inside `/commit` when on a `wip/*` branch
-- `git worktree add` / `git worktree remove` — worktree creation/removal is owned by `/work` and `/merge`; never invoke directly
 
-**Carve-out for gitflow scripts**: the scripts under `.claude/skills/gitflow/scripts/` ARE authorized to run `git checkout -b`, `git branch -m`, `git worktree add`, `git worktree remove`, `git merge` (for /catchup only), `git merge --abort` (for /catchup only), `git commit` + `git push origin main` + `git pull --rebase origin main` (for `ship-main.sh` only — the deliberate direct-to-main exception path), and related worktree commands as part of their internal logic. This carve-out is scoped to the scripts — it does NOT grant Claude permission to run these commands directly.
+**Carve-out for gitflow scripts**: the scripts under `.claude/skills/gitflow/scripts/` ARE authorized to run `git checkout` / `git checkout -b`, `git branch -m`, `git branch -D`, `git merge` (for /catchup and /merge), `git merge --abort` (for /catchup only), `git commit` + `git push origin main` + `git pull --rebase origin main` (for `ship-main.sh` only — the deliberate direct-to-main exception path) as part of their internal logic. This carve-out is scoped to the scripts — it does NOT grant Claude permission to run these commands directly.
 
 **REQUIRED**: The gitflow subsystem has four layers of defense. Always operate within them:
 
@@ -87,10 +86,7 @@ When the user says "commit", "checkpoint", or any commit operation, ALWAYS commi
 |--------------------------|---------|-------|
 | "work on this", "open the project", "pick up where I left off", "start work" | `/work` slash command (via gitflow skill routing) | 2–3 |
 | "start work on #N", "work issue N" | `/work <N>` | 2–3 |
-| "new compartment", "second worktree" | `/work --new <name>` | 2–3 |
 | "retrieve branch", "pull a teammate's branch" | `/work --retrieve <branch>` | 2–3 |
-| "discard worktree", "clean up that compartment" | `/work --discard <name>` | 2–3 |
-| "discard current", "nuke current/", "reset the workspace" | `/work --discard current --force` | 2–3 |
 | "commit", "commit this", "commit the changes" | `/commit` | 2–3 |
 | "checkpoint", "save progress", "wip commit" | `/checkpoint` | 2–3 |
 | "link issue", "also works on #N" | `/link` | 2–3 |

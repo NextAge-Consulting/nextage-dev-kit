@@ -12,7 +12,7 @@ $ARGUMENTS
 ## When to invoke
 
 **On main:**
-- Starting a session after another developer has merged + deployed; you want your local repo current before reviewing or before /work creates a new compartment.
+- Starting a session after another developer has merged + deployed; you want your local repo current before reviewing or before /work cuts a new branch.
 - Reviewing someone else's just-merged work without touching any feature branch.
 
 **On a feature branch:**
@@ -84,7 +84,7 @@ If you genuinely need a rebase (e.g. linearizing history before opening a PR), d
 | Exit code | Reason |
 |---|---|
 | 2 | Bad arguments. |
-| 3 | Not in a git worktree / on detached HEAD. |
+| 3 | Not in a git working tree / on detached HEAD. |
 | 4 | Mode conflict (e.g. `--continue` without MERGE_HEAD; default mode with MERGE_HEAD already present). |
 | 5 | Dirty tree (default mode) or conflict markers still present (continue mode). |
 | 6 | Conflicts during merge, `git fetch` failed, or `git merge` failed. |

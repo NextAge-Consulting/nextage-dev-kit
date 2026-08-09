@@ -4,7 +4,7 @@
 
 ## Canonical start path: `/dev`
 
-**The user starts dev servers via `/dev` (the dev-server skill).** `/dev` opens a new iTerm tab in the correct worktree (or primary, with `--main`), runs `cd` + the dev command. Port collisions are detected via `lsof` and auto-bumped by `+10` (3001 → 3011 → 3021, capped at 3 hops). Tab title is set via OSC 0 escape to `<app> @ <worktree-name> (:<port>)`.
+**The user starts dev servers via `/dev` (the dev-server skill).** `/dev` opens a new iTerm tab in the project root, runs `cd` + the dev command. Port collisions are detected via `lsof` and auto-bumped by `+10` (3001 → 3011 → 3021, capped at 3 hops). Tab title is set via OSC 0 escape to `<app> @ <project-name> (:<port>)`.
 
 Claude does **not** start dev servers without user invocation — `/dev` is user-driven only. See:
 

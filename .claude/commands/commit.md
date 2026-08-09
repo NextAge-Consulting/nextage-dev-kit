@@ -105,7 +105,7 @@ When the script blocks, surface the reason to the user. Fix underlying issues pe
 
 ## Recovery: `--push-only` mode
 
-If a prior `/commit` succeeded at the commit step but failed at push (typical cause: bogus upstream config left by pre-fix worktree creation, where a `feat/...` branch ended up tracking `origin/main` — plain `git push` then fails under `push.default=simple`), re-trigger the push without re-running typecheck or staging:
+If a prior `/commit` succeeded at the commit step but failed at push (typical cause: a branch left tracking `origin/main` rather than its own remote ref — plain `git push` then fails under `push.default=simple`), re-trigger the push without re-running typecheck or staging:
 
 ```bash
 .claude/skills/gitflow/scripts/commit.sh --push-only

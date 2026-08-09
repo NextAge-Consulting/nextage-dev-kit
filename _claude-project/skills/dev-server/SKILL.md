@@ -1,6 +1,6 @@
 ---
 name: dev-server
-description: This skill should be used when the user asks to "start dev", "run dev", "start dev server", "run the server", "start shop", "start dealer", "spin up <app>", "start main", "run main alongside", "compare with main", "start with tunnel", "tunnel <app>", "expose to a teammate", "run on cloudflare", "what's running", "show dev servers", or any natural-language request to launch a dev server. The canonical and ONLY authorized path for starting dev servers in a kit-enabled project. Routes to the `/dev` slash command, which opens a new iTerm tab in the correct worktree and runs the dev command, with the port auto-overridden on collision via `lsof` pre-check. `--tunnel` flag wraps the dev command with a Cloudflare named tunnel.
+description: This skill should be used when the user asks to "start dev", "run dev", "start dev server", "run the server", "start shop", "start dealer", "spin up <app>", "start with tunnel", "tunnel <app>", "expose to a teammate", "run on cloudflare", "what's running", "show dev servers", or any natural-language request to launch a dev server. The canonical and ONLY authorized path for starting dev servers in a kit-enabled project. Routes to the `/dev` slash command, which opens a new iTerm tab at the project root and runs the dev command, with the port auto-overridden on collision via `lsof` pre-check. `--tunnel` flag wraps the dev command with a Cloudflare named tunnel.
 ---
 
 # dev-server
@@ -9,10 +9,10 @@ Natural-language routing layer for launching dev servers via iTerm tabs. Compani
 
 ## Why this skill exists
 
-Two problems the Agents-view + worktree workflow created that the old "cmd-t + cd + npm run dev" flow can't solve:
+Two problems the Agents-view workflow created that the old "cmd-t + cd + npm run dev" flow can't solve:
 
-1. **iTerm `cmd-t` lands in the wrong directory.** Agents view spawns the host shell in `~/projects` with no project context. `EnterWorktree` only changes Claude's tool-process cwd — the iTerm parent shell never learns about the worktree. So cmd-t inherits `~/projects` and every new tab needs manual `cd`.
-2. **Silent vite port-bump.** When `:3001` is occupied (most projects default to it), vite silently bumps to `:3002`. You browser-test `localhost:3001` thinking it's your worktree and it's actually a different project's server. The "100% via skill" model exists to make this footgun structurally impossible.
+1. **iTerm `cmd-t` lands in the wrong directory.** Agents view spawns the host shell in `~/projects` with no project context, so cmd-t inherits `~/projects` and every new tab needs manual `cd`.
+2. **Silent vite port-bump.** When `:3001` is occupied (most projects default to it), vite silently bumps to `:3002`. You browser-test `localhost:3001` thinking it's your project and it's actually a different project's server. The "100% via skill" model exists to make this footgun structurally impossible.
 
 `/dev` is the sole, universal entry point. Mirrors gitflow's role for git operations.
 
@@ -23,16 +23,15 @@ Two problems the Agents-view + worktree workflow created that the old "cmd-t + c
 | "start dev", "run dev", "run the server" | `/dev` (lists available scripts, prompts choice) |
 | "start shop", "spin up shop" | `/dev shop` |
 | "start shop and dealer", "run both" | `/dev shop dealer` |
-| "start main", "compare with main", "run main alongside" | `/dev <app> --main` |
 | "start shop with tunnel", "tunnel shop", "expose shop to a teammate", "run shop on cloudflare" | `/dev shop --tunnel` |
 | "what's running", "show dev servers", "any dev servers up" | `/dev --status` |
 
 ## What dev-server does
 
-1. **Detects project root** from cwd — walks up to the nearest `package.json` with `dev*` scripts. Works from primary, `current/`, or any compartment uniformly.
+1. **Detects project root** from cwd — walks up to the nearest `package.json` with `dev*` scripts.
 2. **Detects each app's default port** from `apps/<app>/vite.config.ts` (or root `vite.config.ts` for flat layouts). Falls back to `:3000` if not found.
 3. **`lsof` pre-check.** If port is free, use it. If occupied, step `+10` (3001 → 3011 → 3021). Cap at 3 hops; refuse beyond.
-4. **Opens a new iTerm tab via `osascript`.** `cd`'s into the target worktree (or primary, with `--main`), sets the tab title to `<app> @ <worktree-name> (:<port>)` via OSC 0 escape, runs `npm run dev:<app> -- --port <N>`.
+4. **Opens a new iTerm tab via `osascript`.** `cd`'s into the project root, sets the tab title to `<app> @ <project-name> (:<port>)` via OSC 0 escape, runs `npm run dev:<app> -- --port <N>`.
 
 The vite CLI `--port` flag overrides whatever's in `vite.config.ts`, so no config change is needed for the port-override to work.
 
@@ -50,10 +49,9 @@ The vite CLI `--port` flag overrides whatever's in `vite.config.ts`, so no confi
 When a user request matches a dev-server trigger:
 
 1. Identify which app(s) to start from the request (default: prompt via `/dev` with no args if ambiguous).
-2. Detect `--main` for primary-vs-worktree comparison runs.
-3. Invoke `/dev <args>` via the slash command.
-4. If the script reports "no free port found in 3 hops", surface to the user — do NOT retry. They have to decide which server to stop.
-5. If the script reports "no `dev:<app>` script", surface the available scripts and ask which the user meant.
+2. Invoke `/dev <args>` via the slash command.
+3. If the script reports "no free port found in 3 hops", surface to the user — do NOT retry. They have to decide which server to stop.
+4. If the script reports "no `dev:<app>` script", surface the available scripts and ask which the user meant.
 
 ## E2E interaction
 

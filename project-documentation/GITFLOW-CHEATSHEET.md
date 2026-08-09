@@ -6,38 +6,33 @@ One-page reference for day-to-day work in a kit-enabled project. For internals a
 
 ## Starting a session
 
-Every coding session starts with `/work`. It enters (or creates) the project's worktree at `<project>/.claude/worktrees/current/` so the session edits files there, not in the primary repo folder.
+Every coding session starts with `/work`. It puts you on the branch your work belongs on, in the project checkout.
 
 ```
-/work                              # re-enter current/ if it exists; otherwise create it on wip/<abbrev>-<timestamp>
-/work 23                           # re-enter or create current/ on a branch derived from issue #23's title; link the issue
-/work --new big-feature            # create a compartment at .claude/worktrees/big-feature/ on wip/big-feature for parallel work
-/work --retrieve feat/teammate-fix # fetch and check out a teammate's branch (in current/ if clean, compartment if dirty)
-/work --discard big-feature        # remove a compartment (refuses if dirty unless --force)
+/work                              # on main: cut a fresh wip/<abbrev>-<timestamp> branch. On a branch: resume it.
+/work 23                           # on main: cut a branch derived from issue #23's title, and link the issue
+/work --retrieve feat/teammate-fix # fetch a teammate's branch and switch to it (refuses if your tree is dirty)
 ```
 
-What happens automatically (issue mode, `current/` missing):
-- **Local main is fast-forwarded from `origin/main` first** — fail-loud if dirty, offline, or diverged. Ensures the new worktree is based on the latest main.
-- Worktree at `<project>/.claude/worktrees/current/` is created on a feature branch derived from the issue title (e.g. `feat/add-email-to-users`).
+What happens automatically (issue mode, on `main`):
+- **Local main is fast-forwarded from `origin/main` first**, so the branch starts from current code.
+- A branch is cut from the issue title (e.g. `feat/add-email-to-users`).
 - Issue **linked to the branch** (stored in git config), **assigned to you**, **moved to "In Progress"** on the project board.
 - Claude **reads the issue body + comments** and proposes an approach before any code is written.
-- Claude session is moved into the worktree so subsequent edits land in the right place.
 
-What happens automatically (issue mode, `current/` already exists):
-- Behaves like `/link`: the issue is added to the existing branch in `current/`. No new worktree, no new branch.
+What happens automatically (issue mode, already on a feature branch):
+- Behaves like `/link`: the issue is added to the branch you are on. No new branch.
 
-What happens automatically (no issue, `current/` missing):
-- **Local main is fast-forwarded from `origin/main` first** — fail-loud if dirty, offline, or diverged.
-- Worktree at `current/` is created on a `wip/<abbrev>-<timestamp>` branch off fresh `origin/main`.
+What happens automatically (no issue, on `main`):
+- **Local main is fast-forwarded from `origin/main` first.**
+- A `wip/<abbrev>-<timestamp>` branch is cut off fresh `origin/main`.
 - The branch keeps its `wip/` name until your first `/commit`, which renames it to `<type>/<slug>` derived from the commit message (e.g. `wip/lg-2026-05-12-153000Z` → `feat/dealer-filter-fix`).
 - `<abbrev>` resolves from `PROJECT_ABBREV` in `.claude/sync-substitutions.json` (e.g. `lg`, `kit`, `ms`); falls back to the project's directory basename if unset. Run `/sync-dev-kit` to populate. Lets the Agents view distinguish concurrent wip/ branches across projects.
 
-What happens automatically (no issue, `current/` already exists):
-- Re-enter the existing worktree on its existing branch. Same body of work continues.
+What happens automatically (no issue, already on a feature branch):
+- Resume it. Same body of work continues, nothing refreshed — use `/catchup` when you want the latest main.
 
-**Primary repo folder always sits on `main`, untouched.** Open `<project>/.claude/worktrees/current/` in your editor — that's where source code lives during the session. Plain-CLI workflows like `/sync-dev-kit` operate against the primary; do not edit there manually.
-
-**Why current/ is always on a non-main branch.** Git refuses to check out the same branch in two worktrees, and primary owns `main`. So `current/` is given its own branch (`wip/*` or feature) from the moment it's created. The branch starts as `wip/<abbrev>-<timestamp>` for no-issue invocations, gets renamed at first commit. There is no "current/ briefly on main" intermediate state.
+**Edits already in the tree come along.** If you started editing before typing `/work`, `git checkout -b` carries those changes onto the new branch. The one consequence is that `main` is not refreshed in that case (a fast-forward on a dirty tree would either fail or strand the edits) — `/work` says so, and `/catchup` closes the gap.
 
 **Distinguishing concurrent sessions in the Agents view.** The `wip/<abbrev>-<timestamp>` branch name does NOT surface as the session title in the Agents view or the Claude desktop/web view — those views show the session summary, not the branch. To label a session so concurrent work across projects is easy to tell apart, use the built-in `/rename <name>` slash command. The rename is reflected in both the Agents view and the Claude views.
 
@@ -79,15 +74,10 @@ No new branch, no stash. Just link and keep working.
 /sync         # on main: fast-forward local main from origin/main (just want latest code)
                 # on a feature branch: merge updated origin/main INTO the feature branch
 /e2e          # behavioral E2E via agent-browser (asks a scope question — see next section)
-/merge        # verify CI green, squash-merge, pull main back
+/merge        # verify CI green, squash-merge, land back on main, delete the merged branch
                 # does NOT transition the project board (Staged stays until /deploy)
-                # post-merge: Claude must invoke ExitWorktree({action:"keep"}) — the worktree
-                # was deleted on disk but the session is still bound to it; first Bash call
-                # otherwise fails with `posix_spawn '/bin/sh' ENOENT` (HANDBOOK §6.3 step 4)
-                # post-merge: if the squash changed package*.json, merge.sh runs `npm install`
-                #   in primary so its node_modules isn't left stale (bites /deploy's build gate)
-                # post-merge: a burst of stale LSP errors pointing at the removed worktree path is
-                #   EXPECTED + harmless (the LSP lost its root) — ignore, don't re-typecheck main
+                # post-merge: if landing on main changed package*.json, merge.sh runs `npm ci`
+                #   so node_modules isn't left stale (bites /deploy's build gate)
 /deploy       # bump version, tag, push, trigger deploy workflow(s)
                 # transitions every closed issue in the release → "Done" on the project board
 ```
@@ -190,7 +180,7 @@ Dev server lifecycle governed by `.claude/rules/dev-server.md` — Claude checks
 ## The whole flow at a glance
 
 ```
-/work 23             ← start session (local main fast-forwarded; worktree entered, issue linked, branch created, board → In Progress)
+/work 23             ← start session (local main fast-forwarded; branch cut, issue linked, board → In Progress)
 ... work ...
 /checkpoint          ← save progress (repeat as needed)
 ... more work ...
@@ -205,7 +195,7 @@ Dev server lifecycle governed by `.claude/rules/dev-server.md` — Claude checks
 /deploy              ← release: bump version, tag, trigger deploy workflow(s). Board → Done for every issue closed by this release.
 ```
 
-Picking up tomorrow on unfinished work: same launch, just `/work` (no args). The worktree is still there with yesterday's branch checked out; you resume exactly where you left off.
+Picking up tomorrow on unfinished work: same launch, just `/work` (no args). You are still on yesterday's branch; `/work` sees that and resumes exactly where you left off.
 
 ---
 
@@ -222,20 +212,16 @@ Picking up tomorrow on unfinished work: same launch, just `/work` (no args). The
 
 | Symptom | Fix |
 |---------|-----|
-| "Not on a feature branch" from `/commit` | Shouldn't happen under the current model — worktrees never sit on `main`. If it does, you're inside the primary repo (which is on `main`). Stop, run `/work` from a parent directory to get into a worktree. |
+| "Not on a feature branch" from `/commit` | You are on `main`. `/commit` auto-branches from there, so this should not block you — if it does, run `/work` to cut the branch explicitly. |
 | `/merge` refuses — "CI not green" | Open the Actions tab, find the failure, fix, `/commit`, re-run `/merge`. |
 | `/e2e` — "no flows match this diff" | Expected for pure-docs / workflow-only PRs on the diff-scoped option. Reports clean, runs nothing. |
 | `/e2e` — dev server not reachable | Claude checks port first and starts if free. If that fails, the project's dev-server command may differ; check `.claude/rules/dev-server.md` for the project's convention. |
 | `/open-pr` — "no commits ahead of main" | You haven't committed yet. Run `/commit` or `/checkpoint` first. |
 | `/link` refuses on main | Correct — linking only makes sense on a feature branch. Use `/work <issue>` to start a feature branch first. |
 | Issue didn't move on the project board (In Progress / Staged / Done) | Board transitions are now **fail-loud**. If `GITFLOW_PROJECT_ID` is set and the transition didn't fire, the script exited non-zero with the cause. Most common cause is the gh token missing `project` scope (`gh auth refresh -s project`), then the issue not being on the configured project (enable the project's "Auto-add to project" workflow). Empty `GITFLOW_PROJECT_ID` = feature off, silent skip. |
-| `/work` aborts: "local main could not be refreshed" | The pre-create main fast-forward failed. Check `gh auth status` — usually the gh auth scope is missing or the network is offline. If local main has DIVERGED (anomalous), inspect `git log origin/main..HEAD` in the primary repo. |
+| `/work` says it could not refresh main | The pre-branch fast-forward failed (usually `gh` auth scope or network). `/work` does not block — it cuts the branch off local `main` and tells you. Fix `gh auth status`, then `/catchup` to pull the latest into your branch. |
 | `/sync` aborts: "local main is AHEAD" or "DIVERGED" | Local main has commits not on origin/main. Anomalous under gitflow's model (primary is read-only). Inspect with `git log origin/main..HEAD`. Likely cause: someone committed directly to main outside gitflow. Resolve manually before /sync retries. |
-| Editor shows stale code | You opened the primary repo folder. Open `<project>/.claude/worktrees/current/` instead — that's where source lives during a session. |
 | `current/` doesn't exist yet | Run `/work` (no args). It creates `current/` on a fresh `wip/<abbrev>-<timestamp>` branch and enters it. |
-| `git status` shows a `.venv` (or other) symlink as a new file | Add it to `.gitignore`. Claude Code auto-symlinks listed dirs (`worktree.symlinkDirectories` in `settings.json`) and the symlink shouldn't be tracked. |
-| Dev server crashes immediately in a worktree (missing `.env` / `process.env.X` undefined), or `npm run dev` reports missing modules | You're in a half-built worktree — created via `EnterWorktree` directly instead of `/work`. The canonical `/work` path runs `apply_worktree_symlinks` (which symlinks `.env` from primary) and `run_post_create` (which runs `npm install`); `EnterWorktree(name=...)` skips both empirically. Fix: `ExitWorktree({action:"keep"})` then `/work` — re-entry heals the symlinks; if `node_modules` is still missing, `cd` into the worktree and run the project's install command. The `worktree-guard.sh` PostToolUse hook surfaces a system-reminder when this happens — read it. See HANDBOOK §3.2 and `rules/worktree.md`. |
-| `/sync-dev-kit` keeps flagging `.claude/settings.json` as `kit-only` (or `conflict`) every sync even though you haven't touched it | The silent-overlay reconciler in `sync-dev-kit.sh` (HANDBOOK §9.6) should keep populated `worktree.postCreate` from surfacing as a diff. (1) Verify `jq '.worktree.postCreate' .claude/settings.json` is a populated array (not `[]` or missing). If empty, populate via the §9.9 walkthrough (re-run `/sync-dev-kit` — Step 1.6 fires when postCreate is empty) or edit settings.json manually. (3) If postCreate IS populated and sync still flags settings.json, the overlay logic in `sync-dev-kit.sh` (`overlay_settings_project_owned` / `sha256_settings_kit`) is broken — open a kit bug. |
-| `/commit` succeeded at commit but failed at push with "upstream branch ... does not match the name of your current branch" | Pre-fix worktree creation left the branch tracking `origin/main` instead of itself. Re-trigger just the push: `.claude/skills/gitflow/scripts/commit.sh --push-only` from inside the affected worktree. `safe_push` (in `branch_helpers.sh`) corrects the upstream and pushes. New worktrees created after the fix won't hit this (work.sh now passes `--no-track`). See HANDBOOK §4.5. |
+| `/sync-dev-kit` keeps flagging `.claude/settings.json` as `kit-only` (or `conflict`) every sync even though you haven't touched it | settings.json is compared as jq-canonicalized JSON (HANDBOOK §9.6), so key order and indentation should never surface as a diff. If it still flags with no real difference, the canonicalization in `sync-dev-kit.sh` (`canonicalize_settings` / `sha256_settings_kit`) is broken — open a kit bug. |
+| `/commit` succeeded at commit but failed at push with "upstream branch ... does not match the name of your current branch" | The branch is tracking `origin/main` rather than its own remote ref. Re-trigger just the push: `.claude/skills/gitflow/scripts/commit.sh --push-only`. `safe_push` (in `branch_helpers.sh`) corrects the upstream and pushes. See HANDBOOK §4.5. |
 | `gh pr view <N>` reports `mergeable: CONFLICTING` after another PR shipped | Run `/sync` on the affected branch. It merges `origin/main` in via an explicit merge commit and pushes. On conflicts, edit the affected files, then `/sync --continue`. See HANDBOOK §4.6. |
-| `current/` is orphaned on an old branch (body of work shipped via a different compartment) | `/work --discard current --force` removes the worktree + lets the next `/work` recreate it fresh. The `--force` is required — `current/` is the persistent workspace and never auto-discards. |

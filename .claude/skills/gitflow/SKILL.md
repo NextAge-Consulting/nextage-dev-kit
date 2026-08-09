@@ -1,6 +1,6 @@
 ---
 name: gitflow
-description: This skill should be used when the user asks to "work on", "start work", "pick up where I left off", "open the project", "commit", "commit this", "commit the changes", "ship to main", "commit straight to main", "infra commit", "emergency commit to main", "checkpoint", "save progress", "wip commit", "link issue", "link this issue", "also works on issue", "open pr", "open a pull request", "submit for review", "triage", "work the review", "go through gemini", "merge", "merge to main", "ship it", "new worktree", "compartment", "retrieve a branch", "discard worktree", "discard current", "reset workspace", "catch up with main", "catch my branch up", "get latest main", "pull main into my branch", "update my branch with main", "continue the merge", "abort the catchup", or any natural-language request for git work-session, commit, checkpoint, issue-link, pull-request, review-triage, catchup, merge, or deploy operations. Routes to the corresponding slash command. The canonical and ONLY authorized path for entering worktrees, committing, checkpointing, PR creation, review triage, catchup, and merges in this project.
+description: This skill should be used when the user asks to "work on", "start work", "pick up where I left off", "open the project", "commit", "commit this", "commit the changes", "ship to main", "commit straight to main", "infra commit", "emergency commit to main", "checkpoint", "save progress", "wip commit", "link issue", "link this issue", "also works on issue", "open pr", "open a pull request", "submit for review", "triage", "work the review", "go through gemini", "merge", "merge to main", "ship it", "retrieve a branch", "catch up with main", "catch my branch up", "get latest main", "pull main into my branch", "update my branch with main", "continue the merge", "abort the catchup", or any natural-language request for git work-session, commit, checkpoint, issue-link, pull-request, review-triage, catchup, merge, or deploy operations. Routes to the corresponding slash command. The canonical and ONLY authorized path for starting work, committing, checkpointing, PR creation, review triage, catchup, and merges in this project.
 ---
 
 # gitflow
@@ -15,9 +15,7 @@ Invoke this skill when the user asks for any of:
 |-------------|-------------------|
 | "work on this", "open the project", "pick up where I left off", "start work" | `/work` |
 | "start work on #N", "work issue N" | `/work <N>` |
-| "new compartment", "second worktree", "separate workspace" | `/work --new <name>` |
 | "retrieve branch", "pull a teammate's branch", "check out their branch" | `/work --retrieve <branch>` |
-| "discard worktree", "clean up that compartment", "remove worktree" | `/work --discard <name>` |
 | "discard current", "reset the workspace", "nuke current/" | `/work --discard current --force` |
 | "commit", "commit this", "commit the changes" | `/commit` |
 | "ship to main", "commit straight to main", "commit this directly to main", "infra commit", "emergency commit to main", "quick commit to main" | `/ship-main` |
@@ -39,7 +37,7 @@ This shop bundles multiple unrelated issues into a single session, branch, and P
 
 - Scolding or warning the user for "mixing unrelated issues" on one branch/PR.
 - Recommending they `/open-pr` + `/merge` the prior issue before starting the next.
-- Suggesting `/work --new <name>` (a new compartment) to "keep things clean" when the user explicitly chose `/link`.
+- Suggesting a separate branch to "keep things clean" when the user explicitly chose `/link`.
 - Framing single-PR multi-issue work as a tradeoff (clean history vs. fewer cycles). It is not a tradeoff here — bundling is the default.
 - Asking "do you want to PR this first?" between linked issues. The user did not ask; do not offer.
 - Asking "should I update the HANDBOOK / docs separately?" or "split that into a follow-up PR?" Doc updates ride in the same PR as the change they document.
@@ -114,25 +112,21 @@ Auto-branch behavior: if on `main`, `/checkpoint` creates a `wip/<timestamp>` br
 
 ### /work
 
-Enter or create the working worktree for the current project. This is the session-init command — invoke first in any session that will edit code.
+Start or resume a body of work on a branch in this checkout. This is the session-init command — invoke first in any session that will edit code.
 
-Work happens in `<project>/.claude/worktrees/current/` (the persistent default) or compartments under `<project>/.claude/worktrees/<name>/`. The primary repo folder (`<project>/`) is reserved for git substrate and is never edited.
+Work happens on a branch in the project checkout. On `main`, `/work` refreshes from origin and cuts the branch; on a feature branch it resumes.
 
 **Modes:**
 - `/work` — enter `current/`, create on `main` if missing. Idempotent.
 - `/work <issue#>` — enter `current/`, ensure a feature branch (derived from issue title) is checked out, link the issue. Behaves like `/link` if `current/` is already on a feature branch.
-- `/work --new <name>` — create a compartment for parallel work.
-- `/work --retrieve <branch>` — fetch a branch into `current/` (or auto-compartment if `current/` is dirty).
-- `/work --discard <name>` — remove a compartment.
+- `/work --retrieve <branch>` — fetch a teammate's branch and switch to it (refuses on a dirty tree).
 
 **Procedure:**
 - Parse `$ARGUMENTS` to determine mode (default / issue / new / retrieve / discard).
 - Invoke `.claude/skills/gitflow/scripts/work.sh` with appropriate flags.
-- Read the script's `WORKTREE_PATH=<path>` marker on the last line of stdout.
-- Call the `EnterWorktree` tool with that path to switch the Claude session into the worktree. (Skip for `--discard` — no path emitted.)
 - For `--issue` mode: read the dumped issue body + comments and respond with understanding + plan before touching code.
 
-See `_claude-global/commands/work.md` (installed at `~/.claude/commands/work.md` so `/work` is discoverable from any cwd, including pre-project agents-view sessions). The script (project-local at `.claude/skills/gitflow/scripts/work.sh`) handles worktree creation, branch derivation, issue linking, and compartment management. It does not commit or push.
+See `_claude-global/commands/work.md` (installed at `~/.claude/commands/work.md` so `/work` is discoverable from any cwd, including pre-project agents-view sessions). The script (project-local at `.claude/skills/gitflow/scripts/work.sh`) handles branch creation, branch derivation, and issue linking. It does not commit or push.
 
 ### /link
 
@@ -141,7 +135,7 @@ Link one or more GitHub issues to the CURRENT feature branch mid-work. Use when 
 **Procedure:**
 - Parse `$ARGUMENTS` into an issue CSV
 - Invoke `.claude/skills/gitflow/scripts/link.sh --issues "<csv>"`
-- Same side-effects as `/work <issue#>` minus branch/worktree creation: status transition, assignment, git-config link store, issue context dump
+- Same side-effects as `/work <issue#>` minus branch creation: status transition, assignment, git-config link store, issue context dump
 - Claude reads the dumped context and responds with understanding + impact assessment
 
 See `commands/link.md`. Refuses to run on `main`/`master`. Linked issues flow into PR body as `Closes #N` when `/open-pr` later fires.
@@ -212,13 +206,13 @@ The commands invoke these scripts in `skills/gitflow/scripts/`:
 
 | Script | Purpose |
 |--------|---------|
-| `work.sh` | Enter/create the project's worktree (default `current/` or named compartment); --issue to start an issue-linked branch; --retrieve to fetch someone else's branch; --discard to remove a compartment |
+| `work.sh` | Start or resume the body-of-work branch; --issue to start an issue-linked branch; --retrieve to fetch and switch to someone else's branch |
 | `commit.sh` | Full conventional commit, stages all, pushes; auto-branches/renames as needed |
 | `checkpoint.sh` | WIP commit, stages all, pushes; auto-creates `wip/<timestamp>` on main |
 | `link.sh` | Links additional GitHub issues to the current branch mid-work |
 | `open-pr.sh` | Push branch, create PR via gh or GitHub API; prepends `Closes #N` from branch-linked issues |
 | `wait-for-pr-ready.sh` | Poll until CI green + (if a `/gemini review` comment was posted for the current HEAD) Gemini Code Assist has posted its review; fail-loud timeout. Trigger-aware: no trigger comment for HEAD → CI-only ready. `GEMINI_NOT_INSTALLED="true"` short-circuits the Gemini path entirely. Invoked by `/open-pr`, `/triage`, `/merge`. |
-| `merge.sh` | Wait for PR readiness, squash-merge via gh, sync primary main, clean up the active worktree (remove + refresh `current/` if active, else remove compartment + maybe fast-forward `current/`) |
+| `merge.sh` | Wait for PR readiness, squash-merge via gh, land this checkout back on `main`, delete the merged local branch, reinstall deps if manifests changed |
 | `branch_helpers.sh` | Shared helpers sourced by work/commit/checkpoint scripts |
 | `issue_helpers.sh` | Shared helpers for `/work --issue` and `/link`: parse CSV, validate issues, link to branch (git config), project status transition, user assignment, issue context dump |
 | `get_timestamp.sh` | Local-timezone timestamp utility |

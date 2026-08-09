@@ -21,7 +21,7 @@ This shop bundles freely and ships when the user says ship. See `skills/gitflow/
 - Work started on a `wip/*` branch without explicit issue linking, and you want to backfill.
 - Any time the set of issues a branch addresses changes.
 
-Equivalent to the issue-linking side-effects of `/work <issue#>` but operates on the existing branch instead of (re-)entering the worktree or creating a new branch.
+Equivalent to the issue-linking side-effects of `/work <issue#>` but always operates on the existing branch instead of creating one.
 
 ## Supported invocations
 
@@ -81,5 +81,5 @@ Downstream: `/open-pr` reads `branch.<current>.gitflow-issues` and prepends `Clo
 
 ## Related
 
-- `/work <issue#>` — enter the worktree AND start a new branch linked to the issue (same link side-effects, plus worktree entry and branch creation).
+- `/work <issue#>` — start a new branch linked to the issue (same link side-effects, plus branch creation when on `main`).
 - Project's built-in "Pull request merge - closes linked issues" workflow also fires on merge via the Development-panel link, giving belt-and-suspenders closure.

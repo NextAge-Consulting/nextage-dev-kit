@@ -43,7 +43,7 @@ echo "gitflow: checkpoint: $MESSAGE" >&2
 git commit --no-verify -m "$MESSAGE"
 
 # Push via safe_push — handles missing-upstream AND wrong-upstream (e.g.
-# origin/main leaked through from pre-fix worktree creation).
+# origin/main inherited from the branch's start-point).
 safe_push
 
 echo "gitflow: checkpoint pushed on $CURRENT_BRANCH." >&2

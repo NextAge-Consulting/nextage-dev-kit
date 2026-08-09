@@ -156,66 +156,36 @@ What replaces it:
 A hand-rolled commit therefore cannot reach `main` malformed; it can only be
 locally untidy until CI rejects it. That residual is accepted knowingly.
 
-### 3.2. Working in worktrees
+### 3.2. Working on a branch
 
-All Claude-driven editing happens inside a git worktree under `<project>/.claude/worktrees/`. The primary repo folder always sits on `main`, clean — it is reserved for git substrate and for plain-CLI workflows (notably `/sync-dev-kit`) that expect a clean `main` checkout to operate against.
-
-**Why this exists.** Claude Code's background sessions (agents view, cloud) require an isolated worktree before editing files. Rather than fight that requirement, gitflow embraces it as the workflow primitive — and applies the same model to standalone CLI sessions for a uniform mental model across surfaces. "Where does the work live?" has the same answer regardless of how Claude Code was launched.
-
-**The git rule we have to live with.** A given branch can only be checked out in one worktree at a time. Primary holds `main`. Therefore no other worktree may also hold `main`. Both `current/` and any compartment must live on their own non-main branch from creation. This is the constraint that drives every behavior below.
-
-**The two worktree shapes:**
-
-| Shape | Path | When |
-|---|---|---|
-| `current/` (default) | `<project>/.claude/worktrees/current/` | The default worktree for a body of work. Persists across consecutive sessions until `/merge` ships its branch. Lives on a `wip/*` or feature branch (never on `main`). One per project. |
-| Compartment (opt-in) | `<project>/.claude/worktrees/<name>/` | Parallel bodies of work (rare). Retrieving someone else's branch when `current/` is dirty. Lives on its own `wip/<name>` or feature branch. |
+All Claude-driven editing happens on a branch in the project checkout. One checkout, one branch at a time. One body of work → one branch → one PR.
 
 **Lifecycle (the only verb you type is `/work`):**
 
-- `/work` — if `current/` exists, re-enter it. If missing, create it on a fresh `wip/<abbrev>-<timestamp>` branch off `origin/main` and enter. Idempotent within a body of work.
-- `/work <issue#>` — if `current/` is missing, create it on a branch derived from the issue title (e.g. `feat/add-email-to-users`) and link the issue. If `current/` already exists, behaves like `/link` — adds the issue to the existing branch.
-- `/work --new <name>` — opt-in compartment for parallel work, created on `wip/<name>` off `origin/main`.
-- `/work --retrieve <branch>` — fetch someone else's branch (lands in `current/` if clean, compartment if dirty).
-- `/work --discard <name>` — remove a compartment (refuses if dirty, `--force` overrides).
-- `/work --discard current --force` — remove the persistent `current/` worktree. `--force` is REQUIRED (without it, refuses to prevent accidental wipeout). Use when `current/` is orphaned (body of work shipped through a different compartment, e.g. the 2026-05-12 #148 → #149 incident), or for a hard reset. Next `/work` recreates `current/` fresh.
-- `/merge` — squash-merge the PR for the active worktree's branch. Removes the active worktree. Does NOT auto-recreate `current/` — the next `/work` does that on a fresh branch. Compartment-merge case is more nuanced (see §6.3).
+- `/work` — on `main`, refresh from `origin/main` and cut a fresh `wip/<abbrev>-<timestamp>` branch. On a feature branch, resume it. Idempotent within a body of work.
+- `/work <issue#>` — on `main`, cut a branch derived from the issue title (e.g. `feat/add-email-to-users`) and link the issue. On a feature branch, behaves like `/link` — adds the issue to the branch you are on.
+- `/work --retrieve <branch>` — fetch a teammate's branch, fast-forward any local copy, switch to it. Refuses on a dirty tree; `/checkpoint` first.
+- `/merge` — squash-merge the PR, land the checkout back on `main`, delete the merged local branch.
 
-**One session = one body of work = one branch = one PR.** Per the "always one PR" policy: all commits made during a session land on the same feature branch. Use `/link` to add more issues mid-stream. Use `/open-pr` once and `/merge` once. Worktree's job is to host the session; the body-of-work's job ends at `/merge`.
+**One session = one body of work = one branch = one PR.** All commits made during a session land on the same feature branch. Use `/link` to add more issues mid-stream. Use `/open-pr` once and `/merge` once.
 
-**End-of-day on unfinished work:** push via `/commit` or `/checkpoint`, close the session. The branch persists on GitHub. `current/` stays on disk. Next session's `/work` re-enters it and you resume — same branch, same body of work, no new branch created.
+**End-of-day on unfinished work:** push via `/commit` or `/checkpoint`, close the session. Next session's `/work` sees you are already on the branch and resumes — same branch, same body of work, no new branch created.
 
-**`wip/<abbrev>-<timestamp>` rename at first commit.** When `/work` creates `current/` without an issue context, the branch starts as `wip/<abbrev>-<timestamp>`. `/commit`'s existing rename logic (kept from the pre-worktree era) detects the `wip/*` prefix on first commit and renames the branch to its real feature name derived from the commit message (e.g. `feat/dealer-filter-fix`). The user never types the wip name — it is internal session state. After rename, the branch behaves like any other feature branch.
+**`wip/<abbrev>-<timestamp>` rename at first commit.** When `/work` cuts a branch without issue context, it starts as `wip/<abbrev>-<timestamp>`. `/commit` detects the `wip/*` prefix on first commit and renames the branch to its real feature name derived from the commit message (e.g. `feat/dealer-filter-fix`). The user never types the wip name — it is internal session state.
 
-**Shared gitignored assets across worktrees (no duplication):** Four settings.json keys declare worktree creation behavior:
+**Uncommitted edits carry onto the new branch.** Starting to edit before typing `/work` is ordinary — you noticed something first. `git checkout -b` brings those edits along, so nothing is stranded. The one consequence: `main` is not refreshed in that case (a fast-forward on a dirty tree would either fail or strand the edits), so the branch is based on local `main`. `/work` says so plainly; `/catchup` integrates the latest when you want it.
 
-- `worktree.bgIsolation` — controls Claude Code's edit-time enforcement of `EnterWorktree`. Default in the kit: `"none"`. With the guard enabled (the harness default), background sessions are blocked from editing files in the primary checkout until they've called the `EnterWorktree` tool — and Claude follows the system-prompt nudge to call it directly with `name=...`. That `EnterWorktree(name=...)` path MAY trigger the binary's built-in symlinkPaths/symlinkDirectories/postCreate logic, but in practice it is unreliable across versions and is often skipped entirely. With `bgIsolation: "none"`, the guard is off and `/work` becomes the canonical entry point — which routes through `work.sh:apply_worktree_symlinks` + `run_post_create` deterministically. The `worktree-guard.sh` PostToolUse hook (added 2026-05-20) is the safety net for the case where Claude still reaches for `EnterWorktree` directly; the hook injects a system-reminder telling Claude to verify the setup steps ran.
-- `worktree.symlinkDirectories` — gitignored directories to symlink from primary. Default: `[".venv", ".uv", ".bin", ".cache"]`. **`node_modules` is deliberately NOT here** — see "Why node_modules is NOT symlinked" below. Supports glob entries (e.g. `apps/*/node_modules`, `packages/*/node_modules`) for monorepos that don't follow the no-node_modules-symlink rule (don't do this for vite/TanStack Start projects).
-- `worktree.symlinkPaths` — gitignored files to symlink from primary. Default: `[".env", ".env.local", ".env.development", ".env.development.local"]`. Critical for projects whose dev servers / vite.config.ts load `.env` at an explicit path (no parent-walking) — without this, `npm run dev` in a worktree starts with no env vars and silently misbehaves.
-- `worktree.postCreate` — array of shell commands to run inside the newly-created worktree. Default: `[]`. Use to install per-worktree dependencies (`npm ci`, `pnpm install --frozen-lockfile`, `bundle install`, etc.). A worktree branches from `main`, so its committed lockfile is present — use the lockfile-respecting install (`npm ci`), never a bare `npm install` that would rewrite it (rules/dependencies.md §I). Each command runs in the worktree dir; failure aborts the rest with the worktree left in place for debugging.
+**Local main is refreshed before a new branch is cut.** `/work` invokes `fast_forward_local_main` (in `branch_helpers.sh`) before creating the branch, so it starts from current code. If the fetch fails — offline, expired auth, missing scope — `/work` reports the cause and branches off local `main` rather than blocking; nothing is lost, and `/catchup` closes the gap. Resuming an existing branch refreshes nothing by design: you are mid-body-of-work, and integrating new `main` is `/catchup`'s job (§4.6).
 
-`symlinkDirectories` and `symlinkPaths` are read by `work.sh:apply_worktree_symlinks()` after `git worktree add` succeeds, AND on every `/work` re-entry into an existing worktree (idempotent — only creates missing symlinks). `postCreate` runs ONLY on create (not re-entry — these are initialization steps, not idempotent). This bypasses a real gap in Claude Code's built-in worktree symlink machinery: the built-in only fires when `EnterWorktree` CREATES the worktree, not when it enters an existing one, and even on the create path the behavior is empirically unreliable across versions. `/work` uses `git worktree add` directly + `EnterWorktree(path=...)` to enter, so the built-in path never runs. `apply_worktree_symlinks` + `run_post_create` are the gitflow-owned fixes; `bgIsolation: "none"` + the `worktree-guard.sh` PostToolUse hook + `rules/worktree.md` are the safety net that keeps Claude on the canonical path.
+**Do NOT reintroduce git worktrees.** A branch is the unit of isolation here, deliberately. Worktrees give a second checkout on disk, which buys isolation between *concurrent* bodies of work on one machine and one repo — a pattern this shop does not have. What a second checkout costs is paid every session: gitignored files must be symlinked in one by one, dependencies install per checkout, `node_modules` symlinks break vite's realpath plugin resolution, a dev server started from the other checkout silently serves stale code, kit edits land in a copy that only reaches `main` after a merge, and `.claude/rules/` loads twice when the second checkout sits inside the first. The `EnterWorktree` tool is opt-in ("use ONLY when explicitly instructed"), so nothing in the harness requires one. Parallel work, on the rare occasion it happens, is `git switch`.
 
-Symlink targets are ABSOLUTE (primary repo root + relative path). Missing source paths (a declared `.venv` when no Python virtualenv exists) are silently skipped.
-
-Each project's `.gitignore` MUST cover every entry in `symlinkDirectories`/`symlinkPaths`, or `git status` inside a worktree will show the symlink as a new file.
-
-**Why `node_modules` is NOT symlinked.** Symlinking `node_modules` from primary into each worktree breaks vite + TanStack Start (and many other vite plugins) because the plugin code resolves its own location via `import.meta.url` → `realpath`. When `node_modules/@tanstack/react-start` resolves through a symlink to primary's `node_modules`, the plugin computes `resolve.alias` paths pointing at primary's filesystem. But the dev server's URL routing uses the worktree's logical paths. Mismatch → `/@id/virtual:tanstack-start-client-entry` returns 404, body never hydrates, "Failed to fetch dynamically imported module" in the console. Empirically verified 2026-05-13. TanStack Router issue #6588 documents the symptom (claims fix in `@tanstack/react-start >= 1.159.6`; in practice the fix doesn't fully resolve the worktree-symlink case in 1.166–1.167 either — only a real `npm install` in the worktree works). Same class of bug affects pnpm workspaces, Bun, Rush, NX with their internal symlink-store pattern. **The kit's stance: each worktree gets its own real `node_modules` via `postCreate: ["npm ci"]`** (or the project's package manager equivalent — `npm ci` installs strictly from the worktree's committed lockfile and never rewrites it; see rules/dependencies.md §I). The disk + ~30s time cost is the price of compatibility.
-
-**The merge-time counterpart.** Because each worktree has its OWN real `node_modules`, a dependency you `npm install` *inside* a worktree updates the tracked `package.json` / `package-lock.json` (which merge to `main`) but populates only the worktree's `node_modules`. After `/merge`, **primary's `node_modules` is stale** — it never saw the install. `merge.sh` closes this: after syncing primary `main`, if the squash commit touched any `package.json` / `package-lock.json` it runs `npm install` in the primary checkout (best-effort; a failure is surfaced, never aborts the completed merge). This keeps `/deploy`'s `npm run build` gate — which runs from primary — and any direct primary use on current deps. The next `/work` is unaffected either way: a fresh worktree installs from the merged lockfile.
-
-**Editor implications:** open the worktree path (`<project>/.claude/worktrees/current/`) in your editor — NOT the primary `<project>/` folder. Editor sees current branch state because that's what's checked out in the worktree. After `/merge`, `current/` is removed; the next `/work` re-creates it on the same path on a new branch, so the editor's recent-projects entry stays valid.
-
-**Why primary stays on `main`, always.** Primary stays on `main` forever and `current/` gets its own branch from day one. Parking the primary on a placeholder ref so `current/` could hold `main` would break `/sync-dev-kit` (which expects a clean primary on `main` to branch off) and any plain-CLI workflow that operates against the primary. The trade is a tiny UX wrinkle ("you never see `current/` on `main`") for substantial sync-pipeline simplicity.
-
-**Local main is refreshed before any new worktree create (added 2026-05-18).** When `/work` is about to create a NEW worktree — no `current/` yet, `--new <name>`, or `--retrieve <branch>` — `create_worktree` in `work.sh` first invokes `fast_forward_local_main` (in `branch_helpers.sh`) against the primary repo. This fetches `origin/main` and fast-forwards local main BEFORE the worktree's branch is created off it. **Fail-loud:** if the fetch fails (offline, expired auth, missing scope) or local main has diverged from origin/main (has local-only commits — anomalous under gitflow's model), worktree creation aborts with the underlying cause surfaced. Previous behavior was `git fetch origin main >/dev/null 2>&1 || true` — silently swallowed every failure and produced worktrees built off stale bases without warning. Re-entering an existing `current/` does NOT refresh anything; that's by design (you're in the middle of a body of work, use `/sync` when you want to integrate latest main into the feature branch). The freshness guarantee is uniform with `/sync`'s on-main path because both delegate to the same helper — see §4.6.
 
 ### 3.3. Where `/work` lives (global vs project-level)
 
 `/work` is unique among gitflow commands in that it must be discoverable BEFORE a project is established (e.g. in an agents-view session that starts at `~/projects/` with no repo cwd yet). For that reason:
 
 - **`commands/work.md`** lives at **user-level** (`~/.claude/commands/work.md`, sourced from kit canonical `_claude-global/commands/work.md`). Always discoverable, no matter where the session is launched.
-- **`work.sh`** stays **project-level** (`<project>/.claude/skills/gitflow/scripts/work.sh`). It needs its siblings (`branch_helpers.sh`, `issue_helpers.sh`) and operates on the project's `.claude/worktrees/` directory.
+- **`work.sh`** stays **project-level** (`<project>/.claude/skills/gitflow/scripts/work.sh`). It needs its siblings (`branch_helpers.sh`, `issue_helpers.sh`) and operates on the project's git context.
 
 The global `/work.md` invokes the project-local `work.sh` via a cwd-relative path. If cwd is not a git repo, `work.sh` fails with exit 3 ("not in a git repository") — clear error rather than silent fallback.
 
@@ -231,7 +201,7 @@ The model above is identical across launch surfaces:
 | Agents view (background) | `@<repo>` in the launch prompt sets cwd | Include `/work` (or `/work <issue#>`) in the launch prompt |
 | Claude Cloud | Cloud session already inside the repo | Type `/work` after the session starts |
 
-The user-facing commands (`/work`, `/commit`, `/link`, `/open-pr`, `/merge`) behave identically across all three. The "is this a background session?" question is internal — `/work`'s script handles the EnterWorktree mechanics regardless of surface.
+The user-facing commands (`/work`, `/commit`, `/link`, `/open-pr`, `/merge`) behave identically across all three. The "is this a background session?" question is internal — `/work` behaves the same regardless of surface.
 
 ---
 
@@ -271,7 +241,7 @@ Generating a GOOD commit message is Claude's job, not the user's. The user sayin
 
 ### 4.5. Upstream tracking and `safe_push` (added 2026-05-12 evening)
 
-**The bug we hit.** `git worktree add -b <new> <path> origin/main` (used by `/work` to create `current/` and compartments) defaults `branch.<new>.{remote,merge}` to track `origin/main`. Under `push.default=simple` (modern default), a plain `git push` then fails with:
+**The bug we hit.** A branch created from `origin/main` can inherit `branch.<new>.{remote,merge}` tracking `origin/main` (git's `branch.autoSetupMerge` default). Under `push.default=simple` (modern default), a plain `git push` then fails with:
 
 ```
 fatal: The upstream branch of your current branch does not match
@@ -284,27 +254,27 @@ the name of your current branch.
 
 | Layer | Where | What |
 |---|---|---|
-| Primary | `work.sh:create_worktree` | Pass `--no-track` to `git worktree add -b`. New branches are created with NO upstream; the first push sets it. |
+| Primary | `branch_helpers.sh:create_and_switch` | `git checkout -b` from local HEAD creates the branch with NO upstream; the first push sets it. |
 | Belt-and-suspenders | `branch_helpers.sh:safe_push` | Reads `@{u}`; if it does NOT match `origin/<local-branch>`, push with `-u origin <local-branch>` to (re)set tracking. Used by `commit.sh`, `checkpoint.sh`, `open-pr.sh`. |
-| Recovery | `commit.sh --push-only` | When a prior `/commit` committed locally but failed at push (typical: pre-fix worktree with bogus tracking), retry the push without re-running typecheck/stage/commit. |
+| Recovery | `commit.sh --push-only` | When a prior `/commit` committed locally but failed at push (typical: a branch left with bogus tracking), retry the push without re-running typecheck/stage/commit. |
 
 **Why the rename path was already safe.** `/work` (no args) creates `wip/<abbrev>-<timestamp>` with origin/main upstream → first `/commit` calls `rename_current_branch` which explicitly runs `git branch --unset-upstream` → then push -u → correct. That path was never broken; only the `/work --issue` path (which skips the wip→feat rename) hit the bug. `safe_push` covers both paths uniformly so the fix doesn't depend on which entry point was used.
 
-**Caller recovery for half-shipped commits.** Project worktrees that branched off `origin/main` BEFORE this fix landed still have the bogus upstream on their feature branch. The fix in `commit.sh` (safe_push) is delivered THROUGH the file at `<project>/.claude/skills/gitflow/scripts/commit.sh`. For a stranded branch (committed but not pushed), invoke `commit.sh --push-only` from PRIMARY (whose copy is up-to-date after `/merge`) while cwd is the worktree on the stranded branch:
+**Caller recovery for half-shipped commits.** A feature branch that inherited the bogus upstream still carries it. The fix in `commit.sh` (safe_push) is delivered THROUGH the file at `<project>/.claude/skills/gitflow/scripts/commit.sh`. For a stranded branch (committed but not pushed), invoke `commit.sh --push-only` while standing on the stranded branch:
 
 ```bash
-cd <project>/.claude/worktrees/current
+cd <project>
 <project>/.claude/skills/gitflow/scripts/commit.sh --push-only
 ```
 
-The script reads `git branch --show-current` against cwd's git context, so it operates on the worktree's branch while running primary's up-to-date logic.
+The script reads `git branch --show-current` against cwd's git context, so it operates on whichever branch is checked out.
 
 ### 4.6. Sync workflow (`/sync`, added 2026-05-13; extended 2026-05-18)
 
 `/sync` is the single command for "refresh the branch I'm on from origin." Behavior depends on which branch is checked out at invocation:
 
 - **On main (primary repo, no current/ active OR just reviewing):** fetch `origin/main`, fast-forward local main. Fail-loud on dirty main or local-only commits (anomalous under gitflow). This is what you run when starting a session after someone else has merged + deployed and you want your local repo current before doing anything else.
-- **On a feature branch (inside current/ or a compartment):** merge `origin/<base>` (default `main`) INTO the feature branch via `--no-ff`. Push via `safe_push`.
+- **On a feature branch:** merge `origin/<base>` (default `main`) INTO the feature branch via `--no-ff`. Push via `safe_push`.
 
 One mental model: "sync brings the branch I'm on up to date with origin."
 
@@ -320,7 +290,7 @@ One mental model: "sync brings the branch I'm on up to date with origin."
 Before `/sync` existed, the only paths were:
 - `git merge origin/main` (forbidden direct git per `git.md`)
 - `git rebase origin/main` (same)
-- Close the PR, re-open from a fresh compartment off updated main
+- Close the PR, re-open from a fresh branch off updated main
 
 Path 3 was the 2026-05-12 #148 → #149 workaround. Works but wastes a PR cycle. `/sync` is the proper primitive.
 
@@ -336,7 +306,7 @@ Path 3 was the 2026-05-12 #148 → #149 workaround. Works but wastes a PR cycle.
 
 `--continue` / `--abort` are feature-branch-only — the on-main path is a fast-forward with no merge commit and no conflict possibility.
 
-The on-main path delegates to `fast_forward_local_main` in `branch_helpers.sh`. The same helper is invoked by `/work` before creating any new worktree (see §3.2), so the freshness guarantee is uniform across both entry points.
+The on-main path delegates to `fast_forward_local_main` in `branch_helpers.sh`. The same helper is invoked by `/work` before cutting any new branch (see §3.2), so the freshness guarantee is uniform across both entry points.
 
 **Conflict path.** On conflict, `sync.sh` lists the affected files and exits non-zero. Claude / human resolves conflicts in-tree using `Edit` (no `<<<<<<<`/`=======`/`>>>>>>>` markers left), verifies with `git diff --check`, then runs `/sync --continue` to complete and push.
 
@@ -414,13 +384,8 @@ Note: `/open-pr` does NOT touch `changelog.md`; `/deploy` is the single changelo
 3. Command calls `skills/gitflow/scripts/merge.sh`:
    - Invokes `wait-for-pr-ready.sh` (same poll as `/open-pr` step 5) — trigger-aware: catches the post-`/triage` case where the user invoked `/commit --review` and a fresh Gemini review is expected on the new HEAD. `/commit --no-review` posts no trigger and the wait proceeds CI-only. Bypassable via `--force-unchecked` for emergency hotfixes only (skips CI too).
    - On wait exit 0: `gh pr merge --squash --delete-branch`
-   - **Worktree cleanup** (post-merge): determine whether the active worktree is `current/`, a named compartment, or the primary; sync the primary repo's local main to new origin/main; then:
-     - **current/** → remove. Do NOT auto-recreate. Next `/work` recreates `current/` on a fresh `wip/<abbrev>-<timestamp>` branch off the (now updated) `origin/main`. Editor's recent-projects entry stays valid for that path because `/work` rebuilds at the same path.
-     - **Compartment** → remove the compartment. If `current/` exists and is truly empty (no uncommitted changes AND no commits ahead of new `origin/main`), the compartment-removal path also tears `current/` down and deletes its orphaned `wip/*` branch — assumes user hadn't started work yet, next `/work` gets a fresh start. If `current/` has any work (uncommitted changes OR commits ahead of new main), leave it alone with a clear warning that current/ is now out of sync with main; user rebases or merges new main into the branch when ready.
-     - **Primary (legacy path)** → switch to `main` and pull, behavior matches pre-2026-05-12 versions. Reachable only by someone bypassing `/work` and running `/merge` directly from the primary, which is discouraged.
-
-   **`current/` never holds `main`.** `current/` is always on a `wip/*` or feature branch by construction, so "fast-forward to new main" is never the right operation. Integrating new main into `current/`'s branch is the user's call.
-4. **Release the deleted worktree from the session (Claude responsibility).** `merge.sh` removes the worktree directory but the Claude session is still bound to that path via the prior `EnterWorktree` call. The next tool invocation spawns its subprocess with cwd set to the deleted directory; the kernel cannot resolve `/bin/sh` from a non-existent inode and the spawn fails with `ENOENT: no such file or directory, posix_spawn '/bin/sh'`. Hooks fail loudly for the first 1–3 calls until the harness recovers cwd to a parent path. The fix is in the slash-command spec, not the script: `commands/merge.md` Step 3 instructs Claude to invoke `ExitWorktree({ action: "keep" })` IMMEDIATELY after `merge.sh` returns and BEFORE any other tool call. `keep` is correct (not `remove`) because the worktree is already gone — `remove` would error. The script can't fix this from inside its own subprocess; the binding lives in the parent Claude session.
+   - **Post-merge cleanup**: switch this checkout to `main`, fast-forward it to the merged tip, delete the now-merged local branch, and reinstall dependencies if landing on the new `main` changed a package manifest.
+4. **No further action needed from Claude.** The checkout is standing on the merged `main`; the next `/work` cuts a fresh branch from there.
 5. **No automated post-merge action.** No version bump, no tag, no deploy. The squash commit sits on main until `/deploy` is invoked. Multiple merges may accumulate between deploys.
 
 ### 6.4. Changelog ownership (single writer = `/deploy`)
@@ -565,16 +530,16 @@ See `commands/triage.md` for the full procedure and edge cases.
 |---|---|
 | Conscious infra / config / emergency change you want on main NOW | Real feature work |
 | You accept no PR, no CI, no review — main's history is the trail | You want branch → PR → CI → review → merge |
-| Sitting on dirty `main` in the primary repo and want back to clean | Anything you'd normally worktree |
+| Sitting on dirty `main` and want back to clean | Anything that deserves review |
 
-**Never inferred.** Being on dirty `main` is often *accidental* (the worktree didn't kick in, or work started in primary), so a bare `/commit` on `main` still auto-branches — that's the safety. `/ship-main` is the opposite, on purpose, and only when invoked by name.
+**Never inferred.** Being on dirty `main` is often *accidental* — work started before `/work` — so a bare `/commit` on `main` still auto-branches — that's the safety. `/ship-main` is the opposite, on purpose, and only when invoked by name.
 
 - **Validation stays.** The script runs `check-types` + `biome lint` (the same assist as `/commit`). `--skip-typecheck` is a true-emergency override only.
 - **Pushes straight to main.** If `origin/main` advanced, it rebases the commit onto it and re-pushes; conflict → stop and resolve.
 - **Feeds `/deploy` like any main commit.** `/ship-main` commits land on `main` and are read by the next `/deploy` (commit subjects since the last tag) to compute the bump level + changelog, exactly like a merged-PR squash commit. Conventional format is therefore required, not optional.
 - **Requires require-PR off** (the default — §6.5, PIPELINE.md §1.1). With require-PR set, GitHub rejects the direct push.
 
-Full spec: `commands/ship-main.md`. Worktree carve-out: `rules/worktree.md`.
+Full spec: `commands/ship-main.md`.
 
 ---
 
@@ -679,7 +644,7 @@ Committed so every dev and every cloud session has the same baseline.
 
 ### 9.4. Sync procedure
 
-`/sync-dev-kit` (must be invoked from PRIMARY repo root — refuses from any worktree under `.claude/worktrees/`. See §9.4.1 for rationale.):
+`/sync-dev-kit` (invoked from the project root, on whatever branch you are standing on):
 
 1. Clone or fetch kit at HEAD into a temp location
 2. Load project lockfile (create empty if missing — first sync)
@@ -699,9 +664,9 @@ The resolution is simple: **sync does no git at all.** It applies the accepted k
 
 This also means:
 
-- **Sync runs from primary, not a worktree.** The script refuses (exit 4) if invoked from `.claude/worktrees/*`. The PRIMARY is the destination of the kit's changes; running from a worktree would write into an ephemeral location and leave the primary stale.
+- **Sync runs on whatever branch you are on, mid-feature included.** There is deliberately no on-`main` requirement. The lockfile records the KIT's SHAs, so applying on a feature branch stamps exactly the values it would on `main`; abandon the branch and the stamp is discarded with the files it describes. Running mid-feature is the point — a rule fixed while working is live in context for the rest of the session rather than stranded until a merge.
 - **After sync, the changes are uncommitted.** The interactive `--apply-file` review IS the review — each change was inspected and accepted before it landed in the working tree. Land the result with `/ship-main` (straight to `main`, no PR — there's nothing for a sync PR to gate on: `.claude/` rules, slash commands, sync scripts have no runtime surface to test). `/ship-main` requires require-PR off (the default); `enforce_admins` is irrelevant — nothing admin-merges.
-- **Other gitflow work must complete before starting sync.** If `/commit`-style work is in flight (a feature branch open elsewhere), finish or stash it before invoking `/sync-dev-kit`. Sync from primary on main is the only supported state.
+- **Applied kit updates ride the same commit as the rest of the body of work.** That is the house model (one body of work, one PR — `rules/git.md`), not something to avoid. Splitting them out would be exactly the ceremony the constitution forbids.
 
 ### 9.4.2. Long, interrupted sessions
 
@@ -718,32 +683,17 @@ The user's UX is just `/sync-dev-kit`. Claude orchestrates the modes (`--scan` �
 
 ### 9.6. Settings.json handling
 
-`.claude/settings.json` uses 3-way comparison like every other file with ONE silent overlay: **`worktree.postCreate` is project-owned once populated**. The kit ships `postCreate: []` as an empty default (a placeholder); the consumer's populated value — typically set via the §9.9 walkthrough that detects the package manager and suggests `npm ci` / `pnpm install --frozen-lockfile` / `bundle install` / etc. — is operational config the kit must NEVER overwrite.
+`.claude/settings.json` uses 3-way comparison like every other file, with one wrinkle: both sides are compared as **jq-canonicalized JSON** rather than raw bytes, so a reordered key or reindented block does not surface as a diff on content that is semantically identical.
 
-Without the overlay, every sync after first population would flag settings.json as `kit-only` (kit's empty default differs from project's populated value) and recommend overwriting the consumer's customization. That's the bug the overlay exists to prevent.
-
-**Reconciliation policy:**
-
-| Field | Behavior on sync |
-|-------|------------------|
-| `worktree.postCreate` (populated in project, `[]` in kit) | **Silent overlay** — kit content gets project's value spliced in before SHA, state evaluates `clean` / `clean-converged`, file is silently skipped (never appears in the diff review). |
-| `worktree.postCreate` (empty in both) | No overlay needed. Standard 3-way comparison; kit's `[]` default flows through. The §9.9 walkthrough surfaces an empty value on first sync. |
-| Anything else (`hooks`, `permissions`, `env`, `symlinkDirectories`, `symlinkPaths`, etc.) | Normal 3-way state. Kit-only / project-only / conflict surface like any other file. |
+Every field — `hooks`, `permissions`, `env` — flows through normal 3-way state. The kit owns them all; there is no project-owned carve-out.
 
 **Implementation:**
 
-- `overlay_settings_project_owned` in `_claude-maintainer/scripts/sync-dev-kit.sh` reads kit JSON on stdin, splices in the project's populated `worktree.postCreate` (if any), emits jq-canonicalized JSON on stdout. Empty/missing project file or empty `postCreate` → kit content passes through canonicalized only.
-- `sha256_settings_kit` / `sha256_settings_proj` replace the generic `sha256_substituted` / `sha256` for the `_claude-project/settings.json` path. Both sides go through `jq '.'` so whitespace / key-order differences ALSO don't surface as diffs.
-- The same overlay applies in `--apply-file _claude-project/settings.json` so an accepted apply (because kit changed hooks, say) preserves the project's populated `postCreate`.
-- The lockfile baseline SHA for settings.json tracks the canonicalized + overlaid content. After the first apply post-fix, subsequent scans show `clean`.
-
-**What this is NOT:**
-
-- Not a general "JSON merge" — only the one named field is overlaid. No field-by-field 3-way JSON diff. If you ever need to add another project-owned field (unlikely), it lives in `overlay_settings_project_owned`, explicitly.
-- Not a runtime fix in the consumer file — the file on disk after sync contains the merged content, real values, no placeholders. Consistent with the rest of the sync model (substitutions are build-time, never runtime).
-- Not project-specific specialization of the kit's `_claude-project/settings.json` — the canonical kit version keeps `postCreate: []`. The reconciler logic is the ONLY specialization mechanism for this file (besides the substitution engine).
-
-Cross-references: §9.7 (placeholder substitutions, the general kit-template specialization mechanism), §9.9 (the `postCreate` walkthrough that populates the value initially).
+- `canonicalize_settings` in `_claude-maintainer/scripts/sync-dev-kit.sh` reads JSON on stdin and emits `jq '.'` output on stdout.
+- `sha256_settings_kit` / `sha256_settings_proj` replace the generic `sha256_substituted` / `sha256` for the `_claude-project/settings.json` path, so both sides go through the same normalization.
+- The same canonicalization applies in `--apply-file _claude-project/settings.json`, so the written file matches the SHA the scan computed.
+- The lockfile baseline SHA for settings.json tracks the canonicalized content.
+Cross-reference: §9.7 (placeholder substitutions, the general kit-template specialization mechanism).
 
 ### 9.7. Placeholder substitutions (`sync-substitutions.json`)
 
@@ -893,24 +843,6 @@ This preserves the missing-vs-empty-vs-populated invariants from §9.7 while add
 **Where the walkthrough lives**
 
 The orchestration is in the `/sync-dev-kit` slash command (`_claude-maintainer/commands/sync-dev-kit.md`), Step 1.5. Claude reads the substitutions file, the `_placeholders_referenced_by_kit` block, and the `_intentionally_empty` list, then drives the per-key flow with the user. Discovery commands are invoked via `Bash`. Updates are written by re-serializing the JSON via `jq`.
-
-### 9.9. postCreate auto-suggest walkthrough
-
-Distinct from §9.8 because the value lives in `.claude/settings.json` (not `sync-substitutions.json`) and is operational settings rather than template substitution. Same walkthrough shape: empty value triggers a Claude-driven prompt, suggestion sourced from project introspection, user accepts / overrides / skips.
-
-**When it fires.** Sync Step 1.6 (after the substitutions walkthrough, before the per-file diff loop). Checks `jq '.worktree.postCreate // []' .claude/settings.json`. If non-empty → skip. If empty → continue.
-
-**One-shot, not recurring.** The walkthrough fires only when `postCreate == []`. Once populated (by accept, by user-provided value, or by manual edit), §9.6's silent overlay takes over — `sync-dev-kit.sh` splices the populated value onto kit's empty default before SHA comparison, so settings.json never surfaces as a diff for the postCreate axis again. The walkthrough does NOT re-prompt on subsequent syncs to confirm / refresh the populated value. This is by design — the value rarely changes (one-line-per-worktree install command) and re-prompting would be noise. If the user wants to change postCreate, they edit `.claude/settings.json` directly; the next sync silently absorbs the change via §9.6 overlay.
-
-**Detection.** Project root scanned for lockfiles in specificity order (full table in `_claude-maintainer/commands/sync-dev-kit.md` Step 1.6): `pnpm-lock.yaml` → `pnpm install`, `yarn.lock` → `yarn`, `bun.lockb` → `bun install`, `package-lock.json` → `npm ci`, `package.json` no-lockfile → `npm install` (bootstrap — no lockfile to install from yet), `Gemfile.lock`/`Gemfile` → `bundle install`, `uv.lock` → `uv sync`, `poetry.lock` → `poetry install`, `requirements.txt` → `pip install -r requirements.txt`. First match wins.
-
-**Three resolutions**, same shape as §9.8: accept, provide-own, skip-for-later. On accept, the walkthrough writes via `jq '.worktree.postCreate = [<cmd>]' .claude/settings.json`.
-
-**Why this matters.** Without `postCreate`, each new `/work` invocation creates a worktree with no `node_modules` and no warning. User has to remember to run install manually. Worse: if the user (or AI assistant) attempts to symlink `node_modules` from primary as a shortcut, they hit TanStack Router #6588 — virtual modules 404 because the plugin's `import.meta.url → realpath` resolution doesn't match worktree URL paths. The whole reason `postCreate` exists is to make "each worktree gets a real install" the easy default path. The walkthrough closes the cognitive loop on first sync.
-
-**Why settings.json not sync-substitutions.json.** `postCreate` is a settings array (multiple commands, may grow over project lifetime), not a single substituted value. Living in `settings.json` keeps the substitution catalog focused on `{{KEY}}` placeholders and the settings file focused on operational config.
-
----
 
 ## 10. Environment variables
 
@@ -1118,9 +1050,9 @@ Without the Project auto-add workflow enabled, `dependabot-surfacing.yml` still 
 
 Issue↔branch↔PR linking is first-class in the gitflow subsystem. Two commands drive it:
 
-- **`/work <issue#>`** — enters the project's worktree and (if on `main`) creates a branch linked to the issue. Branch slug derived from the issue's title (e.g. `feat/add-email-to-users`). Issue numbers are NOT in the branch name — a branch may close multiple issues over time via `/link`, so embedding one number misleads. The link graph lives in git config (`branch.<name>.gitflow-issues`); collisions resolved by `work.sh`. Moves the linked issue to `In Progress` on the configured project. Assigns to the current `gh`-authenticated user. Dumps issue body + comments to stdout so Claude reads them in-turn and responds with understanding + questions BEFORE any code is written.
+- **`/work <issue#>`** — (if on `main`) creates a branch linked to the issue. Branch slug derived from the issue's title (e.g. `feat/add-email-to-users`). Issue numbers are NOT in the branch name — a branch may close multiple issues over time via `/link`, so embedding one number misleads. The link graph lives in git config (`branch.<name>.gitflow-issues`); collisions resolved by `work.sh`. Moves the linked issue to `In Progress` on the configured project. Assigns to the current `gh`-authenticated user. Dumps issue body + comments to stdout so Claude reads them in-turn and responds with understanding + questions BEFORE any code is written.
 
-- **`/link #27[,#28]`** — mid-work linking. Same side-effects as `/work <issue#>` minus worktree/branch creation. Refuses on `main`/`master`. Validates all issues before any side-effects (no half-linked state).
+- **`/link #27[,#28]`** — mid-work linking. Same side-effects as `/work <issue#>` minus branch creation. Refuses on `main`/`master`. Validates all issues before any side-effects (no half-linked state).
 
 Board transition + assignment are **fail-loud when configured** — see the failure-semantics table in the gitflow-project-integration subsection below. `GITFLOW_PROJECT_ID` empty = feature off, silent skip. Any other broken state (missing scope, wrong option ID, issue not on the configured project) = script exits non-zero with the underlying cause.
 
@@ -1618,12 +1550,12 @@ Sibling to gitflow (§3). Owns one concern: launching dev servers in the correct
 
 ### 12.1. Why this subsystem exists
 
-The Agents-view + worktree workflow makes a naive "cmd-t → `cd` → `npm run dev`" flow unreliable, for two reasons:
+The Agents-view workflow makes a naive "cmd-t → `cd` → `npm run dev`" flow unreliable, for two reasons:
 
-1. **iTerm `cmd-t` lands in `~/projects`, not the worktree.** Agents view spawns the host shell from `~/projects` with no project context. `EnterWorktree` only changes Claude's tool-process cwd — iTerm's parent shell never learns about the worktree, so "Reuse previous session's directory" reuses the wrong directory.
+1. **iTerm `cmd-t` lands in `~/projects`, not the project.** Agents view spawns the host shell from `~/projects` with no project context, so "Reuse previous session's directory" reuses the wrong directory.
 2. **Silent vite port-bump.** When `:3001` is occupied (most projects default to it), vite silently bumps to `:3002`. Browser-testing `localhost:3001` then tests the wrong project's server.
 
-Solving #1 by adjusting iTerm settings is impossible — Agents view doesn't update the host shell's cwd. Solving #2 manually requires the user to know every project's port and check `lsof` before every `npm run dev`. Neither is scalable across multiple projects with multiple worktrees per project.
+Solving #1 by adjusting iTerm settings is impossible — Agents view doesn't update the host shell's cwd. Solving #2 manually requires the user to know every project's port and check `lsof` before every `npm run dev`. Neither is scalable across multiple projects.
 
 `/dev` is the structural fix: explicit `osascript`-spawned iTerm tab with the correct `cd`, plus `lsof` pre-check with `+10` port-step on collision.
 
@@ -1662,9 +1594,8 @@ iTerm hot-loads DynamicProfiles — no restart needed. `/dev` fails with a clear
 | Input | Effect |
 |-------|--------|
 | `/dev` | List `dev*` scripts from the resolved project's `package.json`. Await user choice. |
-| `/dev <app>` | Stage `npm run dev:<app>` in the current worktree on the detected port (auto-bumped on collision). |
+| `/dev <app>` | Stage `npm run dev:<app>` at the project root on the detected port (auto-bumped on collision). |
 | `/dev <app1> <app2>` | One iTerm tab per app. |
-| `/dev <app> --main` | Stage in the **primary** repo (always on `main`), not the worktree. Side-by-side main-vs-worktree comparison. |
 | `/dev <app> --tunnel` | Stage `npm run dev:tunnel:<app>` — cloudflared + vite in one tab, public at `<app>.thenextage.com`. Mutually exclusive with `--main`. See §12.3.2. |
 | `/dev --status` | List listening processes on `:3000-:3099` (pid, port, cwd, cmd). Never kills. |
 
@@ -1697,8 +1628,6 @@ ingress:
 4. Spawns `npm run dev:<app>` once the tunnel reports "Registered tunnel connection".
 
 **Multi-replica behavior.** `/dev shop --tunnel` + `/dev dealer --tunnel` each spawn their own `cloudflared` process. Cloudflare treats them as replicas of the same tunnel UUID; both share the ingress map; traffic load-balances. Each replica costs ~30–50MB RAM + a few edge keepalive connections. Acceptable; matches the "single-script-per-tab" model.
-
-**Mutual exclusion with `--main`.** Tunnel ingress targets a localhost port chosen against the worktree's `lsof` state. `--main` runs in the primary repo on a different cwd / port. The combo is refused at flag-parse time.
 
 **One-time DNS** (Cloudflare dashboard, per-machine setup): wildcard CNAME `*.thenextage.com` → `<tunnel-uuid>.cfargotunnel.com`, Proxied. Universal SSL covers single-label wildcards natively; no paid Advanced Certificate needed.
 

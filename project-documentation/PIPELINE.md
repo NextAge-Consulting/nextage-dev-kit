@@ -50,7 +50,7 @@ Git operations route exclusively through gitflow — slash commands backed by sc
 
 | Command | Role |
 |---------|------|
-| `/work [#issue]` | Enter a worktree; optionally link issues (status → In Progress, assign, dump context for Claude). |
+| `/work [#issue]` | Start or resume the body-of-work branch; optionally link issues (status → In Progress, assign, dump context for Claude). |
 | `/checkpoint` | Fast WIP commit + push. |
 | `/commit` | Conventional commit (emoji + type), typecheck-gated, push. |
 | `/link #N` | Link additional issues mid-work. |
@@ -64,7 +64,7 @@ Design choices baked in:
 - **Changelog is local, not a CI action.** Claude composes it during `/deploy` from commit subjects since the last tag, applying editorial rules (filter `refactor`/`style`/`test`/`docs`/`chore`, rewrite internals as user-facing prose) that template tools (release-please) can't. Single-writer (`/deploy` only) eliminates duplicate-bullet bugs. No `ANTHROPIC_API_KEY` secret, no runner. HANDBOOK §6.4 / §11.5.
 - **Version bump is local, not auto-on-merge.** See §1.3 — auto-bump-on-merge is a NEVER-restore anti-pattern.
 - **PR title is the conventional-commit source.** Squash merge sets the squash commit = PR title; `commitlint` validates the **title only** (not branch commits — machine-generated PRs produce malformed branch commits with clean titles). The title drives the bump level. HANDBOOK §6.6 / §11.1.
-- **No persistent working branch.** After merge you're on `main`; next task gets a fresh descriptively-named branch. Worktree-per-session is the entry model; HANDBOOK §3.2.
+- **No persistent working branch.** After merge you're on `main`; next task gets a fresh descriptively-named branch. Branch-per-body-of-work is the entry model; HANDBOOK §3.2.
 
 ## 1.3 `/deploy` as a human-serialized release boundary
 

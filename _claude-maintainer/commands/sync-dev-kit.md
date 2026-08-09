@@ -74,7 +74,7 @@ If the list is empty, skip Step 1.5 entirely and proceed to Step 2.
    - Show the description's example/format hint and ask the user directly: "Value for <KEY>?"
    - **If the description contains a `Suggested default:` line with an embedded shell command** (typical: `PROJECT_ABBREV`):
      - Extract the command (it appears between backticks after `Suggested default:`).
-     - Run it via `Bash` from the consumer's project root (the cwd where `/sync-dev-kit` was invoked, since this command refuses from worktrees per §9.4.1).
+     - Run it via `Bash` from the consumer's project root (the cwd where `/sync-dev-kit` was invoked).
      - Show the computed default value to the user and offer it as the prefill: "Suggested default: `<value>`. Accept with enter, or provide your own (e.g. a shorter abbrev)."
      - On accept-with-enter → write the suggested value. On user-provided value → write that. On "disable" / "skip" → fall through to the standard resolutions below.
 5. **Resolutions:**
@@ -92,53 +92,6 @@ If the list is empty, skip Step 1.5 entirely and proceed to Step 2.
 - Discovery command fails (insufficient `gh` scope, network down, project doesn't exist): surface the failure, ask user to either provide the value directly or defer.
 - User provides a value that has shell-special characters (`&`, `\`, `/`, etc.): the substitution engine handles escaping (see `apply_substitutions` in the script). Don't pre-escape.
 - `_intentionally_empty` already contains the key but user wants to populate now: remove from the list AND set the value in the same `jq` pass.
-
-### Step 1.6: postCreate auto-suggest
-
-After the substitutions walkthrough (§1.5) and BEFORE the per-file diff loop, check whether the consumer's `.claude/settings.json` has an empty `worktree.postCreate` array. If so, detect the consumer's package manager from lockfiles in the project root and offer a suggested default.
-
-**Read current value:**
-
-```bash
-jq '.worktree.postCreate // []' .claude/settings.json
-```
-
-**Skip the prompt entirely if any of:**
-
-- The array is non-empty (user already configured it).
-- The settings file is missing or malformed.
-- The project has no `package.json`, `Gemfile`, `pyproject.toml`, or `requirements.txt` at root (not a typical worktree-install scenario).
-
-**Detection (first match wins, highest specificity first):**
-
-| Lockfile / marker at project root | Suggested command |
-|---|---|
-| `pnpm-lock.yaml` | `pnpm install` |
-| `yarn.lock` | `yarn` |
-| `bun.lockb` | `bun install` |
-| `package-lock.json` | `npm ci` |
-| `package.json` with no lockfile | `npm install` (bootstrap — no lockfile to install from yet) |
-| `Gemfile.lock` OR `Gemfile` | `bundle install` |
-| `uv.lock` | `uv sync` |
-| `poetry.lock` | `poetry install` |
-| `requirements.txt` (without uv.lock or poetry.lock) | `pip install -r requirements.txt` |
-
-**Prompt the user:**
-
-> "`worktree.postCreate` is empty. Detected `<lockfile>` → suggest running `<command>` after each `/work` creates a new worktree. This ensures each worktree gets its own real `node_modules` (or equivalent) — required for vite/TanStack Start compatibility, see HANDBOOK §3 / TanStack Router #6588. Accept (`[command]`), provide your own command, or skip (leave empty)?"
-
-**Resolutions:**
-
-- User accepts → write the suggestion: `jq --arg c "<command>" '.worktree.postCreate = [$c]' .claude/settings.json > /tmp/settings.json && mv /tmp/settings.json .claude/settings.json`. Inform that the next `/work` will run this command in the new worktree dir.
-- User provides their own command → same write, with their value.
-- User wants multiple commands → accept comma-separated input, parse to array, write.
-- User says "skip" / "later" / "I'll handle it manually" → leave empty; the walkthrough re-prompts on next sync. No `_intentionally_empty` equivalent for settings keys — keep it simple, re-prompt is cheap.
-
-**Edge cases:**
-
-- Multiple package managers detected (e.g., `package-lock.json` AND `Gemfile`): use the table's specificity order, surface the secondary one in the prompt as a note ("also detected Gemfile — add `bundle install` separately if needed").
-- Consumer overrides via custom (non-table) command: write verbatim; no validation. Trust the user.
-- The walkthrough does NOT auto-run the postCreate command — that fires on the next `/work` invocation via `work.sh:run_post_create()`.
 
 ### Step 2: Interpret states
 
@@ -183,19 +136,13 @@ Offer three outcomes on a template-drift, in this order: **keep ours** (ack), **
 
 The lockfile tolerates both schemas: a legacy bare-string value means `owned`. Entries are upgraded to `{sha, mode}` as each file is applied; there is no migration step.
 
-### Step 2.1: settings.json reconciliation (silent, handled by the script)
+### Step 2.1: settings.json canonicalization (silent, handled by the script)
 
-`.claude/settings.json` uses 3-way comparison like every other file with ONE silent overlay: `worktree.postCreate`. The kit ships `postCreate: []` as the empty default; the consumer's populated value (typically set via §1.6 walkthrough) is operational config the kit must NEVER overwrite.
+`.claude/settings.json` uses 3-way comparison like every other file, with one wrinkle: both sides are compared as jq-canonicalized JSON rather than raw bytes, so a reordered key or reindented block does not surface as a diff on content that is semantically identical.
 
-The reconciler lives in `sync-dev-kit.sh` (`overlay_settings_project_owned` + `sha256_settings_kit` + `sha256_settings_proj`). Behavior:
+The helpers live in `sync-dev-kit.sh` (`canonicalize_settings` + `sha256_settings_kit` + `sha256_settings_proj`). Every field — hooks, permissions, env — flows through normal 3-way state; the kit owns them all. The lockfile baseline SHA tracks the canonicalized content, matching subsequent scans.
 
-- Before scan-time SHA comparison, kit's settings.json content has the project's populated `worktree.postCreate` spliced in. Both kit and project SHAs are computed against jq-canonicalized JSON so whitespace / key-order differences don't surface either.
-- Result: project has `postCreate: ["npm ci"]` + kit has `postCreate: []` + nothing else differs → state evaluates `clean` (or `clean-converged` first time after this logic ships) → silent skip. The file is NOT presented in Step 3.
-- Result: any OTHER field differs (hooks, permissions, env, symlinkDirectories, symlinkPaths) → normal 3-way state still surfaces. Reconciler only suppresses the postCreate axis.
-- Apply path (`--apply-file _claude-project/settings.json`) uses the same overlay so an accepted apply preserves the project's populated postCreate.
-- Lockfile baseline SHA for settings.json tracks the canonicalized + overlaid content — matching subsequent scans.
-
-You (Claude) don't need to invoke anything special — the script handles it. If you ever see settings.json show up as `kit-only` because the kit ships an empty postCreate default, that's a bug in the reconciler. See HANDBOOK §9.6 (policy) + §9.9 (the §1.6 walkthrough that populates the value).
+You (Claude) don't need to invoke anything special — the script handles it. See HANDBOOK §9.6.
 
 ### Step 3: Present each non-clean file
 
@@ -278,14 +225,11 @@ Summarize:
 - **Kit repo not clean**: report warn, proceed if user insists
 - **Kit behind remote**: refuse to proceed; user must `git pull` in kit first (their baseline would diverge otherwise)
 - **Running from inside the kit repo**: script refuses with exit code 4; surface message
-- **Running from inside a worktree**: script refuses with exit code 4; sync must run from primary. Surface the primary path and tell user to `cd` there. See HANDBOOK §9 for the bootstrap-problem rationale.
-- **Primary not on `main`**: script refuses with exit code 4. Sync runs only on `main` (the kit model keeps primary on a clean main). Tell the user to switch to `main` and re-run.
-- **Any worktree open**: script refuses with exit code 4. Sync requires a clean slate — no open worktrees — regardless of whether a worktree touches kit files. A sibling worktree can be carrying kit files on a feature branch; syncing into main while that work is in flight double-applies and races the merge. Tell the user to merge or discard all worktrees first, then re-run.
+- **Mid-feature sync**: expected and supported. Sync runs on whatever branch you are on, so a rule fixed mid-session is live in context for the rest of it. The applied changes ride the same commit as the rest of the body of work, which is the house model (rules/git.md), not something to avoid.
 - **Script missing (`~/.claude/dev-kit-config.json` not found)**: surface install-kit handbook steps
 
 ## What this command does NOT do
 
-- Does not run from a worktree — must be invoked from primary repo root, on `main`, with no worktrees open.
 - Does not push the kit itself — user handles kit repo separately.
 - Does not edit files in the kit — purely a pull-from-kit operation. Kit-shared changes are made in the kit source and arrive here on the next sync.
 - **Does not commit or push anything.** Sync applies kit updates to the working tree and stamps the lockfile; the user lands the result with `/ship-main` (or `/commit`). This keeps committing as gitflow's job and avoids the bootstrap problem of sync modifying the very commands that would commit it — sync now runs zero git operations.

@@ -4,9 +4,9 @@ Stage a dev server in a new iTerm tab. Part of the dev-server subsystem. The can
 
 ## The model
 
-Two problems Agents-view + worktrees created that the old "cmd-t + `cd` + `npm run dev`" flow can't solve:
+Two problems the Agents-view flow created that the old "cmd-t + `cd` + `npm run dev`" flow can't solve:
 
-1. **iTerm cmd-t lands in `~/projects`, not the worktree.** Agents view spawns the host shell from `~/projects` with no project context. `EnterWorktree` changes only Claude's tool-process cwd — iTerm's parent shell never learns about the worktree.
+1. **iTerm cmd-t lands in `~/projects`, not the project.** Agents view spawns the host shell from `~/projects` with no project context, so every new tab needs a manual `cd`.
 2. **Silent vite port-bump.** Vite's default on port collision is to bump to the next free port (`:3002`, `:3003`) without erroring. Browser-testing `localhost:3001` then tests the wrong project's server.
 
 `/dev` solves both via `osascript`-spawned iTerm tab with explicit `cd` + `lsof` pre-check + structured port-step-by-10 on collision.
@@ -16,10 +16,9 @@ Two problems Agents-view + worktrees created that the old "cmd-t + `cd` + `npm r
 | Input | What happens |
 |-------|--------------|
 | `/dev` | List all `dev*` scripts from the resolved project's `package.json`. Await user choice. |
-| `/dev <app>` | Stage `npm run dev:<app>` in the current worktree, on the detected port (auto-bumped +10 on collision). |
+| `/dev <app>` | Stage `npm run dev:<app>` in the project root, on the detected port (auto-bumped +10 on collision). |
 | `/dev <app1> <app2>` | One iTerm tab per app. |
-| `/dev <app> --main` | Stage in the **primary** repo (always on `main`), not the worktree. For side-by-side comparison runs. |
-| `/dev <app> --tunnel` | Stage `npm run dev:tunnel:<app>` (cloudflared + vite together). Requires a `dev:tunnel:<app>` script. Mutually exclusive with `--main`. |
+| `/dev <app> --tunnel` | Stage `npm run dev:tunnel:<app>` (cloudflared + vite together). Requires a `dev:tunnel:<app>` script. |
 | `/dev --status` | List listening processes on `:3000-:3099` (pid, port, cwd, cmd). Never kills. |
 
 ## Procedure
@@ -27,10 +26,8 @@ Two problems Agents-view + worktrees created that the old "cmd-t + `cd` + `npm r
 ### Step 1: Parse arguments
 
 - App names (positional, zero or more).
-- `--main` flag → target primary instead of worktree.
-- `--tunnel` flag → swap script to `dev:tunnel:<app>` (cloudflared + vite). Mutually exclusive with `--main`.
+- `--tunnel` flag → swap script to `dev:tunnel:<app>` (cloudflared + vite).
 - `--status` flag → exit after surfacing the listener list.
-- Conflicting flags refused.
 
 ### Step 2: Invoke the script
 
@@ -62,14 +59,10 @@ The new iTerm tab:
 
 - Opens in the current iTerm window (not a new window).
 - Runs `cd '<target_dir>'`.
-- Sets the tab title via OSC 0 escape (`printf '\e]0;<title>\a'`) to `<app> @ <worktree-name> (:<port>)`. Set AFTER cd so zsh's chpwd-hook title update doesn't overwrite it.
+- Sets the tab title via OSC 0 escape (`printf '\e]0;<title>\a'`) to `<app> @ <project-name> (:<port>)`. Set AFTER cd so zsh's chpwd-hook title update doesn't overwrite it.
 - Runs `npm run dev:<app> -- --port <N>`. The server starts immediately; ctrl-C the tab when done.
 
-`<target_dir>` is:
-- The detected worktree root in default mode.
-- The detected primary repo root with `--main`.
-
-`<worktree-name>` is the basename of `<target_dir>` — `current`, the compartment name, or the project name for `--main`.
+`<target_dir>` is the detected project root. `<project-name>` is its basename.
 
 ## Blocking conditions
 
@@ -87,9 +80,8 @@ The new iTerm tab:
 
 ## Edge cases
 
-- **Two Claude sessions, same worktree, both `/dev shop`.** First wins `:3001`, second auto-bumps to `:3011`. Independent tabs.
-- **`/dev shop --main` while worktree shop is on `:3001`.** Primary takes `:3011` (auto-bumped). Or stop worktree first, then re-run for primary on `:3001`.
-- **`/merge` tears down the worktree but the dev tab is still running.** Vite throws on the next file-watch event against the gone path. The user sees it, ctrl-C's that tab. Acceptable — better than auto-killing across sessions.
+- **Two Claude sessions, same project, both `/dev shop`.** First wins `:3001`, second auto-bumps to `:3011`. Independent tabs.
+- **`/merge` lands the checkout back on `main` while the dev tab is still running.** Vite picks up the branch switch as a file change and rebuilds; the tab keeps serving, now from `main`. Restart it if you want the old branch back.
 - **Non-vite dev servers (Next.js, Astro, …).** Work as long as the `dev:<app>` script exists in `package.json` and the dev framework respects `-- --port <N>` after `npm run`. Port detection won't find anything in `vite.config.ts` and falls back to `3000`; user can override or add `apps/<app>/vite.config.ts` with the port to make detection work. Future enhancement: project-level `.claude/dev-server.json` map.
 
 ## Related

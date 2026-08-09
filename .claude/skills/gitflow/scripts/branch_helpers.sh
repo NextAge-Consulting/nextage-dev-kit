@@ -15,37 +15,35 @@ is_wip_branch() {
 # get_project_abbrev — echoes a short project label for embedding in wip/ branch names.
 #
 # Resolution order:
-#   1. PROJECT_ABBREV from <primary>/.claude/sync-substitutions.json (jq, runtime-read).
-#   2. basename of the primary repo root (via `git rev-parse --git-common-dir`, then dirname).
+#   1. PROJECT_ABBREV from <repo-root>/.claude/sync-substitutions.json (jq, runtime-read).
+#   2. basename of the repo root (via `git rev-parse --git-common-dir`, then dirname).
 #   3. "proj" as a last-ditch fallback if no git context is available.
 #
 # Output is sanitized to branch-name-safe chars (lowercase, [a-z0-9._-]).
 #
-# Why primary not worktree: worktree basenames are "current" or compartment names —
-# would lose project identity. git-common-dir from inside a worktree points to the
-# primary's .git directory, whose parent is the primary repo root.
+# Resolved from the repo root rather than cwd, so the abbrev is stable no matter
+# which subdirectory the command was invoked from.
 get_project_abbrev() {
-    local primary abbrev common_dir
+    local repo_root abbrev common_dir
 
-    # Resolve primary repo root. From a worktree, --git-common-dir points at
-    # <primary>/.git; from the primary itself, it points at .git in cwd.
-    # `dirname` of either gives the primary root.
+    # Resolve the repo root. --git-common-dir points at <root>/.git; `dirname`
+    # gives the root itself.
     if common_dir=$(git rev-parse --git-common-dir 2>/dev/null); then
         # --git-common-dir can return a relative path; resolve to absolute.
         if [ "${common_dir:0:1}" != "/" ]; then
             common_dir="$(cd "$common_dir" 2>/dev/null && pwd)"
         fi
-        primary="$(dirname "$common_dir")"
+        repo_root="$(dirname "$common_dir")"
     fi
 
     abbrev=""
-    if [ -n "$primary" ] && [ -f "$primary/.claude/sync-substitutions.json" ] && command -v jq >/dev/null 2>&1; then
-        abbrev=$(jq -r '.PROJECT_ABBREV // ""' "$primary/.claude/sync-substitutions.json" 2>/dev/null)
+    if [ -n "$repo_root" ] && [ -f "$repo_root/.claude/sync-substitutions.json" ] && command -v jq >/dev/null 2>&1; then
+        abbrev=$(jq -r '.PROJECT_ABBREV // ""' "$repo_root/.claude/sync-substitutions.json" 2>/dev/null)
     fi
 
     if [ -z "$abbrev" ]; then
-        if [ -n "$primary" ]; then
-            abbrev=$(basename "$primary")
+        if [ -n "$repo_root" ]; then
+            abbrev=$(basename "$repo_root")
         else
             abbrev="proj"
         fi
@@ -164,11 +162,11 @@ rename_current_branch() {
     # ALWAYS clear upstream tracking after rename — regardless of whether the
     # old branch existed on remote. Rationale: `git branch -m` preserves the
     # old branch's upstream config (branch.<new>.remote, branch.<new>.merge),
-    # which often points at a name unrelated to the renamed branch. For
-    # branches created by `/work --new` via `git worktree add -b … origin/main`,
-    # upstream is set to origin/main; without clearing here, the caller's
-    # subsequent `git push` fails under push.default=simple because the
-    # upstream name (main) does not match the local name (the new name).
+    # which often points at a name unrelated to the renamed branch — a branch
+    # cut from origin/main can inherit origin/main as its upstream. Without
+    # clearing here, the caller's subsequent `git push` fails under
+    # push.default=simple because the upstream name (main) does not match the
+    # local name (the new name).
     # Suppression rationale (Constitution §XIII): --unset-upstream exits
     # non-zero when there is no upstream to remove; that is the expected
     # state for some renames, not an error.
@@ -197,11 +195,11 @@ create_and_switch() {
 # default) requires the branch's upstream name to match the local branch name.
 # Several flows in this repo can leave a branch with the WRONG upstream:
 #
-#   - `git worktree add -b <new> <path> origin/main` (used by /work) sets
-#     <new>'s upstream to origin/main. `push.default=simple` then refuses
-#     plain `git push` because "main" != "<new>". The fix at the worktree-add
-#     site is to pass `--no-track`; this function is the belt-and-suspenders
-#     so any branch with leftover bogus tracking still pushes correctly.
+#   - A branch created from `origin/main` can inherit origin/main as its
+#     upstream (branch.autoSetupMerge). `push.default=simple` then refuses
+#     plain `git push` because "main" != "<new>". This function is the
+#     belt-and-suspenders so any branch with leftover bogus tracking still
+#     pushes correctly.
 #
 #   - `git branch -m <old> <new>` carries forward <old>'s upstream config
 #     under the new branch name. `rename_current_branch` above explicitly
@@ -227,7 +225,7 @@ safe_push() {
         git push "$@"
     else
         # No upstream OR upstream points elsewhere (e.g. origin/main from
-        # `git worktree add -b … origin/main`). Set/correct tracking and push.
+        # inherited from the start-point). Set/correct tracking and push.
         git push -u origin "$local_branch" "$@"
     fi
 }
@@ -235,20 +233,18 @@ safe_push() {
 # fast_forward_local_main — refresh local main from origin/main (fail-loud).
 #
 # Used in two places:
-#   1. /catchup invoked from the primary repo on main (no current/ in flight, or
-#      user is just reviewing) — updates local main without touching any
-#      feature work.
-#   2. /work creating a NEW current/ worktree — ensures the worktree is
+#   1. /catchup invoked while standing on main (no body of work in flight, or
+#      the user is just reviewing) — updates local main.
+#   2. /work cutting a NEW body-of-work branch — ensures the branch is
 #      branched off freshly-pulled main, not a stale local copy.
 #
-# Caller MUST cd to the primary repo before invoking. main can only be
-# checked out in the primary (additional worktrees on main are blocked by
-# git itself).
+# Caller MUST be standing on main when invoking — this fast-forwards the
+# checked-out branch.
 #
 # Failure semantics (fail-loud):
 #   - Not on main/master → exit 3, instruct caller
-#   - Working tree dirty → exit 5, refuse (main should never be dirty under
-#     gitflow's model — primary is reserved for git substrate)
+#   - Working tree dirty → exit 5, refuse (a fast-forward would either fail or
+#     silently strand the edits; /work handles the dirty case separately)
 #   - `git fetch origin main` fails → exit 6 (network / auth / scope)
 #   - Local main has diverged from origin/main (local-only commits) → exit 7
 #     with diff summary; this is anomalous under gitflow (Claude doesn't
@@ -271,7 +267,7 @@ fast_forward_local_main() {
        || ! git diff --cached --quiet 2>/dev/null \
        || [ -n "$(git ls-files --others --exclude-standard 2>/dev/null)" ]; then
         echo "fast_forward_local_main: working tree on $branch has uncommitted or untracked changes." >&2
-        echo "  Main is reserved for git substrate under gitflow — work happens in .claude/worktrees/." >&2
+        echo "  Commit, checkpoint, or stash them before refreshing main." >&2
         echo "  Inspect with 'git status' and resolve before re-running." >&2
         return 5
     fi

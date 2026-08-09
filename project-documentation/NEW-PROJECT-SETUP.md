@@ -153,7 +153,7 @@ The one hard requirement: **`main` must not require a PR.** A fresh repo has req
 
 ### 4 — Run `/sync-dev-kit` `[claude+you]`
 
-From the **project root** (not a worktree, not inside the kit), run `/sync-dev-kit`. First-run flow:
+From the **project root** (not inside the kit), run `/sync-dev-kit`. First-run flow:
 
 1. **Scan** — compares kit templates against the (empty) project; bootstraps `.claude/sync-substitutions.json`.
 2. **Substitutions walkthrough (Step 1.5)** — Claude walks you through each empty placeholder, one at a time. The ones you'll almost always set:
@@ -165,9 +165,8 @@ From the **project root** (not a worktree, not inside the kit), run `/sync-dev-k
    - `DEPLOY_WORKFLOWS` — space-separated deploy workflow filenames; leave empty to default to `deploy.yml`.
 
    > Three states per key (HANDBOOK §9.7): **missing** = undecided, marker survives, re-nags every sync; **empty string** = intentionally disabled; **populated** = normal value. `_intentionally_empty` distinguishes "informed disable" from "deferred."
-3. **postCreate auto-suggest (Step 1.6)** — Claude detects your package manager and offers a `worktree.postCreate` command (e.g. `npm install`) so each `/work` worktree gets real `node_modules`.
-4. **Per-file review (Steps 2–5)** — accept the kit files (`.claude/`, `.github/workflows/`, `.gemini/`, `.mcp.json`, `.commitlintrc.json`, `biome.json`, `.semgrepignore`) and the `.gitignore` additions.
-5. **Finalize (Step 6)** — stamps the lockfile. Sync does **not** commit or push; the synced files are left uncommitted in the working tree. Land them with `/ship-main` (commits + pushes straight to `main`).
+3. **Per-file review (Steps 2–5)** — accept the kit files (`.claude/`, `.github/workflows/`, `.gemini/`, `.mcp.json`, `.commitlintrc.json`, `biome.json`, `.semgrepignore`) and the `.gitignore` additions.
+4. **Finalize (Step 6)** — stamps the lockfile. Sync does **not** commit or push; the synced files are left uncommitted in the working tree. Land them with `/ship-main` (commits + pushes straight to `main`).
 
 **Verify:**
 
@@ -337,7 +336,7 @@ Re-run each section's **Verify** block above, top to bottom, and read the output
 /work <issue#>     # or bare /work to start a feature branch with no issue
 ```
 
-`/work` fast-forwards local `main`, creates/enters the `current/` worktree on a fresh feature branch, links the issue (board → In Progress if configured), runs your `postCreate`, and reads the issue so Claude can propose an approach. From here the normal loop is live: `/commit` → `/open-pr` → `/triage` → `/merge` → `/deploy`. See `GITFLOW-CHEATSHEET.md`.
+`/work` fast-forwards local `main`, cuts a fresh feature branch, links the issue (board → In Progress if configured), and reads the issue so Claude can propose an approach. From here the normal loop is live: `/commit` → `/open-pr` → `/triage` → `/merge` → `/deploy`. See `GITFLOW-CHEATSHEET.md`.
 
 ---
 

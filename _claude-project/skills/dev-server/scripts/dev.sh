@@ -3,8 +3,7 @@
 #
 # Usage:
 #   dev.sh                       List available dev* scripts at the resolved project root
-#   dev.sh <app> [<app>...]      Stage dev server(s) in iTerm tabs in the current worktree
-#   dev.sh <app> --main          Stage in PRIMARY repo (main), not the worktree
+#   dev.sh <app> [<app>...]      Stage dev server(s) in iTerm tabs at the project root
 #   dev.sh --status              List listening processes on :3000-:3099 (pid, port, cwd, cmd)
 #
 # Behavior:
@@ -13,7 +12,7 @@
 #     (or root vite.config.ts for flat layouts). Falls back to 3000.
 #   - lsof check: if port free, uses it; if occupied, steps +10. Caps at 3 hops.
 #   - Opens a new iTerm tab via osascript, cd's into the target dir, runs the
-#     dev command. Tab title = "<app> @ <worktree-name> (:<port>)".
+#     dev command. Tab title = "<app> @ <project-name> (:<port>)".
 #
 # Output:
 #   For each staged app, prints "launched: <title>" + path + cmd.
@@ -33,8 +32,7 @@ usage() {
   cat <<EOF
 Usage:
   dev.sh                       List available dev scripts
-  dev.sh <app> [<app>...]      Stage dev server(s) in iTerm tabs in current worktree
-  dev.sh <app> --main          Stage in PRIMARY repo (main branch), not worktree
+  dev.sh <app> [<app>...]      Stage dev server(s) in iTerm tabs at the project root
   dev.sh <app> --tunnel        Stage with Cloudflare tunnel (npm run dev:tunnel:<app>)
   dev.sh --status              List running dev servers (pid, port, cwd)
 EOF
@@ -50,15 +48,6 @@ find_project_root() {
     dir="$(dirname "$dir")"
   done
   return 1
-}
-
-find_primary() {
-  local cwd="$1"
-  if [[ "$cwd" == */.claude/worktrees/* ]]; then
-    echo "${cwd%%/.claude/worktrees/*}"
-    return 0
-  fi
-  echo "$cwd"
 }
 
 detect_port() {
@@ -238,7 +227,6 @@ APPLESCRIPT
 
 # === MAIN ===
 
-main_mode=""
 status_mode=""
 tunnel_mode=""
 apps=()
@@ -246,7 +234,6 @@ apps=()
 while [ $# -gt 0 ]; do
   case "$1" in
     -h|--help) usage; exit 0 ;;
-    --main) main_mode=1 ;;
     --status) status_mode=1 ;;
     --tunnel) tunnel_mode=1 ;;
     --*) echo "unknown flag: $1" >&2; usage; exit 2 ;;
@@ -255,38 +242,28 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-if [ -n "$tunnel_mode" ] && [ -n "$main_mode" ]; then
-  echo "--tunnel and --main are not compatible (tunnel ingress targets worktree ports)" >&2
-  exit 2
-fi
-
 if [ -n "$status_mode" ]; then
   cmd_status
   exit 0
 fi
 
 cwd="$PWD"
-if ! worktree_root="$(find_project_root "$cwd")"; then
+if ! project_root="$(find_project_root "$cwd")"; then
   echo "no package.json found walking up from $cwd" >&2
   exit 3
 fi
-
-if [ -n "$main_mode" ]; then
-  target_dir="$(find_primary "$worktree_root")"
-else
-  target_dir="$worktree_root"
-fi
+target_dir="$project_root"
 
 if [ ${#apps[@]} -eq 0 ]; then
-  echo "Available dev scripts at $worktree_root:"
-  list_dev_scripts "$worktree_root" | sed 's/^/  /'
+  echo "Available dev scripts at $project_root:"
+  list_dev_scripts "$project_root" | sed 's/^/  /'
   echo ""
-  echo "Invoke: dev.sh <app> [<app>...] [--main]"
+  echo "Invoke: dev.sh <app> [<app>...]"
   exit 0
 fi
 
-if ! available_scripts="$(list_dev_scripts "$worktree_root")"; then
-  echo "failed to enumerate dev scripts in $worktree_root/package.json" >&2
+if ! available_scripts="$(list_dev_scripts "$project_root")"; then
+  echo "failed to enumerate dev scripts in $project_root/package.json" >&2
   exit 4
 fi
 for app in "${apps[@]}"; do
@@ -294,7 +271,7 @@ for app in "${apps[@]}"; do
   [ "$app" = "dev" ] && script_key="dev"
   [ -n "$tunnel_mode" ] && script_key="dev:tunnel:$app"
   if ! echo "$available_scripts" | grep -qx "$script_key"; then
-    echo "no script '$script_key' in $worktree_root/package.json" >&2
+    echo "no script '$script_key' in $project_root/package.json" >&2
     echo "available:" >&2
     echo "$available_scripts" | sed 's/^/  /' >&2
     exit 4
@@ -302,8 +279,8 @@ for app in "${apps[@]}"; do
 done
 
 for app in "${apps[@]}"; do
-  default_port="$(detect_port "$worktree_root" "$app")"
-  port_env="$(detect_port_env "$worktree_root" "$app")"
+  default_port="$(detect_port "$project_root" "$app")"
+  port_env="$(detect_port_env "$project_root" "$app")"
   if ! port="$(pick_port "$default_port")"; then
     echo "no free port found stepping +10 from :$default_port (3 hops); refusing" >&2
     echo "occupants:" >&2

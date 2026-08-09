@@ -7,7 +7,7 @@
 #   default     — typecheck, stage all, commit, push (the normal /commit flow)
 #   --push-only — skip typecheck/stage/commit; push current HEAD via safe_push.
 #                 Use when a prior /commit succeeded at commit but failed at push
-#                 (e.g. bogus upstream from pre-fix worktree creation, transient
+#                 (e.g. bogus upstream inherited from the start-point, transient
 #                 network failure). No-op if HEAD == @{u}.
 #
 # Responsibilities (default mode):
@@ -60,9 +60,9 @@ fi
 # ─── Mode: --push-only (retry push for an already-committed branch) ───────
 # This exists for the case where a prior /commit landed the commit locally
 # but the push step failed (typical cause: bogus upstream config from
-# pre-fix `git worktree add -b … origin/main` left branch.<name>.merge
-# pointing at refs/heads/main, then plain `git push` fails under
-# push.default=simple). safe_push corrects the upstream and pushes.
+# a branch cut from origin/main inherited branch.<name>.merge pointing at
+# refs/heads/main, then plain `git push` fails under push.default=simple).
+# safe_push corrects the upstream and pushes.
 if [ "$PUSH_ONLY" -eq 1 ]; then
     if [ -n "$MESSAGE" ] || [ "$SKIP_TYPECHECK" -eq 1 ]; then
         echo "commit.sh: --push-only is exclusive with --message / --skip-typecheck" >&2
@@ -74,7 +74,7 @@ if [ "$PUSH_ONLY" -eq 1 ]; then
         exit 3
     fi
     # Clean-tree check: no working / staged diff AND no untracked files
-    # (excluding .gitignore'd). Mirrors worktree_is_clean in work.sh for
+    # (excluding .gitignore'd). Mirrors tree_is_clean in work.sh for
     # consistency — untracked files often signal a half-finished resolution
     # that the user didn't realize was incomplete, and --push-only pushing
     # HEAD without them silently strands the work locally.
@@ -173,7 +173,7 @@ git commit --no-verify -m "$MESSAGE
 Co-Authored-By: $MODEL_NAME <noreply@anthropic.com>"
 
 # Push via safe_push — handles missing-upstream AND wrong-upstream (e.g.
-# origin/main leaked through from `git worktree add -b … origin/main`).
+# origin/main inherited from the branch's start-point).
 safe_push
 
 # Trigger Gemini re-review on the new HEAD ONLY when --review was passed.

@@ -206,7 +206,7 @@ Short version:
 
 | The developer says | What happens |
 |--------------------|--------------|
-| "start work on #23" | `/work #23` — enters a worktree, links the issue, assigns it, moves it to In Progress |
+| "start work on #23" | `/work #23` — cuts the branch, links the issue, assigns it, moves it to In Progress |
 | "also works on #25" (mid-branch) | `/link #25` — links additional issue to current branch |
 | "checkpoint" or "save progress" | `/checkpoint` — fast WIP commit + push |
 | "commit this" | `/commit` — full conventional commit with AI-generated message |

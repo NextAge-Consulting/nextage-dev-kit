@@ -6,13 +6,13 @@
 #
 # How it differs from /commit: default /commit on main AUTO-CREATES a feature
 # branch (the safety for accidental-on-main). /ship-main does the opposite ON
-# PURPOSE — it commits on main in the primary repo and pushes directly. You
-# only get here by explicitly asking ("ship to main", "infra commit",
+# PURPOSE — it commits on main and pushes directly. You only get here by
+# explicitly asking ("ship to main", "infra commit",
 # "emergency to main"); it is NEVER inferred from being on main.
 #
 # Guardrails:
-#   - Refuses unless on main/master (must be the primary repo on main; a feature
-#     worktree is on a branch, so it can't trip this by accident).
+#   - Refuses unless on main/master (a body of work in progress is on its own
+#     branch, so it can't trip this by accident).
 #   - Runs the same typecheck + biome lint as /commit (the assist worth keeping);
 #     --skip-typecheck for a true emergency.
 #   - Commits with a CONVENTIONAL message so the next /deploy classifies it for

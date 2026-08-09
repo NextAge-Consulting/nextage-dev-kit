@@ -3,23 +3,6 @@
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
-  "worktree": {
-    "_comment": "node_modules MUST NOT be symlinked across worktrees — TanStack Start and many vite plugins resolve plugin paths via realpath/import.meta.url, which breaks virtual modules when worktree node_modules links back to primary. See HANDBOOK §3 + TanStack Router #6588. Each worktree gets its own real install via postCreate.",
-    "symlinkDirectories": [
-      ".venv",
-      ".uv",
-      ".bin",
-      ".cache"
-    ],
-    "symlinkPaths": [
-      ".env",
-      ".env.local",
-      ".env.development",
-      ".env.development.local"
-    ],
-    "postCreate": [],
-    "bgIsolation": "none"
-  },
   "permissions": {
     "allow": [
       "Skill(gitflow)"

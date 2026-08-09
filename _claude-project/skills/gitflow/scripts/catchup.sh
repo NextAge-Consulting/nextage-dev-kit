@@ -6,7 +6,7 @@
 #      for review) — fetches origin/<base> and fast-forwards local main.
 #      Refuses if local main has diverged (has local-only commits).
 #
-#   2. On a feature branch (working in current/ or a compartment) — merges
+#   2. On a feature branch — merges
 #      origin/<base> INTO the feature branch via --no-ff so the integration
 #      is a visible merge commit.
 #
@@ -28,7 +28,7 @@
 #
 # Before this primitive existed, the only paths were (a) `git merge origin/main`
 # (forbidden direct git per .claude/rules/git.md), (b) `git rebase origin/main`
-# (same), or (c) close the PR and re-open from a fresh compartment off updated
+# (same), or (c) close the PR and re-open from a fresh branch off updated
 # main. (c) was the tonight-of-2026-05-12 workaround — works but wastes a PR
 # cycle. /catchup is the proper path.
 #
@@ -66,7 +66,7 @@
 #   - Requires MERGE_HEAD. Invokes `git merge --abort` to restore the tree
 #     to its pre-merge state. Useful when the conflict surface is too large
 #     to resolve sanely and the caller prefers re-doing the work in a fresh
-#     compartment off new main.
+#     branch off new main.
 #
 # Not responsibilities:
 #   - No rebase mode. /catchup is merge-based by design: preserves branch
@@ -157,13 +157,13 @@ fi
 
 CURRENT_BRANCH=$(git branch --show-current)
 if [ -z "$CURRENT_BRANCH" ]; then
-    echo "catchup.sh: current worktree is in detached HEAD state — refusing to catch up." >&2
+    echo "catchup.sh: detached HEAD — refusing to catch up." >&2
     exit 3
 fi
 
 # ─── Main-branch path: fast-forward local main from origin/main ────────────
-# On a protected branch (main / master): user is in the primary repo (no
-# current/ active, or they're just refreshing local code for review). Delegate
+# On a protected branch (main / master): no body of work in flight, or the user
+# is just refreshing local code for review. Delegate
 # to the shared helper; do NOT fall through to the feature-branch merge path
 # below (would be a circular merge of main into itself).
 if is_protected_branch "$CURRENT_BRANCH"; then
@@ -174,7 +174,7 @@ fi
 
 # ─── Feature-branch path: merge origin/<base> INTO current feature ─────────
 
-# Refuse on dirty tree. Same conditions as worktree_is_clean in work.sh:
+# Refuse on dirty tree. Same conditions as tree_is_clean in work.sh:
 # no uncommitted (working / staged) AND no untracked files (excluding
 # .gitignore'd). Rationale: `git merge` into a dirty tree forces the user
 # to disentangle states post-merge.

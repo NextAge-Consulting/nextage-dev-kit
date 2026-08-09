@@ -10,9 +10,9 @@ $ARGUMENTS
 |---|---|
 | Conscious infra / config / emergency change you want on main NOW | Real feature work |
 | You accept no PR, no CI, no review — main's history is the trail | You want branch → PR → CI → review → merge |
-| You're sitting on dirty `main` in the primary repo and want back to clean | Anything you'd normally worktree |
+| You're sitting on dirty `main` and want back to clean | Anything that deserves review |
 
-**This is never inferred.** Being on dirty `main` is often *accidental* (the worktree didn't kick in yet, or work started in primary). So a bare `/commit` on `main` still auto-branches — that's the safety. `/ship-main` is the opposite, on purpose, and only when you ask for it by name.
+**This is never inferred.** Being on dirty `main` is often *accidental* — you started editing before `/work`. So a bare `/commit` on `main` still auto-branches — that's the safety. `/ship-main` is the opposite, on purpose, and only when you ask for it by name.
 
 ## Procedure
 
@@ -31,7 +31,7 @@ Same rules as `/commit` — `<emoji> <type>(<scope>): <subject>`. **Conventional
 ```
 
 The script:
-- Refuses unless on `main`/`master` (you must be in the primary repo on main — a feature worktree is on a branch and can't trip it).
+- Refuses unless on `main`/`master` — a body of work in progress is on its own branch and cannot trip it.
 - Runs `check-types` + `biome lint` (the assist that stays). Pass `--skip-typecheck` ONLY for a true emergency where you knowingly accept the risk.
 - Stages all changes, commits directly on `main` with `--no-verify` (validation already ran).
 - Pushes straight to `main`. If `origin/main` advanced, it rebases the commit onto it and re-pushes; on conflict it stops and tells you to resolve + push.
