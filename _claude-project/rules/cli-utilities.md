@@ -64,3 +64,32 @@ therefore unknown, and do not fill the gap.
 - `AWS_PROFILE` empty but the project genuinely uses AWS → the resolution is the
   human running `aws login` for that account, not synthesizing a profile from
   whatever credentials are lying around.
+
+### `aws login` is interactive — never run it yourself
+
+It opens a browser and waits for a human to click through a console sign-in.
+Invoked from a tool call it blocks until it times out, having accomplished
+nothing. Hand the human `! aws login --profile <name>` and wait.
+
+### 400 Bad Request from `aws login` → sign into the console FIRST
+
+**Symptom.** The browser lands on
+`https://<region>.signin.aws.amazon.com/oauth?…&client_id=arn:aws:signin:::devtools/same-device&…`
+and shows a bare 400. The CLI is meanwhile waiting on its loopback callback
+(`127.0.0.1:<port>`), which never fires, so it hangs with no error for several
+minutes.
+
+**Cause.** The sign-in portal rejects that OAuth request when the browser's AWS
+session cookies are absent or stale. It is a cookie-state problem, not a
+credential, region, or profile problem — the region in the URL is normal, and
+the CLI-side token cache (`~/.aws/login/cache/`) is not involved because the 400
+happens before anything reaches it.
+
+**Fix.** Sign into the AWS console in the default browser, THEN run
+`aws login --profile <name>`. Signing out and clearing cookies for
+`signin.aws.amazon.com` also works; an incognito window does not reliably,
+because the flow wants an established session.
+
+Do not go hunting in `~/.aws/` for this one. Nothing there is wrong.
+
+Upstream: https://github.com/aws/aws-cli/issues/10186

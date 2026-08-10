@@ -71,5 +71,9 @@
         ]
       }
     ]
+  },
+  "worktree": {
+    "_comment": "Background sessions edit the checkout in place. `bgIsolation: none` turns OFF Claude Code's edit-time enforcement that would otherwise force a background session into a git worktree on its first edit \u2014 the enforcement gitflow no longer wants, since work happens on a branch in the checkout. This key is INDEPENDENT of whether worktrees exist: remove it and every background session is pushed back into one, whatever gitflow does.",
+    "bgIsolation": "none"
   }
 }
