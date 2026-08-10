@@ -106,7 +106,8 @@ For each file entry, the `state` field is one of:
 | `project-only` | Project changed, kit did not | Inform user of project customization; do NOT apply. If the change is kit-shared, make it in the kit and re-sync |
 | `conflict` | Both changed to different content from baseline | Three-way diff; compare `kit_sha`, `project_sha`, `baseline_sha`; recommend merge or pick |
 | `conflict-first` | First-ever sync; project and kit differ | Show both, ask user which direction |
-| `new-kit` | Kit has a new file not in project | Recommend apply |
+| `new-kit` | Kit has a new file not in project | Recommend apply. If the user does not want it, **decline it** (below) — never leave it unanswered |
+| `declined` | The project refused this file at its current content | Silent skip — do not list |
 | `removed-kit` | Kit deleted a file that still exists in project | Ask: delete from project or keep as project-owned? |
 | `project-deleted` | Baseline + kit still have file, but project deleted it | Ask: re-add from kit, or accept deletion? |
 | `template-drift` | Template file; kit and project both changed | The project OWNS this file. Show the kit's delta as information, recommend nothing. Never reconcile toward the kit. |
@@ -170,6 +171,20 @@ Apply? [y/n/skip/quit]
 ```
 
 Process files in batches of 5-10 at a time to avoid overwhelming the user. Let them stop anytime; lockfile preserves state per-file so they resume later.
+
+### Step 3.5: A `new-kit` the user does not want
+
+```bash
+~/.claude/scripts/sync-dev-kit.sh --decline-file <kit_path>
+```
+
+Records the kit's current content as a refusal WITHOUT creating the project file, so the entry reports `declined` and stops being listed.
+
+**"Skip" is not an answer here.** A skipped `new-kit` has no lockfile entry at all, so it is offered again on the next sync, and every sync after that — the user ends up declining the same two files forever and learns to scroll past the list. Offer three outcomes: **take it** (`--apply-file`), **decline it** (`--decline-file`), or **decide later** (genuinely skip, and say it will be asked again).
+
+**Do NOT use `--ack-file` for this.** Ack records a baseline for a file that does not exist locally, so the next scan reports `project-deleted` — one recurring nag traded for another. The script refuses `--decline-file` on a file the project HAS, for the mirror-image reason; that case is `--ack-file`.
+
+Declining is per kit VERSION. When the kit changes that file it is offered again, because refusing one version is not refusing everything the file might later become. Undo is just `--apply-file` — applying overwrites the entry and the refusal disappears with it.
 
 ### Step 4: Apply accepted changes
 

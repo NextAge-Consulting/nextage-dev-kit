@@ -4,6 +4,8 @@
 # Modes:
 #   --scan                  Output JSON report of state per file. Non-interactive.
 #   --apply-file <kit-rel>  Apply one kit file to project + update lockfile entry.
+#   --decline-file <kit-rel> Record that this project does NOT want the file. It stops
+#                           being offered until the KIT changes it again.
 #   --ack-file <kit-rel>    Record the kit's current content as the baseline WITHOUT
 #                           writing the project file — "seen it, keeping mine" for a
 #                           `template` file. Silences a declined `template-drift` until
@@ -26,6 +28,7 @@ while [[ $# -gt 0 ]]; do
         --scan)             MODE="scan"; shift 1 ;;
         --apply-file)       MODE="apply"; APPLY_FILE="$2"; shift 2 ;;
         --ack-file)         MODE="ack"; APPLY_FILE="$2"; shift 2 ;;
+        --decline-file)     MODE="decline"; APPLY_FILE="$2"; shift 2 ;;
         --apply-gitignore)  MODE="apply-gitignore"; shift 1 ;;
         --finalize)         MODE="finalize"; shift 1 ;;
         *) echo "sync-dev-kit.sh: unknown option: $1" >&2; exit 2 ;;
@@ -33,7 +36,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$MODE" ]; then
-    echo "sync-dev-kit.sh: mode required (--scan | --apply-file <path> | --ack-file <path> | --apply-gitignore | --finalize)" >&2
+    echo "sync-dev-kit.sh: mode required (--scan | --apply-file <path> | --ack-file <path> | --decline-file <path> | --apply-gitignore | --finalize)" >&2
     exit 2
 fi
 
@@ -471,6 +474,39 @@ load_baseline_sha() {
     ' "$LOCKFILE"
 }
 
+# Was this file declined, and at which kit content? Empty when it was not.
+#
+# A declined entry records the kit SHA at the moment of refusal, NOT a
+# project file — there is no project file, that is the point. It is what lets
+# `new-kit` be answered with "no" instead of being re-offered forever.
+load_declined_sha() {
+    local dest_rel="$1"
+    [ -f "$LOCKFILE" ] || { echo ""; return; }
+    jq -r --arg k "$dest_rel" '
+        (.files[$k] // "") | if type == "object" and (.declined // false)
+        then (.sha // "") else "" end
+    ' "$LOCKFILE"
+}
+
+# Record a refusal. Same shape as a normal entry plus `declined: true`, so a
+# later apply simply overwrites it and the refusal evaporates.
+update_lockfile_declined() {
+    local dest_rel="$1"
+    local kit_sha="$2"
+    local mode="${3:-owned}"
+
+    mkdir -p "$(dirname "$LOCKFILE")"
+    if [ ! -f "$LOCKFILE" ]; then
+        echo '{"kitRepo":"","lastSyncedCommit":"","lastSyncedAt":"","files":{}}' > "$LOCKFILE"
+    fi
+
+    local tmp
+    tmp=$(mktemp)
+    jq --arg k "$dest_rel" --arg v "$kit_sha" --arg m "$mode" \
+        '.files[$k] = {sha: $v, mode: $m, declined: true}' "$LOCKFILE" > "$tmp"
+    mv "$tmp" "$LOCKFILE"
+}
+
 update_lockfile_file() {
     local dest_rel="$1"
     local new_sha="$2"
@@ -556,7 +592,21 @@ if [ "$MODE" = "scan" ]; then
 
         [ -z "$kit_sha" ] && continue
 
-        if [ -z "$proj_sha" ] && [ -z "$baseline_sha" ]; then
+        declined_sha=$(load_declined_sha "$dest_rel")
+
+        # A declined file has no project copy BY DESIGN, so it must be
+        # resolved before the absent-file branches below — otherwise a
+        # refusal reads as a deletion and nags just as loudly as the offer
+        # it replaced. Declining is not permanent: when the kit changes the
+        # file, the recorded SHA no longer matches and it is offered again,
+        # which is the whole point of recording a SHA rather than a flag.
+        if [ -n "$declined_sha" ] && [ -z "$proj_sha" ]; then
+            if [ "$kit_sha" = "$declined_sha" ]; then
+                state="declined"
+            else
+                state="new-kit"
+            fi
+        elif [ -z "$proj_sha" ] && [ -z "$baseline_sha" ]; then
             state="new-kit"
         elif [ -z "$proj_sha" ] && [ -n "$baseline_sha" ]; then
             state="project-deleted"
@@ -751,6 +801,50 @@ if [ "$MODE" = "ack" ]; then
 
     update_lockfile_file "$dest_rel" "$ack_sha" "$(mode_for_kit_path "$APPLY_FILE")"
     echo "sync-dev-kit.sh: acknowledged $dest_rel ($ack_sha) — project file left untouched" >&2
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Mode: decline-file
+#
+# "This project does not want this file." Records the kit's current content as
+# a refusal WITHOUT creating the project file.
+#
+# Why this exists: `new-kit` had only two answers — take it, or be asked again
+# on every sync forever. `--ack-file` is not the answer either; it records a
+# baseline for a file that does not exist locally, so the next scan reports
+# `project-deleted` and trades one recurring nag for another.
+#
+# The refusal is per kit VERSION, not permanent. Change the file in the kit and
+# it is offered again — a consumer that said no to one thing has not said no to
+# everything that file might later become.
+#
+# Undo is just `--apply-file`: applying overwrites the entry and the refusal
+# disappears with it.
+# ---------------------------------------------------------------------------
+
+if [ "$MODE" = "decline" ]; then
+    [ -z "$APPLY_FILE" ] && { echo "sync-dev-kit.sh: --decline-file requires a kit-relative path" >&2; exit 2; }
+
+    load_substitutions
+
+    kit_full="${KIT_PATH}/${APPLY_FILE}"
+    dest_rel=$(dest_for_kit_path "$APPLY_FILE")
+    [ -z "$dest_rel" ] && { echo "sync-dev-kit.sh: no destination mapping for $APPLY_FILE" >&2; exit 4; }
+    [ ! -f "$kit_full" ] && { echo "sync-dev-kit.sh: $APPLY_FILE does not exist in the kit" >&2; exit 4; }
+
+    if [ -f "${PROJECT_PATH}/${dest_rel}" ]; then
+        echo "sync-dev-kit.sh: $dest_rel exists in the project — decline is for files you do NOT have. Use --ack-file to keep your version." >&2
+        exit 4
+    fi
+
+    # The same hash the scan computes for kit_sha, so the next scan can tell
+    # "still the file I refused" from "the kit changed it".
+    decline_sha=$(sha256_substituted "$kit_full")
+    [ -z "$decline_sha" ] && { echo "sync-dev-kit.sh: could not hash $APPLY_FILE" >&2; exit 5; }
+
+    update_lockfile_declined "$dest_rel" "$decline_sha" "$(mode_for_kit_path "$APPLY_FILE")"
+    echo "sync-dev-kit.sh: declined $dest_rel — not offered again until the kit changes it" >&2
     exit 0
 fi
 

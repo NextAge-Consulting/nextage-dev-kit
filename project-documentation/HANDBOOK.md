@@ -1300,6 +1300,8 @@ Per-app test infrastructure, shipped from `_claude-project/templates/testing/` a
 
 Acking an `owned` file would silence a real enforced update, so `--ack-file` is offered only for `template-drift`. The script deliberately does not enforce that; the guard lives in the `/sync-dev-kit` walkthrough where the user can see the choice.
 
+**A file the project does not want at all is `--decline-file`.** A consumer that has no copy sees `new-kit`, and "skip" is not an answer — a skipped `new-kit` leaves no lockfile entry, so it is offered again on every sync forever. Declining records the kit's current content as a refusal without creating the file, and the entry reports `declined` (silent). Ack is the wrong tool here and the script refuses it in both directions: ack on a file you do not have would report `project-deleted` next scan, and decline on a file you DO have is rejected with a pointer to ack. Like ack, a refusal is per kit VERSION — change the file in the kit and it is offered again — and `--apply-file` undoes it by overwriting the entry.
+
 **What's in the template dir:**
 
 | File | Purpose |
