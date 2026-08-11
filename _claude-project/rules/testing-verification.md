@@ -16,12 +16,12 @@ interactive).
 
 ## Autonomous sessions — the AI must self-verify
 
-- A session is autonomous when there's no human to hand off to: a cron /
-  scheduled run, OR the human has signaled they're stepping away and delegated
-  the work ("execute this plan, I'm out for the night, have it done when I get
-  back"). Then the AI MUST verify its own work — drive agent-browser and the
-  relevant e2e flows to completion. The interactive restriction does not apply;
-  there's no one to defer to.
+- **`autonomous-sessions.md` defines the mode**, and it is asserted by the human
+  or by an unattended launch — never inferred from silence or from the size of
+  the task. Do not decide it here.
+- In an autonomous session the AI MUST verify its own work — drive agent-browser
+  and the relevant e2e flows to completion. The interactive restriction above
+  does not apply; there is no one to defer to.
 
 ## Running the suite (Zero Tolerance)
 
