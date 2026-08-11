@@ -104,7 +104,7 @@ For each file entry, the `state` field is one of:
 | `clean-converged` | Both changed from baseline to the same content | Silent skip — establish new baseline |
 | `kit-only` | Kit changed, project did not | Recommend apply |
 | `project-only` | Project changed, kit did not | Inform user of project customization; do NOT apply. If the change is kit-shared, make it in the kit and re-sync |
-| `conflict` | Both changed to different content from baseline | Three-way diff; compare `kit_sha`, `project_sha`, `baseline_sha`; recommend merge or pick |
+| `conflict` | Both changed to different content from baseline | Three-way diff; compare `kit_sha`, `project_sha`, `baseline_sha`; recommend merge or pick. **Then ACK it** — a merged conflict that is not acked re-reports forever (Step 2.05) |
 | `conflict-first` | First-ever sync; project and kit differ | Show both, ask user which direction |
 | `new-kit` | Kit has a new file not in project | Recommend apply. If the user does not want it, **decline it** (below) — never leave it unanswered |
 | `declined` | The project refused this file at its current content | Silent skip — do not list |
@@ -133,7 +133,14 @@ This records the kit's current content as the new baseline WITHOUT touching the 
 
 Offer three outcomes on a template-drift, in this order: **keep ours** (ack), **take the kit's version** (`--apply-file`, overwrites), or **merge by hand** (the user edits, then ack). Never present it as a two-way apply/skip choice — "skip" without an ack is the option that quietly creates the recurring noise.
 
-`--ack-file` deliberately accepts any file, so do NOT offer it for an `owned` file: acking one silences a real enforced update. The guard lives here in the walkthrough, where the user can see what they are choosing, not in the script.
+**Acking an `owned` file — the test is whether the kit's current content has been INCORPORATED, not what mode the file is in.** `--ack-file` deliberately accepts any file. All it does is advance the baseline to what the kit ships today while leaving the project file untouched; it asserts *"this kit version has been seen, and our copy still differs on purpose."* Whether that assertion is true is the whole question.
+
+- **Forbidden — ack INSTEAD of applying.** The project never took the kit's change, and the ack makes the reminder disappear. That is a real enforced update, silenced. This is the failure the rule exists to prevent.
+- **Required — ack AFTER resolving an `owned` conflict by hand.** The kit's changes are now in the file, and what still differs is the project's own legitimate customization. Without the ack the identical conflict re-reports on **every** future sync forever, which is precisely the noise ack was built to stop — and the next genuine kit change to that file arrives buried in a signal the user has been trained to scroll past.
+
+So an `owned` conflict is a **two-step** resolution: merge (or apply), **then** ack. The forbidden move is acking on its own, never acking as the second step. Reading this as a blanket "never ack an `owned` file" turns every per-project customization into a permanent per-sync nag — the exact outcome this whole mechanism was designed to eliminate.
+
+The guard lives here in the walkthrough, where the user can see what they are choosing, not in the script.
 
 The lockfile tolerates both schemas: a legacy bare-string value means `owned`. Entries are upgraded to `{sha, mode}` as each file is applied; there is no migration step.
 

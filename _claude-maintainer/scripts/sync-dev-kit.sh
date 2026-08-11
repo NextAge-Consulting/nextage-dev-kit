@@ -774,10 +774,16 @@ fi
 # the kit changes again — at which point you are told once more, which is the
 # whole point.
 #
-# Deliberately NOT restricted to `template` files. Acking an `owned` file
-# would silence a real enforced update, so the caller (the /sync-dev-kit
-# walkthrough) offers it only for template-drift; the guard belongs there,
-# where the user can see what they are choosing.
+# Deliberately NOT restricted to `template` files, and that is not an
+# oversight to be corrected by a caller that refuses `owned` outright. What
+# makes an ack wrong is acking a kit change that was never INCORPORATED —
+# that silences a real enforced update. Acking an `owned` file AFTER
+# resolving its conflict by hand is correct and necessary: the kit's content
+# is in the file, only the project's own customization still differs, and
+# without the ack that identical conflict re-reports on every sync forever.
+# So `owned` conflicts resolve in two steps — merge, then ack — and the
+# guard belongs in the /sync-dev-kit walkthrough, where the user can see
+# which of the two situations they are in.
 # ---------------------------------------------------------------------------
 
 if [ "$MODE" = "ack" ]; then

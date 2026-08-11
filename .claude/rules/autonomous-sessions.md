@@ -4,9 +4,25 @@
 Other rules that change behaviour when nobody is watching point here rather than
 defining it again.
 
+## Autonomous is ONE TURN — that is the whole point
+
+**Autonomous mode is scoped to a single turn.** It begins when the human
+declares it and **ends when you hand back.** It is not a state that persists
+across the conversation, and the next turn is interactive again unless the human
+says otherwise.
+
+Its entire purpose is to **extend that one turn** until the work is finished —
+which is exactly why the rules below are what they are. Every stop ends the
+turn, and ending the turn ends the mode: a session that halts at twenty minutes
+to report progress has not paused an autonomous run, it has *finished* one,
+twenty minutes in, with the work undone.
+
+So there is nothing to "stay in" and nothing to switch off. Deliver the whole
+body of work, hand back, and you are interactive again by definition.
+
 ## The mode is ASSERTED, never inferred
 
-A session is **autonomous** only when one of these is true:
+A turn is **autonomous** only when one of these is true:
 
 - It was launched unattended — a cron / scheduled run.
 - The human said so **in this conversation**: handing over a body of work and
@@ -29,23 +45,26 @@ wrong is costly in both directions, which is why the default is the safe one:
 If it genuinely matters and the mode was never stated, ask once, early, and
 proceed interactively until answered.
 
-## Record the mode where it survives — context is not durable
+## Write the mode down — the turn outlives your context of it
 
 **The mode is almost always declared MID-conversation** — a design discussion
 that ends with "execute this, I'm out" — so there is no launch flag that could
-carry it, and nothing structural marks the session. It lives in context, and
-context is summarized. Forty turns later the sentence that set the mode may
-simply be gone, and the failure is silent and expensive: the session reverts to
-interactive and stops at the first thing it would otherwise have worked around.
+carry it, and nothing structural marks the turn. It lives in context, and a long
+turn gets summarized. The sentence that set the mode can simply be gone by the
+time the work is half done, and the failure is silent and expensive: you revert
+to interactive and stop at the first thing you would otherwise have worked
+around.
 
-So the moment a session is declared autonomous, **write it into the plan or task
-document the work runs off**, as a banner at the top: that it is autonomous, and
-the date. Then continue.
+So the moment a turn is declared autonomous, **write a line into the plan or
+task document the work runs off** — that it is autonomous, and the date — then
+continue. A file survives compaction and a context clear; a conversation does
+not.
 
-A file survives compaction and a context clear; a conversation does not. This
-costs one edit and removes the whole failure mode, because both shapes of
-handoff — clearing context then "execute this plan", or executing without
-clearing — read that document first.
+**Clearing that line is part of handing back.** The mode ended when the turn
+did, so a document still claiming to be autonomous is now false, and the next
+session to read it — exactly the one that lost the conversation — would suppress
+check-ins the human is waiting for. Flip it or delete it in the same pass as the
+final report.
 
 **If a plan document does not exist, that is the signal to write one.** A body of
 work big enough to hand off unattended is big enough to be written down, and the
@@ -66,8 +85,8 @@ is only what is specific to nobody being there.
 
 **There is no check-in.** Do not stop to say a phase is done, to confirm the
 approach is still right, to ask whether to continue, or to offer a choice you
-could make yourself. The human is not there. A session that halts at 20 minutes
-to announce progress has converted an eight-hour run into a twenty-minute one.
+could make yourself. The human is not there. A turn that halts at 20 minutes to
+announce progress has converted an eight-hour run into a twenty-minute one.
 
 Narration in passing is fine and often useful — a line about what just landed as
 you move to the next thing. **Narration that ends the turn is the failure.**
@@ -79,10 +98,11 @@ you move to the next thing. **Narration that ends the turn is the failure.**
 | "Before I proceed, confirming the approach…" | The approach was agreed at handoff. Proceed. |
 | Ending the turn on a question you could answer yourself | Answer it, note the assumption, keep working. |
 
-## A blocker stops THAT work — never the session
+## A blocker stops THAT work — never the turn
 
 **When something is genuinely blocked, set it down and pick up the next thing.**
-Then keep going. A blocker is a fact about one item, not a verdict on the run.
+Then keep going. A blocker is a fact about one item, not a verdict on the run —
+and stopping on it ends the turn, which ends the mode.
 
 1. Record the blocker: what is blocked, why, and precisely what you need.
 2. Move to the next item that does not depend on it.
@@ -106,7 +126,7 @@ cheaply.
 ## Verify your own work — there is nobody to hand it to
 
 `testing-verification.md` reserves testing for the human in interactive
-sessions. **Autonomous sessions invert that**, and that rule says so. Drive the
+sessions. **An autonomous turn inverts that**, and that rule says so. Drive the
 browser, run the flows, run the suite, and work through the failures. "Ready for
 testing" means you have already tested it and it works, not that it compiles.
 
@@ -125,9 +145,10 @@ One report, at the end, containing:
 - **Every blocker**, together, each with exactly what is needed to unblock it.
 - **Every assumption** taken in place of a decision, so any wrong one is a
   one-line correction rather than an archaeology exercise.
-- **Anything found and left unfixed** (constitution §XII), which in an
-  autonomous session should be close to nothing.
+- **Anything found and left unfixed** (constitution §XII), which after an
+  autonomous turn should be close to nothing.
 
 **Why this rule exists**: the failure mode is not laziness, it is misplaced
 diligence — stopping to confirm, to report, or to ask reads as conscientious and
-is the single most expensive thing an unattended session can do.
+is the single most expensive thing an unattended turn can do — because the stop
+IS the end of it.

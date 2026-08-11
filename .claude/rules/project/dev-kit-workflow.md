@@ -46,10 +46,12 @@ This proves the extensibility pattern: any project can add its own custom comman
 | Change to | Propagate to |
 |-----------|--------------|
 | `_claude-project/*` | Mirror to kit's `.claude/` so the kit itself uses the update **— UNLESS the item is in the "Not dogfooded by the kit" table below**, in which case it is template-only and must NOT be mirrored. Commit both surfaces when mirrored. |
-| `_claude-global/*` | Run `/install-kit` to push to `~/.claude/`. |
-| `_claude-maintainer/*` | Run `/install-kit --maintainer` to push to `~/.claude/`. |
+| `_claude-global/*` | Edit the kit source AND `~/.claude/` in the SAME pass, `diff` to prove byte-identical. |
+| `_claude-maintainer/*` | Edit the kit source AND `~/.claude/` in the SAME pass, `diff` to prove byte-identical. |
 | Kit-custom command in `.claude/commands/` (e.g., `install-kit.md`) | Lives only in kit's `.claude/`. Do not move to `_claude-project/`. Do not install globally. |
 | Kit's own rule tweak | If generic, copy to `_claude-project/rules/`. If kit-specific, leave in `.claude/rules/`. |
+
+**`/install-kit` is the bootstrap for a NEW machine, never the propagation step** — the same distinction as `/sync-dev-kit`, which is how consumer machines pull and never how the maintainer pushes. Re-running the installer to deliver an edit leaves the change half-applied until someone remembers to run it, and a machine running instructions the kit no longer holds is exactly the drift these surfaces exist to prevent.
 
 ## Kit dogfood manifest (single source of truth)
 
