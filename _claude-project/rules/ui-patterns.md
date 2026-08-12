@@ -36,9 +36,11 @@ list pattern and hand-rolled a submit control whose component was one import
 away.** Following a pointer is a separate act, chosen at the moment you already
 feel ready to write, which is exactly when it gets skipped.
 
-So every project maintains an inventory rule — conventionally
+So every project maintains an inventory rule at
 `rules/project/ui-inventory.md`, with the same `paths:` frontmatter as this file
-so it loads on the same edits — and it carries **content, not references**:
+so it loads on the same edits. The kit seeds it with a starting shape on first
+sync and the project owns every line from then on. It carries **content, not
+references**:
 
 - **The pattern index.** Every pattern the project has, one line each, and what
   it governs. Enough to pick the right one without opening anything, and enough

@@ -63,6 +63,7 @@ The kit dogfoods (mirrors into its own `.claude/`) only what it actually *uses*.
 | `commands/dev.md`, `skills/dev-server/**` | Kit has no dev server / runnable app. |
 | `skills/design-system/**`, `rules/ui-design.md`, `rules/a11y-baseline.md` | Kit has no UI — no JSX/TSX, no `design.md` (HANDBOOK §12a.7). |
 | `skills/ui-patterns/**`, `rules/ui-patterns.md` | Kit has no UI — nothing to compose and no interactions to pattern. |
+| `templates/ui-inventory.md` | Seed for a consumer's `rules/project/ui-inventory.md` — an enumeration of that project's own components and patterns. Kit has no UI, so there is nothing to enumerate. |
 | `skills/shadcn/**` | Kit has no `components.json` / shadcn install. |
 | `skills/mfing-bible-of-tanstack/**` | Kit has no TanStack code. |
 | `tanstack-manifest.json` | Kit-blessed TanStack versions + vendored-reference provenance. Kit has no `package.json` and no TanStack dependency, so there is nothing here to pin. Consumed by the (also template-only) `scripts/check-tanstack.mjs`. |

@@ -29,11 +29,12 @@ auto-loaded — this rule is. So the same failure applies here as to patterns: a
 component can exist, be specified, and still be hand-rolled, because nothing put
 its NAME in front of the person writing the screen.
 
-The project's UI inventory rule (`rules/project/ui-inventory.md`, path-targeted
-to the same globs as this file) therefore carries **the list of components that
-exist** — atoms, display components, app composites — one line each on what they
-are for. `design.md` keeps the spec; the inventory answers "does this already
-exist", which is the question actually being got wrong.
+The project's UI inventory rule (`rules/project/ui-inventory.md`, seeded by the
+kit and path-targeted to the same globs as this file) therefore carries **the
+list of components that exist** — atoms, display components, app composites —
+one line each on what they are for. `design.md` keeps the spec; the inventory
+answers "does this already exist", which is the question actually being got
+wrong.
 
 Adding a component means adding it to BOTH, in the same change as the component
 (`design-system` skill, reconciliation pass).

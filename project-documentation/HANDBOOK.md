@@ -1554,6 +1554,22 @@ Each dev's noise tolerance differs. This section maps every email GitHub sends o
 
 ---
 
+### 11.18. UI inventory rule (synced as `template` mode)
+
+**What it is.** A per-project rule at `.claude/rules/project/ui-inventory.md`, path-targeted to `{**/*.tsx,**/*.jsx}` so it auto-loads on every UI edit. It enumerates, as content rather than as references: the project's list/detail patterns and which to use when, every pattern reference file and what it governs, the components that already exist, and the standing prohibitions.
+
+**Why it is not just another pointer.** `rules/ui-patterns.md` and `rules/ui-design.md` already auto-load on the same globs, and both tell the reader to go and open a skill. Following a pointer is a separate act, taken at the moment you already feel ready to write — so it is the step that gets skipped, and a screen ships that reinvents a list pattern and hand-rolls a submit control whose component was one import away. The inventory carries the names themselves, in the forced read, which is what removes "I did not know it existed" as a possibility.
+
+**Why it ships from `templates/`.** `is_skipped` excludes `_claude-project/rules/project/*` from the scan entirely — that tree is the consumer's own, and the kit never compares against it. So a seed placed there would reach nobody. `_claude-project/templates/ui-inventory.md` plus an explicit `dest_for_kit_path` entry is what lets the kit put one file into a directory it otherwise never writes to.
+
+**Mode is `template`, and `owned` would be incoherent.** The file's content IS this project's inventory; a consumer that has not replaced every line has not adopted it. It arrives once as `new-kit`, the project rewrites it, and later kit changes to the shape surface as `template-drift` — informational, never reconciled. Keep-ours is the expected answer, followed by an ack (§11.13) so the same drift does not re-report every sync.
+
+**How it stays true.** Not by a note asking nicely — through the two skills that already gate on human sign-off. The `ui-patterns` skill's write-once step adds a pattern's line in the same pass that writes its reference; the `design-system` skill's reconciliation pass adds a component's line in the same pass that documents it in `design.md`. An inventory that lags is worse than none, because it is read as complete.
+
+**Kit does not dogfood it** — no UI here, nothing to enumerate. Listed in the dogfood manifest in `.claude/rules/project/dev-kit-workflow.md`.
+
+---
+
 ## 12. The dev-server subsystem
 
 Sibling to gitflow (§3). Owns one concern: launching dev servers in the correct directory with a deterministic port.

@@ -397,6 +397,16 @@ dest_for_kit_path() {
         _claude-project/templates/scripts/check-tanstack.mjs)
             echo "scripts/check-tanstack.mjs"
             ;;
+        _claude-project/templates/ui-inventory.md)
+            # Lands in the consumer's PROJECT-OWNED rules dir. It cannot ship
+            # from `_claude-project/rules/project/` — `is_skipped` skips that
+            # whole tree, by design, so nothing there ever reaches a consumer.
+            # Shipping it from templates/ with an explicit destination is what
+            # lets the kit seed one file into a directory it otherwise never
+            # touches. Mode `template`: every line of the content is the
+            # project's own inventory.
+            echo ".claude/rules/project/ui-inventory.md"
+            ;;
         _claude-project/templates/testing/vitest.config.ts)
             # Test scaffolding has no fixed home — it lands beside the shared
             # module, which every project names differently (apps/shared,
@@ -460,6 +470,11 @@ mode_for_kit_path() {
         # when adapted. Per-project deploy workflows are the other prospective
         # member; they are not synced at all yet.
         _claude-project/templates/testing/*) echo "template" ;;
+        # The UI inventory. `owned` is not even coherent here: the file's whole
+        # purpose is to enumerate THIS project's components and patterns, so a
+        # consumer that has not rewritten it entirely has not adopted it. The
+        # kit ships the shape; the content is the project's from first sync.
+        _claude-project/templates/ui-inventory.md) echo "template" ;;
         *) echo "owned" ;;
     esac
 }
