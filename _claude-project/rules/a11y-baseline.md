@@ -157,6 +157,57 @@ Radio groups, checkbox groups, and button-groups acting as a picker use
 stable id from the data. If the data has no unique id, build a composite
 key from unique fields (e.g., `` `${item.type}-${item.imageId}` ``).
 
+## Focus order is DOM order — never `tabIndex` to reorder
+
+**Tab order follows the DOM. When it feels wrong, the markup is wrong — move the
+element, don't renumber it.**
+
+The recurring case: a "Forgot password?" link placed in the password label row,
+which puts it BETWEEN the two credential fields in the tab sequence. Same shape
+for a "clear" link above a search box, or a helper link beside a field's label.
+
+**Decide the tab order first, then put the markup in that order and let the
+layout follow.** On a sign-in form the order people want is
+`email → password → submit → recovery`: the credentials and the action they feed
+are not interrupted, and the uncommon path comes last.
+
+```tsx
+// ❌ Link sits in the label row, so it is before the input in the DOM
+<div className="flex items-baseline justify-between">
+  <Label htmlFor="password">Password</Label>
+  <Link to="/forgot-password">Forgot password?</Link>
+</div>
+<Input id="password" type="password" />
+<Button type="submit">Sign in</Button>
+
+// ✅ Markup in the order it should be tabbed
+<Label htmlFor="password">Password</Label>
+<Input id="password" type="password" />
+<Button type="submit">Sign in</Button>
+<Link to="/forgot-password" className="self-center">Forgot password?</Link>
+```
+
+**Reach for CSS placement only when the visual position is genuinely
+non-negotiable** — a two-column grid can hold an element in a label row while it
+sits later in the DOM (`col-start-2 row-start-1` on the link, input spanning row
+2). Prefer moving it: an absolute offset that pins an element to a row it is not
+in shifts the moment a conditional error message renders above it.
+
+**Both shortcuts are worse than the problem:**
+
+- **`tabIndex={-1}` to skip it.** Removes the element from the keyboard path
+  entirely. On the canonical example that strips the recovery link from the one
+  user who cannot get past the password field.
+- **A positive `tabIndex`.** Creates a SECOND tab sequence that runs ahead of
+  every element on the page, so the first Tab from the address bar lands on
+  whatever carries `tabIndex={1}`. It also breaks silently the moment anyone
+  adds a field without renumbering. Treat any positive value as a defect —
+  Biome's `a11y/noPositiveTabindex` catches it.
+
+`tabIndex={0}` (put a non-interactive element in the natural order) and
+`tabIndex={-1}` (make something focusable only programmatically, e.g. a heading
+to move focus to after navigation) are both fine. It is *reordering* that is not.
+
 ## Never `autoFocus`
 
 `autoFocus` hijacks screen-reader focus on page load with no warning.
@@ -194,5 +245,6 @@ Biome rules enforcing this file's contents (all at `error` severity via
 - `a11y/useKeyWithClickEvents`
 - `a11y/noStaticElementInteractions`
 - `a11y/noAutofocus`
+- `a11y/noPositiveTabindex`
 - `suspicious/noArrayIndexKey`
 - `suspicious/noExplicitAny`

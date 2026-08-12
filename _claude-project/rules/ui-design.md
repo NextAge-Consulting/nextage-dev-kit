@@ -22,6 +22,22 @@ Anything else (server functions, tests, config, prose docs other than design.md)
 
 When the file being edited IS `design.md`, the skill's **Step 4 — Validate** is the critical concern: run `npm run lint:design` (the declared design.md spec linter) before declaring the change done. The skill instructs this; the rule's job is just to ensure the skill loads.
 
+## The atoms must be in the FORCED read, not just in `design.md`
+
+`design.md` is the authority for what the design system contains, and it is not
+auto-loaded — this rule is. So the same failure applies here as to patterns: a
+component can exist, be specified, and still be hand-rolled, because nothing put
+its NAME in front of the person writing the screen.
+
+The project's UI inventory rule (`rules/project/ui-inventory.md`, path-targeted
+to the same globs as this file) therefore carries **the list of components that
+exist** — atoms, display components, app composites — one line each on what they
+are for. `design.md` keeps the spec; the inventory answers "does this already
+exist", which is the question actually being got wrong.
+
+Adding a component means adding it to BOTH, in the same change as the component
+(`design-system` skill, reconciliation pass).
+
 ## Authority chain
 
 1. **Runtime source of truth**: the CSS `@theme` block (typically `src/styles.css` or `apps/shared/src/styles.css`) — what the browser actually sees.

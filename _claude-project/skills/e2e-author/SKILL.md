@@ -104,6 +104,34 @@ Per `.claude/rules/integrations/agent-browser.md` (the canonical source): fits a
 ### R6. OTP retrieval — from the DB/logs, never an inbox
 OTP flows read the code from the `authverification` table (or server logs), not IMAP. A my-app OTP signup creates a customer with `password = NULL` (passwordless) — that row is what a shop-OTP flow needs. Document the retrieval query in the flow's Preconditions.
 
+### R7. Clearing the session — `document.cookie` does NOT sign you out
+The session cookie is `httpOnly`, so JavaScript cannot see or delete it. The familiar
+loop is a no-op against auth:
+
+```bash
+# WRONG — clears nothing that matters; you stay signed in
+agent-browser eval 'document.cookie.split(";").forEach(c => { document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/"); })'
+```
+
+Use the browser-level clear, then PROVE it before relying on it — a flow that silently
+runs signed-in tests the wrong variant of the page (an anonymous `/register` renders the
+in-app form instead, and every "logged out" assertion after it is meaningless):
+
+```bash
+agent-browser eval 'localStorage.clear(); sessionStorage.clear()'
+agent-browser cookies clear
+agent-browser eval 'fetch("/api/auth/get-session",{credentials:"include"}).then(r=>r.json()).then(d=>JSON.stringify({hasUser:!!d?.user}))'
+# expect hasUser:false
+```
+
+The app's own sign-out (account menu → Log Off) works too and is closer to what a user does.
+
+**Localhost caveat — sessions bleed across ports.** Cookies are host-scoped, not
+port-scoped, so apps on `localhost:3001` and `localhost:3020` sharing an auth secret
+share a session: signing into one silently authenticates the other. A cross-app login
+flow MUST clear at the browser level between the two halves or it is not testing a login
+at all. (Production uses separate subdomains, so the bleed is dev-only.)
+
 ## Authoring procedure
 
 1. **Scope the flow.** Which app, port, route(s)? Auth or not? What's the single happy path a user walks? One flow = one coherent journey; split login vs dashboard vs checkout into separate files.

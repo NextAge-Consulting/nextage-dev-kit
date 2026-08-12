@@ -48,8 +48,10 @@ reloading. That is configured once on the QueryClient and inherited, never added
 per screen.
 
 **Auth is a line in the handler.** Every server function calls `requireSession()`
-first. We do not use `createMiddleware` for auth — see `server-functions.md` for
-the evidence, which is stronger than a style preference.
+first — a server function is an HTTP endpoint reachable without the route that
+renders it, so the route guard is navigation UX, not the boundary. We do not use
+`createMiddleware` for auth — see `server-functions.md` for the evidence, which is
+stronger than a style preference.
 
 **The URL is the browse's state.** Filters, page and size are search params, so a
 screen can be bookmarked, pasted and refreshed.
@@ -70,7 +72,7 @@ Next.js; do not bring those assumptions.
 |---|---|
 | Route loaders, loaderDeps, router+query wiring, guards, selective SSR, deferred data | `data-loading.md` |
 | Filters, paging and sort as URL state; the all-digits coercion trap | `search-params.md` |
-| `createServerFn`, validation, auth, what runs where, why not middleware | `server-functions.md` |
+| `createServerFn`, validation, auth, the session-helper factory, what runs where, why not middleware | `server-functions.md` |
 | queryOptions, cache keys, scoped invalidation, optimistic updates, dead-session handling | `queries-and-mutations.md` |
 | Browses on Table v9 — column defs, server paging, selection, column control | `browse-tables.md` |
 | Record forms on TanStack Form — validation, field arrays, server validation | `forms.md` |

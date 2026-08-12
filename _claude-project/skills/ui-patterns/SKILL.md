@@ -110,7 +110,13 @@ called it good. Two people, not one.** Until then there is a proposal, and a
 proposal does not go in `references/`.
 
 The order is: research → agree the approach → build → **human reviews and
-approves** → write the reference, once. Hold the research and the discarded
+approves** → write the reference, once — **and add its line to the project's UI
+inventory in the same pass.**
+
+That last step is not bookkeeping. The inventory is what loads automatically on
+every UI edit; a reference that exists but is not indexed there is invisible at
+the moment it is needed, which is the same as not existing. One line: the pattern
+and what it governs. Hold the research and the discarded
 options in the build's own code comments meanwhile; that is where they are useful
 during review anyway. **Say the reference is still owed** when you hand off for
 review, so it is not forgotten once the design is blessed.

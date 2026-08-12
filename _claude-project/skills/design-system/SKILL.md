@@ -94,7 +94,7 @@ If the lint fails for a reason that isn't your edit (pre-existing issue), surfac
 
 **Stateful atoms and computed tokens go in prose, not the YAML.** The `components:` YAML accepts only the spec's fixed property set (`backgroundColor`, `textColor`, `typography`, `rounded`, `padding`, `size`, `height`, `width`). Stateful atoms (tone maps, rings, variant escalation) and computed tokens don't fit those and will fail `lint:design` — describe them in `design.md` prose instead.
 
-**Don't run checks during pre-approval UI iteration.** While iterating on layout, don't run tsc / biome / screenshots / `lint:design` after each tweak — the human inspects live via HMR. Do the reconciliation pass (tokenize raw values, document new patterns in `design.md`) and run the checks once, after the design is approved.
+**Don't run checks during pre-approval UI iteration.** While iterating on layout, don't run tsc / biome / screenshots / `lint:design` after each tweak — the human inspects live via HMR. Do the reconciliation pass and run the checks once, after the design is approved. The reconciliation pass is: tokenize raw values, document new patterns in `design.md`, **and if the work produced a reusable component, add it to `design.md`'s component section AND to the project's UI inventory rule — in that same pass.** A component that exists but is listed nowhere that auto-loads is invisible at the moment someone needs it, which is how it gets hand-rolled a second time.
 
 ## The build-from gate (non-negotiable)
 
