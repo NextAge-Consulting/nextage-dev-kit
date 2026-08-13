@@ -2,10 +2,11 @@
 #
 # block-kit-edit.sh — PreToolUse guard (Edit, Write).
 #
-# Stops a CONSUMER machine's AI from modifying kit-synced files. The set of
-# kit-managed paths is the keys of `.files` in the committed
-# `.claude/.kit-sync.json` manifest — present on every consumer, no kit repo
-# needed.
+# Stops a CONSUMER machine's AI from modifying kit-OWNED files. The set is read
+# from the committed `.claude/.kit-sync.json` manifest — present on every
+# consumer, no kit repo needed — and it is the `mode` on each entry that
+# decides, never the presence of the key: `owned` is guarded, `template` is the
+# project's own file and passes through. See the mode table below.
 #
 # The kit MAINTAINER is exempt: if `~/.claude/kitmaster` exists the hook is
 # inert. That marker exists only on the maintainer's machine (one-time

@@ -104,7 +104,25 @@ Is this change project-specific, or kit-shared?
 | Kit-shared (a fix to a synced rule/hook/skill/command/template; anything every project should get) | The KIT. Edit the kit source, then `/sync-dev-kit` pulls it back into consumers. |
 
 Which files are kit-managed is authoritative in each project's committed
-`.claude/.kit-sync.json` (the keys of `.files`).
+`.claude/.kit-sync.json` — but the answer is the **`mode` field on each entry**,
+never the mere presence of a key. Both kinds are listed there, and they route
+in opposite directions:
+
+| `mode` | Means | Route |
+|---|---|---|
+| `owned` | The kit owns the content. Every consumer's copy is byte-identical. | The KIT. Propagate to the kit source and this consumer in one pass. |
+| `template` | The kit shipped a starting point and **the project owns the file from there** — an enumeration of that project's own components, its own values. Consumers diverge by design. | Edit the consumer in place. Do NOT touch the kit copy; changing it cannot help a project already seeded, and the project's content is not the kit's to hold. |
+
+A template-mode file often says so in its own header. `templates/ui-inventory.md`
+carries a blockquote reading "this is the kit's starting point — the project owns
+it from here." **When the file contradicts your read of the manifest, the file is
+right and you misread the manifest.**
+
+Reading the keys alone and treating every hit as kit-managed routes template
+files to the kit, where the change is at best inert and at worst overwrites a
+project's own inventory with another's. `block-kit-edit.sh` gets this right —
+it reads `mode` and lets `template` through — so a consumer machine's hook
+staying silent is NOT evidence that a file is project-local.
 
 ## Editing kit-shared behavior from a consumer session
 

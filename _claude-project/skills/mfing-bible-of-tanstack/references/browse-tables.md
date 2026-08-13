@@ -31,22 +31,29 @@ feature when the screen uses it, not preemptively.
 an open upstream TypeScript defect (`aggregationFn` rejects built-in string
 identifiers). New code has no reason to touch it.
 
-## The server already did the work
+## Tell Table which stages it is not running
 
-Our browses page, filter and sort **server-side** — the result set is far too
-large to ship to the client, and against QuickBooks it is not even enumerable
-cheaply. So every processing stage is manual:
+Paging, sorting and filtering are separate stages, each opt-in. When the rows
+handed to Table are already processed — by the server, or by the screen slicing
+an array it holds — Table must be told, or it will page the page:
 
 ```ts
 useTable({ features, columns, data: rows, rowCount, manualPagination: true })
 ```
 
-`manualPagination` tells Table the rows it received are already the page. Pass
-`rowCount` so the footer can show totals. The same applies to `manualSorting` and
-`manualFiltering` when those arrive.
+`manualPagination` means the rows you were given ARE the page. `rowCount`
+supplies the total, which Table cannot derive from rows it never received.
+`manualSorting` and `manualFiltering` are the same bargain for those stages.
 
-Table state that the server owns must be in the **query key**, or changing a sort
-will not refetch.
+The bargain does not care WHERE the work happened. A screen holding every row
+and slicing it itself is still manual paging, because the slice reached Table
+from outside.
+
+Anything upstream that the query owns must be in the **query key**, or changing
+a sort will not refetch.
+
+Which lists are paged upstream at all, and by what, is a UI-architecture
+decision rather than a Table one — see the project's browse pattern.
 
 ## Where paging state lives
 
