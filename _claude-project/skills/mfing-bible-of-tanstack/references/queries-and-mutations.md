@@ -84,12 +84,27 @@ it, and silently restores the old value.
 believe the optimistic value (constitution §X). Surface `mutation.error` in the
 UI, not just the log.
 
-## Do not use optimistic updates against QuickBooks writes
+## Not against a write the client cannot predict the outcome of
 
-QB can reject a write for reasons we cannot predict client-side — stale
-`SyncToken`, a validation rule, a field another user just changed. Showing
-success and then reverting is worse than a two-second wait. Use a busy state and
-the real result.
+Optimistic updates assume the server will almost certainly agree. That holds for
+a star or a reorder. It does not hold for a write to a third-party system of
+record, and there the pattern inverts: **busy state, then the real result.**
+
+The test is whether the client can know the write will succeed. It cannot when:
+
+- **A concurrency token is owned elsewhere.** The upstream rejects a write
+  carrying a stale version/sync token, and the token goes stale from edits made
+  in the other system — which this app never sees.
+- **Validation lives upstream and is not mirrored.** Rules the client has no
+  copy of, and cannot evaluate.
+- **Another party may have changed the record**, in a UI this app does not own.
+
+Rolling a failure back is not free. A value that appears saved and silently
+reverts a second later is worse than a spinner that never lied — and against a
+slow upstream the revert lands long after the user has moved on.
+
+Whether a given integration falls in this bucket is a project fact, so the
+project's own rules name it. The generic guidance stops here.
 
 ## Suspense vs plain queries
 
