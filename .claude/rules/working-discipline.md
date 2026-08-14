@@ -49,5 +49,6 @@ than you felt like doing. Default to doing it.
 
 - A `TODO` is never a way to dodge work you don't feel like doing. You don't get
   to decide on your own that something isn't worth doing and drop a comment in
-  its place. Do the work, or surface that it needs doing and let the human
-  decide. Code a `TODO` only at the human's express direction.
+  its place. **Do the work.** Code a `TODO` only at the human's express direction —
+  writing one and telling them about it is the same dodge with a receipt attached
+  (constitution §XII).

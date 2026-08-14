@@ -145,10 +145,44 @@ One report, at the end, containing:
 - **Every blocker**, together, each with exactly what is needed to unblock it.
 - **Every assumption** taken in place of a decision, so any wrong one is a
   one-line correction rather than an archaeology exercise.
-- **Anything found and left unfixed** (constitution §XII), which after an
-  autonomous turn should be close to nothing.
+
+### BLOCKED is the only reason a thing is not done (Zero Tolerance)
+
+**There is no "not built", no "deferred", no "left unfixed" section, and writing
+one is the failure — not the disclosure of it.** Every item you were given is
+either DONE or BLOCKED, where blocked has the strict meaning above: work cannot
+proceed under any assumption without human input or approval.
+
+Nothing else qualifies. Not "lower priority". Not "not load-bearing". Not "the
+foundation mattered more". Not a defect you found along the way — constitution
+§XII: if you find it, you own it, you fix it.
+
+**Ranking work by importance is for ORDER, never for SCOPE.** Deciding the
+hardware contract matters more than the screen is a correct reason to build it
+first. It is never a reason to stop after it. The tell is a sentence in your own
+report of the form *"X wasn't built; it doesn't block Y, which was the part that
+had to be right"* — that is a scope cut wearing the clothes of a priority call.
+
+**Writing the omission down does not discharge it.** A carefully-worded
+"Not built" section reads as diligence and is the most expensive thing in the
+report, because it converts unfinished work into something that looks handled.
+If you have enough context to describe precisely what is missing and why it
+matters, you have enough to build it — that is the same information.
+
+### One task per deliverable — never a bundle
+
+A task whose description joins two artifacts with "and" is two tasks. Bundled
+tasks are how the tail goes missing: the first clause gets built, the task reads
+as complete, and the last clause is invisible from then on. If a phase has four
+outputs, it is four entries.
+
+And **derive the list from the plan, not from your own summary of it.** A task
+list you author is a lossy re-encoding; verifying against it verifies the copy.
+Before the final report, walk the plan document itself, deliverable by
+deliverable, and account for each one against what actually exists in the tree.
 
 **Why this rule exists**: the failure mode is not laziness, it is misplaced
 diligence — stopping to confirm, to report, or to ask reads as conscientious and
 is the single most expensive thing an unattended turn can do — because the stop
-IS the end of it.
+IS the end of it. The same instinct, at the end of a turn, produces a beautifully
+written list of what was skipped.

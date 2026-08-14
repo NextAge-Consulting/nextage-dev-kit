@@ -132,6 +132,68 @@ share a session: signing into one silently authenticates the other. A cross-app 
 flow MUST clear at the browser level between the two halves or it is not testing a login
 at all. (Production uses separate subdomains, so the bleed is dev-only.)
 
+### R8. `fill` by ref fails on re-rendering forms — use the React-safe setter
+`snapshot -i` hands out refs (`e12`), but a controlled React form that re-renders between
+the snapshot and the fill invalidates them. `fill` then reports `✓ Done` against a stale
+node and the field stays empty — a silent no-op that looks like a wrong password.
+
+Set the value through the native setter and dispatch the event React listens for:
+
+```bash
+agent-browser eval '(() => {
+  const set = (el, v) => {
+    const s = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+    s.call(el, v);                                    // bypasses React value tracking
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+  set(document.querySelector("input[type=email]"), "user@example.com");
+  set(document.querySelector("input[type=password]"), "…");
+  return "filled";
+})()'
+```
+
+**Always prove the fill landed** before submitting — the whole failure mode is that it
+looks like it worked:
+
+```bash
+agent-browser eval '(() => document.querySelector("input[type=password]").value.length)()'
+```
+
+Submit the same way (`btn.click()` inside `eval`) rather than by ref, for the same reason.
+
+### R9. Assert the RENDERED style or attribute, not just that an element exists
+"The field is there" passes while the field renders in the wrong component, misses an
+attribute, or loses a marker. Read what the browser actually computed:
+
+```bash
+# computed style — catches a screen that regressed onto a different component
+agent-browser eval '(() => Array.from(document.querySelectorAll("input"))
+  .map(i => i.type + ":" + getComputedStyle(i).borderRadius).join(", "))()'
+
+# attribute presence — catches autofill hints that vanished
+agent-browser eval '(() => Array.from(document.querySelectorAll("input[type=password]"))
+  .map(i => i.autocomplete || "MISSING").join(", "))()'
+
+# label text — catches required markers that stopped rendering
+agent-browser eval '(() => Array.from(document.querySelectorAll("label"))
+  .map(l => l.textContent.trim()).join(" | "))()'
+```
+
+These are the regressions that type-check and lint clean, so nothing else catches them.
+Prefer one of these over a prose "confirm it looks right" step.
+
+### R10. Screenshot with `--full`, always
+`agent-browser screenshot` captures the **viewport only** — at 1440×900 that is roughly
+the top third of a long form, and everything below is silently absent from the evidence.
+A reviewer then approves a screenshot that never contained the thing that broke.
+
+```bash
+agent-browser screenshot --full logs/e2e/<flow>/NN-<label>.png
+```
+
+The only reason to omit `--full` is when you deliberately want the above-the-fold framing
+(a hero, a nav bar). For form and list screens it is always wrong.
+
 ## Authoring procedure
 
 1. **Scope the flow.** Which app, port, route(s)? Auth or not? What's the single happy path a user walks? One flow = one coherent journey; split login vs dashboard vs checkout into separate files.

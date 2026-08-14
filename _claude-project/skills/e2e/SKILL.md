@@ -112,7 +112,7 @@ For each flow file:
    agent-browser snapshot -i
    ```
 5. Work through the flow's numbered steps in order. After any navigation or DOM change: `snapshot -i` to refresh refs.
-6. For each step: report ✅ if expected content visible + interactive, ❌ with a one-line observation if not. **Screenshot every page-changing step** (navigate, submit, modal) to `logs/e2e/<flow-name>/NN-<label>.png` — these are the report's evidence (Step 4).
+6. For each step: report ✅ if expected content visible + interactive, ❌ with a one-line observation if not. **Screenshot every page-changing step** (navigate, submit, modal) with `agent-browser screenshot --full` to `logs/e2e/<flow-name>/NN-<label>.png` — these are the report's evidence (Step 4). **`--full` is not optional on form or list screens**: a viewport shot is the top third of a long page, so the reviewer approves evidence that never contained the thing that broke (`/e2e-author` R10).
 7. **Click reported success but nothing changed?** The button is below the fold — Playwright doesn't auto-scroll at 1440×900. Use the scroll-then-click recipe (`/e2e-author` R1). This is the single most common false-failure — try it before recording a ❌.
 8. On ❌: STOP this flow, continue to the next flow (don't abort the whole run — the user wants the full picture).
 

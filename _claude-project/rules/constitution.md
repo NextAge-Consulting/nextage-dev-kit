@@ -211,13 +211,23 @@ When multiple approaches exist, invest the research to identify the canonical, o
 
 | Forbidden | Why | Fix |
 |-----------|-----|-----|
-| "This error was pre-existing, not my change" | User IS the next guy. Stepped-over landmines compound. | Fix it, or explicitly surface it with a proposal to fix |
+| "This error was pre-existing, not my change" | User IS the next guy. Stepped-over landmines compound. | **Fix it.** Not surface it, not propose fixing it — fix it. |
 | Ignoring failing tests unrelated to current work | Tests stay broken forever | Fix the test or the code it covers; never skip |
 | Ignoring LSP / lint errors in files you touched | You validated the file as touched — you own what it reports | Resolve every diagnostic before claiming done |
-| Leaving a half-finished state "for next session" | Landmine for the next actor (which may be you) | Finish or document explicitly as TODO with owner + date |
-| "This failure doesn't affect my change" | Often false; even when true, rot spreads | Fix in the same PR or open a separate PR immediately |
+| Leaving a half-finished state "for next session" | Landmine for the next actor (which may be you) | Finish it. A `TODO` only at the human's express direction (`working-discipline.md`) |
+| "This failure doesn't affect my change" | Often false; even when true, rot spreads | Fix it in THIS body of work — a body of work is what you were asked for, not a diff scoped to one change |
 
 **Rule of thumb**: if your work surfaced the issue — even accidentally — you are the one who fixes it. The codebase must never be worse after your session than before.
+
+**Describing a defect is not an alternative to fixing one.** There is no "surface it
+instead", no "propose a fix", no "raise it for a separate PR". If you can name the defect
+precisely enough to write it down, you have everything you need to fix it — the write-up
+costs the same information and leaves the codebase broken.
+
+**Relatedness is not a scope test.** We do a BODY OF WORK, regardless of how the pieces
+do or do not relate to each other. "Unrelated to this change" is not a reason to leave
+something broken — it is a statement about lineage, and lineage has never been the
+question.
 
 **Why this rule exists**: you are ALWAYS the next guy. Every stepped-over error lands on your desk later with context lost. This is the most-violated rule and the most costly.
 

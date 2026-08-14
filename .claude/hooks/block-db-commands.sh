@@ -18,16 +18,24 @@ if [ "$TOOL_NAME" = "Bash" ] || [ "$TOOL_NAME" = "mcp__acp__Bash" ]; then
         if echo "$COMMAND" | grep -q "^SKIP_DB_GUARD=1"; then
             exit 0
         fi
-        # Block the command
-        cat <<BLOCK
-{
-  "hookSpecificOutput": {
+        # Emit via a JSON encoder, never string interpolation: a command carrying a
+        # double quote (`db:generate -- --name="add user table"` — the normal way to
+        # name a migration) produced an unparseable payload, and an unparseable deny
+        # is silently DISCARDED, letting the very command this guards run unguarded.
+        python3 -c '
+import json, sys
+print(json.dumps({"hookSpecificOutput": {
     "hookEventName": "PreToolUse",
     "permissionDecision": "deny",
-    "permissionDecisionReason": "🚫 DATABASE COMMAND BLOCKED\n\nYou attempted to run: $COMMAND\n\nPer constitution §V: drizzle/migration commands run ONLY with the human's explicit approval in the current conversation.\n\nIf the human has ALREADY approved this specific run: re-run it prefixed with SKIP_DB_GUARD=1.\nIf not: modify schema files only, then ask for approval to run db:generate / db:migrate.\nNever use db:push."
-  }
-}
-BLOCK
+    "permissionDecisionReason":
+        "🚫 DATABASE COMMAND BLOCKED\n\nYou attempted to run: " + sys.argv[1] + "\n\n"
+        "Per constitution §V: drizzle/migration commands run ONLY with the human'"'"'s "
+        "explicit approval in the current conversation.\n\n"
+        "If the human has ALREADY approved this specific run: re-run it prefixed with "
+        "SKIP_DB_GUARD=1.\n"
+        "If not: modify schema files only, then ask for approval to run "
+        "db:generate / db:migrate.\nNever use db:push."}}))
+' "$COMMAND"
         exit 0
     fi
 fi
