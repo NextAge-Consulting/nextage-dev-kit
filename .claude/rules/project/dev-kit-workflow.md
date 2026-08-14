@@ -75,10 +75,17 @@ The kit dogfoods (mirrors into its own `.claude/`) only what it actually *uses*.
 | `skills/e2e-author/**` | Kit has no flow files to author. |
 | `skills/analysis/**` | Kit produces markdown analyses of itself in-repo; the shareable-HTML analysis workflow is for consumer apps, not the kit. |
 | `lib/gen-report.mjs` | Shared report generator invoked by the (template-only) e2e + analysis skills; the kit runs neither, so it never executes here. |
-| `rules/dev-server.md`, `hooks/dev-server-guard.sh` | Companion to the (excluded) dev-server feature; kit runs no dev servers. Excluding the guard also drops its two `settings.json` wirings. |
-| `rules/dependencies.md`, `hooks/npm-guard.sh` | Kit has no `package.json` — nothing to install, no lockfile to protect, so the install-discipline rule and its guard never apply. Excluding the guard also drops its two `settings.json` wirings. |
+| `rules/dev-server.md` | Companion to the (excluded) dev-server feature; kit runs no dev servers. |
+| `rules/dependencies.md` | Kit has no `package.json` — nothing to install, no lockfile to protect, so the install-discipline rule never applies. |
 | `rules/project/README.md` | Consumer scaffolding placeholder; the kit has its own `rules/project/` content. |
-| `hooks/block-kit-edit.sh` | Consumer-protection guard — denies edits to kit-synced files. Nonsensical inside the kit: the kit IS the source, not a consumer, and has no `.kit-sync.json` to guard. The maintainer exemption (`~/.claude/kitmaster`) makes it inert here anyway. |
+
+### Present but UNWIRED: three guards the kit tests without running
+
+`hooks/block-kit-edit.sh`, `hooks/dev-server-guard.sh` and `hooks/npm-guard.sh` are mirrored into the kit's `.claude/hooks/` but are deliberately **absent from the kit's `settings.json`** — so the kit never executes them. They are there as **test subjects**: the sibling-suite convention (`hook-testing.md`) locates `X.test.sh` next to `X`, and a guard cannot be tested on the platform it must work on unless the file is present.
+
+Their behaviour still makes no sense inside the kit, which is exactly why they are not wired: `block-kit-edit.sh` guards a consumer against editing kit-synced files, and the kit IS the source with no `.kit-sync.json` to read (the `~/.claude/kitmaster` marker makes it inert here regardless); the other two guard a dev server and a `package.json` the kit does not have.
+
+**So "is it in `.claude/hooks/`" is NOT the dogfood test for these three — the `settings.json` wiring is.** Adding a wiring for any of them is a change of decision, not a fix.
 
 Anything in `_claude-project/` NOT listed above IS dogfooded (gitflow, the shared rules/hooks, the general commands). Kit-custom items (`install-*`, `dev-kit-workflow.md`, `sync-design-pre-read.md`) live only in the kit's `.claude/` and are governed by the propagation table, not this one.
 

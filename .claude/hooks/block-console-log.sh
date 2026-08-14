@@ -44,9 +44,15 @@ if echo "$NEW_CONTENT" | grep -qE 'console\.(log|error|warn|info|debug)'; then
     # quotes but not backslashes, so `console.log("she said \"hi\"")` produced an
     # unparseable payload — and an unparseable deny is silently DISCARDED, letting the
     # console.log straight through.
-    python3 -c '
+    #
+    # The content arrives on STDIN, never as an argv. A Write carries the WHOLE FILE, and
+    # an argv is bounded by ARG_MAX — so a large enough file made python3 die with E2BIG,
+    # which prints nothing and falls through to the `exit 0` below. That is an ALLOW: the
+    # guard failed open on exactly the large files most likely to be carrying a stray
+    # console.log. stdin has no such bound.
+    printf '%s' "$NEW_CONTENT" | python3 -c '
 import json, re, sys
-content = sys.argv[1]
+content = sys.stdin.read()
 snippet = "\n".join(
     [l for l in content.splitlines()
        if re.search(r"console\.(log|error|warn|info|debug)", l)][:3])
@@ -65,7 +71,7 @@ print(json.dumps({"hookSpecificOutput": {
         "does not, fix the logger — do NOT bypass this hook and do NOT leave the\n"
         "catch empty (constitution §X).\n\n"
         "See: .claude/rules/typescript-rules.md §II (No Console.log)"}}))
-' "$NEW_CONTENT"
+'
     exit 0
 fi
 

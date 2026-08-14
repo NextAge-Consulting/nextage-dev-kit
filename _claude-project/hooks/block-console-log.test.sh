@@ -17,9 +17,13 @@ printf '{"dependencies":{"zod":"^3.0.0"}}'   > "$tmp/mono/package.json"
 printf '{"dependencies":{"pino":"^9.0.0"}}'  > "$tmp/mono/packages/shared/package.json"
 
 decision(){  # $1 cwd  $2 file_path  $3 content  $4 tool
-  printf '{"tool_name":"%s","tool_input":{"file_path":%s,"content":%s}}' "${4:-Write}" \
-    "$(python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$2")" \
-    "$(python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$3")" \
+  # CONTENT rides stdin, not an argv — the large-file case below is precisely a payload
+  # too big for ARG_MAX, and a harness that cannot build it cannot test it.
+  printf '%s' "$3" | python3 -c '
+import json, sys
+print(json.dumps({"tool_name": sys.argv[1],
+                  "tool_input": {"file_path": sys.argv[2], "content": sys.stdin.read()}}))
+' "${4:-Write}" "$2" \
   | (cd "$1" && "$H" 2>/dev/null) | python3 -c '
 import json,sys
 raw=sys.stdin.read().strip()
@@ -66,6 +70,13 @@ jsonok 'console.log("hi")'
 jsonok 'console.log("she said \"hello\" loudly")'
 jsonok 'console.log(`a backtick ${x}`)'
 rm -f "$tmpout"
+
+echo "LARGE CONTENT (the guard must not fail OPEN on a big file):"
+# A Write carries the WHOLE FILE. Passing that as an argv is bounded by ARG_MAX, and the
+# failure mode is an ALLOW: python3 dies with E2BIG, prints nothing, and the script falls
+# through to exit 0. ~2MB is comfortably past macOS's limit and cheap to build.
+big=$(python3 -c 'print("const x = 1;\n" * 120000 + "console.log(\"deep in a big file\")")')
+t deny "$tmp/pino" 'src/big.ts' "$big" 'console.log at the end of a ~2MB file'
 
 echo "DEGENERATE INPUT (never wedge the session):"
 for p in 'not json' '' '{"tool_name":"Write"}' '{"tool_name":"Write","tool_input":{}}'; do
