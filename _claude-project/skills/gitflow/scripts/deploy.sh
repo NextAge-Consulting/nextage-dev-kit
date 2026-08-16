@@ -62,9 +62,10 @@
 # --check-only: runs all gates without mutating, exits 0 if clean.
 #
 # ─── Flow (without --check-only) ────────────────────────────────────────
-#   0. Production build gate: `npm run build --workspaces --if-present` runs
-#      LOCALLY before any mutation. A build-only break aborts the deploy here
-#      (exit 15) with nothing bumped/pushed — caught before the cloud rebuild.
+#   0. NO build gate. `/merge` owns it — it builds while the PR is still OPEN,
+#      so a failure is fixed on the branch that caused it. Deploying a
+#      `/ship-main` commit deliberately skips every gate; that is what
+#      `/ship-main` is for, and re-adding a gate here would defeat it.
 #   1. Bump version in the appropriate manifest (pyproject.toml or package.json
 #      via `npm version`).
 #   2. Apply changelog file under today's `### Month Day, Year` header.
@@ -96,7 +97,6 @@
 #  11  push failed
 #  12  workflow trigger failed
 #  13  deploy workflow run failed
-#  15  production build failed (local pre-deploy build gate)
 #  17  tag push failed
 #  18  migration workflow failed to trigger
 #  19  migration run failed (or its run id could not be resolved) — deploy
@@ -303,36 +303,6 @@ fi
 if [ "$CHECK_ONLY" -eq 1 ]; then
     echo "deploy.sh: state gates OK (on main, clean, in-sync, checks green, ${COMMITS_SINCE:-?} commits since ${LAST_TAG:-no-tag})" >&2
     exit 0
-fi
-
-# --- Production build gate -----------------------------------------------
-# Build every workspace LOCALLY before any cloud action (bump/PR/tag/deploy
-# trigger). Cloud deploy workflows rebuild each app's production image; a
-# build-only break (bundler / Tailwind / import-resolution that `tsc --noEmit`
-# and unit tests don't catch) otherwise isn't discovered until that cloud
-# build fails mid-deploy. Building here fails fast, locally, with nothing
-# mutated or pushed. Only `VITE_*`/client *values* differ from the cloud
-# build (baked at deploy time); the compile is identical, which is what this
-# gate verifies. Gated on package.json so pure-Python consumers (the
-# pyproject.toml bump path below) skip it — npm may be absent there. Within a
-# Node repo, `--if-present` skips a package that defines no build script. NOTE:
-# `--workspaces` ERRORS ("No workspaces found!") on a single-package repo, so it
-# is only used when the manifest actually declares workspaces.
-if [ -f package.json ]; then
-    if grep -q '"workspaces"' package.json; then
-        echo "deploy.sh: running production build (npm run build --workspaces --if-present)..." >&2
-        if ! npm run build --workspaces --if-present; then
-            echo "deploy.sh: production build FAILED — fix before deploying. Nothing was bumped or pushed." >&2
-            exit 15
-        fi
-    else
-        echo "deploy.sh: running production build (npm run build --if-present)..." >&2
-        if ! npm run build --if-present; then
-            echo "deploy.sh: production build FAILED — fix before deploying. Nothing was bumped or pushed." >&2
-            exit 15
-        fi
-    fi
-    echo "deploy.sh: production build OK" >&2
 fi
 
 # --- Bump ----------------------------------------------------------------

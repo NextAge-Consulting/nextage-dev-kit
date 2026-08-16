@@ -71,18 +71,19 @@ No new branch, no stash. Just link and keep working.
 /open-pr      # push branch, create PR, auto-prepends `Closes #N` from linked issues
                 # transitions every linked issue → "Staged" on the project board
                 # does NOT touch changelog.md — single-writer model, /deploy owns it (HANDBOOK §6.4)
-/sync         # on main: fast-forward local main from origin/main (just want latest code)
+/catchup      # on main: fast-forward local main from origin/main (just want latest code)
                 # on a feature branch: merge updated origin/main INTO the feature branch
 /e2e          # behavioral E2E via agent-browser (asks a scope question — see next section)
-/merge        # verify CI green, squash-merge, land back on main, delete the merged branch
+/merge        # local prod build gate, verify CI green, squash-merge, land back on main,
+                # delete the merged branch
                 # does NOT transition the project board (Staged stays until /deploy)
                 # post-merge: if landing on main changed package*.json, merge.sh runs `npm ci`
-                #   so node_modules isn't left stale (bites /deploy's build gate)
+                #   so node_modules isn't left stale (bites the next /merge build gate)
 /deploy       # bump version, tag, push, trigger deploy workflow(s)
                 # transitions every closed issue in the release → "Done" on the project board
 ```
 
-`/sync` is the single "refresh from origin" command — behavior depends on the branch you're on. On main, it fast-forwards local main (use this when starting a session after someone else has merged + deployed and you want your local code current). On a feature branch, it merges `origin/main` INTO the branch via `--no-ff` (use when `gh pr view <N>` reports `mergeable: CONFLICTING`). On conflicts: edit the affected files, then `/sync --continue`. See HANDBOOK §4.6.
+`/catchup` is the single "refresh from origin" command — behavior depends on the branch you're on. On main, it fast-forwards local main (use this when starting a session after someone else has merged + deployed and you want your local code current). On a feature branch, it merges `origin/main` INTO the branch via `--no-ff` (use when `gh pr view <N>` reports `mergeable: CONFLICTING`). On conflicts: edit the affected files, then `/catchup --continue`. See HANDBOOK §4.6.
 
 **Project board lifecycle (4 states):**
 
@@ -220,8 +221,8 @@ Picking up tomorrow on unfinished work: same launch, just `/work` (no args). You
 | `/link` refuses on main | Correct — linking only makes sense on a feature branch. Use `/work <issue>` to start a feature branch first. |
 | Issue didn't move on the project board (In Progress / Staged / Done) | Board transitions are now **fail-loud**. If `GITFLOW_PROJECT_ID` is set and the transition didn't fire, the script exited non-zero with the cause. Most common cause is the gh token missing `project` scope (`gh auth refresh -s project`), then the issue not being on the configured project (enable the project's "Auto-add to project" workflow). Empty `GITFLOW_PROJECT_ID` = feature off, silent skip. |
 | `/work` says it could not refresh main | The pre-branch fast-forward failed (usually `gh` auth scope or network). `/work` does not block — it cuts the branch off local `main` and tells you. Fix `gh auth status`, then `/catchup` to pull the latest into your branch. |
-| `/sync` aborts: "local main is AHEAD" or "DIVERGED" | Local main has commits not on origin/main. Anomalous under gitflow's model (primary is read-only). Inspect with `git log origin/main..HEAD`. Likely cause: someone committed directly to main outside gitflow. Resolve manually before /sync retries. |
+| `/catchup` aborts: "local main is AHEAD" or "DIVERGED" | Local main has commits not on origin/main. Anomalous under gitflow's model (primary is read-only). Inspect with `git log origin/main..HEAD`. Likely cause: someone committed directly to main outside gitflow. Resolve manually before retrying `/catchup`. |
 | `current/` doesn't exist yet | Run `/work` (no args). It creates `current/` on a fresh `wip/<abbrev>-<timestamp>` branch and enters it. |
 | `/sync-dev-kit` keeps flagging `.claude/settings.json` as `kit-only` (or `conflict`) every sync even though you haven't touched it | settings.json is compared as jq-canonicalized JSON (HANDBOOK §9.6), so key order and indentation should never surface as a diff. If it still flags with no real difference, the canonicalization in `sync-dev-kit.sh` (`canonicalize_settings` / `sha256_settings_kit`) is broken — open a kit bug. |
 | `/commit` succeeded at commit but failed at push with "upstream branch ... does not match the name of your current branch" | The branch is tracking `origin/main` rather than its own remote ref. Re-trigger just the push: `.claude/skills/gitflow/scripts/commit.sh --push-only`. `safe_push` (in `branch_helpers.sh`) corrects the upstream and pushes. See HANDBOOK §4.5. |
-| `gh pr view <N>` reports `mergeable: CONFLICTING` after another PR shipped | Run `/sync` on the affected branch. It merges `origin/main` in via an explicit merge commit and pushes. On conflicts, edit the affected files, then `/sync --continue`. See HANDBOOK §4.6. |
+| `gh pr view <N>` reports `mergeable: CONFLICTING` after another PR shipped | Run `/catchup` on the affected branch. It merges `origin/main` in via an explicit merge commit and pushes. On conflicts, edit the affected files, then `/catchup --continue`. See HANDBOOK §4.6. |

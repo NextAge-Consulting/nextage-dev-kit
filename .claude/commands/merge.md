@@ -18,6 +18,12 @@ If `$ARGUMENTS` contains a PR number (e.g., `/merge 42`), use that. Otherwise le
 
 The script:
 - Finds the open PR for the current branch (or uses --pr)
+- Runs a **local production build gate** — `npm run build --workspaces --if-present` —
+  before the readiness wait and before the squash. CI does not build (it type-checks,
+  lints and tests), so a build-only break is invisible until here. This is the last
+  moment the PR is still OPEN, so a failure is fixed on the branch that caused it rather
+  than in a follow-up PR repairing the first. Not in CI on purpose: CI fires on every
+  push, and building there would tax every commit, `/open-pr` and triage fix.
 - Invokes `wait-for-pr-ready.sh` which is **trigger-aware**: blocks until CI required checks pass AND — if a `/gemini review` comment was posted for the current HEAD — Gemini Code Assist has posted its review. If no trigger comment exists for the current HEAD (e.g. last `/commit` was `--no-review`), proceeds on CI-only. `GEMINI_NOT_INSTALLED="true"` in `.claude/sync-substitutions.json` short-circuits the entire Gemini path. Polls every 30s, times out fail-loud after 15min.
 - Squash-merges via `gh pr merge --squash`, then deletes the remote branch as a separate best-effort step
 - Switches this checkout to `main` and fast-forwards it to the merged tip
@@ -28,6 +34,8 @@ The script:
 
 - Merge succeeded: report the PR number and the commit SHA on main
 - Multiple PRs on branch: script lists them and exits; ask user which one (then re-invoke with `--pr <number>`)
+- Production build failed (exit 15): surface the build error; nothing merged and the PR
+  is still open, so the fix goes on this branch and into this PR
 - CI checks failing: surface which check failed, link to PR checks page
 - Readiness wait timeout (Gemini queued / rate-limited despite a posted trigger): surface the diagnostic message; user decides whether to opt this repo out of Gemini gating (`GEMINI_NOT_INSTALLED="true"` — only correct if Gemini is genuinely absent), extend timeout, or `--force-unchecked` for emergency. The "no triggers fired, ship on CI alone" case happens automatically — `/commit --no-review` is the user's explicit signal that `/merge` should not wait for Gemini.
 - Merge conflict: rare with squash but possible; surface the conflict and stop

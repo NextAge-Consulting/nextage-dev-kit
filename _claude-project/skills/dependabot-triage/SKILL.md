@@ -12,10 +12,10 @@ The repeatable process for clearing Dependabot PRs without re-deciding from scra
 
 ## The one fact that drives everything
 
-**PR-CI does not build the app.** `ci.yml` runs `dep-alignment` + `check-types` + `biome` + `vitest` (+ `semgrep`) — never the production build. The build runs **only at `/deploy`** (the deploy build gate). So:
+**PR-CI does not build the app.** `ci.yml` runs `dep-alignment` + `check-types` + `biome` + `vitest` (+ `semgrep`) — never the production build. The only automated build gate is in `/merge`, and **Dependabot PRs never touch it** — they land via `gh pr merge` (step 3–5 below), not through gitflow. So a dep PR reaches `main` with nothing having built it. So:
 
 - **Green Dependabot CI ≠ build-safe** for anything in the bundler/SSR graph.
-- A toolchain bump that breaks the build can merge on green CI — it won't reach prod (the `/deploy` gate aborts), but it **poisons `main` for the next release** until fixed.
+- A toolchain bump that breaks the build can merge on green CI and **poisons `main`** — every subsequent `/merge` on any branch then fails its build gate on damage it did not cause, until someone fixes it.
 - Therefore: **toolchain bumps get a local prod build + app smoke before merge.** Leaf bumps don't.
 
 ## Tiers — triage by blast radius, NOT CI color

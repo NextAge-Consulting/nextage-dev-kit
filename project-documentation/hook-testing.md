@@ -72,9 +72,9 @@ which delivers the failing cases straight back into the session that caused them
 The two obvious alternatives were both considered and are both wrong here.
 
 **CI is the wrong place**, and this is the finding that set the whole design. The
-defect that motivated the suite was `own-it-guard.sh` matching with `\b` in `sed` —
-supported by GNU sed, **not** supported by the BSD sed that ships on macOS. The hook
-was completely inert on every Mac in the shop. An ubuntu runner would have gone green
+defect that motivated the suite was a guard matching with `\b` in `sed` — supported
+by GNU sed, **not** supported by the BSD sed that ships on macOS. That guard was
+completely inert on every Mac in the shop. An ubuntu runner would have gone green
 on it, indefinitely, and certified the breakage as healthy. A platform difference is
 only catchable on the platform. CI on Linux would have actively concealed this one.
 

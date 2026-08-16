@@ -46,7 +46,8 @@ updates:
       # Build/SSR toolchain — bundler, React, TanStack, server adapter. Grouped
       # SEPARATELY (patch + minor together) because these are the only npm bumps
       # that can break the production build, which PR-CI does NOT catch (CI runs
-      # typecheck/biome/vitest only; the build runs at /deploy). A toolchain
+      # typecheck/biome/vitest only; the build gate lives in /merge, which a
+      # Dependabot PR never goes through). A toolchain
       # group PR gets a local build + app smoke before merge and is NEVER batched
       # with leaf patches, so one bad toolchain bump can't block safe leaf
       # patches. This grouping is kit-standard for the shared TanStack/React/Vite

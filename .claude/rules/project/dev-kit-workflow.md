@@ -77,6 +77,8 @@ The kit dogfoods (mirrors into its own `.claude/`) only what it actually *uses*.
 | `lib/gen-report.mjs` | Shared report generator invoked by the (template-only) e2e + analysis skills; the kit runs neither, so it never executes here. |
 | `rules/dev-server.md` | Companion to the (excluded) dev-server feature; kit runs no dev servers. |
 | `rules/dependencies.md` | Kit has no `package.json` — nothing to install, no lockfile to protect, so the install-discipline rule never applies. |
+| `skills/dependabot-triage/**` | Kit has no `package.json` and no `.github/dependabot.yml` — no dependency PRs are ever opened here, so there is nothing to triage. |
+| `templates/scripts/**` | Seeds for a consumer's `scripts/` — `check-dep-alignment.mjs`, `check-workspace-tiers.mjs`, `check-tanstack.mjs`. All three read a `package.json` / workspace graph the kit does not have. |
 | `rules/project/README.md` | Consumer scaffolding placeholder; the kit has its own `rules/project/` content. |
 
 ### Present but UNWIRED: three guards the kit tests without running

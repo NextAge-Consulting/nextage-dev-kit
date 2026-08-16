@@ -6,8 +6,20 @@
 # If multiple open PRs exist for the current branch, the script lists them and exits —
 # caller must re-invoke with --pr <number>.
 #
-# --force-unchecked bypasses the CI-passed gate. Use only for emergency hotfixes with
-# explicit user authorization.
+# --force-unchecked bypasses the CI-passed gate AND the production build gate. Use only
+# for emergency hotfixes with explicit user authorization.
+#
+# Production build gate (exit 15): `npm run build --workspaces --if-present` runs LOCALLY
+# before the squash. CI does not build — it type-checks, lints and tests — so a build-only
+# break (bundler, Tailwind, an import alias a package's own tsconfig does not map) is
+# invisible to every earlier gate. This is the last moment the PR is still OPEN, which is
+# the whole point: a failure here is fixed on the branch that caused it, in the PR that is
+# already under review. Catching it at /deploy instead means the branch is gone and the
+# only possible remedy is a second PR to repair the first.
+#
+# It is NOT in CI on purpose: CI fires on every push, so building there would tax every
+# commit, every /open-pr and every triage fix with a full build. Once per merge is the
+# right frequency.
 #
 # Post-merge cleanup:
 #   - Switch this checkout to the base branch and fast-forward it to the merged tip.
@@ -93,6 +105,36 @@ fi
 
 echo "gitflow: target PR #$PR_NUMBER" >&2
 echo "gitflow: merging '$CURRENT_BRANCH' in $REPO_ROOT" >&2
+
+# ─── Production build gate ─────────────────────────────────────────────────
+# Runs BEFORE the readiness wait: a build break should fail in seconds, not after
+# several minutes of polling CI and Gemini for a merge that is not going to happen.
+# `--if-present` skips any workspace with no build script, so a repo with none is a
+# no-op. Non-Node repos have no package.json and skip the block entirely.
+if [ "$FORCE_UNCHECKED" -eq 0 ] && [ -f "$REPO_ROOT/package.json" ]; then
+    # `--workspaces` ERRORS with "No workspaces found!" on a single-package repo, so it
+    # is used only when the manifest actually declares them.
+    #
+    # jq, not grep: `grep '"workspaces"'` matches the substring ANYWHERE — a dependency
+    # of that name, a script, a description — and a false positive here blocks a merge
+    # that should have proceeded, which is how a gate ends up disabled. jq asks the exact
+    # question (top-level key, present or not) and handles both the array and object
+    # forms. It is already a hard dependency of this script.
+    if jq -e 'has("workspaces")' "$REPO_ROOT/package.json" >/dev/null 2>&1; then
+        BUILD_ARGS="--workspaces --if-present"
+    else
+        BUILD_ARGS="--if-present"
+    fi
+    echo "gitflow: running production build (npm run build $BUILD_ARGS)..." >&2
+    # shellcheck disable=SC2086 # BUILD_ARGS is two known literal flags, not user input
+    if ! (cd "$REPO_ROOT" && npm run build $BUILD_ARGS); then
+        echo "merge.sh: production build FAILED — nothing merged." >&2
+        echo "  Fix it on this branch and push; the PR is still open, so the fix lands" >&2
+        echo "  in the PR that caused it rather than in a follow-up." >&2
+        exit 15
+    fi
+    echo "gitflow: production build OK." >&2
+fi
 
 # Verify CI passed AND Gemini Code Assist has reviewed current HEAD (unless bypass).
 if [ "$FORCE_UNCHECKED" -eq 0 ]; then

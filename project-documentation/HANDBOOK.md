@@ -275,14 +275,14 @@ cd <project>
 
 The script reads `git branch --show-current` against cwd's git context, so it operates on whichever branch is checked out.
 
-### 4.6. Sync workflow (`/sync`, added 2026-05-13; extended 2026-05-18)
+### 4.6. Catchup workflow (`/catchup`)
 
-`/sync` is the single command for "refresh the branch I'm on from origin." Behavior depends on which branch is checked out at invocation:
+`/catchup` is the single command for "refresh the branch I'm on from origin." Behavior depends on which branch is checked out at invocation:
 
 - **On main (primary repo, no current/ active OR just reviewing):** fetch `origin/main`, fast-forward local main. Fail-loud on dirty main or local-only commits (anomalous under gitflow). This is what you run when starting a session after someone else has merged + deployed and you want your local repo current before doing anything else.
 - **On a feature branch:** merge `origin/<base>` (default `main`) INTO the feature branch via `--no-ff`. Push via `safe_push`.
 
-One mental model: "sync brings the branch I'm on up to date with origin."
+One mental model: "catchup brings the branch I'm on up to date with origin."
 
 **When to invoke (on main):**
 - Starting a session two days after another developer merged + deployed.
@@ -293,40 +293,33 @@ One mental model: "sync brings the branch I'm on up to date with origin."
 - Long-lived branch lagged main by more than a couple of merges.
 - Pre-`/open-pr` integration when you know main has changed.
 
-Before `/sync` existed, the only paths were:
-- `git merge origin/main` (forbidden direct git per `git.md`)
-- `git rebase origin/main` (same)
-- Close the PR, re-open from a fresh branch off updated main
-
-Path 3 was the 2026-05-12 #148 → #149 workaround. Works but wastes a PR cycle. `/sync` is the proper primitive.
+Without this primitive the only paths would be `git merge origin/main` or `git rebase origin/main` (both forbidden direct git per `git.md`), or closing the PR and re-opening from a fresh branch off updated main — which works but wastes a whole PR cycle.
 
 **Modes:**
 
 | Invocation | Branch | Behavior |
 |---|---|---|
-| `/sync` | main | Fetch `origin/main`, fast-forward local main. Refuse on dirty or diverged main. Report old → new SHA + commit count pulled. |
-| `/sync` | feature | Fetch `origin/main`. If HEAD already contains it, no-op. Otherwise `git merge --no-ff origin/main` and push via `safe_push`. |
-| `/sync --base <branch>` | feature | Same as above against `origin/<branch>`. Ignored on main. |
-| `/sync --continue` | feature | After conflict resolution: stage all, complete merge commit, push. |
-| `/sync --abort` | feature | Abandon in-progress merge; restore tree. |
+| `/catchup` | main | Fetch `origin/main`, fast-forward local main. Refuse on dirty or diverged main. Report old → new SHA + commit count pulled. |
+| `/catchup` | feature | Fetch `origin/main`. If HEAD already contains it, no-op. Otherwise `git merge --no-ff origin/main` and push via `safe_push`. |
+| `/catchup --base <branch>` | feature | Same as above against `origin/<branch>`. Ignored on main. |
+| `/catchup --continue` | feature | After conflict resolution: stage all, complete merge commit, push. |
+| `/catchup --abort` | feature | Abandon in-progress merge; restore tree. |
 
 `--continue` / `--abort` are feature-branch-only — the on-main path is a fast-forward with no merge commit and no conflict possibility.
 
 The on-main path delegates to `fast_forward_local_main` in `branch_helpers.sh`. The same helper is invoked by `/work` before cutting any new branch (see §3.2), so the freshness guarantee is uniform across both entry points.
 
-**Conflict path.** On conflict, `sync.sh` lists the affected files and exits non-zero. Claude / human resolves conflicts in-tree using `Edit` (no `<<<<<<<`/`=======`/`>>>>>>>` markers left), verifies with `git diff --check`, then runs `/sync --continue` to complete and push.
+**Conflict path.** On conflict, `catchup.sh` lists the affected files and exits non-zero. Claude / human resolves conflicts in-tree using `Edit` (no `<<<<<<<`/`=======`/`>>>>>>>` markers left), verifies with `git diff --check`, then runs `/catchup --continue` to complete and push.
 
 **Why merge, not rebase:**
 
 - **No force-push.** Rebase rewrites history and requires `--force-with-lease`; that class of operation stays behind explicit authorization.
-- **Clean squash at ship time.** When `/merge` squashes the PR, the entire branch (including the sync merge commit) collapses into one commit on main — no intermediate structure pollutes main.
+- **Clean squash at ship time.** When `/merge` squashes the PR, the entire branch (including the catchup merge commit) collapses into one commit on main — no intermediate structure pollutes main.
 - **Single conflict pass.** Rebase replays N commits and can surface the same conflict N times; merge resolves it once.
 
 If linearizing history is genuinely needed before opening a PR, use `SKIP_GIT_GUARD=1 git rebase origin/main` as the rare-case escape hatch — that's not a primitive.
 
-**Carve-out.** `sync.sh` is authorized to run `git merge` and `git merge --abort` (see `git.md` carve-out list). This is the only gitflow script with that carve-out, and only for the sync use case — not a license for any other script to call merge.
-
-**Cross-reference.** PR #147 (push-upstream fix) + #149 (#139 dealer filter) on 2026-05-12 shipped sequentially because no /sync existed; that incident motivated this primitive.
+**Carve-out.** `catchup.sh` is authorized to run `git merge` and `git merge --abort` (see `git.md` carve-out list). This is the only gitflow script with that carve-out, and only for the catchup use case — not a license for any other script to call merge.
 
 ---
 
@@ -388,6 +381,7 @@ Note: `/open-pr` does NOT touch `changelog.md`; `/deploy` is the single changelo
 1. Claude checks `gh pr list` for current branch's PR
 2. If multiple open PRs, list them and ask which
 3. Command calls `skills/gitflow/scripts/merge.sh`:
+   - **Local production build gate** — `npm run build --workspaces --if-present`, run before the readiness wait and before the squash (exit 15 on failure, nothing merged). CI type-checks, lints and tests but never builds, so a build-only break (bundler / Tailwind / an import alias a package's own tsconfig doesn't map) is invisible to every earlier gate. `/merge` is the last moment the PR is still OPEN — a failure here is fixed on the branch that caused it, inside the PR already under review, instead of needing a second PR to repair the first. Not in CI on purpose: CI fires on every push, so building there would tax every commit, `/open-pr` and triage fix; once per merge is the right frequency. `--workspaces` is added only when `package.json` actually declares a `workspaces` key (jq-tested — it errors on a single-package repo); a repo with no `package.json` skips the gate entirely. `--force-unchecked` bypasses it along with the CI gate.
    - Invokes `wait-for-pr-ready.sh` (same poll as `/open-pr` step 5) — trigger-aware: catches the post-`/triage` case where the user invoked `/commit --review` and a fresh Gemini review is expected on the new HEAD. `/commit --no-review` posts no trigger and the wait proceeds CI-only. Bypassable via `--force-unchecked` for emergency hotfixes only (skips CI too).
    - On wait exit 0: `gh pr merge --squash --delete-branch`
    - **Post-merge cleanup**: switch this checkout to `main`, fast-forward it to the merged tip, delete the now-merged local branch, and reinstall dependencies if landing on the new `main` changed a package manifest.
@@ -424,9 +418,7 @@ File: `.claude/skills/gitflow/scripts/deploy.sh` (per project, kit-synced). Slas
    - HEAD's required check-runs are not `failure` / `timed_out` / `cancelled`
    - At least one commit since the last `v*.*.*` tag
 
-2. **Local build gate** — `npm run build --workspaces --if-present` (Node), before any bump/commit/push/deploy-trigger. A build-only break (bundler / Tailwind / import-resolution that `tsc --noEmit` + unit tests miss) aborts here (exit 15) with nothing mutated or pushed.
-
-3. **Bump-level inference** (Claude does this in `/deploy` Step 2 before invoking the script):
+2. **Bump-level inference** (Claude does this in `/deploy` Step 2 before invoking the script):
    - Scan SUBJECT lines of commits since last tag
    - `<type>!:` or `BREAKING CHANGE:` footer → major
    - `feat(...):` → minor
@@ -434,9 +426,9 @@ File: `.claude/skills/gitflow/scripts/deploy.sh` (per project, kit-synced). Slas
    - `chore(...):` / `docs(...):` / `test(...):` / `style(...):` / `ci(...):` / `build(...):` → patch (Option B — chore counts as a release)
    - Highest wins. NEVER skip the bump when there are commits to deploy.
 
-4. **Changelog entry** (Claude generates from commit subjects since last tag, applying `references/changelog-rules.md`): one or more bullets in `- **<emoji> <Title Case>** - <user-impact>` form. Group related fixes. Pure infra commits get a single `Dependency Updates` / `Internal Tooling` line.
+3. **Changelog entry** (Claude generates from commit subjects since last tag, applying `references/changelog-rules.md`): one or more bullets in `- **<emoji> <Title Case>** - <user-impact>` form. Group related fixes. Pure infra commits get a single `Dependency Updates` / `Internal Tooling` line.
 
-5. **Script execution** (`deploy.sh --level <patch|minor|major> --changelog-file <path>`):
+4. **Script execution** (`deploy.sh --level <patch|minor|major> --changelog-file <path>`):
    - `npm version <level> --no-git-tag-version` (Node) or `sed` rewrite of `version = "x.y.z"` (Python)
    - Insert changelog entry under today's date header in `changelog.md`
    - Commit bump + changelog ON `main` as `🚀 release: v<NEW>` (`--no-verify`; validation already ran)
@@ -446,7 +438,7 @@ File: `.claude/skills/gitflow/scripts/deploy.sh` (per project, kit-synced). Slas
    - For each workflow in `DEPLOY_WORKFLOWS` (resolved via the per-project `.claude/sync-substitutions.json`; falls back to `deploy.yml` if unset AND no `MIGRATE_WORKFLOW`), run `gh workflow run <wf> --ref main` — fires the deploy against post-bump HEAD. Split-deploy consumers (e.g. `deploy-web.yml deploy-worker.yml`) trigger every listed workflow; single-app consumers see no behavior change. A migrate-only repo (`MIGRATE_WORKFLOW` set, `DEPLOY_WORKFLOWS` empty) stops after the migration phase — no `deploy.yml` fallback.
    - `gh run watch` per workflow (unless `--no-watch`) until each finishes; surfaces failure URL on the first failure.
 
-6. **Reporting**: success → report `v<NEW>` + workflow run URL. Failure modes (state gates, build gate, bump, push, tag push, workflow trigger, deploy run, migration trigger/run) all exit non-zero with specific codes — Claude surfaces the code + stderr and stops. Exits 18 (migration trigger failed) / 19 (migration run failed or run-id unresolved) abort before any app deploy.
+5. **Reporting**: success → report `v<NEW>` + workflow run URL. Failure modes (state gates, bump, push, tag push, workflow trigger, deploy run, migration trigger/run) all exit non-zero with specific codes — Claude surfaces the code + stderr and stops. Exits 18 (migration trigger failed) / 19 (migration run failed or run-id unresolved) abort before any app deploy.
 
 **What `/deploy` does NOT do:**
 - Does NOT run a separate CI / lint / typecheck pass for code — those gates already fired on the merged feature PRs (the local build gate in step 2 is the one exception, catching build-only breaks before the cloud workflows rebuild images).
