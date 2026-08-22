@@ -442,6 +442,34 @@ dest_for_kit_path() {
     esac
 }
 
+# Reverse of dest_for_kit_path: which kit file, if any, currently supplies this
+# destination? Empty when nothing does.
+#
+# There is no closed-form inverse — templates/ maps several kit paths onto
+# root-level and SHARED_MODULE_DIR destinations — so this walks the kit surfaces
+# and compares forward mappings. Only `--apply-file` needs it, once per call, to
+# tell "the kit deleted this" from "the caller passed a dest path for a file the
+# kit still ships". Requires load_substitutions to have run (SHARED_MODULE_DIR
+# participates in the forward map).
+kit_path_for_dest() {
+    local want="$1"
+    local dirs=() kit_rel
+    [ -d "${KIT_PATH}/_claude-project" ] && dirs+=("_claude-project")
+    [ -d "${KIT_PATH}/_github-project" ] && dirs+=("_github-project")
+    [ -d "${KIT_PATH}/_gemini-project" ] && dirs+=("_gemini-project")
+    [ ${#dirs[@]} -eq 0 ] && { echo ""; return; }
+
+    while IFS= read -r kit_rel; do
+        [ -z "$kit_rel" ] && continue
+        is_skipped "$kit_rel" && continue
+        if [ "$(dest_for_kit_path "$kit_rel")" = "$want" ]; then
+            echo "$kit_rel"
+            return
+        fi
+    done <<< "$(cd "$KIT_PATH" && find "${dirs[@]}" -type f ! -name ".DS_Store" 2>/dev/null | sort)"
+    echo ""
+}
+
 # Sync mode for a kit file. Two values:
 #
 #   owned    — the kit owns the content. Consumers must not edit it
@@ -725,6 +753,32 @@ if [ "$MODE" = "apply" ]; then
 
     kit_full="${KIT_PATH}/${APPLY_FILE}"
     dest_rel=$(dest_for_kit_path "$APPLY_FILE")
+
+    # `removed-kit` is addressed by DESTINATION path, not kit path.
+    #
+    # --scan reports a kit-deleted file with an empty `kit_path` — there is no
+    # kit file left to name — so `dest_path` is the only identifier the caller
+    # has. Requiring a kit path here made the documented removal flow
+    # unrunnable: dest_for_kit_path is NOT invertible (templates/ maps several
+    # kit paths onto root-level and SHARED_MODULE_DIR destinations), so the
+    # caller cannot reconstruct the kit path, and every attempt exits 4.
+    #
+    # Accepting a dest path is safe only when nothing in the kit still maps to
+    # it — otherwise a caller who passed a dest path by mistake would delete a
+    # live kit-managed file. kit_path_for_dest is the exact reverse map, so
+    # that case fails loud instead. kit_full is cleared because, by definition
+    # of reaching here, no kit file corresponds to this destination; `[ ! -f "" ]`
+    # is true, so the removal branch below fires.
+    if [ -z "$dest_rel" ] && [ -n "$(load_baseline_sha "$APPLY_FILE")" ]; then
+        live_kit_path=$(kit_path_for_dest "$APPLY_FILE")
+        if [ -n "$live_kit_path" ]; then
+            echo "sync-dev-kit.sh: $APPLY_FILE is still supplied by the kit ($live_kit_path) — pass the kit path to apply it" >&2
+            exit 4
+        fi
+        dest_rel="$APPLY_FILE"
+        kit_full=""
+    fi
+
     [ -z "$dest_rel" ] && { echo "sync-dev-kit.sh: no destination mapping for $APPLY_FILE" >&2; exit 4; }
 
     if [ ! -f "$kit_full" ]; then

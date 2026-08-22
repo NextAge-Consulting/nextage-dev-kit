@@ -10,7 +10,7 @@ Claude does **not** start dev servers without user invocation — `/dev` is user
 
 - `.claude/skills/dev-server/SKILL.md` — natural-language routing.
 - `.claude/commands/dev.md` — slash command spec.
-- `project-documentation/DEVSERVER-CHEATSHEET.md` — one-page reference.
+- the kit's `project-documentation/DEVSERVER-CHEATSHEET.md` — one-page reference.
 
 **One exception:** `/e2e` legitimately auto-starts dev servers when no port is occupied (so a verification run can proceed unattended). See `.claude/skills/e2e/SKILL.md`. The 5 rules below still apply to that path.
 

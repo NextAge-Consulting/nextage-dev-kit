@@ -17,6 +17,23 @@ Rule of thumb: If violation is a CRITICAL ERROR, it's constitution. If it's lang
 3. Temporary documents (disposable) go in `project-documentation/temporary`
 4. Permanent documentation goes in `project-documentation`
 
+**Plans are temporary — by definition, with no exceptions.**
+
+A plan file is written to `project-documentation/temporary` and nowhere else. A plan
+describes work that has not happened yet, so from the moment implementation starts it
+drifts from what was actually built — and a stale plan skimmed as if it were reference
+documentation is worse than having no documentation at all.
+
+When the work is done, the plan is **replaced, not kept**:
+
+1. Write the permanent doc — present-tense, describing what now exists, not what was
+   intended.
+2. File it in its proper home under `project-documentation`.
+3. **Delete the plan file.** It is not the deliverable and is not kept "for reference";
+   git holds the history.
+
+A plan surviving past its own implementation is a defect, not an archive.
+
 **Content rules:**
 - Only include current state, not historical decisions — reference/operational docs are present-tense; **scrub removed things to zero, never leave a "was deleted/replaced" tombstone.** Zero tolerance: see `constitution.md` §XV.
 - Follow existing file structure and style

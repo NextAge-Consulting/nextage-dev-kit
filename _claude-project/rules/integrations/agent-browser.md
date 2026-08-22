@@ -53,6 +53,34 @@ agent-browser trace stop trace.zip
 network and console, steppable in both directions. Hand the file over with the
 result.
 
+**Two agents on one machine share ONE browser — name your session.**
+
+`agent-browser` keeps a single background daemon per machine, and every session
+that does not name one lands in `default`. Two agents running at once therefore
+drive the SAME window: one navigates away while the other is mid-flow, refs go
+stale, and the reads come back describing the other agent's app. Worse, the
+teardown below then closes the other agent's browser out from under it.
+
+So whenever another session could be running — which on a multi-project machine
+is most of the time — work in a named session:
+
+```bash
+export AGENT_BROWSER_SESSION=<project>     # or --session <project> per command
+```
+
+Verified: named sessions coexist with `default` and with each other,
+`agent-browser session list` shows them, and closing one leaves the others
+running. There is no shared state to lose — each session gets its own browser,
+so it also starts logged out.
+
+**Never close a session you did not open.** Closing your own named session is
+the teardown below; closing `default` when you did not put anything there is the
+same mistake as killing a dev server you did not start.
+
+**The tell that you are in someone else's window:** a snapshot describing a page
+you never navigated to. Do not adapt to it — check `location.href` and move to a
+named session.
+
 **Teardown — ALWAYS `agent-browser close` when done.**
 agent-browser keeps a persistent background daemon holding the browser open (via CDP) so commands stay fast. It does NOT close on its own: the Chrome-for-Testing process lingers (a visible window when headed) and can only be force-quit — which makes macOS auto-updates fail. So the moment a browser task finishes — a single flow, a whole suite, or an ad-hoc check, pass or fail — run `agent-browser close`. Chain it so it always fires even mid-routine: `<last command> && agent-browser close`. Fallbacks if the daemon is wedged and `close` won't take: `pkill -f agent-browser` (kills the daemon), then `find ~/.agent-browser -maxdepth 1 -type s -delete` (clears stale sockets left by an interrupted run). This is the one lifecycle exception to "leave things running" — the browser is Claude's tool, not a shared resource. (Dev servers still stay up per `.claude/rules/dev-server.md`.)
 

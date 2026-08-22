@@ -203,7 +203,15 @@ For each `y` response, invoke the script:
 
 The `kit_path` field comes from the file entry (e.g., `_claude-project/hooks/git-guard.sh`). The script copies the file to the correct destination and updates the lockfile's per-file SHA entry.
 
-For `removed-kit` state accepted: the kit_path is empty in the report; the script detects kit file missing and removes from project + lockfile.
+For `removed-kit` state accepted, pass the entry's **`dest_path`** instead. The kit file is gone, so `kit_path` is empty in the report and there is nothing else to name it by:
+
+```bash
+~/.claude/scripts/sync-dev-kit.sh --apply-file <dest_path>
+```
+
+The script confirms nothing in the kit still maps to that destination, then deletes the file from the project and drops its lockfile entry. If the kit DOES still supply it, the call fails and names the kit path to use — which means the entry was not `removed-kit` and you misread the report.
+
+Do NOT try to reconstruct the kit path yourself. The kit→destination map is not invertible: `templates/` sends several kit paths to root-level and `SHARED_MODULE_DIR` destinations, so a guessed kit path either exits 4 or names the wrong file.
 
 ### Step 5: Handle .gitignore
 
