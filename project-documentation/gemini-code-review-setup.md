@@ -92,10 +92,78 @@ happened to be right. Always pin the project; never tell anyone to "select the p
 
 ## Steps
 
+### Naming — fixed, not a preference
+
+Every value below is constrained. Deviating from any of them fails somewhere
+non-obvious, usually several steps later.
+
+| Value | Rule | Example |
+|---|---|---|
+| `PROJECT` id | **Name it for the CLIENT, never for the tool.** One per GitHub ORG, never per repo — a connection serves every repo in its org, so a second project buys nothing and splits the agent toggle across two places. | `acme-codereview` |
+| `PROJECT` display name | The client, spelled out. | `Acme Code Review` |
+| `CONN` | **Lowercase, digits and hyphens ONLY.** `^[a-z][a-z0-9-]*$` | `acme-code-review` |
+| `REGION` | `us-east1` | `us-east1` |
+| repo-link id | `$ORG-$REPO`, verbatim | `Acme-Inc-web-app` |
+
+**Never name the project after the product** — `gemini-codereview`,
+`gemi-code-review`, `code-review` and friends. You will run this setup once per
+client, so those names collide in the project picker and in `gcloud projects
+list`, where the only thing distinguishing them is the client you cannot see.
+Identifying an unlabelled one afterwards means a billing-account lookup, and if
+it belongs to a client you will not have permission to read that either.
+
+**A project ID is permanent.** `gcloud projects update <ID> --name=<NAME>` changes
+only the display name; there is no way to change the ID short of deleting the
+project and starting over. Get it right at creation.
+
+**Name the project for the client even when it is your own** — the point is that
+every one of these projects is legible next to the others, and yours will be in
+the same list.
+
+**The connection name MUST be lowercase, and this is the trap that eats a whole
+session.** Developer Connect **accepts** an uppercase name and drives it to
+`installationState: COMPLETE`. Creation is not where this fails.
+
+It fails at **step 3**, in *Enable Code Assist for Source Code Management* →
+**Select a connection** → **Done**, which rejects the connection by name:
+
+```
+Failed to create the connection
+The request was invalid: invalid SCMConnection resource name
+```
+
+**Read that message carefully, because it lies.** Nothing is being created — you
+are binding the agent to an existing connection. The wording sends you off to
+re-create a connection that was never the problem, and every retry produces
+another duplicate. The only defect is uppercase in the name.
+
+There is no rename. Delete the connection and create a lowercase one.
+
 ```bash
-PROJECT=<gcp-project-id>; ORG=<github-org>; REPO=<repo>; CONN=<connection-name>; REGION=us-east1
+PROJECT=<gcp-project-id>; ORG=<github-org>; REPO=<repo>; REGION=us-east1
+CONN=<lowercase-connection-name>   # ^[a-z][a-z0-9-]*$ — see the table above
 gcloud config set project "$PROJECT"
 ```
+
+### Exactly one connection per org. Never two.
+
+Because the step-3 error blames creation, the reflex is to create another
+connection. Do not. **List what exists before creating anything:**
+
+```bash
+gcloud developer-connect connections list --location="$REGION" --project="$PROJECT" \
+  --format='value(name,installationState.stage)'
+```
+
+A second connection is not harmless. Both can reach `COMPLETE`, both can link the
+same repos, and only one carries the agent toggle — so every CLI check reads green
+while reviews never arrive. If you find more than one, delete all but the
+lowercase one and re-link its repos.
+
+Connections in the same project also **share one OAuth secret**, named after
+whichever connection was created first. Deleting that connection can take the
+secret with it. Do not untangle this: tear the whole project down and rebuild.
+Re-doing the OAuth takes two minutes and is the cheapest step in this document.
 
 **1. Enable the three APIs:**
 ```bash
@@ -119,6 +187,47 @@ the `?project=` one. If you genuinely used the pinned URL and still get Marketpl
 not taken effect yet; wait a minute for API enablement to propagate and reload. Do not proceed
 past this checkpoint, and do not start changing IAM, billing, or secrets to make the page
 render — none of those have ever been the cause.
+
+### Create the connection in the CONSOLE, not the CLI
+
+`gcloud developer-connect connections create` works and is tempting — it puts the
+name beyond typo range. **Do not use it.** A CLI-created connection is missing
+state the Console sets, and the enable step in step 3 then fails with:
+
+```
+The request was invalid: failed to check developer_connect_connection existence:
+generic::permission_denied: Permission 'developerconnect.connections.get' denied
+on resource '//developerconnect.googleapis.com/projects/…/connections/…'
+(or it may not exist)
+```
+
+The resource exists and your IAM is fine — the message is misleading in the same
+way step 3's other error is. The observable difference against a working
+connection is `gitProxyConfig.enabled`, which the Console sets and the CLI leaves
+unset unless you pass `--git-proxy-config-enabled`. Diff any suspect connection
+against a known-good one:
+
+```bash
+gcloud developer-connect connections describe "$CONN" --location="$REGION" --project="$PROJECT" --format=yaml
+```
+
+Two service agents must also hold their roles on the project. They are created on
+first use, so on a fresh project they can be absent when you need them — a
+Console-driven setup grants them silently, a CLI-driven one does not:
+
+| Service agent | Role |
+|---|---|
+| `service-<PROJECT_NUMBER>@gcp-sa-devconnect.iam.gserviceaccount.com` | `roles/developerconnect.serviceAgent` **and** `roles/secretmanager.admin` |
+| `service-<PROJECT_NUMBER>@gcp-sa-geminicodeassistmp.iam.gserviceaccount.com` | `roles/geminicodeassistmanagement.serviceAgent` |
+
+Without the Secret Manager grant, connection creation fails outright with
+`SECRET_CREATE_PERMISSION_MISSING` — Developer Connect cannot store the OAuth
+token. Check with:
+
+```bash
+gcloud projects get-iam-policy "$PROJECT" --flatten='bindings[].members' \
+  --format='value(bindings.members,bindings.role)' | grep gcp-sa
+```
 
 **2. Create the connection + install the App** — in the Console:
 
@@ -162,9 +271,37 @@ gcloud developer-connect connections git-repository-links create "$REPO" \
 | Control | Set to | Why |
 |---|---|---|
 | **Enable Code Review agent** | **ON** | Off = total silence on every trigger, with all CLI checks green. |
-| **Comment Severity** | **Low** | Match `.gemini/config.yaml`'s `comment_severity_threshold: LOW`. The Console defaults to Medium; when the two disagree, findings can be dropped without any signal. Setting both to Low removes the ambiguity. |
+| **Comment Severity** | **Low** | Match `.gemini/config.yaml`'s `comment_severity_threshold: LOW`. **The Console defaults to Medium** — it will be wrong every time unless you change it. When the two disagree, findings are dropped with no signal. |
 | **Improve response quality** (Preview) | **OFF** unless you decide otherwise | Stores inferred rules/facts from PR conversations in Google-managed storage. Review behavior is otherwise fully version-controlled in `.gemini/config.yaml`. |
 | **Style Guide** tab | leave empty | The style guide lives in-repo at `.gemini/styleguide.md`, version-controlled and kit-synced. |
+
+## Tear down and start clean
+
+The path to a working install is narrow, and a part-built one is worse than
+nothing: every CLI check reads green while the bot stays silent, so you debug
+config that is already correct. **When anything is uncertain — a half-finished
+attempt, an uppercase connection, two connections, an install from a previous
+session — delete the whole GCP project and start at step 1.** Do not repair.
+
+Deleting the project takes the connections, repo links and OAuth secrets with it
+in one action, which is the only way to be sure no half-state survives:
+
+```bash
+gcloud projects delete "$PROJECT" --quiet     # recoverable for 30 days
+```
+
+Then **uninstall the GitHub App**, which the project deletion does NOT remove.
+This is UI-only — the REST delete requires app-level auth and returns 404 for a
+user token:
+
+```bash
+gh api /orgs/$ORG/installations --jq '.installations[] | select(.app_slug=="gemini-code-assist") | .id'
+# then, in a browser:
+open "https://github.com/organizations/$ORG/settings/installations/<ID>"   # -> Uninstall
+```
+
+Leaving the App installed while rebuilding is a known way to end up with a
+connection bound to a stale installation.
 
 ## Verify
 
