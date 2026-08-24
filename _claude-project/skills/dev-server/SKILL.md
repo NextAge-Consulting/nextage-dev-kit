@@ -63,7 +63,7 @@ When a user request matches a dev-server trigger:
 
 ## Cross-references
 
-- `.claude/rules/dev-server.md` — the 5 rules of server lifecycle (always check, use occupied, never kill, leave running, etc.) that still govern any running server regardless of how it was started.
+- `.claude/rules/dev-server.md` — the rules of server lifecycle (check first, use occupied, never kill, leave running) that still govern any running server regardless of how it was started.
 - `.claude/commands/dev.md` — slash command specification.
 - `.claude/skills/dev-server/scripts/dev.sh` — implementation.
 - `project-documentation/DEVSERVER-CHEATSHEET.md` — one-page reference.

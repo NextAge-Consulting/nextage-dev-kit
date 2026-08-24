@@ -70,7 +70,7 @@ print(json.dumps({"hookSpecificOutput": {
         "should detect its environment and drop the transport in the browser. If it\n"
         "does not, fix the logger — do NOT bypass this hook and do NOT leave the\n"
         "catch empty (constitution §X).\n\n"
-        "See: .claude/rules/typescript-rules.md §II (No Console.log)"}}))
+        "See: .claude/rules/typescript-rules.md §II (Logging)"}}))
 '
     exit 0
 fi

@@ -81,11 +81,17 @@ No new branch, no stash. Just link and keep working.
                 #   so node_modules isn't left stale (bites the next /merge build gate)
 /deploy       # bump version, tag, push, trigger deploy workflow(s)
                 # transitions every closed issue in the release → "Done" on the project board
+
+/ship-main    # THE EXCEPTION: conventional commit straight onto main — no branch, no PR, no CI
+                # for quick infra / config / emergency work you accept shipping unreviewed
+                # fires only on its own triggers ("ship to main", "infra commit"); a bare
+                #   "commit" always routes to /commit, which auto-branches instead
+                # the message still must be conventional — the next /deploy reads it
 ```
 
-`/catchup` is the single "refresh from origin" command — behavior depends on the branch you're on. On main, it fast-forwards local main (use this when starting a session after someone else has merged + deployed and you want your local code current). On a feature branch, it merges `origin/main` INTO the branch via `--no-ff` (use when `gh pr view <N>` reports `mergeable: CONFLICTING`). On conflicts: edit the affected files, then `/catchup --continue`. See HANDBOOK §4.6.
+`/catchup` is the single "refresh from origin" command — behavior depends on the branch you're on. On main, it fast-forwards local main (use this when starting a session after someone else has merged + deployed and you want your local code current). On a feature branch, it merges `origin/main` INTO the branch via `--no-ff` (use when `gh pr view <N>` reports `mergeable: CONFLICTING`). On conflicts: edit the affected files, then `/catchup --continue` — or `/catchup --abort` to back the merge out entirely. See HANDBOOK §4.6.
 
-**Project board lifecycle (4 states):**
+**Project board lifecycle:**
 
 | State | Trigger |
 |-------|---------|
@@ -221,7 +227,7 @@ Picking up tomorrow on unfinished work: same launch, just `/work` (no args). You
 | `/link` refuses on main | Correct — linking only makes sense on a feature branch. Use `/work <issue>` to start a feature branch first. |
 | Issue didn't move on the project board (In Progress / Staged / Done) | Board transitions are now **fail-loud**. If `GITFLOW_PROJECT_ID` is set and the transition didn't fire, the script exited non-zero with the cause. Most common cause is the gh token missing `project` scope (`gh auth refresh -s project`), then the issue not being on the configured project (enable the project's "Auto-add to project" workflow). Empty `GITFLOW_PROJECT_ID` = feature off, silent skip. |
 | `/work` says it could not refresh main | The pre-branch fast-forward failed (usually `gh` auth scope or network). `/work` does not block — it cuts the branch off local `main` and tells you. Fix `gh auth status`, then `/catchup` to pull the latest into your branch. |
-| `/catchup` aborts: "local main is AHEAD" or "DIVERGED" | Local main has commits not on origin/main. Anomalous under gitflow's model (primary is read-only). Inspect with `git log origin/main..HEAD`. Likely cause: someone committed directly to main outside gitflow. Resolve manually before retrying `/catchup`. |
+| `/catchup` aborts: "local main is AHEAD" or "DIVERGED" | Local main has commits not on origin/main. Anomalous under gitflow's model (primary is read-only). Inspect with `git log origin/main..HEAD`. Most likely cause is a `/ship-main` commit that has not been pushed, or a commit made outside gitflow. Inspect, push or resolve manually, then retry `/catchup`. |
 | `current/` doesn't exist yet | Run `/work` (no args). It creates `current/` on a fresh `wip/<abbrev>-<timestamp>` branch and enters it. |
 | `/sync-dev-kit` keeps flagging `.claude/settings.json` as `kit-only` (or `conflict`) every sync even though you haven't touched it | settings.json is compared as jq-canonicalized JSON (HANDBOOK §9.6), so key order and indentation should never surface as a diff. If it still flags with no real difference, the canonicalization in `sync-dev-kit.sh` (`canonicalize_settings` / `sha256_settings_kit`) is broken — open a kit bug. |
 | `/commit` succeeded at commit but failed at push with "upstream branch ... does not match the name of your current branch" | The branch is tracking `origin/main` rather than its own remote ref. Re-trigger just the push: `.claude/skills/gitflow/scripts/commit.sh --push-only`. `safe_push` (in `branch_helpers.sh`) corrects the upstream and pushes. See HANDBOOK §4.5. |

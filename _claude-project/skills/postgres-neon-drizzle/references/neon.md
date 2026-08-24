@@ -9,16 +9,30 @@ A dev database is a branch of prod, not a hand-seeded copy. That is what makes i
 real enough to trust: the same rows, the same distributions, the same
 awkward legacy values.
 
-Two consequences that catch people:
+Which one your `DATABASE_URL` points at is a question with an answer, not a thing
+to weigh up: `node scripts/db-branch.mjs` resolves the endpoint through the Neon
+API and prints the branch. `DEV` means proceed, `PRODUCTION` means stop and get
+approval, `UNKNOWN` means it could not tell — which is never the same as safe.
 
 **A reset from parent wipes everything created on the branch.** Refreshing dev
 from prod discards any object, row or grant that exists only on dev.
 
-**So infrastructure lands on production first, always.** Seed prod once and let
-the reset carry it down. Doing it the other way — building on dev, then
-refreshing — destroys the work while prod stays un-seeded. This applies to
-anything structural: a collation object, an extension, a role grant, a
-bookkeeping row.
+**So ad-hoc SQL is never how something lands. Anything expressible as a migration
+IS a migration** — including a data seed, a collation, an extension, a role
+grant, a bookkeeping row. `drizzle-kit generate` writes the migration and its
+bookkeeping together, and editing the body of the generated `.sql` is the
+supported way to put arbitrary SQL inside it (`postgres-drizzle.md`). A migration
+then reaches every branch by the normal path: dev now, prod at deploy, and a
+reset cannot destroy it.
+
+Running that same SQL by hand against dev looks identical and is not. The reset
+erases it, prod never receives it, and the gap surfaces at deploy — which is
+exactly how a seeded lookup table shipped empty.
+
+**The one exception is a fix SQL alone cannot express** — one that needs
+scripting, parsing, or per-row judgement. That is a human-gated action, the same
+gate as `db:generate` and `db:migrate`: say what you intend to run and get
+approval in the conversation before running it. Never on your own judgement.
 
 ## Tests fork their own branch
 

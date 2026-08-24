@@ -1,51 +1,27 @@
 # Development Guidelines
 
-<!--
-WHAT BELONGS HERE: Language-agnostic implementation tips, how-to guidance, soft recommendations.
-WHAT DOESN'T: Critical rules with enforcement (constitution.md).
-WHAT DOESN'T: Language-specific guidance (typescript-rules.md / python-rules.md).
-Rule of thumb: If violation is a CRITICAL ERROR, it's constitution. If it's language-specific, it's the language file. Otherwise here.
--->
+Critical rules in `constitution.md`. Language-specific patterns in `typescript-rules.md` and `python-rules.md`, auto-loaded via path targeting.
 
-**Note**: Critical rules in `constitution.md`. Language-specific patterns in `typescript-rules.md` and `python-rules.md` (auto-loaded via path targeting).
+## Documentation
 
-## Documentation Standards
+Location, first match wins:
 
-**Location priority:**
-1. Follow specific instructions in prompt or user request
-2. Special files (`changelog.md`, `README.md`, `CLAUDE.md`) follow predefined locations
-3. Temporary documents (disposable) go in `project-documentation/temporary`
-4. Permanent documentation goes in `project-documentation`
+1. An explicit instruction in the prompt.
+2. The predefined home for a special file — `changelog.md`, `README.md`, `CLAUDE.md`.
+3. `project-documentation/temporary` for a disposable document.
+4. `project-documentation` for a permanent one.
 
-**Plans are temporary — by definition, with no exceptions.**
+Within that, follow the existing file structure and style, and check existing subfolders for a suitable location.
 
-A plan file is written to `project-documentation/temporary` and nowhere else. A plan
-describes work that has not happened yet, so from the moment implementation starts it
-drifts from what was actually built — and a stale plan skimmed as if it were reference
-documentation is worse than having no documentation at all.
+**Plans are temporary, with no exceptions.** A plan file goes in `project-documentation/temporary` and nowhere else. When the work is done, replace it: write the permanent doc in the present tense describing what now exists, file it under `project-documentation`, and delete the plan file. Git holds the history.
 
-When the work is done, the plan is **replaced, not kept**:
+Docs describe current state only. Scrub removed things to zero — never a "was deleted" or "this replaced" note (constitution §XV).
 
-1. Write the permanent doc — present-tense, describing what now exists, not what was
-   intended.
-2. File it in its proper home under `project-documentation`.
-3. **Delete the plan file.** It is not the deliverable and is not kept "for reference";
-   git holds the history.
+## Environment configuration
 
-A plan surviving past its own implementation is a defect, not an archive.
+Check for existing `.env` files before creating one. Read current values first and add only new variables.
 
-**Content rules:**
-- Only include current state, not historical decisions — reference/operational docs are present-tense; **scrub removed things to zero, never leave a "was deleted/replaced" tombstone.** Zero tolerance: see `constitution.md` §XV.
-- Follow existing file structure and style
-- Check existing subfolders for suitable location
-
-## Environment Configuration
-
-- Preserve existing configuration when adding env vars
-- Check for existing `.env` files before creating
-- Read current values first, add only new variables
-
-## Database Query Access (psql)
+## Database query access
 
 For read-only queries and exports, use psql directly:
 
@@ -54,8 +30,6 @@ DATABASE_URL=$(grep "^DATABASE_URL=" .env | cut -d'=' -f2- | cut -d'#' -f1 | xar
 psql "$DATABASE_URL" -c "SELECT * FROM tablename;"
 ```
 
-## Code Health
+## Code health
 
-- Run language diagnostics before claiming work done (LSP is primary — see constitution §IX)
-- Check for indirect usage before deleting code flagged as unused
-- Language-specific unused-code error codes (TS6133, F401, etc.) live in the respective rule files
+Run language diagnostics before claiming work done — LSP is primary, see constitution §IX. Check for indirect usage before deleting code flagged as unused.

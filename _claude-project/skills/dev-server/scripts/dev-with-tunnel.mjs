@@ -4,7 +4,7 @@
  * Cloudflare named tunnel + Vite dev server in one tab.
  *
  * Invoked by `/dev <app> --tunnel` via the package.json script
- * `dev:tunnel:<app>` → `node .claude/skills/dev-server/scripts/dev-with-tunnel.js <app>`.
+ * `dev:tunnel:<app>` → `node .claude/skills/dev-server/scripts/dev-with-tunnel.mjs <app>`.
  *
  * Spawns:
  *   1. cloudflared tunnel run    (reads ~/.cloudflared/config.yml — user-machine)

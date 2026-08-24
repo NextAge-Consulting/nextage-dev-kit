@@ -10,7 +10,7 @@ allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*), Bash(lsof:*), B
 
 The **writing** half of the E2E model. `/e2e` *runs* flows; this skill *authors and maintains* them. A "flow" is a plain-English markdown file with YAML frontmatter — no Playwright spec, no assertions. When you build a new flow or a UI change makes an existing flow stale, do it through here so the flow lands in the right shape and doesn't re-hit the agent-browser potholes that bit the last run.
 
-The model is locked (kit `PIPELINE.md` §1.5; memory `feedback_e2e_model_locked`): **no Playwright, no Stagehand, no scripted suite.** Flows are read and driven by Claude. So a good flow file is one a fresh Claude can execute without guessing.
+The model is locked (kit `PIPELINE.md` §1.5): **no Playwright, no Stagehand, no scripted suite.** Flows are read and driven by Claude. So a good flow file is one a fresh Claude can execute without guessing.
 
 ## When to use
 
@@ -199,7 +199,7 @@ The only reason to omit `--full` is when you deliberately want the above-the-fol
 1. **Scope the flow.** Which app, port, route(s)? Auth or not? What's the single happy path a user walks? One flow = one coherent journey; split login vs dashboard vs checkout into separate files.
 2. **Set frontmatter.** `name`/`app`/`port`/`requires-auth`/`triggers`. Triggers = the routes/lib the flow exercises + shared seams it rides on.
 3. **Write Preconditions.** Server, the exact `TEST_<APP>_*` vars (loaded via R2), any DB state.
-4. **Write Steps** in Setup → journey sections. Every step names *what proves it passed* (the runner marks ✅/❌ on that). Use the recipes (R1–R6) wherever they apply — write the recipe form, not the naive form.
+4. **Write Steps** in Setup → journey sections. Every step names *what proves it passed* (the runner marks ✅/❌ on that). Use the recipes below wherever they apply — write the recipe form, not the naive form.
 5. **List Failure indicators** — the concrete "this is broken" signals for this flow.
 6. **Dry-run it once** (see below). A flow you never executed is drift waiting to happen — the exact failure this skill exists to prevent.
 
@@ -208,7 +208,7 @@ The only reason to omit `--full` is when you deliberately want the above-the-fol
 Author, then actually run the flow through `agent-browser` end to end at least once:
 - Start the dev server (`.claude/rules/dev-server.md` — check the port first, never kill).
 - Walk the steps. Every step should resolve ✅ against real UI.
-- If a step needs the naive form to be swapped for a recipe (R1–R6), fix it in the file now.
+- If a step needs the naive form to be swapped for a recipe, fix it in the file now.
 - A flow that has never been executed is NOT done — hand-off it and it rots.
 
 ## Maintenance / drift repair
@@ -231,4 +231,3 @@ A flow authored here should be runnable by `e2e` with zero extra guessing. If th
 - `.claude/rules/integrations/agent-browser.md` — canonical agent-browser conventions (viewport, iframe recipe, auth)
 - `.claude/rules/dev-server.md` — server lifecycle (check port, never kill, leave running)
 - kit `PIPELINE.md` §1.5 — why this model (no Playwright / no scripted suite)
-- Memory `feedback_e2e_model_locked` — locked-decision context

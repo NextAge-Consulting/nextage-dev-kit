@@ -72,10 +72,7 @@ These rules are project-agnostic and apply on top of the project's tokens:
 - **Semantic over primitive.** When a semantic token exists for the role (`primary`, `card-title`, `action-primary-bg`), use it. Reach for primitive tokens (raw brand colors like `lg-navy`) only for one-off accents that have no semantic mapping. The token architecture is typically: primitive → semantic → shadcn → Tailwind utility — always grab the highest-level abstraction that fits the role.
 - **No inline `style={{}}` for colors.** All color comes from Tailwind utility classes mapped to the `@theme` tokens. Inline styles bypass the design system and are forbidden. The only common exception is SVG `fill="var(--color-...)"` because Tailwind cannot target SVG attributes.
 - **No raw hex values in components.** Every color reference in component code must resolve to a token. If a hex appears in a JSX/CSS file, it's a smell — either map it to a semantic token or add the token to `design.md`.
-- **No `space-y-*` / `space-x-*`.** Use `flex flex-col gap-N` or `flex gap-N`. Reason: predictable, no margin-collapse edge cases, plays well with conditional rendering.
-- **Use `size-N` when width equals height.** `size-8` not `w-8 h-8`. Smaller, clearer intent.
-- **Use Tailwind `hover:` variants for hover state.** Never JS event handlers (`onMouseEnter`/`onMouseLeave`) for hover-only color changes — that's reinventing CSS in JavaScript and breaks under SSR.
-- **Use the `cn()` utility for conditional class joins.** Import from `@/lib/utils` (or the project's equivalent). `clsx`/`classnames`-style string concatenation is forbidden when conditionals are involved.
+- **Tailwind mechanics live in the `shadcn` skill's `rules/styling.md`** — `gap-*` over `space-y-*`, `size-N` over `w-N h-N`, `hover:` variants over JS handlers, `cn()` for conditional joins, `truncate`, no manual `dark:`, no manual `z-index`. That file carries them with Incorrect/Correct pairs; do not restate them here.
 - **Accessibility lives in `a11y-baseline.md`.** Icon-only buttons need accessible names; SVGs need `<title>` or `aria-hidden`; labels need `htmlFor` + `id`. That rule auto-loads on JSX/TSX edits and is the authoritative source for a11y patterns — don't duplicate its content here.
 
 ### Step 5: Validate the result

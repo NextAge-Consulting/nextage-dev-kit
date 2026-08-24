@@ -1196,7 +1196,7 @@ Weekly cadence produces waves of ~9 PRs in a single day (majors, dev-majors, gro
 Result: one monthly grouped wave per ecosystem + majors individually after 30-day cooldown. Review burden ~1 defined session/month, security-fix lane still fires immediately (Dependabot security updates skip cooldown automatically).
 
 **Commit-message prefix discipline** (unchanged):
-- `chore(deps)` / `chore(deps-dev)` / `chore(ci)` / `chore(docker)` are subject-only `chore` types — `deploy.sh`'s bump-level inference (§6.5 Step 2; was `version-bump.yml`'s parser before its removal) treats them as patch under Option B (chore counts as a release-worthy bump).
+- `chore(deps)` / `chore(deps-dev)` / `chore(ci)` / `chore(docker)` are subject-only `chore` types — `deploy.sh`'s bump-level inference (§6.5 Step 2) treats them as patch under Option B (chore counts as a release-worthy bump).
 - `include: scope` is INTENTIONALLY ABSENT from all three blocks. With it set, Dependabot appends its own `(deps)` scope on top of the prefix — titles render as `chore(deps)(deps): bump foo`. The prefix already carries the scope; don't double it.
 
 **Interaction with `/deploy` (§6.5)**: dep PRs land on main via `/merge` like any other PR, but do not fire deploys on their own. They ride the next `/deploy` invocation alongside whatever else has accumulated. The monthly cadence + cooldown limits the dep-PR wave per ecosystem; whether a wave triggers a release is the maintainer's call at `/deploy` time. Cadence solves review burden; `/deploy` solves "when does it ship."
@@ -1437,7 +1437,7 @@ Closes a real gap that `dependabot.yml` alone can't: Dependabot doesn't understa
 
 ### 11.15. `/e2e` skill (Claude-as-intelligent-tester)
 
-**What this is.** A Skill that implements the locked E2E testing model (kit `PIPELINE.md` §1.5, memory `feedback_e2e_model_locked.md`): Claude drives `agent-browser` through plain-English flow files, detects failure behaviorally, reports pass/fail. **Not a scripted test suite. Not Playwright. Not Stagehand.**
+**What this is.** A Skill that implements the locked E2E testing model (kit `PIPELINE.md` §1.5): Claude drives `agent-browser` through plain-English flow files, detects failure behaviorally, reports pass/fail. **Not a scripted test suite. Not Playwright. Not Stagehand.**
 
 **Components ship:**
 - `_claude-project/skills/e2e/SKILL.md` — the skill protocol (discovery, scoping via PR diff, server startup per dev-server.md, execution, reporting)

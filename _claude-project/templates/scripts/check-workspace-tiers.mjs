@@ -18,6 +18,12 @@
  *   headless apps  (apps/* with no react dependency and no .tsx)
  *       Reach the server-shared tier ONLY — never ui, never web. This is what
  *       keeps browser libraries out of their container images.
+ *   extension apps (apps/* built by a browser-extension builder)
+ *       The mirror image: 100% browser, no server half at all. MAY import ui;
+ *       MUST NOT import the server-shared tier or database code. Detected by
+ *       the builder dependency (wxt / plasmo / crxjs) rather than by react,
+ *       because a full-stack app like apps/web is also react-bearing and DOES
+ *       legitimately import the data tier from its server routes.
  *
  * SELF-GATING: every tier is detected, never assumed. A repo with no
  * packages/ui, no web tier, or no headless app simply has fewer rules to check
@@ -103,9 +109,17 @@ const shared = detectTier(["apps/shared", "packages/shared"], "@shared");
 const ui = detectTier(["packages/ui"], "@ui");
 const web = detectTier(["packages/web"], "@web");
 
+// A browser-extension builder in an app's dependencies means the whole
+// workspace is browser code — there is no server half to justify a database
+// import, so a stray one would ship drizzle into the extension bundle.
+const EXTENSION_BUILDERS = ["wxt", "plasmo", "@plasmohq/parcel-config", "@crxjs/vite-plugin"];
+
+const isExtensionApp = (deps) => EXTENSION_BUILDERS.some((b) => b in deps);
+
 // Headless apps: an app workspace with no react dependency and no .tsx file.
 // That two-field test separates server-only services from front-end apps
-// without any per-project configuration.
+// without any per-project configuration. Extension apps are excluded — they
+// have neither, but they are browser code, not server code.
 function detectHeadlessApps() {
   const out = [];
   let apps;
@@ -122,6 +136,7 @@ function detectHeadlessApps() {
     if (!pkg) continue;
     const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
     if (deps.react) continue;
+    if (isExtensionApp(deps)) continue;
     const root = existsSync(join(dir, "src")) ? join(dir, "src") : dir;
     let hasTsx = false;
     for (const f of walk(root)) {
@@ -135,7 +150,29 @@ function detectHeadlessApps() {
   return out;
 }
 
+/** Browser-extension apps: 100% client, may use ui, must not reach the data tier. */
+function detectExtensionApps() {
+  const out = [];
+  let apps;
+  try {
+    apps = readdirSync("apps");
+  } catch {
+    return out;
+  }
+  for (const name of apps) {
+    const dir = join("apps", name);
+    if (!statSync(dir).isDirectory()) continue;
+    const pkg = readJson(join(dir, "package.json"));
+    if (!pkg) continue;
+    const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
+    if (!isExtensionApp(deps)) continue;
+    out.push({ dir, root: dir });
+  }
+  return out;
+}
+
 const headless = detectHeadlessApps();
+const extensions = detectExtensionApps();
 
 const startsWithAny = (spec, prefixes) => prefixes.some((p) => spec === p || spec.startsWith(p));
 
@@ -210,6 +247,18 @@ for (const app of headless) {
   }
 }
 
+// --- extension apps: never the data tier ----------------------------------
+for (const app of extensions) {
+  for (const f of walk(app.root)) {
+    for (const { line, spec } of specifiers(f)) {
+      if (shared && startsWithAny(spec, shared.prefixes))
+        failures.push(`${f}:${line}: extension app ${app.dir} imports "${spec}" — it is entirely browser code; a data-tier import ships drizzle into the extension bundle`);
+      if (isDbImport(spec))
+        failures.push(`${f}:${line}: extension app ${app.dir} imports database code "${spec}" — never in a browser bundle`);
+    }
+  }
+}
+
 if (failures.length) {
   console.error(`✗ workspace-tier violations:\n${failures.map((f) => `  ${f}`).join("\n")}`);
   process.exit(1);
@@ -223,6 +272,8 @@ if (ui) checked.push(`${ui.dir} is database-free`);
 if (web) checked.push(`${web.dir} is database-free`);
 if (headless.length)
   checked.push(`${headless.map((h) => h.dir).join(", ")} reach the data tier only`);
+if (extensions.length)
+  checked.push(`${extensions.map((e) => e.dir).join(", ")} never reach the data tier`);
 console.log(
   checked.length
     ? `✓ workspace-tiers: ${checked.join("; ")}.`

@@ -38,7 +38,29 @@ fi
 # `kill $(lsof …)` alternative silently matched nothing at all.
 KILL_PATTERN='pkill.*vite|pkill.*npm.*dev|pkill.*node.*dev|fuser -k|kill -9.*vite|kill.*\$\(lsof|lsof.*\| *xargs.*kill'
 
-if printf '%s' "$COMMAND" | grep -qE "$KILL_PATTERN"; then
+# Drop heredoc BODIES before matching. A heredoc body is data being written to a file,
+# never a command being run — so documenting `pkill -f vite` used to trip this guard,
+# and the kit's own dev-server rule quotes every command in the pattern. A false block
+# here stops ordinary writing dead and teaches the bypass as a habit.
+# Any failure in the stripper falls back to the raw command: fail closed.
+SCAN_COMMAND=$(python3 -c '
+import re, sys
+lines = sys.argv[1].split("\n")
+out, i = [], 0
+while i < len(lines):
+    out.append(lines[i])
+    m = re.search(r"<<-?\s*[\x27\"]?([A-Za-z_][A-Za-z0-9_]*)[\x27\"]?", lines[i])
+    if m:
+        delim = m.group(1)
+        i += 1
+        while i < len(lines) and lines[i].strip() != delim:
+            i += 1
+    i += 1
+print("\n".join(out))
+' "$COMMAND" 2>/dev/null) || SCAN_COMMAND="$COMMAND"
+[ -n "$SCAN_COMMAND" ] || SCAN_COMMAND="$COMMAND"
+
+if printf '%s' "$SCAN_COMMAND" | grep -qE "$KILL_PATTERN"; then
     # Emit via a JSON encoder, never string interpolation: any command carrying a
     # double quote or backslash produced an unparseable payload, and an unparseable
     # deny is silently DISCARDED — the guard reads as protection while blocking nothing.

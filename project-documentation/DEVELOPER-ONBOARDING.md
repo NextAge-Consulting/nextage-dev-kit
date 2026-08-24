@@ -181,7 +181,7 @@ When the developer clones a project that uses the dev kit:
 2. Change into the project directory
 3. Verify the project has the expected structure:
    - `.claude/settings.json` (if missing — project was never synced with the new dev kit; the maintainer needs to run `/sync-dev-kit` in the project first)
-   - `.claude/hooks/` with `git-guard.sh`, `pre-commit-validation.sh`, etc.
+   - `.claude/hooks/` with `git-guard.sh`, `block-db-commands.sh`, etc.
    - `.claude/skills/gitflow/` with `SKILL.md` + scripts
    - `.claude/commands/` with `commit.md`, `checkpoint.md`, `open-pr.md`, `merge.md` (the per-project gitflow commands; `/work` and `/sync-dev-kit` are global, installed in `~/.claude`, not in the project repo)
    - `.mcp.json` at repo root

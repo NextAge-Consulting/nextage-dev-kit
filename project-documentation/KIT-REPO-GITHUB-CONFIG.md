@@ -53,16 +53,18 @@ Pushes branch, creates PR, prepends `Closes #N` from any branch-linked issues. N
 
 ## 3. Workflow templates NOT installed here (and why each is correct)
 
-`_github-project/workflows/` contains four workflow templates that SHIP to consumer projects via `/sync-dev-kit`. None are installed in this repo:
+`_github-project/workflows/` holds the workflow templates that SHIP to consumer projects via `/sync-dev-kit`. None are installed in this repo:
 
 | Workflow | Why not installed here |
 |----------|------------------------|
-| `commitlint.yml` | Optional. Local `/commit` already enforces conventional format. Would need `.commitlintrc.json` at root. Install if PR-title backstop is wanted. |
-| `version-bump.yml` | Requires `package.json` or `pyproject.toml`. Kit has neither — would no-op on every merge. |
-| `tag-release.yml` | Depends on `version-bump.yml` producing a bump PR. Nothing to tag without a version manifest. |
+| `ci.yml` | Runs `check-types`, `biome` and `vitest` off a `package.json` the kit does not have — every job would no-op. |
+| `commitlint.yml` | Optional. Local `/commit` already enforces conventional format. Would need `.commitlintrc.json` at root. Install if a PR-title backstop is wanted. |
 | `dependabot-surfacing.yml` | No dependency manifests to scan. |
+| `node-lts-check.yml` | Watches a pinned node version the kit does not declare. |
 
-If the kit ever grows a version manifest (e.g., a versioned CLI), reconsider `version-bump.yml` + `tag-release.yml`.
+Version bump and tag are **not** workflows and are not coming back as workflows — they
+live in the local `/deploy` command, single-writer and human-serialized (HANDBOOK §6.5,
+and the do-not-reintroduce note at §11.5).
 
 ---
 
@@ -74,7 +76,7 @@ Run through this when adding/modifying anything in the kit. If any row answers *
 |----------------------|----------------------------|--------------------|
 | Adding a new rule, skill, command, or hook under `_claude-project/` | ❌ No | Template-only — ships to consumers. Kit repo runs its own mirror copy. |
 | Adding a new workflow to `_github-project/workflows/` | ❌ No (ships to consumers) | Only install in kit if it's useful on a manifest-less repo (rare). |
-| Adding a `package.json` / `pyproject.toml` / `biome.json` to the kit root | ✅ **Yes** | `/commit` typecheck + biome gates now fire locally. Also enables `version-bump.yml` if installed. |
+| Adding a `package.json` / `pyproject.toml` / `biome.json` to the kit root | ✅ **Yes** | `/commit` typecheck + biome gates now fire locally, and `ci.yml` becomes worth installing. |
 | Adding `.github/workflows/commitlint.yml` to kit | ✅ **Yes** | Needs `.commitlintrc.json` at kit root. |
 | Making kit public OR moving to a paid plan | ⚠️ Mostly no | Branch protection would become *available*, but the pipeline uses none — so there is nothing to apply. The only thing to watch: don't enable require-PR, or the direct-push paths (`/ship-main`, and `/deploy` if ever run against the kit's own repo) break. `/sync-dev-kit` does no git (you land its changes with `/ship-main`). `enforce_admins` is irrelevant — nothing admin-merges. |
 | Changing kit's merge method away from squash | ✅ **Yes** | `merge.sh` calls `gh pr merge --squash`. Repo must keep squash-merge enabled. |

@@ -175,10 +175,9 @@ npx shadcn@latest docs button dialog select
 3. **Find components** — `npx shadcn@latest search`.
 4. **Get docs and examples** — run `npx shadcn@latest docs <component>` to get URLs, then fetch them. Use `npx shadcn@latest view` to browse registry items you haven't installed. To preview changes to installed components, use `npx shadcn@latest add --diff`.
 5. **Install or update** — `npx shadcn@latest add`. When updating existing components, use `--dry-run` and `--diff` to preview changes first (see [Updating Components](#updating-components) below).
-6. **Fix imports in third-party components** — After adding components from community registries (e.g. `@bundui`, `@magicui`), check the added non-UI files for hardcoded import paths like `@/components/ui/...`. These won't match the project's actual aliases. Use `npx shadcn@latest info` to get the correct `ui` alias (e.g. `@workspace/ui/components`) and rewrite the imports accordingly. The CLI rewrites imports for its own UI files, but third-party registry components may use default paths that don't match the project.
-7. **Review added components** — After adding a component or block from any registry, **always read the added files and verify they are correct**. Check for missing sub-components (e.g. `SelectItem` without `SelectGroup`), missing imports, incorrect composition, or violations of the [Critical Rules](#critical-rules). Also replace any icon imports with the project's `iconLibrary` from the project context (e.g. if the registry item uses `lucide-react` but the project uses `hugeicons`, swap the imports and icon names accordingly). Fix all issues before moving on.
-8. **Registry must be explicit** — When the user asks to add a block or component, **do not guess the registry**. If no registry is specified (e.g. user says "add a login block" without specifying `@shadcn`, `@tailark`, etc.), ask which registry to use. Never default to a registry on behalf of the user.
-9. **Switching presets** — Ask the user first: **reinstall**, **merge**, or **skip**?
+6. **Read every file you just added, and fix it before moving on.** The CLI rewrites imports for its own UI files; third-party registry items (`@bundui`, `@magicui`, …) often ship hardcoded paths like `@/components/ui/...` that don't match the project. Check for: import paths that don't match the `ui` alias from `info`, icon imports that don't match `iconLibrary` (swap both the import and the icon names), missing sub-components (`SelectItem` without `SelectGroup`), missing imports, and any Critical Rules violation.
+7. **Never guess the registry.** If the human says "add a login block" without naming `@shadcn`, `@tailark`, etc., ask. Never pick one on their behalf.
+8. **Switching presets** — ask the human first: **reinstall**, **merge**, or **skip**?
    - **Reinstall**: `npx shadcn@latest init --preset <code> --force --reinstall`. Overwrites all components.
    - **Merge**: `npx shadcn@latest init --preset <code> --force --no-reinstall`, then run `npx shadcn@latest info` to list installed components, then for each installed component use `--dry-run` and `--diff` to [smart merge](#updating-components) it individually.
    - **Skip**: `npx shadcn@latest init --preset <code> --force --no-reinstall`. Only updates config and CSS, leaves components as-is.
@@ -235,13 +234,9 @@ npx shadcn@latest view @shadcn/button
 **Templates:** `next`, `vite`, `start`, `react-router`, `astro` (all support `--monorepo`) and `laravel` (not supported for monorepo)
 **Preset codes:** Base62 strings starting with `a` (e.g. `a2r6bw`), from [ui.shadcn.com](https://ui.shadcn.com).
 
-## Detailed References
+## More detail
 
-- [rules/forms.md](./rules/forms.md) — FieldGroup, Field, InputGroup, ToggleGroup, FieldSet, validation states
-- [rules/composition.md](./rules/composition.md) — Groups, overlays, Card, Tabs, Avatar, Alert, Empty, Toast, Separator, Skeleton, Badge, Button loading
-- [rules/icons.md](./rules/icons.md) — data-icon, icon sizing, passing icons as objects
-- [rules/styling.md](./rules/styling.md) — Semantic colors, variants, className, spacing, size, truncate, dark mode, cn(), z-index
-- [rules/base-vs-radix.md](./rules/base-vs-radix.md) — asChild vs render, Select, ToggleGroup, Slider, Accordion
-- [rules/a11y-primitives.md](./rules/a11y-primitives.md) — Button type default, icon-only aria-label, post-install primitive audit
-- [cli.md](./cli.md) — Commands, flags, presets, templates
-- [customization.md](./customization.md) — Theming, CSS variables, extending components
+Each Critical Rules heading above links to its own file. Beyond those:
+
+- [cli.md](./cli.md) — every command and flag, presets, templates
+- [customization.md](./customization.md) — theming, CSS variables, extending components

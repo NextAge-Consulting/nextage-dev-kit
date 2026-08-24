@@ -1,103 +1,33 @@
 # Testing & Verification
 
-Who runs tests depends on whether a human is available to hand off to — not how
-the session was launched (a background job with a human watching is still
-interactive).
+Who runs tests depends on whether a human is available to hand off to — not how the session was launched. A background job with a human watching is still interactive.
 
-## Interactive sessions — the human drives testing
+## Interactive sessions
 
-- Do NOT run agent-browser, e2e flows, or any manual verification pass unless the
-  human explicitly asks ("test this", "verify it"). Announcing that you're about
-  to verify is NOT permission — wait for the ask.
-- Your job ends at build + static verification (typecheck, lint, build). Then
-  hand off: state what's ready and exactly what a verification would need, and
-  let the human run it.
-- The human starting a dev server is not an invitation to test against it.
+The human drives testing. Run agent-browser, e2e flows, or any manual verification pass only when they explicitly ask ("test this", "verify it"). Announcing that you are about to verify is not permission, and the human starting a dev server is not an invitation to test against it.
 
-## Autonomous sessions — the AI must self-verify
+Your job ends at build and static verification — typecheck, lint, build. Then hand off: state what is ready and exactly what a verification would need.
 
-- **`autonomous-sessions.md` defines the mode**, and it is asserted by the human
-  or by an unattended launch — never inferred from silence or from the size of
-  the task. Do not decide it here.
-- In an autonomous session the AI MUST verify its own work — drive agent-browser
-  and the relevant e2e flows to completion. The interactive restriction above
-  does not apply; there is no one to defer to.
+## Autonomous sessions
 
-## Running the suite (Zero Tolerance)
+`autonomous-sessions.md` defines the mode. It is asserted by the human or by an unattended launch, never inferred.
 
-These apply whenever you DO run tests, on either path above.
+In an autonomous session, verify your own work — drive agent-browser and the relevant e2e flows to completion. There is no one to defer to.
 
-### `npm test`, from the repo root. Never `npx vitest` from a workspace.
+## Running the suite
 
-The standard shape is a root `test` script delegating to the shared vitest
-config, e.g. `"test": "vitest run -c apps/shared/vitest.config.ts"`, with
-`npm test -- --project unit` when you deliberately want unit only.
+These apply whenever you DO run tests, on either path above. They do not authorize a run.
 
-Run it from the **repository root**, always. Config, fixtures and tooling paths
-resolve relative to the root — notably `drizzle.config.ts`, which the integration
-`globalSetup` shells out to. `cd` into a workspace and run `npx vitest` there and
-it dies in setup hunting a config that isn't at that path, which looks exactly
-like a broken suite when it is only mis-invoked.
+**Run `npm test` from the repository root.** The standard shape is a root `test` script delegating to the shared vitest config, with `npm test -- --project unit` when you want unit only. Config, fixtures and tooling paths resolve relative to the root — notably the Drizzle config file, which the integration `globalSetup` shells out to. Run `npx vitest` from inside a workspace and it dies in setup hunting a config that is not at that path, which looks like a broken suite when it is only mis-invoked.
 
-A project on a different stack runs whatever its own `package.json` / Makefile
-declares — the root-invocation rule is the part that never changes.
+A project on a different stack runs whatever its own `package.json` or Makefile declares. The root-invocation rule never changes.
 
-### Never report a suite as "blocked" without quoting the error
+**Before calling a suite blocked, run it the canonical way, read the actual error, quote it to the human, and name the specific cause.** A failure in global or session setup is a mis-invocation until proven otherwise. An inferred blocker is a fabricated one.
 
-A failure in global/session setup is **you invoked it wrong** until proven
-otherwise. Before telling the human a suite cannot run:
+**Confirm the integration project actually ran.** The vitest config drops it silently when `NEON_API_KEY` or `NEON_PROJECT_ID` is missing from `.env`, and `npm test` still exits green. Read the summary for `|integration|` labels in the per-file output, and for a duration in tens of seconds rather than about one. A short run with no labels means integration did not run — say so and name the missing credential rather than reporting a pass.
 
-1. Run it the canonical way, from the repo root.
-2. Read the actual error text. Quote it to the human.
-3. Name the specific cause.
+**Run the integration suite. It cannot touch production.** Each run provisions its own throwaway Neon branch, migrates it, points `DATABASE_URL` at that branch before any worker spawns, and deletes it in teardown. Every test runs inside a rolled-back transaction. It costs about a cent a run.
 
-**An inferred blocker is a fabricated one.** "That suite is gated behind <hook /
-policy / credential> so I skipped it" — where the thing was never actually
-checked — reads as diligence while silently dropping coverage. If a suite truly
-cannot run, the reason is a quotable error message, never an inference.
+The branch is forked from production, which is why the data is real — but every write lands on the disposable copy, and the fork is a read. The DB guard covers migration commands invoked from the shell, not the migrate inside the harness, so it is not a reason to skip either.
 
-### Confirm the integration project actually RAN — it drops SILENTLY
-
-The vitest config gates the integration project on the Neon credentials:
-
-```ts
-projects: hasNeonCreds ? [unitProject, integrationProject] : [unitProject]
-```
-
-When `NEON_API_KEY` or `NEON_PROJECT_ID` is absent from `.env`, **the integration
-project is dropped from the run and `npm test` still exits green.** Nothing warns
-you. A passing run is NOT evidence that integration tests ran.
-
-So read the summary before claiming the suite passed. The tells:
-
-- **`|integration|` labels** in the per-file output. No labels, no integration.
-- **Duration.** Unit-only finishes in about a second; a run that provisions a
-  database branch takes tens of seconds.
-
-Short run → say so plainly and name the missing credential. Do not report it as
-a pass.
-
-A project without Neon simply has no integration project to drop, and this
-section costs it nothing.
-
-### The integration suite is SAFE — run it
-
-`test/globalSetup.ts` forks ONE ephemeral Neon branch from production per run,
-migrates it, points `DATABASE_URL` at it before any worker spawns, and deletes it
-in teardown — with a short `expires_at` as the crash backstop. Each test runs in
-a rolled-back transaction, so parallel tests are MVCC-isolated. Production is
-never written. It costs about a cent a run.
-
-**The DB guard does not apply, and is not a reason to skip it.**
-`block-db-commands.sh` guards `drizzle-kit` invoked as a *Bash command* — schema
-changes run on the AI's judgment against a real database. The migrate inside
-`globalSetup` is an `execSync` within the harness against a throwaway branch. The
-hook never sees it and shouldn't. Constitution §V governs changing the real
-schema, not running tests.
-
-Because the branch forks production, this suite sees REAL data — which makes it
-the only place a whole class of defect is reachable at all: a lookup or reference
-table drifting from what the field actually reports, a catalog missing a row a
-live device depends on. A fixture-based unit test asserts against a copy, so it
-can only ever prove the copy is self-consistent. Skipping integration skips
-exactly the coverage nothing else provides.
+**Never skip or stall a test run over doubt about which database you are on.** That doubt has cost whole sessions. Tests provision their own branch, so the question does not arise; and where you genuinely need the answer, `node scripts/db-branch.mjs` gives it in one API call rather than an assumption.

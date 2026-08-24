@@ -16,7 +16,6 @@ Invoke this skill when the user asks for any of:
 | "work on this", "open the project", "pick up where I left off", "start work" | `/work` |
 | "start work on #N", "work issue N" | `/work <N>` |
 | "retrieve branch", "pull a teammate's branch", "check out their branch" | `/work --retrieve <branch>` |
-| "discard current", "reset the workspace", "nuke current/" | `/work --discard current --force` |
 | "commit", "commit this", "commit the changes" | `/commit` |
 | "ship to main", "commit straight to main", "commit this directly to main", "infra commit", "emergency commit to main", "quick commit to main" | `/ship-main` |
 | "checkpoint", "save progress", "wip commit", "quick save" | `/checkpoint` |
@@ -56,7 +55,7 @@ This rule subsumes any prior or training-data instinct toward "one issue per PR.
 ## What gitflow does NOT do
 
 - Does not run git commands directly. All mechanics live in `/commit`, `/checkpoint`, `/open-pr`, `/merge`, `/deploy` commands, which in turn call scripts in `skills/gitflow/scripts/`.
-- Does not bypass validation. The `pre-commit-validation.sh` and `git-guard.sh` hooks fire regardless. If hooks block, fix the underlying issue — do not attempt to bypass.
+- Does not bypass validation. `commit.sh` runs `npm run check-types` and biome inline before committing (each gated on the project actually having them), and `git-guard.sh` fires regardless. If either blocks, fix the underlying issue — do not attempt to bypass.
 - Does not auto-bump version or auto-write changelog at merge time. Version bump + changelog generation happen at `/deploy` time only (human-in-the-loop). Merging to main does not ship.
 
 ## Usage procedure
@@ -122,7 +121,7 @@ Work happens on a branch in the project checkout. On `main`, `/work` refreshes f
 - `/work --retrieve <branch>` — fetch a teammate's branch and switch to it (refuses on a dirty tree).
 
 **Procedure:**
-- Parse `$ARGUMENTS` to determine mode (default / issue / new / retrieve / discard).
+- Parse `$ARGUMENTS` to determine mode (default / issue / retrieve).
 - Invoke `.claude/skills/gitflow/scripts/work.sh` with appropriate flags.
 - For `--issue` mode: read the dumped issue body + comments and respond with understanding + plan before touching code.
 
@@ -221,6 +220,6 @@ Scripts use `git commit --no-verify` because validation is the hook layer's resp
 
 ## Constraints
 
-- **Never bypass hooks.** If `pre-commit-validation.sh` or `git-guard.sh` denies, the issue is real. Report to user.
+- **Never bypass hooks.** If `git-guard.sh` denies, or `commit.sh`'s inline typecheck or lint fails, the issue is real. Report to user.
 - **Never use raw `git commit`, `git add`, `git push`, `git merge`, `git reset`, `git revert`, `git restore`, `git clean`, `git checkout <file>` directly.** Use the commands. Hooks will block you anyway.
 - **Never proactively invoke gitflow.** Every invocation requires a fresh explicit user request. See `.claude/rules/git.md`.

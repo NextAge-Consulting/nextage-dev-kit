@@ -202,6 +202,23 @@ Displays project info and `components.json` configuration. Run this first to dis
 | `resolvedPaths`      | `object`  | Absolute file-system paths for each alias                                                  |
 | `registries`         | `object`  | Configured custom registries                                                               |
 
+**Configuring registries.** They live in `components.json`; `@shadcn` is always built in.
+
+```json
+{
+  "registries": {
+    "@acme": "https://acme.com/r/{name}.json",
+    "@private": {
+      "url": "https://private.com/r/{name}.json",
+      "headers": { "Authorization": "Bearer ${MY_TOKEN}" }
+    }
+  }
+}
+```
+
+Names must start with `@`, URLs must contain `{name}`, and `${VAR}` resolves from the
+environment. Community registry index: `https://ui.shadcn.com/r/registries.json`.
+
 **Links fields:**
 
 The `info` output includes a **Links** section with templated URLs for component docs, source, and examples. For resolved URLs, use `npx shadcn@latest docs <component>` instead.

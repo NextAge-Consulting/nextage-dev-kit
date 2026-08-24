@@ -9,10 +9,10 @@ The home for **composition and behaviour** — the layer `design-system`
 explicitly disclaims. The split:
 
 - **`design-system`** — what a thing is *made of*. Tokens, atoms, colour, type,
-  spacing, `design.md` compliance. **Look.**
+  spacing, `design.md` compliance.
 - **`ui-patterns`** (this skill) — how things are *assembled* and how they
   *act*. Screen layouts, toolbars, pagination, autosave, optimistic UI, empty
-  and error states, inline edit, wizards. **Feel.**
+  and error states, inline edit, wizards.
 
 ## The boundary test
 
@@ -34,17 +34,13 @@ Worked examples of the same screen splitting across both:
 | What a toolbar contains and in what order | **ui-patterns** | Composition |
 | Showing active filters as a count vs. as chips | **ui-patterns** | A UX decision with a rationale worth not re-litigating |
 
-## Why it lives at the skills root
+## Leave it at the skills root
 
-Claude Code discovers skills at `.claude/skills/<skill-name>/SKILL.md` **only** —
-the directory name *is* the skill name. Nesting it (e.g.
-`.claude/skills/project/ui-patterns/SKILL.md`) makes discovery look for
-`.claude/skills/project/SKILL.md`, find nothing, and skip everything beneath it:
-the skill silently stops existing. There is no namespacing mechanism. The one
-supported nesting is per-directory monorepo scope
-(`apps/web/.claude/skills/<name>/`), which is scope, not grouping. Skills root is
-the only option — do not "fix" this. Project-local *rules* still belong in
-`.claude/rules/project/`; that convention does not and cannot extend to skills.
+Claude Code discovers skills at `.claude/skills/<name>/SKILL.md` only — the
+directory name *is* the skill name, and there is no namespacing. Nest this under
+`skills/project/` and discovery finds nothing there and skips everything beneath:
+the skill silently stops existing. Project-local *rules* live in
+`rules/project/`; that convention cannot extend to skills.
 
 ## First: is it even a pattern?
 
@@ -87,8 +83,9 @@ would be equally true in any codebase, it does not belong here.
    *then* implement, *then* **wait for the human to review the built UI and call
    it good** — and only then write the `references/*.md`, once. See "Write it
    ONCE, after sign-off" below; this gate is not optional.
-3. **Patterns still obey the visual layer.** Run `design-system` for any styling
-   the pattern needs, and the a11y baseline for JSX.
+3. **Patterns still obey the visual layer.** Invoke the `design-system` skill for
+   any styling the pattern needs; `rules/a11y-baseline.md` auto-loads on JSX and is
+   authoritative for accessibility.
 
 ## Why this skill exists
 
@@ -105,35 +102,44 @@ down, arriving at a different answer, and leaving the product inconsistent.
 
 ## Write it ONCE, after sign-off, describing only the approved result (Zero Tolerance)
 
-**A pattern becomes a pattern when the human has looked at the working UI and
-called it good. Two people, not one.** Until then there is a proposal, and a
-proposal does not go in `references/`.
+**A pattern becomes a pattern when the human has looked at the running UI and
+called it one.** Not the description of it, not your proposed reference file —
+the actual interactive screen. That is the artifact under review.
+
+Nine times in ten a newly-invented pattern gets tweaked before it is blessed.
+Write the reference before that and you have documented a dream: the file
+describes what you built, the product ships what survived refinement, and the two
+disagree from birth.
+
+So when you finish building and think something deserves to be a pattern: hold it.
+Keep it in your head or a scratch file — anywhere but `references/`. Say so in the
+report — *"new potential UI pattern, please review"* — and point at the screen to
+look at. The human reviews and refines the real thing. When they bless it, you
+document **that** — the actual, refined, shipped behaviour.
+
+**This does not change between interactive and autonomous sessions.** The goal is
+identical: you stop at built-and-flagged, the reference waits for the blessing.
+An autonomous run reports the owed pattern like any other item; it never writes
+the file to close its own loop.
 
 The order is: research → agree the approach → build → **human reviews and
 approves** → write the reference, once — **and add its line to the project's UI
 inventory in the same pass.**
 
-That last step is not bookkeeping. The inventory is what loads automatically on
-every UI edit; a reference that exists but is not indexed there is invisible at
-the moment it is needed, which is the same as not existing. One line: the pattern
-and what it governs. Hold the research and the discarded
+That last step is not bookkeeping. The inventory is `rules/project/ui-inventory.md`,
+which loads automatically on every UI edit; a reference that exists but is not
+indexed there is invisible at the moment it is needed, which is the same as not
+existing. One line: the pattern and what it governs. Hold the research and the discarded
 options in the build's own code comments meanwhile; that is where they are useful
 during review anyway. **Say the reference is still owed** when you hand off for
 review, so it is not forgotten once the design is blessed.
 
-### The timing IS what makes it present-tense
+### A reference states what the rule IS, never how it was reached
 
-These are not two rules. Writing once, at the end, means the only thing you can
-describe is the approved end state — the iterations are not yours to record
+Constitution §XV, applied here. No dates, no "originally", no "we changed this
+because", no status of what shipped when — that lives in git. Writing once, at
+the end, is what makes this possible: the iterations are not yours to record
 because you were not writing during them.
-
-Write as you go instead and the file becomes a diary by construction: each round
-of review leaves a scar ("the first attempt was…", "once X was removed…"), and
-the next writer reads that shape as the house style and adds their own chapter.
-
-So a reference **states what the rule IS, never how it was arrived at** — this is
-constitution §XV applied to this skill. No dates, no "originally", no "we changed
-this because", no status of what shipped when. That history lives in git.
 
 | Never write | Write instead |
 |---|---|
@@ -147,15 +153,6 @@ this because", no status of what shipped when. That history lives in git.
 machines" carries everything the next builder needs. "We tried localStorage first
 and it stranded people per-device" carries the same fact plus a chapter of
 autobiography.
-
-### Why the gate exists at all
-
-- **Writing early stamps "decided" on something undecided.** Everything in
-  `references/` is read by the next session as settled and followed without
-  re-litigation. A writeup of a design nobody has reviewed launders one party's
-  judgment into house style.
-- **Every round of review then costs a second edit** — chase the doc or let it go
-  stale — and it is those chases that deposit the narrative in the first place.
 
 ## A reference is GUIDANCE, never a backlog (Zero Tolerance)
 

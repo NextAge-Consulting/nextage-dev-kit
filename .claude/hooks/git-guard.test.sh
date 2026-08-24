@@ -49,6 +49,21 @@ t allow 'git checkout main'                'bare branch switch'
 t allow 'git checkout --track origin/x'    'checkout --track'
 t allow 'git checkout --detach'            'checkout --detach'
 
+echo "MUST ALLOW — heredoc bodies are data being written, not commands being run:"
+t allow 'cat > doc.md <<EOF
+git reset --hard is forbidden
+EOF' 'heredoc quoting git reset'
+t allow 'cat > rules.md <<EOF
+never run git clean -fd or git checkout -- file
+EOF' 'heredoc quoting clean and checkout'
+t allow 'echo "never run git clean -fd" > notes.txt' 'prose in an echo'
+
+echo "MUST STILL DENY — a real command outside the heredoc:"
+t deny 'cat > doc.md <<EOF
+harmless text
+EOF
+git reset --hard' 'reset after a heredoc'
+
 echo "MUST ALLOW — read-only:"
 t allow 'git status'                       'status'
 t allow 'git log --oneline -5'             'log'

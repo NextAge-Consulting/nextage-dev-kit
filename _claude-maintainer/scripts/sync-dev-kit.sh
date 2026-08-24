@@ -397,6 +397,9 @@ dest_for_kit_path() {
         _claude-project/templates/scripts/check-tanstack.mjs)
             echo "scripts/check-tanstack.mjs"
             ;;
+        _claude-project/templates/scripts/db-branch.mjs)
+            echo "scripts/db-branch.mjs"
+            ;;
         _claude-project/templates/ui-inventory.md)
             # Lands in the consumer's PROJECT-OWNED rules dir. It cannot ship
             # from `_claude-project/rules/project/` — `is_skipped` skips that

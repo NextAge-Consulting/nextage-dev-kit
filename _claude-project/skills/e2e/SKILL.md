@@ -8,7 +8,7 @@ allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*), Bash(lsof:*), B
 
 ## What this is
 
-The E2E testing model for this shop is locked (kit `PIPELINE.md` §1.5; memory `feedback_e2e_model_locked.md`). **No Playwright. No Stagehand. No scripted test suite.** Claude drives `agent-browser` through plain-English flow files; failure is detected behaviorally. This skill is the entry point.
+The E2E testing model for this shop is locked (kit `PIPELINE.md` §1.5). **No Playwright. No Stagehand. No scripted test suite.** Claude drives `agent-browser` through plain-English flow files; failure is detected behaviorally. This skill is the entry point.
 
 ## Invocation modes
 
@@ -43,39 +43,18 @@ Use `Glob` to list. Each flow file is a markdown doc with YAML frontmatter + hum
 
 ## Flow file format
 
-```markdown
----
-name: shop-homepage
-app: shop
-port: 3001
-requires-auth: false
-triggers:
-  - "apps/shop/src/routes/**"
-  - "apps/shared/**"
----
-# Shop homepage loads and renders
+`e2e-author` owns the format and the frontmatter spec — read it there rather than
+here, so the two can never drift apart. What the runner needs from each file:
 
-## Preconditions
-- Shop dev server running on :3001 (see `.claude/rules/dev-server.md`)
+- `name` — the slug `/e2e <name>` targets.
+- `app` — short label for log and report output.
+- `port` — the port the flow expects on `localhost`.
+- `requires-auth` — bool; true means load `TEST_<APP>_EMAIL` / `TEST_<APP>_PASSWORD`
+  from `.env` before running, and abort loudly if either is missing.
+- `triggers` — globs; any match against the changed files puts the flow in scope.
 
-## Steps
-1. Navigate to `http://localhost:3001`
-2. Wait `networkidle`
-3. Snapshot with `-i`
-4. Confirm header visible (phone number present)
-5. Confirm product grid renders
-6. Confirm footer visible
-
-## Failure indicators
-- Blank page, console errors, missing header/footer, elements agent-browser can't find
-```
-
-Frontmatter keys:
-- `name` (required) — stable slug used when user invokes `/e2e <name>`
-- `app` (required) — short label for log / report output
-- `port` (required) — port the flow expects on `localhost`
-- `requires-auth` (required, bool) — if true, skill loads `TEST_DEALER_EMAIL` / `TEST_DEALER_PASSWORD` from `.env` before running
-- `triggers` (required, list of glob patterns) — if any matches the PR's changed files, this flow is in-scope for the current run
+Below the frontmatter: Preconditions, numbered Steps, and Failure indicators, all
+in plain English.
 
 ## Procedure
 
@@ -104,14 +83,10 @@ For each flow file:
 1. `Read` the flow file.
 2. Parse frontmatter (`app`, `port`, `requires-auth`, steps).
 3. If `requires-auth: true`: grep `.env` for `TEST_<APP>_EMAIL` / `TEST_<APP>_PASSWORD` — abort flow with a loud error if missing (don't silently skip).
-4. Execute the agent-browser startup sequence (see `.claude/rules/integrations/agent-browser.md`):
-   ```
-   agent-browser --headed open http://localhost:<port>
-   agent-browser set viewport 1440 900
-   agent-browser wait --load networkidle
-   agent-browser snapshot -i
-   ```
-5. Work through the flow's numbered steps in order. After any navigation or DOM change: `snapshot -i` to refresh refs.
+4. Open the app and drive it per `rules/integrations/agent-browser.md` and the
+   `agent-browser` skill — they own the session naming, the viewport, whether the run
+   is headed, and the startup sequence. Do not restate any of that here.
+5. Work through the flow's numbered steps in order, re-snapshotting as the skill requires.
 6. For each step: report ✅ if expected content visible + interactive, ❌ with a one-line observation if not. **Screenshot every page-changing step** (navigate, submit, modal) with `agent-browser screenshot --full` to `logs/e2e/<flow-name>/NN-<label>.png` — these are the report's evidence (Step 4). **`--full` is not optional on form or list screens**: a viewport shot is the top third of a long page, so the reviewer approves evidence that never contained the thing that broke (`/e2e-author` R10).
 7. **Click reported success but nothing changed?** The button is below the fold — Playwright doesn't auto-scroll at 1440×900. Use the scroll-then-click recipe (`/e2e-author` R1). This is the single most common false-failure — try it before recording a ❌.
 8. On ❌: STOP this flow, continue to the next flow (don't abort the whole run — the user wants the full picture).
@@ -151,7 +126,9 @@ A red flow is the signal to stop and fix before you ship. `/e2e` reports pass/fa
 
 ### Step 5: Close the browser
 
-**Always `agent-browser close` when the run finishes — pass, fail, or partial.** The agent-browser daemon holds Chrome-for-Testing open between commands; if you don't close it the window lingers and can only be force-quit, which breaks the user's macOS auto-updates (see `.claude/rules/integrations/agent-browser.md` → Teardown). Chain it so it fires even if a flow throws. Leave the dev servers running (per `dev-server.md`) — only the browser gets closed.
+Tear the browser down per `rules/integrations/agent-browser.md` → Teardown, whether the
+run passed, failed, or stopped part-way, and chain it so it fires even if a flow throws.
+Leave the dev servers running (`dev-server.md`) — only the browser gets closed.
 
 ## Failure semantics
 
@@ -176,4 +153,3 @@ When a failure surfaces and you want concrete state: `agent-browser eval 'JSON.s
 - `.claude/rules/dev-server.md` — server lifecycle
 - `.claude/rules/integrations/agent-browser.md` — agent-browser startup conventions
 - kit `PIPELINE.md` §1.5 — why this model (no Playwright / no scripted suite)
-- Memory `feedback_e2e_model_locked.md` — locked-decision context

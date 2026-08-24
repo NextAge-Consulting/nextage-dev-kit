@@ -4,39 +4,19 @@ paths: "**/*.{ts,tsx,mts,cts}"
 
 # TypeScript Rules
 
-<!--
-Loaded only when editing TypeScript files. Universal rules in constitution.md.
-Frontend-only rules (toasts, Tailwind, shadcn, responsive) live here because
-the current stack uses TanStack + Astro — frontend = TS.
--->
+Loaded when editing TypeScript. Universal rules live in `constitution.md`. Frontend rules live here, because the stack is TanStack + Astro and frontend means TS.
 
 ## I. TypeScript Quality (Zero Tolerance)
 
-**No TypeScript errors in committed code.** Enforced by git pre-commit hook.
+**Commit no TypeScript errors.** The pre-commit hook enforces it, LSP diagnostics are authoritative (constitution §IX), and a TS error is a compilation failure rather than a suggestion.
 
-LSP diagnostics are authoritative (constitution §IX). TS errors are NOT suggestions — they are compilation failures.
+Delete dead code rather than renaming it `_unusedVar`. Give values real types rather than `: any` or `as any`, and fix the underlying issue rather than writing `// @ts-ignore`.
 
-| Forbidden Pattern | Why | Fix |
-|-------------------|-----|-----|
-| `_unusedVar` | Hides dead code | DELETE the code |
-| `: any` | Disables type checking | Use proper types |
-| `// @ts-ignore` | Hides errors | Fix the issue |
-| `as any` | Bypasses checking | Type narrowing |
+TS6133 and TS6192 mean an unused declaration — delete it, after checking for indirect usage. TS7006 needs a type. TS2339 needs the type definition fixed. TS2322 needs fixing at the source of the mismatch.
 
-| Error | Fix |
-|-------|-----|
-| TS6133 (unused) | DELETE |
-| TS6192 (all imports unused) | DELETE |
-| TS7006 (implicit any) | Add type |
-| TS2339 (property missing) | Fix type def |
-| TS2322 (type mismatch) | Fix at source |
+## II. Logging
 
-## II. No Console.log
-
-**console.log is FORBIDDEN.** Enforced by PreToolUse hook — which blocks
-`console.log|error|warn|info|debug`, not just `log`.
-
-Use Pino structured logging with namespaced loggers.
+**Use Pino.** A PreToolUse hook blocks `console.log`, `.error`, `.warn`, `.info` and `.debug` everywhere.
 
 ```typescript
 import { logger } from '~/lib/logger';
@@ -45,18 +25,9 @@ logger.error({ err }, 'error message');
 logger.debug({ data }, 'debug context');
 ```
 
-**Log monitoring**: `tail -f logs/server.log`. Server lifecycle (start / never-kill / leave-running) is governed by `.claude/rules/dev-server.md`.
+Watch it with `tail -f logs/server.log`. Server lifecycle is governed by `dev-server.md`.
 
-### The logger must be isomorphic — this is where the rule gets worked around
-
-The hook blocks `console.*` **everywhere**, including React components and
-browser-side hooks. If the project's logger only works server-side, the first
-client-side error handler hits a wall, and every tempting way out is wrong:
-bypass the hook, leave the `catch` empty, or conclude "Pino is server-only" and
-give up. It is not — Pino has a browser build.
-
-**The logger must detect its environment and degrade**, so one import works in
-both places and no call site needs an exception:
+**The logger detects its own environment, once, so one import works on both tiers.** The hook blocks `console.*` in React components and browser hooks too, so a server-only logger strands the first client-side error handler — and every way out from there is wrong. Pino has a browser build.
 
 ```typescript
 import pino from 'pino';
@@ -71,144 +42,65 @@ function buildTransport() {
 export const logger = pino({ level: process.env.LOG_LEVEL ?? 'info', transport: buildTransport() });
 ```
 
-Two consequences, both of which have been got wrong in practice:
+A bare `pino({ level })` inside an app is not enough — imported from a component it tries to build a server transport in the browser. Put the environment check in the logger.
 
-- **A bare `pino({ level })` inside an app is not enough.** With no `isServer`
-  branch, importing it from a component tries to build a server transport in the
-  browser. The environment check belongs in the logger, once.
-- **Client-side logging is not optional.** A browser `catch` that neither
-  surfaces to the user nor logs is a swallowed error (constitution §X). If the
-  logger cannot be reached from client code, that is a defect in the logger — not
-  a licence to leave the handler empty.
+Client-side logging is not optional. A browser `catch` that neither surfaces to the user nor logs is a swallowed error (constitution §X). A logger that client code cannot reach is a defect in the logger.
 
-Where the logger lives is a project choice (a shared workspace is the usual
-answer, since both tiers import it). That it works in both is not.
+Where the logger lives is a project choice — usually a shared workspace, since both tiers import it.
 
 ## III. Naming
 
-| Convention | Rule |
-|------------|------|
-| TS variables | `camelCase` |
-| Underscores | **FORBIDDEN** for word separation |
-| Types / classes | `PascalCase` |
+`camelCase` for variables, `PascalCase` for types and classes. Underscores never separate words.
 
 ## IV. Timezone-Aware Code — TS Patterns
 
-See constitution §VI for the principle. TS-specific forbidden patterns:
+Constitution §VI carries the principle. In TypeScript:
 
-| Forbidden | Fix |
-|-----------|-----|
-| `new Date()` without tz handling in user-facing logic | Use tz-aware lib (date-fns-tz, Luxon, Temporal when stable) |
-| `.toISOString()` / `.toLocaleDateString()` for display without explicit tz | Format through tz-aware formatter with user's tz |
-| Comparing dates via `getTime()` across tz boundaries | Normalize to same tz first |
+Use a timezone-aware library (date-fns-tz, Luxon, Temporal once stable) rather than a bare `new Date()` in user-facing logic. Format display through a timezone-aware formatter with the user's timezone rather than `.toISOString()` or `.toLocaleDateString()`. Normalize to one timezone before comparing dates via `getTime()`.
 
-**Carve-out — absolute-instant audit fields (mirrors constitution §VI).** `new Date()` is ALLOWED for fields that capture the absolute instant a database row was created/updated and are never displayed or filtered by local-tz boundaries. Examples: `authuser.createdat`, `authuser.updatedat`, `authaccount.createdat` / `updatedat`, session-table bookkeeping columns. These columns store "what time was it when this row was written" with no semantics beyond ordering — converting through `date-fns-tz` would imply user-facing display semantics that don't exist. If a future change starts displaying such a column to a user OR filtering by local-tz date ranges, that change MUST migrate the column off `new Date()` and onto a tz-aware path.
+The carve-out mirrors §VI: `new Date()` is right for columns capturing the absolute instant a row was written — `createdat`, `updatedat`, session bookkeeping — that are never displayed and never filtered by local-timezone ranges. If a change starts displaying such a column or filtering it by a local date range, that change migrates the column onto a timezone-aware path.
 
 ## V. Server-Side Static Assets
 
-**Never use `import.meta.url` for runtime file reads.** Bundlers (Vite, Rollup, esbuild) rewrite the path and do not copy referenced files into the build output. This causes silent production failures.
+**Resolve runtime file reads through `process.cwd()`**, e.g. `resolve(process.cwd(), 'server-assets/email/template.html')`. Bundlers rewrite `import.meta.url` and do not copy the referenced files into the build, so it fails silently in production.
 
-| Pattern | Result |
-|---------|--------|
-| `readFileSync` + `import.meta.url` | **BROKEN** — file not found in production |
-| `readFileSync` + `process.cwd()` | **CORRECT** — predictable path in all environments |
-
-**Rules:**
-- Static assets loaded at runtime (templates, images, PDFs) go in `server-assets/` at the app root
-- Resolve paths via `process.cwd()` (e.g., `resolve(process.cwd(), 'server-assets/email/template.html')`)
-- The Dockerfile must `COPY` `server-assets/` into the production image
-- Never place runtime-loaded files inside `src/` — bundlers will not include them
+Runtime-loaded assets — templates, images, PDFs — go in `server-assets/` at the app root, never inside `src/`. Add a `COPY` for `server-assets/` to the Dockerfile if one is not already there, or the files are absent from the production image.
 
 ## VI. Boolean Assignment
 
-When assigning to boolean variables using chained `&&` operators, use strict boolean conversion:
+Wrap a chained `&&` assignment in `!!()` so it stores `true` or `false` rather than the last truthy value:
 
 ```typescript
-// ❌ WRONG - assigns truthy/falsy values
-const isValid = user && user.email && user.verified;
-
-// ✅ CORRECT - always assigns true or false
 const isValid = !!(user && user.email && user.verified);
 ```
 
-## VII. No Toast Messages
+## VII. Contextual Feedback, Not Toasts
 
-Toasts are deprecated. Use contextual feedback instead.
+Replace a success toast with an inline state change or optimistic UI; an error toast with an inline message, form-level error, or modal; a warning toast with an inline indicator; a loading toast with a spinner in the component. Clipboard-copy confirmation is the one exception.
 
-| Instead of | Use |
-|------------|-----|
-| `toast.success()` | Inline state change, optimistic UI |
-| `toast.error()` | Inline error message, form-level error, or modal |
-| `toast.warning()` | Inline warning indicator |
-| `toast.loading()` | Loading spinner in component |
+When you edit a file that still has toasts, migrate them.
 
-**Exception**: Clipboard copy confirmation only.
+## VIII. Web Standards
 
-**Cleanup**: When editing files with toasts, migrate them.
+Give every icon-only button a hover tooltip.
 
-## VIII. Web Development Standards
+Consider responsive impact across mobile, tablet and desktop on any UI change: horizontal space on mobile, text overflow and wrapping, touch targets of at least 44px, how grid and flex layouts shift, and the `sm:` / `md:` / `lg:` / `xl:` breakpoints.
 
-### Frontend Policy
-- All icon-only buttons should include tooltips on hover
+Style with Tailwind, build from `shadcn/ui` primitives, and follow the `shadcn` skill for component patterns. Name semantically (`ButtonActive`, not `ButtonRed`), prefer semantic classes like `text-foreground` over hand-written dark mode, and join conditional classes with `cn()`.
 
-### Responsive Design
-Consider responsive impact across mobile, tablet, and desktop breakpoints when making UI changes.
+## IX. Code Standards
 
-Evaluate:
-- Mobile horizontal space constraints
-- Text overflow/wrapping potential
-- Touch target accessibility (minimum 44px)
-- Grid/flex layout behavior changes
-- Breakpoint classes: `sm:`, `md:`, `lg:`, `xl:`
+Write TypeScript, and write components as functions with hooks rather than classes.
 
-### Web Styling & UI
-- Use Tailwind CSS for styling
-- Build from `shadcn/ui` primitives
-- Semantic naming (ButtonActive not ButtonRed)
-- Prefer semantic classes (`text-foreground`) over manual dark mode
-- Use `cn()` utility for conditional CSS classes
-- Follow shadcn skill rules (`.claude/skills/shadcn/`) for component patterns
+## X. Setup and Commands
 
-## IX. Mobile Development Standards
-
-### Mobile Design Principles
-- Touch targets: minimum 44px for accessibility
-- Optimize for mobile performance and battery life
-- Ensure cross-platform consistency (iOS/Android)
-
-### Mobile Component Architecture
-- Use React.memo and memoized callbacks for complex components
-- Include proper ARIA labels and keyboard navigation
-- Comprehensive error handling for external APIs
-
-## X. Code Standards
-
-- TypeScript required. Functional components with hooks.
-
-## XI. LSP & CLI Setup
-
-**LSP for TypeScript requires Claude Code's official plugin + the language server binary.** See constitution §IX. One-time machine setup:
+TypeScript LSP needs both Claude Code's official plugin and the language server binary (constitution §IX). One-time per machine:
 
 ```bash
-# 1. Install the Claude Code plugin
 /plugin install typescript-lsp@claude-plugins-official
-
-# 2. Install the language server binary
 npm install -g typescript typescript-language-server
 ```
 
-**Verify:** `which typescript-language-server` must return a path. `/plugin list` must show `typescript-lsp`. If either is missing, LSP for TS is dead — fall back to `tsc`.
+Verify with `which typescript-language-server` returning a path and `/plugin list` showing `typescript-lsp`. With either missing, LSP for TS is dead — fall back to `tsc`.
 
-**CLI (always works):**
-- `npm run check-types` — typecheck via local `tsc`
-- `tsc --noEmit` — same, directly
-
-## XII. Development Commands
-
-- `npm run dev` — Start development server
-- `npm run check-types` — TypeScript validation
-
-## XIII. Code Health
-
-- TS6133 / TS6192 detect unused declarations
-- Check for indirect usage before deleting flagged code
+The CLI always works: `npm run check-types` (typecheck via local `tsc`), `tsc --noEmit` directly, and `npm run dev` for the development server.

@@ -36,7 +36,7 @@ The scan also bootstraps `.claude/sync-substitutions.json` from the kit template
 
 **Purpose:** populate `.claude/sync-substitutions.json` BEFORE the file-diff loop. Kit `{{KEY}}` placeholders get resolved against this file during scan, so populating values now eliminates false-positive diffs on every file that gates on a key.
 
-**Read three things:**
+**Read these:**
 
 1. The consumer's substitutions file:
    ```bash
@@ -187,7 +187,7 @@ Process files in batches of 5-10 at a time to avoid overwhelming the user. Let t
 
 Records the kit's current content as a refusal WITHOUT creating the project file, so the entry reports `declined` and stops being listed.
 
-**"Skip" is not an answer here.** A skipped `new-kit` has no lockfile entry at all, so it is offered again on the next sync, and every sync after that — the user ends up declining the same two files forever and learns to scroll past the list. Offer three outcomes: **take it** (`--apply-file`), **decline it** (`--decline-file`), or **decide later** (genuinely skip, and say it will be asked again).
+**"Skip" is not an answer here.** A skipped `new-kit` has no lockfile entry at all, so it is offered again on the next sync, and every sync after that — the user ends up declining the same two files forever and learns to scroll past the list. Offer: **take it** (`--apply-file`), **decline it** (`--decline-file`), or **decide later** (genuinely skip, and say it will be asked again).
 
 **Do NOT use `--ack-file` for this.** Ack records a baseline for a file that does not exist locally, so the next scan reports `project-deleted` — one recurring nag traded for another. The script refuses `--decline-file` on a file the project HAS, for the mirror-image reason; that case is `--ack-file`.
 

@@ -46,7 +46,7 @@ Real example: months of running on a transitive-dependency override + an `ssr.no
 - **Verify on the DIVERGENT surface, not the convenient one.** If app A passes but app B carries extra config app A never had, app A passing proves nothing about app B. Build the app that actually differs.
 - **Don't accept "it runs" as "it's clean."** A green build can be a pile of old cruft luckily cohering. After it runs, ask which pins/overrides/hacks are still earning their place, and drop the rest.
 
-**The counter-lesson (equally important):** "removal proves deadness" holds ONLY when you build + run the real deploy image **and exercise the real path** (e.g. log in). A workaround that looks dead because the dev server boots fine can still be load-bearing for a production code path that loads lazily. Some `noExternal` / bundling config is the **canonical, documented** pattern for a library's SSR build (verify against the library's own docs — see constitution §I) — removing it because "another app works without it" is how you cause the *next* outage. Prove deadness on the real image, on the real path, on the divergent app.
+**The counter-lesson (equally important):** "removal proves deadness" holds ONLY when you build + run the real deploy image **and exercise the real path** (e.g. log in). A workaround that looks dead because the dev server boots fine can still be load-bearing for a production code path that loads lazily. Some `noExternal` / bundling config is the **canonical, documented** pattern for a library's SSR build (verify against the library's own docs via Ref before touching it) — removing it because "another app works without it" is how you cause the *next* outage. Prove deadness on the real image, on the real path, on the divergent app.
 
 ---
 
@@ -105,5 +105,4 @@ A `dependabot.yml` group governs **version** updates. **Security** PRs are a *se
 - **HANDBOOK §11.10** — `dependabot.yml` (grouping / cooldown / monthly cadence).
 - **HANDBOOK §11.6** — `dependabot-surfacing.yml`.
 - **PIPELINE.md §1.4** — quality + security tools (where the gate sits in the pipeline).
-- **constitution §I** — the third-party-library rule (read the library's own docs before blaming it — directly relevant to §2's counter-lesson).
 - **constitution §X / §XIII** — fail-loud and suppression discipline (the gate fails loud; §6 residuals are the disciplined alternative to silent suppression).

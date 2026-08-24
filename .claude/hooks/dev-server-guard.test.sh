@@ -32,6 +32,20 @@ t deny 'kill -9 $(pgrep -f vite)'               'kill -9 vite'
 t deny 'kill $(lsof -t -i:3001)'                'kill $(lsof ...)'
 t deny 'lsof -ti:3001 | xargs kill'             'lsof | xargs kill'
 
+echo "MUST ALLOW — heredoc bodies are data being written, not commands being run:"
+t allow 'cat > doc.md <<EOF
+never run pkill -f vite
+EOF' 'heredoc quoting pkill -f vite'
+t allow 'cat > rules.md <<EOF
+Applies to kill, kill -9, pkill, fuser -k, and docker stop.
+EOF' 'heredoc quoting the whole pattern list'
+
+echo "MUST STILL DENY — a real kill outside the heredoc:"
+t deny 'cat > doc.md <<EOF
+harmless text
+EOF
+pkill -f vite' 'pkill after a heredoc'
+
 echo "MUST ALLOW — starting and inspecting:"
 t allow 'npm run dev'                           'starting a dev server'
 t allow 'npm run dev:shop'                      'starting a named app'

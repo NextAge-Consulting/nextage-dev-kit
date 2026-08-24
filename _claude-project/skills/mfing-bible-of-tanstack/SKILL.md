@@ -31,8 +31,9 @@ package; `scripts/check-tanstack.mjs` enforces it.
 **Lockstep is absolute.** TanStack publishes no LTS — no `lts` dist-tag, no
 support window, one rolling line per library — so the kit *is* the LTS. If a
 project uses a TanStack library it uses the kit's version, pinned exactly.
-Adding or moving a pin is a kit decision made through `/review-tanstack`, never
-a change made to get a build green.
+Adding or moving a pin is a kit decision, made by the maintainer through
+`/review-tanstack` — a command that installs only on their machine. Never change a
+pin to get a build green; raise it with them.
 
 ## The opinions
 
@@ -101,8 +102,6 @@ Read the relevant `SKILL.md` there **in the session that needs it**, then let it
 go. Do not copy it into `references/`; that is how a kit accumulates content
 nobody refreshes. If a topic keeps recurring, that is a signal to distil it
 properly, which is a kit decision.
-
-Docs search without an API key: `npx @tanstack/cli mcp`.
 
 ## Before you trust a rule
 

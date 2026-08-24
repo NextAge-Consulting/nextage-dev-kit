@@ -43,6 +43,50 @@ t allow 'psql "$DATABASE_URL" -c "SELECT 1"' 'a read-only psql query'
 t allow 'git status'                  'git status'
 t allow 'npm run db:generate' 'non-Bash tool is out of scope' Read
 
+echo "MUST ALLOW — heredoc bodies are data being written, not commands being run:"
+t allow 'cat > doc.md <<EOF
+run npm run db:migrate to apply it
+EOF' 'heredoc body mentioning db:migrate'
+t allow 'cat > doc.md <<EOF
+npx drizzle-kit generate
+EOF' 'heredoc body mentioning drizzle-kit'
+
+echo "MUST STILL DENY — a real command outside the heredoc:"
+t deny 'cat > doc.md <<EOF
+harmless text
+EOF
+npm run db:migrate' 'command after a heredoc'
+t deny 'cat > doc.md <<EOF
+mentions drizzle-kit here
+EOF
+npx drizzle-kit push' 'command after a heredoc that also mentions it'
+
+echo "MUST ALLOW — reads through psql (the documented inspection path):"
+t allow 'psql "$DATABASE_URL" -c "SELECT * FROM inventory"'   'plain SELECT'
+t allow 'psql "$DATABASE_URL" -c "SELECT updatedat FROM part"' 'SELECT of a column named updatedat'
+t allow 'psql "$DATABASE_URL" -c "SELECT createdat, deletedat FROM row"' 'columns embedding create/delete'
+t allow 'psql "$DATABASE_URL" -c "\\dt"'                       'catalog listing'
+t allow 'psql "$DATABASE_URL" -c "SELECT count(*) FROM qbitemdtl"' 'aggregate read'
+
+echo "MUST ALLOW — naming psql is data, not invoking it:"
+t allow 'echo "use psql to INSERT rows" > doc.md'              'prose naming psql and INSERT'
+t allow 'grep -rn psql project-documentation/'                 'grepping for psql'
+t allow 'psql "$DATABASE_URL" -c "SELECT 1" | grep -f pat.txt' 'read piped into grep -f'
+t allow 'rg "INSERT INTO" --glob "*.sql"'                      'ripgrep for INSERT'
+
+echo "MUST DENY — hand-run writes (they land on one branch only):"
+t deny '/opt/homebrew/bin/psql "$U" -c "DELETE FROM t"'        'absolute path to psql'
+t deny 'PGPASSWORD=x psql "$U" -c "UPDATE t SET a=1"'          'env-prefixed invocation'
+t deny 'psql "$DATABASE_URL" -c "INSERT INTO firmware VALUES (1)"' 'INSERT'
+t deny 'psql "$DATABASE_URL" -c "UPDATE part SET x = 1"'           'UPDATE'
+t deny 'psql "$DATABASE_URL" -c "DELETE FROM part WHERE id = 1"'   'DELETE'
+t deny 'psql "$DATABASE_URL" -c "TRUNCATE part"'                   'TRUNCATE'
+t deny 'psql "$DATABASE_URL" -c "ALTER TABLE part ADD COLUMN y int"' 'ALTER'
+t deny 'psql "$DATABASE_URL" -c "CREATE INDEX ON part (id)"'       'CREATE'
+t deny 'psql "$DATABASE_URL" -c "GRANT SELECT ON part TO app_user"' 'GRANT'
+t deny 'psql "$DATABASE_URL" -f seed.sql'                          'script file (contents invisible)'
+t allow 'SKIP_DB_GUARD=1 psql "$DATABASE_URL" -c "INSERT INTO firmware VALUES (1)"' 'approved hand-run write'
+
 echo "DENY PAYLOAD MUST BE VALID JSON (a malformed deny is silently discarded):"
 jsonok(){
   printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \

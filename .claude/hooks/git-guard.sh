@@ -41,8 +41,30 @@ deny() {
     exit 0
 }
 
+# Drop heredoc BODIES before parsing. A heredoc body is data being written to a file,
+# never a command being run — so documenting `git reset` used to trip this guard, and
+# the kit's own rules quote every command in this list. A false block here stops
+# ordinary writing dead and teaches the bypass as a habit.
+# Any failure in the stripper falls back to the raw command: fail closed.
+SCAN_COMMAND=$(python3 -c '
+import re, sys
+lines = sys.argv[1].split("\n")
+out, i = [], 0
+while i < len(lines):
+    out.append(lines[i])
+    m = re.search(r"<<-?\s*[\x27\"]?([A-Za-z_][A-Za-z0-9_]*)[\x27\"]?", lines[i])
+    if m:
+        delim = m.group(1)
+        i += 1
+        while i < len(lines) and lines[i].strip() != delim:
+            i += 1
+    i += 1
+print("\n".join(out))
+' "$COMMAND" 2>/dev/null) || SCAN_COMMAND="$COMMAND"
+[ -n "$SCAN_COMMAND" ] || SCAN_COMMAND="$COMMAND"
+
 # Strip leading VAR=value prefixes
-CLEAN_COMMAND=$(echo "$COMMAND" | sed 's/^\([A-Za-z_][A-Za-z0-9_]*=[^ ]* *\)\+//')
+CLEAN_COMMAND=$(echo "$SCAN_COMMAND" | sed 's/^\([A-Za-z_][A-Za-z0-9_]*=[^ ]* *\)\+//')
 
 # Parse compound commands (;, &&, ||, |)
 # nosemgrep: bash.lang.security.ifs-tampering.ifs-tampering - intentional: splitting on newlines for the next line's word-split; IFS is unset immediately after

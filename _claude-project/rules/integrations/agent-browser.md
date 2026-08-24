@@ -1,11 +1,9 @@
-### Browser Testing with agent-browser
+# Browser Testing with agent-browser
 
-**Policy:**
-- ALWAYS test and iterate until you have a correct result
-- Use email/password login only — Google OAuth is blocked by Playwright bot detection
-- Check `.env` for test credentials before asking the user
+Test and iterate until the result is correct.
 
-**Startup Sequence (always use this):**
+## Startup
+
 ```bash
 agent-browser open http://localhost:3001          # add --headed when the user is watching
 agent-browser set viewport 1440 900
@@ -13,91 +11,82 @@ agent-browser wait --load networkidle
 agent-browser snapshot -i
 ```
 
-- **Viewport = 1440×900.** Fits every mainstream laptop screen (MacBook 14" builtin ≈ 1512×982, MBA 13" = 1440×900) plus every external monitor. Stays above typical responsive breakpoints (768/1024) so desktop UI renders as designed. 1920×1080 is desktop-ideal but excludes laptop-developer workflows. Playwright defaults to 1280×720 with no explicit call.
-- **Manual resize caveat.** If you manually resize the browser window via the OS, Playwright's virtual viewport does NOT follow — this is an upstream limitation in both agent-browser (#592) and Playwright (#14091). Re-run `agent-browser set viewport 1440 900` to resync, or just don't resize manually.
-- Dev server: typically `http://localhost:3001`. Server lifecycle (when to start, never kill, leave running) is governed by `.claude/rules/dev-server.md`.
-- Always `snapshot -i` after navigation or DOM changes to get fresh refs
+Take a fresh `snapshot -i` after every navigation or DOM change, or the refs are stale.
 
-**Headed or headless is decided by who asked, not by preference.**
+**Viewport is 1440×900.** It fits every mainstream laptop screen (MacBook 14" ≈ 1512×982, MBA 13" = 1440×900) and every external monitor, and stays above the 768/1024 breakpoints so desktop UI renders as designed. 1920×1080 is desktop-ideal but excludes laptop-developer workflows, and Playwright defaults to 1280×720 with no explicit call.
+
+Resizing the window through the OS does not move Playwright's virtual viewport — an upstream gap in both agent-browser (#592) and Playwright (#14091). Re-run `set viewport 1440 900` to resync, or don't resize manually.
+
+The dev server is typically `http://localhost:3001`; its lifecycle is governed by `dev-server.md`.
+
+## Headed or headless is decided by who asked
 
 | Situation | Mode |
 |---|---|
-| The user asked you to open/drive the browser, or is watching this run | `--headed` |
-| You are verifying your OWN work, or the session is a background job | **headless** (omit `--headed`) |
+| The user asked you to open or drive the browser, or is watching this run | `--headed` |
+| You are verifying your own work, or the session is a background job | **headless** |
 
-The reason is focus, not aesthetics. On macOS a headed launch makes the browser
-the frontmost application — it takes the keystroke the user was mid-way through
-and puts a window over what they were reading. That is welcome when they asked
-for a browser and are watching it. It is an interruption when they have moved on
-to other work and you are self-verifying, and it is worse than an interruption:
-a user who clicks into the window to dismiss it changes the page state under the
-run. There is no launch-minimized option — Playwright exposes no such flag.
+The reason is focus. On macOS a headed launch makes the browser frontmost — it takes the keystroke the user was mid-way through and covers what they were reading. That is welcome when they asked for it and are watching. When they have moved on and you are self-verifying it is an interruption, and worse: a user who clicks into the window to dismiss it changes the page state under the run. Playwright exposes no launch-minimized flag.
 
-Headless costs nothing that matters here. Accessibility snapshots, DOM
-evaluation, and screenshots all behave identically; the only thing lost is
-watching in real time, which is worth nothing when nobody is watching.
+Headless costs nothing that matters. Snapshots, DOM evaluation and screenshots behave identically; the only loss is watching in real time, which is worth nothing when nobody is watching.
 
-**Do NOT record a trace unless the user asks for one.** Tracing costs time and
-disk on every run to produce an artifact that is almost never opened, and it is
-least useful on the runs it would fire on most — your own routine
-self-verification. Default to no trace; the result you report IS the artifact.
+## Name your session
 
-When the user DOES ask — a bug that only reproduces in the browser, or a run
-they want to inspect after the fact:
-```bash
-agent-browser trace start
-# … the run …
-agent-browser trace stop trace.zip
-```
-`npx playwright show-trace trace.zip` gives a DOM snapshot at every action plus
-network and console, steppable in both directions. Hand the file over with the
-result.
+`agent-browser` keeps one background daemon per machine, and any session that does not name one lands in `default`. Two agents then drive the same window: one navigates away mid-flow, refs go stale, reads come back describing the other agent's app, and teardown closes the other agent's browser out from under it.
 
-**Two agents on one machine share ONE browser — name your session.**
-
-`agent-browser` keeps a single background daemon per machine, and every session
-that does not name one lands in `default`. Two agents running at once therefore
-drive the SAME window: one navigates away while the other is mid-flow, refs go
-stale, and the reads come back describing the other agent's app. Worse, the
-teardown below then closes the other agent's browser out from under it.
-
-So whenever another session could be running — which on a multi-project machine
-is most of the time — work in a named session:
+So whenever another session could be running — on a multi-project machine, most of the time — work in a named one:
 
 ```bash
 export AGENT_BROWSER_SESSION=<project>     # or --session <project> per command
 ```
 
-Verified: named sessions coexist with `default` and with each other,
-`agent-browser session list` shows them, and closing one leaves the others
-running. There is no shared state to lose — each session gets its own browser,
-so it also starts logged out.
+Use the repository directory name as `<project>`.
 
-**Never close a session you did not open.** Closing your own named session is
-the teardown below; closing `default` when you did not put anything there is the
-same mistake as killing a dev server you did not start.
+Named sessions coexist with `default` and with each other, `agent-browser session list` shows them, and closing one leaves the others running. Each gets its own browser, so it also starts logged out.
 
-**The tell that you are in someone else's window:** a snapshot describing a page
-you never navigated to. Do not adapt to it — check `location.href` and move to a
-named session.
+**Never close a session you did not open.** Closing `default` when you did not put anything there is the same mistake as killing a dev server you did not start.
 
-**Teardown — ALWAYS `agent-browser close` when done.**
-agent-browser keeps a persistent background daemon holding the browser open (via CDP) so commands stay fast. It does NOT close on its own: the Chrome-for-Testing process lingers (a visible window when headed) and can only be force-quit — which makes macOS auto-updates fail. So the moment a browser task finishes — a single flow, a whole suite, or an ad-hoc check, pass or fail — run `agent-browser close`. Chain it so it always fires even mid-routine: `<last command> && agent-browser close`. Fallbacks if the daemon is wedged and `close` won't take: `pkill -f agent-browser` (kills the daemon), then `find ~/.agent-browser -maxdepth 1 -type s -delete` (clears stale sockets left by an interrupted run). This is the one lifecycle exception to "leave things running" — the browser is Claude's tool, not a shared resource. (Dev servers still stay up per `.claude/rules/dev-server.md`.)
+The tell that you are in someone else's window is a snapshot describing a page you never navigated to. Don't adapt to it — check `location.href` and move to a named session.
 
-**Cross-origin iframes (Stripe, reCAPTCHA, etc.):**
-`agent-browser find` does NOT traverse cross-origin iframes (upstream gap — [agent-browser#279](https://github.com/vercel-labs/agent-browser/issues/279)). Playwright's `frameLocator` would solve this but agent-browser doesn't expose it. Workaround for Stripe PaymentElement:
+## Teardown — always `agent-browser close`
 
-1. Find the iframe's bounding rect via `agent-browser eval` at runtime (position depends on page layout)
-2. Click at `(rect.x + iframe_relative_x, rect.y + iframe_relative_y)` using `mouse move` + `mouse down` + `mouse up`. **Internal offsets are viewport-independent** because Stripe uses fixed-pixel row heights, so the same `+50, +105` works on any monitor / viewport size.
-3. Use `keyboard type` to send keystrokes — Stripe auto-advances between card/expiry/CVC/ZIP fields
-4. Do NOT adjust the X offset based on viewport — X is iframe-relative. Only Y may need tuning if Stripe redesigns row heights.
+The daemon holds the browser open over CDP so commands stay fast, and it does not close on its own: the Chrome-for-Testing process lingers, visible when headed, and can only be force-quit — which makes macOS auto-updates fail.
 
-**Debugging:**
-- Check console after interactions: `agent-browser eval 'JSON.stringify(console)' ` or use snapshot to verify state
-- Take screenshots when visual verification is needed
-- Check network failures with eval if API calls seem broken
+So the moment a browser task finishes — one flow, a whole suite, or an ad-hoc check, pass or fail — close **your own** session: `agent-browser close --session <project>`. Chain it so it fires even mid-routine: `<last command> && agent-browser close --session <project>`.
 
-**Auth:**
-- Login via email/password form fields
-- Google OAuth will not work — don't attempt it
-- If login state is needed across commands, use `agent-browser state save/load`
+Name the session on the close as well as the open. A bare `agent-browser close` acts on whatever session is current, which is how you close someone else's window while believing you tidied up after yourself.
+
+If the daemon is wedged and `close` won't take: `pkill -f agent-browser`, then `find ~/.agent-browser -maxdepth 1 -type s -delete` to clear sockets left by an interrupted run.
+
+This is the one lifecycle exception to "leave things running" — the browser is your tool, not a shared resource. Dev servers still stay up.
+
+## Traces — only when asked
+
+Tracing costs time and disk on every run to produce an artifact almost nobody opens, and it is least useful on the runs it would fire on most: your own routine self-verification.
+
+When the user does ask — a bug that only reproduces in the browser, or a run they want to inspect afterwards:
+
+```bash
+agent-browser trace start
+# … the run …
+agent-browser trace stop trace.zip
+```
+
+`npx playwright show-trace trace.zip` gives a DOM snapshot at every action plus network and console, steppable both ways. Hand the file over with the result.
+
+## Auth
+
+Log in through email/password form fields, and check `.env` for test credentials before asking the user. Google OAuth is blocked by Playwright's bot detection — don't attempt it. Within a live session, cookies and `localStorage` persist across commands on their own — no `state` call needed. A `close` discards them, so to reuse a login across the teardown, `state save <file>` before closing, then `state load <file>` **while the browser is closed** and open afterwards. Loading with a browser running is refused.
+
+## Cross-origin iframes (Stripe, reCAPTCHA)
+
+`agent-browser find` does not traverse cross-origin iframes ([agent-browser#279](https://github.com/vercel-labs/agent-browser/issues/279)); Playwright's `frameLocator` would solve it but agent-browser does not expose it. For the Stripe PaymentElement:
+
+1. Find the iframe's bounding rect with `agent-browser eval` at runtime — position depends on page layout.
+2. Click at `(rect.x + iframe_relative_x, rect.y + iframe_relative_y)` via `mouse move` + `mouse down` + `mouse up`. Internal offsets are viewport-independent because Stripe uses fixed-pixel row heights, so the same `+50, +105` works at any size.
+3. Send keystrokes with `keyboard type` — Stripe auto-advances between card, expiry, CVC and ZIP.
+4. Never adjust the X offset for viewport; X is iframe-relative. Only Y may need tuning if Stripe redesigns row heights.
+
+## Debugging
+
+Check the console after interactions, take screenshots when visual verification is needed, and check network failures with `eval` when API calls look broken.

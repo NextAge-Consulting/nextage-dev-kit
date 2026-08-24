@@ -1,12 +1,5 @@
-### Ref Workflow Policy
+# Ref
 
+Use the Ref MCP server for anything about code, APIs, or library documentation — `mcp__Ref__ref_search_documentation` to find docs, `mcp__Ref__ref_read_url` to read a specific page. Retrieve before composing or explaining a technical solution, and defer to what Ref returns over prior training.
 
-- Always use the Ref MCP server when asked anything about code, APIs, or library documentation. Retrieve docs or code samples from Ref before composing or explaining technical solutions.
-- Whenever asked about a library, ALWAYS include "use Ref" at the end of your prompt to request the most up-to-date docs and code examples
-- Never rely only on prior model training or guesses—defer to the retrieved Ref documentation for accuracy
-
-**Examples:**
-
-- ✅ Good: `How do I add schema validation with Zod in Express? use Ref`
-- ❌ Not allowed: Answers about a library without referencing up-to-date docs from Ref
-- If multiple libraries are involved, repeat the above steps for each before answering
+When several libraries are involved, retrieve for each one before answering.

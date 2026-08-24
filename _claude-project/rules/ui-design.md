@@ -4,80 +4,76 @@ paths: "{design.md,**/*.tsx,**/*.jsx,**/*.css,**/*.scss}"
 
 # UI / Design System Rule
 
-**Before writing or editing ANY UI / styling code OR the project's `design.md`, invoke the `design-system` skill.**
+**Invoke the `design-system` skill before writing or editing any UI or styling code, or the project's `design.md`.**
 
 ```
 Skill({skill: "design-system"})
 ```
 
-The skill enforces "read the project's `design.md` first, then apply universal styling discipline." It will hard-stop if `design.md` is missing at the project root.
+It enforces "read the project's `design.md` first, then apply universal styling discipline", and hard-stops when `design.md` is missing from the project root. On that hard stop, ask the human — a design system is theirs to establish, so do not write one yourself and do not proceed with ad-hoc styling instead.
 
-## Why this rule is path-targeted
+When the file you are editing *is* `design.md`, run `npm run lint:design` before calling the change done. The skill instructs this; the rule's job is to make sure the skill loads.
 
-- **JSX/TSX files** contain component styling that consumes tokens.
-- **CSS/SCSS files** contain the `@theme` token definitions and any global styles.
-- **`design.md`** is the documented spec itself — edits to it should always pass through the skill so the spec-compliance + lint-step expectations are surfaced.
+This rule is path-targeted because JSX and TSX consume tokens, CSS and SCSS hold the `@theme` definitions, and `design.md` is the spec itself. Server functions, tests, config and other prose don't touch the design system.
 
-Anything else (server functions, tests, config, prose docs other than design.md) doesn't touch the design system and doesn't need this rule loaded.
+## Adding a component means adding it in two places
 
-When the file being edited IS `design.md`, the skill's **Step 4 — Validate** is the critical concern: run `npm run lint:design` (the declared design.md spec linter) before declaring the change done. The skill instructs this; the rule's job is just to ensure the skill loads.
+`design.md` is the authority for what the design system contains, and it is not auto-loaded — this rule is. So a component can exist, be specified, and still get hand-rolled, because nothing put its name in front of whoever wrote the screen.
 
-## The atoms must be in the FORCED read, not just in `design.md`
+The project's `rules/project/ui-inventory.md` — path-targeted to the same globs — carries the list of components that exist, one line each on what they are for. `design.md` keeps the spec; the inventory answers "does this already exist", which is the question actually being got wrong.
 
-`design.md` is the authority for what the design system contains, and it is not
-auto-loaded — this rule is. So the same failure applies here as to patterns: a
-component can exist, be specified, and still be hand-rolled, because nothing put
-its NAME in front of the person writing the screen.
-
-The project's UI inventory rule (`rules/project/ui-inventory.md`, seeded by the
-kit and path-targeted to the same globs as this file) therefore carries **the
-list of components that exist** — atoms, display components, app composites —
-one line each on what they are for. `design.md` keeps the spec; the inventory
-answers "does this already exist", which is the question actually being got
-wrong.
-
-Adding a component means adding it to BOTH, in the same change as the component
-(`design-system` skill, reconciliation pass).
+Add a new component to both, in the same change as the component itself.
 
 ## Authority chain
 
-1. **Runtime source of truth**: the CSS `@theme` block (typically `src/styles.css` or `apps/shared/src/styles.css`) — what the browser actually sees.
-2. **Documented spec**: the project's `design.md` (at project root) — google-labs-code spec compliant, machine-readable + human-readable.
-3. **Universal discipline**: the `design-system` skill — project-agnostic rules about how to consume any design system spec.
+1. **The CSS `@theme` block** (typically `src/styles.css` or `apps/shared/src/styles.css`) — the runtime source of truth, what the browser actually sees.
+2. **The project's `design.md`** — the documented spec, google-labs-code compliant.
+3. **The `design-system` skill** — project-agnostic discipline for consuming any spec.
 
-If runtime and documented spec diverge, runtime wins; update `design.md` to match.
+Where runtime and documented spec diverge, runtime wins: update `design.md` to match.
 
-## The client/server wall (hard rule)
+## The client/server wall
 
-The design system's UI — tokens, atoms, `cn()`, display components — lives in a **client-clean** home: client dependencies only (react, radix, cva, tokens), **no** server/DB imports (no drizzle/pg, no server functions). Two placements are valid — per-app `src/components/ui/`, or a dedicated client-only UI workspace (`packages/ui`) consumed by every front-end app — but the wall is the same, and it is **bidirectional**:
+The design system's UI — tokens, atoms, `cn()`, display components — lives in a home with client dependencies only (react, radix, cva) and no server or DB imports. One front-end app puts it in that app's `src/components/ui/`; more than one puts it in a dedicated client-only workspace (`packages/ui`) they all consume.
 
-- **The UI home holds no server code** → a UI atom can never drag server deps (pg, drizzle) into the client bundle.
-- **The server-shared package holds no UI** → a headless app (REST API, worker) can consume shared business logic with no path that reaches a React import.
+The wall is bidirectional. **The UI home holds no server code**, so a UI atom can never drag pg or drizzle into the client bundle. **The server-shared package holds no UI**, so a headless app — a REST API, a worker — can consume shared business logic with no path reaching a React import. Keep that true even with no headless app today: enforcing it from the start costs nothing and retrofitting it is a refactor.
 
-Never add server/DB deps to the UI home, and never add React/UI to the server-shared package. If a component needs server data, that is an app-level composite wiring a server function to a UI atom — not the UI home reaching into the server.
+A component needing server data is an app-level composite wiring a server function to a UI atom, not the UI home reaching into the server.
 
-A project that cannot yet satisfy the wall (UI still living in its server-shared package) MUST record the exception in a project-local rule that names the migration path — never silently ignore it.
+A project that cannot yet satisfy the wall — UI still living in its server-shared package — records the exception in a file under `rules/project/`, naming the migration path.
 
-**Keep the server-shared package browser-free even with no headless app today.** A future REST service or worker must be able to consume shared business logic with no path that reaches a React import. Enforcing it from the start costs nothing; retrofitting it after the fact is a refactor. A headless consumer does not create this rule — it only removes the option of ignoring it.
+### A third tier, only when something needs it
 
-### The third tier — only when something needs it
+Server-shared plus UI home covers most projects. A third appears when a project has shared code that is neither: reachable from browser code, used by more than one front-end app, and not presentational — a Stripe browser integration, a shared serverFn, a shipping-API client.
 
-Two tiers (server-shared + UI home) cover most projects. A third appears when a project has shared code that is **neither**: client-side, used by more than one front-end app, and not presentational — a Stripe browser integration, a shared serverFn, a shipping-API client.
+"Reachable from browser code" is the test, not "executes in the browser". A serverFn runs on the server, but the client imports its reference to call it, so it cannot live in the browser-free server-shared package. It must not go in the UI home either, which stays clean presentation. So it earns its own workspace, conventionally `packages/web`, holding integrations and shared serverFns and never touching the database.
 
-It cannot go in the server-shared package (that stays browser-free, above), and it must not go in the UI home (which stays clean presentation so the design feed has nothing server-side to sanitize). So it earns its own workspace — conventionally `packages/web`, holding integrations and shared serverFns, and never touching the database.
+Any front-end may import it — apps, and extension apps too.
 
-**Do not create this tier speculatively.** With nothing to put in it, an empty third package is pure overhead: another manifest, another path alias, and a "where does this go?" decision on every future change. Create it when the code that belongs in it actually exists — not before. Most projects never need it.
+Create it when the code that belongs in it exists, never speculatively — an empty third package is another manifest, another path alias, and a "where does this go?" decision on every future change. Most projects never need it.
+
+### Browser extensions are all browser
+
+A browser-extension app is client code end to end. There is no server half, so nothing in it can justify a data-tier import — a stray one ships drizzle into the extension bundle.
+
+An extension app may consume the UI home like any other front-end. It must never import the server-shared package, and never import database code (`drizzle-orm`, `pg`, `postgres`, `@neondatabase/*`) directly.
+
+The guard identifies an extension app by a browser-extension builder in its dependencies — `wxt`, `plasmo`, `@plasmohq/parcel-config`, or `@crxjs/vite-plugin` — so a new extension is covered the moment its `package.json` names one, with nothing to configure. It is also excluded from headless-app detection: an extension has no `react` dependency and may have no `.tsx`, which would otherwise read as a server-only service, and the two have opposite rules about reaching the database.
 
 ### The one sanctioned crossing: contract types
 
-Row and param shapes produced by server loaders and rendered by UI components are defined **once**, in the UI home under `contracts/`, and `import type`d back by the server module that produces them. Types erase at compile, so nothing crosses at runtime.
+Row and param shapes produced by server loaders and rendered by UI components are defined once, in the UI home under `contracts/`, and `import type`d back by the server module that produces them. Types erase at compile, so nothing crosses at runtime.
 
-This is the only way the server-shared package may reference the UI home, and it is types-only — a runtime import is a violation. Contract modules import nothing but sibling contract modules. The alternative (declaring the shape twice, or putting it in the server tier and importing it from UI) either drifts or breaches the wall.
+This is the only way the server-shared package may reference the UI home, and it is types-only — a runtime import is a violation. Contract modules import nothing but sibling contract modules. Declaring the shape twice drifts; putting it in the server tier and importing it from UI breaches the wall.
 
 ### The guard
 
-`scripts/check-workspace-tiers.mjs` (CI job `workspace-tiers`) enforces all of the above. It **detects** which tiers a repo has — server-shared, UI home, web tier, and headless apps (an app workspace with no `react` dependency and no `.tsx`) — and checks only the walls that exist. A repo with no shared workspace is a guaranteed pass, so it runs unconditionally. Its success line names what it actually enforced; a pass with fewer tiers listed than you expect means a tier was not detected, not that it was checked and found clean.
+`scripts/check-workspace-tiers.mjs` (CI job `workspace-tiers`) enforces all of the above. It detects which tiers a repo has — server-shared, UI home, web tier, headless apps (an app workspace with no `react` dependency and no `.tsx`), and extension apps (an app workspace whose dependencies name an extension builder) — and checks only the walls that exist, so a repo with no shared workspace passes unconditionally.
 
-## When this rule is wrong
+Read its success line: it names what it actually enforced. Fewer tiers listed than you expect means a tier was not detected, not that it was checked and found clean.
 
-Almost never. The one carve-out: if the user explicitly authorizes ad-hoc styling for a single one-shot task (e.g. a debugging UI), you may proceed without the skill — but document the exception in the change and treat it as tech debt to be reconciled.
+It detects the UI home as the `packages/ui` workspace. A single-app UI home living in `apps/<app>/src/components/ui/` is a directory, not a workspace, so the guard does not see it and that wall is yours to hold by hand until the project grows a second front-end.
+
+## The one carve-out
+
+If the human explicitly authorizes ad-hoc styling for a single one-shot task — a debugging UI, say — you may proceed without the skill. Document the exception in the change and treat it as tech debt to reconcile.

@@ -39,8 +39,10 @@ the schema could not say, the custom type is the fix instead.
 
 **Dev databases are Neon branches of production.** That is what makes them real
 enough to trust. It also means anything created on a dev branch is wiped by the
-next reset from parent — so infrastructure lands on production first, always, and
-reaches dev by reset.
+next reset from parent — so anything expressible as a migration IS a migration,
+including a data seed, and reaches every branch by the normal path. Ad-hoc SQL
+against dev is erased by the reset and never reaches prod. A fix SQL alone cannot
+express is human-gated, the same as `db:generate` and `db:migrate`.
 
 **DB-backed tests fork their own branch.** An ephemeral branch per run, deleted in
 teardown, so tests see real data and production is never written.

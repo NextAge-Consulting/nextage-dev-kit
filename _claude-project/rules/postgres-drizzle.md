@@ -31,5 +31,16 @@ entry. Only `drizzle-kit generate` writes all three together; hand-creating a
 `.sql` or editing the journal or a snapshot desyncs the chain. Editing the body
 of a `.sql` that `generate` produced is fine and often correct.
 
+**Which branch am I on? Ask, don't guess.** `node scripts/db-branch.mjs` reads
+`DATABASE_URL`, resolves its endpoint through the Neon API, and prints the branch
+name. `DEV` (exit 0) means a resettable fork — reads, tests and migrations against
+it are normal work, so proceed. `PRODUCTION` (exit 1) means the project's default
+or protected branch — stop and get approval. `UNKNOWN` (exit 2) means it could not
+tell, which is never the same as safe.
+
+Your local `.env` normally points at a dev branch. Run the check rather than
+inferring in either direction: stalling on a dev branch wastes the session, and
+assuming a dev branch on prod is worse.
+
 Naming conventions (singular tables, `{table}id`, UUID v7) are engine-agnostic
 and live in the constitution, not here.

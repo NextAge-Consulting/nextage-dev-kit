@@ -4,35 +4,19 @@ paths: "**/*.py"
 
 # Python Rules
 
-<!--
-Loaded only when editing Python files. Universal rules in constitution.md.
--->
+Loaded when editing Python. Universal rules live in `constitution.md`.
 
 ## I. Python Quality (Zero Tolerance)
 
-**No type errors or lint violations in committed code.** Enforced by git pre-commit hook.
+**Commit no type errors or lint violations.** The pre-commit hook enforces it, and Ruff and type-checker diagnostics are authoritative — quality failures, not suggestions.
 
-Ruff and type checker diagnostics are authoritative. Run via CLI (guaranteed) or LSP if connected (see constitution §IX and §X below for setup). These errors are NOT suggestions — they are quality failures.
+Fix the type issue rather than writing `# type: ignore`, fix the lint issue rather than `# noqa`, and give values real types rather than `Any`.
 
-| Forbidden Pattern | Why | Fix |
-|-------------------|-----|-----|
-| `# type: ignore` | Hides type errors | Fix the type issue |
-| `# noqa` | Hides lint errors | Fix the lint issue |
-| `Any` type | Disables type checking | Use proper types |
-| Unused imports | Dead code | DELETE |
+F401 (unused import) and F841 (unused variable) mean delete it, after checking for indirect usage. E501 means reformat. A type mismatch gets fixed at its source.
 
-| Error | Fix |
-|-------|-----|
-| F401 (unused import) | DELETE |
-| F841 (unused variable) | DELETE |
-| E501 (line too long) | Reformat |
-| Type mismatch | Fix at source |
+## II. Logging
 
-## II. No Print Statements
-
-**`print()` is FORBIDDEN in production code.** Enforced by PreToolUse hook.
-
-Use Python's `logging` module with structured loggers.
+**Use the `logging` module with structured loggers.** A PreToolUse hook blocks `print()` in production code.
 
 ```python
 import logging
@@ -43,44 +27,30 @@ logger.error("Request failed", exc_info=True, extra={"request_id": req_id})
 logger.debug("Debug context", extra={"data": data})
 ```
 
-**Log monitoring**: `tail -f logs/app.log`. Server lifecycle (start / never-kill / leave-running) is governed by `.claude/rules/dev-server.md`.
+Watch it with `tail -f logs/app.log`. Server lifecycle is governed by `dev-server.md`.
 
 ## III. Naming
 
-| Convention | Rule |
-|------------|------|
-| Python variables / functions | `snake_case` |
-| Classes | `PascalCase` |
-| Constants | `UPPER_SNAKE_CASE` |
+`snake_case` for variables and functions, `PascalCase` for classes, `UPPER_SNAKE_CASE` for constants.
 
 ## IV. Timezone-Aware Code — Python Patterns
 
-See constitution §VI for the principle. Python-specific forbidden patterns:
+Constitution §VI carries the principle. In Python:
 
-| Forbidden | Fix |
-|-----------|-----|
-| `datetime.now()` without tz | `datetime.now(tz)` with explicit timezone |
-| `datetime.utcnow()` | Deprecated — use `datetime.now(timezone.utc)` |
-| `date.today()` in user-facing code | Derive from timezone-aware `datetime.now(tz)` |
-| Naive datetime into DB | Use tz-aware datetime; DB column should be `TIMESTAMPTZ` |
+Call `datetime.now(tz)` with an explicit timezone rather than a bare `datetime.now()`. Use `datetime.now(timezone.utc)` rather than the deprecated `datetime.utcnow()`. Derive a user-facing "today" from a timezone-aware `datetime.now(tz)` rather than `date.today()`. Write timezone-aware datetimes to the database, into a `TIMESTAMPTZ` column.
 
 ## V. Optional Handling
 
-Use explicit `is None` checks:
+Check `is None` explicitly — a truthy check swallows valid falsy values:
 
 ```python
-# ❌ WRONG - truthy check can miss valid falsy values
-if user:
-    process(user)
-
-# ✅ CORRECT - explicit None check
 if user is not None:
     process(user)
 ```
 
 ## VI. Type Narrowing
 
-Use `isinstance` and type guards for safe narrowing:
+Narrow with `isinstance` and type guards:
 
 ```python
 from typing import TypeGuard
@@ -89,39 +59,25 @@ def is_valid_user(obj: object) -> TypeGuard[User]:
     return isinstance(obj, User) and obj.email is not None
 ```
 
-## VII. Async Best Practices
+## VII. Async
 
-**Never block the event loop.**
+**Never block the event loop.** Use `await asyncio.sleep()` rather than `time.sleep()`, `httpx.AsyncClient` or `aiohttp` rather than `requests.get()`, `aiofiles` rather than sync file I/O, and an async driver such as asyncpg rather than a blocking database call.
 
-| Forbidden | Use Instead |
-|-----------|-------------|
-| `time.sleep()` | `await asyncio.sleep()` |
-| `requests.get()` | `httpx.AsyncClient` or `aiohttp` |
-| Sync file I/O in async | `aiofiles` |
-| Blocking DB calls | async drivers (asyncpg, etc.) |
-
-### Task Groups (Python 3.11+)
+Use a `TaskGroup` (3.11+) where one task failing should cancel the rest; `asyncio.gather` is still right where it should not. Close resources on SIGTERM/SIGINT:
 
 ```python
 async with asyncio.TaskGroup() as tg:
     task1 = tg.create_task(fetch_user(user_id))
     task2 = tg.create_task(fetch_settings(user_id))
-# Both complete or all cancelled on error
-```
 
-### Graceful Shutdown
-
-Handle SIGTERM/SIGINT:
-
-```python
 async def shutdown():
     await db.close()
     await scheduler.shutdown()
 ```
 
-## VIII. FastAPI Guidelines
+## VIII. FastAPI
 
-### Dependency Injection
+Inject dependencies through `Depends`, and define request bodies as Pydantic models:
 
 ```python
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -131,12 +87,6 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 @app.get("/users")
 async def get_users(db: AsyncSession = Depends(get_db)):
     ...
-```
-
-### Pydantic Models
-
-```python
-from pydantic import BaseModel, Field
 
 class UserCreate(BaseModel):
     email: str = Field(..., description="User email")
@@ -145,90 +95,43 @@ class UserCreate(BaseModel):
 
 ## IX. Code Standards
 
-- Python 3.11+ required
-- Type hints on all functions
+Python 3.11+, with type hints on every function.
 
-## X. LSP & CLI Setup
+## X. Setup and Commands
 
-**LSP for Python requires Claude Code's official plugin + the pyright binary.** See constitution §IX for the general mechanism. One-time machine setup:
+Python LSP needs both Claude Code's official plugin and the pyright binary (constitution §IX). One-time per machine:
 
 ```bash
-# 1. Install the Claude Code plugin
 /plugin install pyright-lsp@claude-plugins-official
-
-# 2. Install the language server binary
-npm install -g pyright
-# or: pip install pyright
+npm install -g pyright        # or: pip install pyright
 ```
 
-**Verify binary + plugin:** `which pyright-langserver` must return a path. `/plugin list` must show `pyright-lsp`. If either is missing, LSP for Python is dead — fall back to CLI.
+Verify with `which pyright-langserver` returning a path and `/plugin list` showing `pyright-lsp`. With either missing, LSP for Python is dead — fall back to the CLI. To verify end to end, run `documentSymbol`, `hover` and `findReferences` against a known-good file; `project-documentation/claude-code-setup.md` §Python holds the fixture and expected results.
 
-**Verify end-to-end:** Run LSP `documentSymbol`, `hover`, and `findReferences` against a known-good Python file. If all three return real results, LSP is working. Confirmed working on Claude Code 2.0.74+ (2026-04-17). See `project-documentation/claude-code-setup.md` §Python for the canonical fixture and expected results.
+The CLI always works, and is what CI and pre-commit run: `pyright` (or `mypy .` where the project standardizes on mypy), `ruff check .`, `ruff format .`, `python -m pytest`.
 
-**CLI (always works, also what CI/pre-commit runs):**
+### Pyright configuration
 
-- `pyright` — type check (or `mypy .` if the project standardizes on mypy)
-- `ruff check .` — lint
-- `ruff format .` — format
+**Put the config at the repo root** — `pyrightconfig.json`, or `[tool.pyright]` in the root `pyproject.toml`. `[tool.ruff]` goes in `pyproject.toml`.
 
-**Per-project config:**
-- `pyrightconfig.json` at the REPO ROOT, OR `[tool.pyright]` in the root `pyproject.toml`
-- `[tool.ruff]` in `pyproject.toml`
+Pyright reads config only from the directory it is launched in, which for editors and the LSP plugin is the repo root. In a repo whose Python lives in `services/*/` or `packages/*/`, a `[tool.pyright]` block in a subdirectory `pyproject.toml` is never read and is silently inert: pyright falls back to the system interpreter with no `site-packages`, then false-flags modern stdlib symbols like `datetime.UTC` and reports every import as unresolvable. A correct-looking block in the wrong file reads as configured and is not.
 
-**Pyright reads config only from its own project root — the directory it is launched in.** Editors
-and the LSP plugin launch it at the repo root. So in a repo whose Python lives in subdirectories
-(`services/*/`, `packages/*/`), a `[tool.pyright]` block in a SUBDIRECTORY `pyproject.toml` is never
-read and is silently inert: pyright falls back to the system interpreter and no `site-packages`, then
-false-flags modern stdlib symbols (`datetime.UTC`) and reports every first-party and third-party
-import as unresolvable. A correct-looking block in the wrong file reads as configured and is not.
+Verify with `pyright --outputjson | jq .summary` and check that `filesAnalyzed` matches the real file count — green because nothing was looked at is not green.
 
-- Put the config at the repo root. Verify with `pyright --outputjson | jq .summary` — check
-  `filesAnalyzed` matches the real file count, not just that `errorCount` is 0.
-- Multiple venvs under one root: pyright takes ONE project-level `venv`, so give each subtree an
-  `executionEnvironments` entry whose `extraPaths` carries its `src` plus its venv's
-  `site-packages`. (The docs also rank `venvPath`/`venv` as the least robust resolution mechanism.)
-- Scope `include` to the SUBTREE ROOTS, not enumerated `src`/`tests` — enumerating silently exempts
-  operational code (`scripts/`, `deploy/`) from ever being checked. Green because it wasn't looked at
-  is not green.
+Scope `include` to the subtree roots rather than enumerating `src` and `tests`, which silently exempts operational code in `scripts/` and `deploy/` from ever being checked.
 
-**Per-project dev dependencies** (`pyproject.toml` / `uv` / `pip`):
-- `ruff` — always
-- `pyright` or `mypy` — pick one; match the CI config
-- Pinned exact and identical across services — see §XI.
+With multiple venvs under one root, pyright takes one project-level `venv`, so give each subtree an `executionEnvironments` entry whose `extraPaths` carries its `src` plus its venv's `site-packages`.
 
 ## XI. Dependency & Environment Discipline
 
-**Two kinds of dependency, two opposite rules.** Conflating them is the mistake — one is a library
-the code needs, the other is the gate that judges the code.
+Two kinds of dependency, two opposite rules — one is a library the code needs, the other is the gate that judges the code.
 
-**Runtime dependencies are per-service and independent.** One venv per service/package, each with
-its own `pyproject.toml` and lockfile. Services that don't import each other have no reason to agree
-on their libraries; forcing agreement couples them for nothing.
+**Runtime dependencies are per-service and independent.** One venv per service or package, each with its own `pyproject.toml` and lockfile. Services that do not import each other have no reason to agree on their libraries.
 
-**Shared dev tooling is pinned EXACT and IDENTICAL in every service** — ruff, the type checker, the
-test runner, anything used by more than one.
+**Shared dev tooling is pinned exact and identical in every service** — ruff, the type checker, the test runner, anything used by more than one.
 
-| Rule | Why |
-|------|-----|
-| `ruff==X.Y.Z`, same version everywhere. Never `>=` for a linter/formatter/type checker | A linter is the GATE, not a library. With a floor, each service locks whatever was current the day it was last resolved — then a rule added in a patch release fails code nobody touched, in ONE service only |
-| Bump the pin in every service in the SAME change | A one-service bump silently re-opens the split |
-| Pin the interpreter with `.python-version` in EVERY service | `requires-python = ">=3.11"` is a floor, not a pin. Without the file, `uv` picks any compatible interpreter installed — so one service lands on 3.13 while its sibling stays on 3.11, on the same machine |
-| Match the pinned interpreter to the DEPLOY target | An interpreter that only exists on the dev machine is a bug you discover in production |
+Write `ruff==X.Y.Z`, never `>=`, for any linter, formatter or type checker: with a floor, each service locks whatever was current the day it last resolved, and a rule added in a patch release then fails untouched code in one service only. Bump the pin in every service in the same change, or the split silently re-opens.
 
-**Do NOT reach for a `uv` workspace to fix cross-service drift.** uv scopes workspaces to
-*interconnected* packages sharing one lockfile and one venv, and explicitly excludes members that
-"desire a separate virtual environment for each member." For independent services one shared venv is
-actively harmful: uv cannot prevent service A importing a dependency only service B declares, so it
-passes every local test and then fails wherever A is deployed on its own.
+Pin the interpreter with `.python-version` in every service — `requires-python = ">=3.11"` is a floor, not a pin, and without the file `uv` picks any compatible interpreter, landing one service on 3.13 and its sibling on 3.11 on the same machine. Match that pinned interpreter to the deploy target.
 
-## XII. Development Commands
-
-- `python -m pytest` — Run tests
-- `ruff check .` — Lint
-- `ruff format .` — Format
-- `pyright` or `mypy .` — Type checking
-
-## XIII. Code Health
-
-- F401 (unused import) / F841 (unused variable)
-- Check for indirect usage before deleting flagged code
+**Do not reach for a `uv` workspace to fix drift between independent services** — the pinning rules above are what fixes it. A workspace is right for genuinely interconnected packages, which is what uv scopes it to: one lockfile, one venv, and members wanting their own virtual environment explicitly excluded. For independent services that shared venv is actively harmful: uv cannot stop service A importing a dependency only service B declares, so it passes every local test and fails wherever A deploys alone.

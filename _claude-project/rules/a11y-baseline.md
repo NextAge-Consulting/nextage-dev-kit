@@ -4,40 +4,27 @@ paths: "**/*.{tsx,jsx}"
 
 # Accessibility Baseline
 
-Auto-loaded whenever Claude edits a JSX/TSX file. Apply these rules at
-composition time. `biome lint` is the safety net — it runs in the gitflow
-pre-commit hook and on every PR via `ci.yml` — but the goal is to write
-a11y-correct code on the first try so the safety net stays quiet.
+Apply these at composition time. `biome lint` runs in the pre-commit hook and on every PR, but the goal is code that is a11y-correct first time so the safety net stays quiet.
 
-AI-generated JSX skips a11y by default because training-data examples omit
-it. The list below covers every a11y rule that actually fires on this
-codebase plus the two rules (`suspicious/noArrayIndexKey`,
-`suspicious/noExplicitAny`) that disable the type information a11y rules
-depend on.
+AI-generated JSX skips a11y by default, because the training examples omit it. This file covers every a11y rule that fires on this codebase, plus `noExplicitAny` — which disables the type information the a11y rules depend on — and `noArrayIndexKey`, which is here because it breaks reconciliation rather than accessibility.
 
-## Buttons — always set `type=`
+## Buttons — set `type=`
 
-Native `<button>` defaults to `type="submit"`. Inside a `<form>` that
-auto-submits on any click. Action buttons need `type="button"`; form
-submit buttons need `type="submit"`.
+A raw `<button>` defaults to `type="submit"`, which inside a `<form>` submits on any click. Set `type="button"` on action buttons and `type="submit"` on submit buttons. The shared shadcn `Button` already defaults to `type="button"`.
 
-The shared shadcn `Button` primitive (`components/ui/button.tsx`) defaults
-to `type="button"`. Raw `<button>` elements MUST set `type=` explicitly.
+## Icon-only buttons — give them a name
 
-## Icon-only buttons — always provide an accessible name
-
-A button whose only visible content is an icon (no visible text) has no
-accessible name by default. Screen readers announce "button" with no
-context. Keyboard users see focus indicator but don't know what the
-action does. **Three valid patterns:**
+A button whose only content is an icon has no accessible name: screen readers announce "button", and keyboard users get a focus ring with no idea what it does. Three valid patterns:
 
 ```tsx
-// 1. aria-label — simplest; preferred when no tooltip is needed
+// 1. aria-label — simplest, when no tooltip is needed
 <Button variant="ghost" size="icon" aria-label="Close dialog">
   <X className="size-4" />
 </Button>
 
-// 2. Tooltip wrapper — best UX when the action benefits from a hover hint
+// 2. Tooltip — best when the action benefits from a hover hint.
+//    The button still needs its own aria-label: TooltipContent is the
+//    tooltip's content, not the button's accessible name.
 <Tooltip>
   <TooltipTrigger asChild>
     <Button variant="ghost" size="icon" aria-label="Delete row">
@@ -47,42 +34,27 @@ action does. **Three valid patterns:**
   <TooltipContent>Delete row</TooltipContent>
 </Tooltip>
 
-// 3. Visually-hidden span — when the icon already conveys meaning to
-//    sighted users and only screen readers need text
+// 3. Visually-hidden span — when the icon already reads to sighted users
 <Button variant="ghost" size="icon">
   <Settings className="size-4" />
   <span className="sr-only">Open settings</span>
 </Button>
 ```
 
-**Note:** Pattern 2 still includes `aria-label` on the button itself
-because the `TooltipContent` is not the button's accessible name —
-it's the tooltip's content. The button needs its own name.
+**Name the action, not the icon.** The name is announced verbatim and shown on focus.
 
-**Label wording.** Describe the action, not the icon. The accessible
-name is announced verbatim by screen readers and shown on focus.
-
-| ✅ Good | ❌ Bad |
+| Good | Bad |
 |---------|--------|
 | "Close dialog" | "X" |
 | "Delete row" | "Trash icon" |
-| "Open settings" | "Settings" (ambiguous without context) |
+| "Open settings" | "Settings" — ambiguous without context |
 | "View order details" | "Click here" |
 
-**Combination with SVG `<title>`.** If the icon is an inline `<svg>`,
-the SVG still needs a `<title>` OR `aria-hidden="true"` per the next
-section. When the parent button has an accessible name (any of the three
-patterns above), the SVG should be `aria-hidden="true"` — putting names
-on both creates double-announcement.
+When the button already has a name and the icon is an inline `<svg>`, mark the SVG `aria-hidden="true"` — naming both double-announces.
 
-## SVG icons — add `<title>` or hide from assistive tech
+## SVG icons — `<title>` or hidden
 
-Every inline `<svg>` must have ONE of:
-
-1. A `<title>` child with non-empty text (screen readers announce it as
-   the element's accessible name). Prefer this.
-2. `aria-hidden="true"` — only valid when the parent already has an
-   accessible name (e.g., an `<a>` or `<button>` with `aria-label`).
+Every inline `<svg>` carries either a `<title>` child with non-empty text (preferred — it becomes the accessible name), or `aria-hidden="true"`, valid only when the parent already has a name.
 
 ```tsx
 <svg viewBox="0 0 24 24">
@@ -91,27 +63,23 @@ Every inline `<svg>` must have ONE of:
 </svg>
 ```
 
-Biome's `noSvgWithoutTitle` rule is finicky: if the SVG is written on
-a single line with the `<title>` inline, the rule may still fire. Break
-the SVG across lines with `<title>` as the first child.
+Write the SVG across lines with `<title>` as the first child, as above — Biome's `noSvgWithoutTitle` is finicky and may still fire on a single-line SVG whose `<title>` is inline. That formatting is the workaround for the linter, not an accessibility requirement.
 
-## Labels — always link to a control
-
-Two valid patterns:
+## Labels — link them to a control
 
 ```tsx
-// 1. htmlFor + id (preferred for layout flexibility)
+// htmlFor + id — preferred, more layout flexibility
 <label htmlFor="email">Email</label>
 <input id="email" type="email" />
 
-// 2. Wrapping
+// or wrapping
 <label>
   Email
   <input type="email" />
 </label>
 ```
 
-For reusable form components, generate the id via `useId()`:
+Generate the id with `useId()` in a reusable form component:
 
 ```tsx
 function FormField({ label, value, onChange }: Props) {
@@ -125,21 +93,15 @@ function FormField({ label, value, onChange }: Props) {
 }
 ```
 
-In shadcn-heavy files, prefer the `Field` + `FieldLabel` pattern from
-the shadcn skill's `forms.md` — it handles the association for you.
+In shadcn-heavy files use the `Field` + `FieldLabel` pattern from the shadcn skill's `forms.md`, which handles the association.
 
-## Click-handler on non-button elements — make it a `<button>`
+## `onClick` on a `<div>` or `<span>` — make it a `<button>`
 
-If a `<div>` or `<span>` has `onClick`, the default move is to convert
-it to a `<button type="button">`. Exceptions (modal backdrop, table row
-with keyboard navigation through cell content, card-level enhancement
-where primary interaction is inside) must be documented with an inline
-`// biome-ignore` comment explaining why.
+Convert it to `<button type="button">`. A genuine exception — modal backdrop, table row with keyboard navigation through cell content, card-level enhancement where the primary interaction is inside — gets an inline `// biome-ignore` naming the reason.
 
 ## Groups of controls — `<fieldset>` + `<legend>`
 
-Radio groups, checkbox groups, and button-groups acting as a picker use
-`<fieldset>` + `<legend>` — NOT `<div>` + `<label>`. Example:
+Radio groups, checkbox groups and button-groups acting as a picker use `<fieldset>` + `<legend>`, not `<div>` + `<label>`.
 
 ```tsx
 <fieldset>
@@ -151,28 +113,18 @@ Radio groups, checkbox groups, and button-groups acting as a picker use
 </fieldset>
 ```
 
-## List keys — never array index
+## List keys — a stable id, never the array index
 
-`key={index}` breaks React's reconciliation on reorder or delete. Use a
-stable id from the data. If the data has no unique id, build a composite
-key from unique fields (e.g., `` `${item.type}-${item.imageId}` ``).
+`key={index}` breaks reconciliation on reorder or delete. Use an id from the data, or build a composite key from unique fields (`` `${item.type}-${item.imageId}` ``).
 
-## Focus order is DOM order — never `tabIndex` to reorder
+## Focus order is DOM order
 
-**Tab order follows the DOM. When it feels wrong, the markup is wrong — move the
-element, don't renumber it.**
+**Decide the tab order first, write the markup in that order, and let the layout follow.** When tab order feels wrong the markup is wrong — move the element rather than renumbering it.
 
-The recurring case: a "Forgot password?" link placed in the password label row,
-which puts it BETWEEN the two credential fields in the tab sequence. Same shape
-for a "clear" link above a search box, or a helper link beside a field's label.
-
-**Decide the tab order first, then put the markup in that order and let the
-layout follow.** On a sign-in form the order people want is
-`email → password → submit → recovery`: the credentials and the action they feed
-are not interrupted, and the uncommon path comes last.
+The recurring case is a "Forgot password?" link placed in the password label row, which puts it between the two credential fields. The order people want is `email → password → submit → recovery`: credentials and the action they feed are uninterrupted, and the uncommon path comes last.
 
 ```tsx
-// ❌ Link sits in the label row, so it is before the input in the DOM
+// ❌ Link sits in the label row, so it tabs before the input
 <div className="flex items-baseline justify-between">
   <Label htmlFor="password">Password</Label>
   <Link to="/forgot-password">Forgot password?</Link>
@@ -187,64 +139,33 @@ are not interrupted, and the uncommon path comes last.
 <Link to="/forgot-password" className="self-center">Forgot password?</Link>
 ```
 
-**Reach for CSS placement only when the visual position is genuinely
-non-negotiable** — a two-column grid can hold an element in a label row while it
-sits later in the DOM (`col-start-2 row-start-1` on the link, input spanning row
-2). Prefer moving it: an absolute offset that pins an element to a row it is not
-in shifts the moment a conditional error message renders above it.
+Reach for CSS placement only when the visual position is genuinely non-negotiable — a two-column grid can hold an element in a label row while it sits later in the DOM. Prefer moving it: an absolute offset pinning an element to a row it is not in shifts the moment a conditional error message renders above it.
 
-**Both shortcuts are worse than the problem:**
+**`tabIndex` is for participation in the tab order, never for position within it.** Both shortcuts that reorder are worse than the problem they solve:
 
-- **`tabIndex={-1}` to skip it.** Removes the element from the keyboard path
-  entirely. On the canonical example that strips the recovery link from the one
-  user who cannot get past the password field.
-- **A positive `tabIndex`.** Creates a SECOND tab sequence that runs ahead of
-  every element on the page, so the first Tab from the address bar lands on
-  whatever carries `tabIndex={1}`. It also breaks silently the moment anyone
-  adds a field without renumbering. Treat any positive value as a defect —
-  Biome's `a11y/noPositiveTabindex` catches it.
+- **`tabIndex={-1}` used to skip an inconveniently-placed element** strips it from the keyboard path entirely — on the example above, from the one user who cannot get past the password field.
+- **A positive `tabIndex`** creates a second tab sequence running ahead of everything on the page, and breaks silently the moment someone adds a field without renumbering. Treat any positive value as a defect; `a11y/noPositiveTabindex` catches it.
 
-`tabIndex={0}` (put a non-interactive element in the natural order) and
-`tabIndex={-1}` (make something focusable only programmatically, e.g. a heading
-to move focus to after navigation) are both fine. It is *reordering* that is not.
+Used for participation rather than position, both are fine: `tabIndex={0}` puts a non-interactive element into the natural order, and `tabIndex={-1}` makes something focusable only programmatically — a heading you move focus to after navigation, say.
 
 ## Never `autoFocus`
 
-`autoFocus` hijacks screen-reader focus on page load with no warning.
-Use `ref.current?.focus()` gated on user intent (click, submit, etc.).
+It hijacks screen-reader focus on load with no warning. Use `ref.current?.focus()` gated on user intent.
 
 ## Types over `any`
 
-`any` disables type checking AND the a11y rules that depend on inferred
-element types. Use `unknown` + narrowing, or declare a proper type.
-`catch (error: unknown)` then `error instanceof Error ? error.message : "…"`
-is the standard pattern for error handlers.
+`any` disables type checking and the a11y rules that depend on inferred element types. Use `unknown` with narrowing — `catch (error: unknown)` then `error instanceof Error ? error.message : "…"` is the standard error-handler pattern.
 
 ## Suppression of last resort
 
-When a rule genuinely doesn't apply to your site, suppress inline with
-a written justification:
+Suppress inline with a written justification, adjacent to the flagged code:
 
 ```tsx
 // biome-ignore lint/a11y/useKeyWithClickEvents: <specific reason; not "FP">
 ```
 
-Biome's inline suppression only applies to the IMMEDIATELY next line,
-so the comment must be adjacent to the flagged code. Do NOT stack it
-with other directive comments (`// nosemgrep`, etc.) between it and
-the code — it will silently break.
+Biome's inline suppression applies only to the immediately following line, and stacking it with another directive comment (`// nosemgrep`, etc.) between it and the code breaks it silently.
 
 ## Reference
 
-Biome rules enforcing this file's contents (all at `error` severity via
-`"recommended": true` in `biome.json`):
-
-- `a11y/useButtonType`
-- `a11y/noSvgWithoutTitle`
-- `a11y/noLabelWithoutControl`
-- `a11y/useKeyWithClickEvents`
-- `a11y/noStaticElementInteractions`
-- `a11y/noAutofocus`
-- `a11y/noPositiveTabindex`
-- `suspicious/noArrayIndexKey`
-- `suspicious/noExplicitAny`
+Biome rules enforcing this file, all at `error` severity via `"recommended": true`: `a11y/useButtonType`, `a11y/noSvgWithoutTitle`, `a11y/noLabelWithoutControl`, `a11y/useKeyWithClickEvents`, `a11y/noStaticElementInteractions`, `a11y/noAutofocus`, `a11y/noPositiveTabindex`, `suspicious/noArrayIndexKey`, `suspicious/noExplicitAny`.
