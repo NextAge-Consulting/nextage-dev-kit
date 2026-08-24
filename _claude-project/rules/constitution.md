@@ -20,8 +20,6 @@ No backward compatibility — prefer a breaking change to technical debt. Comple
 
 Tables are singular (`user`, not `users`). Primary keys are `{table}id` (`userid`) using UUID v7. Foreign keys match the parent primary key's name. Database fields are lowercase. Use the real database names in code — `contact`, not `prospect`. Language-specific variable casing lives in the language rule files.
 
-Migration commands (`db:generate` / `db:migrate`, never `db:push`) run only with the human's explicit approval in the current conversation; approved runs are prefixed `SKIP_DB_GUARD=1`. An autonomous session follows whatever authorization the human gave it at handoff (`autonomous-sessions.md`); with none, the approval rule above still stands.
-
 ## VI. Timezone-Aware Code (Zero Tolerance)
 
 Before writing any code that touches time, ask what timezone it is stored in and what timezone the consumer expects.

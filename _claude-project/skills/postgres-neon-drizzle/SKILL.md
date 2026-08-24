@@ -16,8 +16,8 @@ nothing here applies.
   foreign keys matching the parent PK, lowercase fields. House standards that
   hold on any engine, so they live in the constitution (§V). A project on MSSQL
   still follows them; it does not follow this skill.
-- **The human gate on migrations** — also constitution §V, backed by a hook. A
-  skill is consulted by choice; a safety gate cannot be.
+- **The human gate on applying migrations** — the always-on `postgres-drizzle.md`
+  rule, backed by a hook. A skill is consulted by choice; a safety gate cannot be.
 - **The three silent failures** — the always-on `postgres-drizzle.md` rule. They
   are there rather than here because you would never think to invoke a skill
   before typing `ilike`.
@@ -42,7 +42,7 @@ enough to trust. It also means anything created on a dev branch is wiped by the
 next reset from parent — so anything expressible as a migration IS a migration,
 including a data seed, and reaches every branch by the normal path. Ad-hoc SQL
 against dev is erased by the reset and never reaches prod. A fix SQL alone cannot
-express is human-gated, the same as `db:generate` and `db:migrate`.
+express is human-gated, the same as `db:migrate`.
 
 **DB-backed tests fork their own branch.** An ephemeral branch per run, deleted in
 teardown, so tests see real data and production is never written.

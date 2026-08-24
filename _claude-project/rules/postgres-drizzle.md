@@ -1,7 +1,3 @@
----
-paths: "**/*.{ts,tsx,mts,cts}"
----
-
 # Postgres + Drizzle: The Three Silent Failures
 
 Applies only to a project on PostgreSQL with Drizzle. No `drizzle.config.ts` →
@@ -31,12 +27,26 @@ entry. Only `drizzle-kit generate` writes all three together; hand-creating a
 `.sql` or editing the journal or a snapshot desyncs the chain. Editing the body
 of a `.sql` that `generate` produced is fine and often correct.
 
+**Applying a migration needs the human's explicit approval.** `db:migrate` and
+`drizzle-kit migrate` change a database, so they run only with the human's
+explicit approval in the current conversation; an approved run is prefixed
+`SKIP_DB_GUARD=1`. Never `db:push` at all. An autonomous session follows whatever
+authorization the human gave it at handoff (`autonomous-sessions.md`); with none,
+the approval rule still stands.
+
+`db:generate` is not gated and needs no approval. It diffs the schema against the
+stored snapshots and writes files into the repo, opening no connection to any
+database — and failure 3 above makes it the only correct way to author a
+migration. The generated migration is inert until someone applies it, which is
+where the gate belongs.
+
 **Which branch am I on? Ask, don't guess.** `node scripts/db-branch.mjs` reads
 `DATABASE_URL`, resolves its endpoint through the Neon API, and prints the branch
-name. `DEV` (exit 0) means a resettable fork — reads, tests and migrations against
-it are normal work, so proceed. `PRODUCTION` (exit 1) means the project's default
-or protected branch — stop and get approval. `UNKNOWN` (exit 2) means it could not
-tell, which is never the same as safe.
+name. `DEV` (exit 0) means a resettable fork — reads and tests against it are
+normal work, so proceed without asking, and a migration there is the routine case
+of the approval above rather than an alarm. `PRODUCTION` (exit 1) means the
+project's default or protected branch — stop, and say so when you ask.
+`UNKNOWN` (exit 2) means it could not tell, which is never the same as safe.
 
 Your local `.env` normally points at a dev branch. Run the check rather than
 inferring in either direction: stalling on a dev branch wastes the session, and

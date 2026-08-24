@@ -31,8 +31,8 @@ exactly how a seeded lookup table shipped empty.
 
 **The one exception is a fix SQL alone cannot express** — one that needs
 scripting, parsing, or per-row judgement. That is a human-gated action, the same
-gate as `db:generate` and `db:migrate`: say what you intend to run and get
-approval in the conversation before running it. Never on your own judgement.
+gate as `db:migrate`: say what you intend to run and get approval in the
+conversation before running it. Never on your own judgement.
 
 ## Tests fork their own branch
 

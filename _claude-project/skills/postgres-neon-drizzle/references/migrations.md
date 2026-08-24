@@ -19,9 +19,10 @@ diffs against a missing or mismatched snapshot, which is painful to unravel.
 | Write the SQL | Edit ONLY the generated `.sql` body |
 | Apply | `db:migrate` — **never** `db:push` |
 
-Migration runs are human-gated (constitution §V, `block-db-commands.sh`).
-Approved runs are prefixed `SKIP_DB_GUARD=1`; autonomous sessions run under their
-standing authorization.
+Applying is human-gated (`postgres-drizzle.md`, `block-db-commands.sh`): an
+approved `db:migrate` run is prefixed `SKIP_DB_GUARD=1`, and autonomous sessions
+run under their standing authorization. `db:generate` is not gated — it writes
+files and opens no connection, so run it freely.
 
 ## Forbidden
 

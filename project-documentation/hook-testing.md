@@ -120,7 +120,7 @@ Four of the eight hooks built their JSON by interpolating the command string int
 heredoc. Any command containing a double quote produced an unparseable payload:
 
 ```
-npm run db:generate -- --name="add user table"   ← the normal way to name a migration
+npx drizzle-kit migrate --config="drizzle.config.ts"  ← a normal flag value
 pkill -f "npm run dev"                            ← the exact thing the guard exists to stop
 console.log("she said \"hi\"")                    ← user source, quotes guaranteed
 ```

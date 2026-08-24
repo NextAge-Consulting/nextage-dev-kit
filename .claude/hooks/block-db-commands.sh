@@ -1,10 +1,16 @@
 #!/bin/bash
 
 # Drizzle/migration guard — default-DENY with an explicit-approval bypass.
-# The rule this enforces (constitution §V): schema changes are never run on
-# Claude's own judgment. When the human has explicitly approved a run in the
-# current conversation, Claude prefixes the command with SKIP_DB_GUARD=1 and
-# it passes. Same trust model as git-guard's SKIP_GIT_GUARD=1.
+# The rule this enforces (postgres-drizzle.md): commands that CHANGE a database
+# are never run on Claude's own judgment. When the human has explicitly approved
+# a run in the current conversation, Claude prefixes the command with
+# SKIP_DB_GUARD=1 and it passes. Same trust model as git-guard's SKIP_GIT_GUARD=1.
+#
+# db:generate is deliberately NOT guarded. It diffs the schema against
+# meta/*_snapshot.json and writes files into the repo; it opens no connection and
+# changes no database, and block-drizzle-handroll.sh names it as the ONLY correct
+# way to author a migration. Guarding the sanctioned path taught SKIP_DB_GUARD as
+# routine muscle memory, which is exactly what must stay exceptional.
 
 # Read input from Claude Code
 INPUT=$(cat)
@@ -35,15 +41,48 @@ print("\n".join(out))
 ' "$COMMAND" 2>/dev/null) || SCAN_COMMAND="$COMMAND"
     [ -n "$SCAN_COMMAND" ] || SCAN_COMMAND="$COMMAND"
 
-    if echo "$SCAN_COMMAND" | grep -E "(db:generate|db:migrate|db:push|drizzle-kit)" > /dev/null; then
+    # A migration command must be INVOKED, not merely named. Grepping the whole
+    # command string blocked its own documentation: `grep -rn db:migrate .` and
+    # `echo "run npm run db:migrate" > doc.md` are text handling, not migrations.
+    # So a segment counts only when its FIRST token is a package runner or
+    # drizzle-kit itself — the same invoked-vs-mentioned test the psql branch below
+    # already uses. db:generate and `drizzle-kit generate` are absent by design.
+    if python3 -c '
+import re, sys
+cmd = sys.argv[1]
+Q = chr(34) + chr(39)
+RUNNERS = ("npm", "pnpm", "yarn", "bun", "npx", "pnpx", "bunx")
+for seg in re.split(r"\|\||&&|[|;\n]", cmd):
+    toks = seg.strip().split()
+    while toks and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", toks[0]):
+        toks.pop(0)                      # step over VAR=value prefixes
+    if not toks:
+        continue
+    base = re.sub(r".*/", "", toks[0].strip(Q))
+    if base not in RUNNERS and base != "drizzle-kit":
+        continue
+    rest = [t.strip(Q) for t in toks[1:]]
+    if "db:migrate" in rest or "db:push" in rest:
+        sys.exit(0)                      # a real migration run
+    if base == "drizzle-kit":
+        sub = rest
+    elif "drizzle-kit" in rest:
+        sub = rest[rest.index("drizzle-kit") + 1:]
+    else:
+        sub = []
+    for t in sub:
+        if t in ("migrate", "push"):
+            sys.exit(0)
+sys.exit(1)
+' "$SCAN_COMMAND" 2>/dev/null; then
         # Explicit-approval bypass: the human authorized this run.
         if echo "$COMMAND" | grep -q "^SKIP_DB_GUARD=1"; then
             exit 0
         fi
         # Emit via a JSON encoder, never string interpolation: a command carrying a
-        # double quote (`db:generate -- --name="add user table"` — the normal way to
-        # name a migration) produced an unparseable payload, and an unparseable deny
-        # is silently DISCARDED, letting the very command this guards run unguarded.
+        # double quote (`drizzle-kit migrate --config="drizzle.config.ts"`) produced
+        # an unparseable payload, and an unparseable deny is silently DISCARDED,
+        # letting the very command this guards run unguarded.
         python3 -c '
 import json, sys
 print(json.dumps({"hookSpecificOutput": {
@@ -51,12 +90,12 @@ print(json.dumps({"hookSpecificOutput": {
     "permissionDecision": "deny",
     "permissionDecisionReason":
         "🚫 DATABASE COMMAND BLOCKED\n\nYou attempted to run: " + sys.argv[1] + "\n\n"
-        "Per constitution §V: drizzle/migration commands run ONLY with the human'"'"'s "
-        "explicit approval in the current conversation.\n\n"
+        "This command CHANGES a database. Per postgres-drizzle.md it runs ONLY with "
+        "the human'"'"'s explicit approval in the current conversation.\n\n"
         "If the human has ALREADY approved this specific run: re-run it prefixed with "
         "SKIP_DB_GUARD=1.\n"
-        "If not: modify schema files only, then ask for approval to run "
-        "db:generate / db:migrate.\nNever use db:push."}}))
+        "If not: run db:generate (never blocked — it only writes files) and ask for "
+        "approval to apply it.\nNever use db:push."}}))
 ' "$COMMAND"
         exit 0
     fi
