@@ -13,7 +13,7 @@
 // Single-package repos (no `workspaces` field) have exactly one manifest, so the
 // gate is a guaranteed no-op pass — safe to run unconditionally on any Node repo.
 //
-// Background + the discipline this enforces: DEPENDENCY-MANAGEMENT.md in the
+// Background + the discipline this enforces: dependency-management.md in the
 // dev kit (project-documentation/).
 //
 // Run: node scripts/check-dep-alignment.mjs   (exit 1 on skew, 0 when aligned)
@@ -117,7 +117,7 @@ if (skewed.length === 0) {
 }
 
 console.error(`✗ dependency alignment: ${skewed.length} shared dependency(ies) declared at conflicting versions across workspaces.\n`);
-console.error("A monorepo runs ONE stack. Pick one version and align every workspace (see DEPENDENCY-MANAGEMENT.md in the dev kit).\n");
+console.error("A monorepo runs ONE stack. Pick one version and align every workspace (see dependency-management.md in the dev kit).\n");
 for (const [name, byRange] of skewed.sort((a, b) => a[0].localeCompare(b[0]))) {
   console.error(`  ${name}:`);
   for (const [range, where] of byRange) {

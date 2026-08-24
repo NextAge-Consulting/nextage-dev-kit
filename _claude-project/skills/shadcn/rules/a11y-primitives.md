@@ -129,4 +129,4 @@ After running `npx shadcn@latest add <name>`, audit the generated file:
    edits know.
 
 This audit is a required step once per project when adopting the CI
-pipeline (kit `PIPELINE.md`).
+pipeline (kit `pipeline.md`).

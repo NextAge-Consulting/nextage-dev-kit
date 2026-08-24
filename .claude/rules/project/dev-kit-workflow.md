@@ -41,13 +41,13 @@ Those prove the extensibility pattern: any project can add commands in its own `
 
 ## Kit dogfood manifest (single source of truth)
 
-The kit dogfoods only what it actually uses. Everything below ships to consumers via `_claude-project/` but makes no sense for the kit itself, so it is **template-only** and deliberately absent from the kit's `.claude/`. This table is the single authority; `sync-design-pre-read.md` and HANDBOOK §12a.7 point here rather than keeping copies.
+The kit dogfoods only what it actually uses. Everything below ships to consumers via `_claude-project/` but makes no sense for the kit itself, so it is **template-only** and deliberately absent from the kit's `.claude/`. This table is the single authority; `sync-design-pre-read.md` and handbook §12a.7 point here rather than keeping copies.
 
 | Template-only item (`_claude-project/…`) | Why the kit doesn't dogfood it |
 |-------------------------------------------|--------------------------------|
 | `commands/deploy.md`, `skills/gitflow/scripts/deploy.sh` | Kit has nothing to deploy — no version artifact, no deploy target. |
 | `commands/dev.md`, `skills/dev-server/**` | Kit has no dev server / runnable app. |
-| `skills/design-system/**`, `rules/ui-design.md`, `rules/a11y-baseline.md` | Kit has no UI — no JSX/TSX, no `design.md` (HANDBOOK §12a.7). |
+| `skills/design-system/**`, `rules/ui-design.md`, `rules/a11y-baseline.md` | Kit has no UI — no JSX/TSX, no `design.md` (handbook §12a.7). |
 | `skills/ui-patterns/**`, `rules/ui-patterns.md` | Kit has no UI — nothing to compose and no interactions to pattern. |
 | `templates/ui-inventory.md` | Seed for a consumer's `rules/project/ui-inventory.md` — an enumeration of that project's own components. Kit has no UI, so there is nothing to enumerate. |
 | `skills/shadcn/**` | Kit has no `components.json` / shadcn install. |
@@ -57,7 +57,7 @@ The kit dogfoods only what it actually uses. Everything below ships to consumers
 | `rules/cli-utilities.md` | Kit runs no AWS / cloud CLI — the account/region discipline never applies. |
 | `skills/agent-browser/**`, `rules/integrations/agent-browser.md` | Kit has no web app to drive a browser against. |
 | `skills/e2e/**` | Kit has no `test/e2e/*.md` flow files. |
-| `templates/testing/**` | Kit has no `package.json`, no vitest, no Neon project. They sync to consumers in `template` mode via `SHARED_MODULE_DIR` (HANDBOOK §11.13); the kit is not a consumer of them. |
+| `templates/testing/**` | Kit has no `package.json`, no vitest, no Neon project. They sync to consumers in `template` mode via `SHARED_MODULE_DIR` (handbook §11.13); the kit is not a consumer of them. |
 | `skills/e2e-author/**` | Kit has no flow files to author. |
 | `skills/analysis/**` | Kit produces markdown analyses of itself in-repo; the shareable-HTML analysis workflow is for consumer apps. |
 | `lib/gen-report.mjs` | Shared report generator invoked by the (template-only) e2e + analysis skills; the kit runs neither. |

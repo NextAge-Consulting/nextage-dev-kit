@@ -2,11 +2,11 @@
 
 Kit-level CI/CD pipeline design and roadmap. **Generic** — no project specifics.
 
-This doc owns the **why** (durable design rationale) and the **roadmap** (what's done, what's deferred). The **how** — workflow templates, scripts, settings, gotchas — lives in `HANDBOOK.md`. Where a procedure is referenced below, the HANDBOOK section is cited; this doc does not duplicate it.
+This doc owns the **why** (durable design rationale) and the **roadmap** (what's done, what's deferred). The **how** — workflow templates, scripts, settings, gotchas — lives in `handbook.md`. Where a procedure is referenced below, the handbook section is cited; this doc does not duplicate it.
 
 - **Design rationale** → Part 1 (this doc)
 - **Phase roadmap** → Part 2 (this doc)
-- **Implementation / templates / setup** → `HANDBOOK.md`
+- **Implementation / templates / setup** → `handbook.md`
 
 **No branch protection.** This pipeline does not use GitHub branch protection. `/merge` self-gates by reading the PR's CI check-runs directly — it never depends on GitHub's "required checks" config — so the gate behaves identically on every repo regardless of plan, including a brand-new one with nothing configured. The one hard requirement: **`main` must not require a PR**, or the direct-push paths (`/ship-main`, `/deploy`, `/sync-dev-kit`) get rejected. A fresh repo has require-PR off by default, so there is nothing to set up — just don't turn it on.
 
@@ -42,11 +42,11 @@ The pipeline does not rely on GitHub branch protection. The merge gate lives in 
 
 For quick infra / emergency / "get it in and back to clean" work, a full branch→PR→CI→merge cycle is theater. `/ship-main` commits a conventional message **directly on `main`** in the primary repo and pushes — no branch, no PR, no CI (a push to `main` triggers no workflows; CI is `pull_request`-only, deploys are `workflow_dispatch`-only). It runs the same local typecheck + lint as `/commit` (the assist that stays). Works as long as `main` does not require a PR (§1.1) — the default.
 
-**The gate is explicit invocation, never inference.** A bare `/commit` on `main` still auto-branches (the safety for accidental-on-main); `/ship-main` is the opposite, on purpose, and only when asked for by name. Its commits land on `main` and feed the next `/deploy`'s bump + changelog exactly like a merged-PR squash commit. See HANDBOOK / `commands/ship-main.md`.
+**The gate is explicit invocation, never inference.** A bare `/commit` on `main` still auto-branches (the safety for accidental-on-main); `/ship-main` is the opposite, on purpose, and only when asked for by name. Its commits land on `main` and feed the next `/deploy`'s bump + changelog exactly like a merged-PR squash commit. See handbook / `commands/ship-main.md`.
 
 ## 1.2 The gitflow subsystem (the workflow model)
 
-Git operations route exclusively through gitflow — slash commands backed by scripts, fronted by a skill for natural-language routing, with a hook blocking raw destructive git. Four layers of defense: rule → skill → command → hook. Full subsystem in HANDBOOK §3–§6.
+Git operations route exclusively through gitflow — slash commands backed by scripts, fronted by a skill for natural-language routing, with a hook blocking raw destructive git. Four layers of defense: rule → skill → command → hook. Full subsystem in handbook §3–§6.
 
 | Command | Role |
 |---------|------|
@@ -61,16 +61,16 @@ Git operations route exclusively through gitflow — slash commands backed by sc
 
 Design choices baked in:
 
-- **Changelog is local, not a CI action.** Claude composes it during `/deploy` from commit subjects since the last tag, applying editorial rules (filter `refactor`/`style`/`test`/`docs`/`chore`, rewrite internals as user-facing prose) that template tools (release-please) can't. Single-writer (`/deploy` only) eliminates duplicate-bullet bugs. No `ANTHROPIC_API_KEY` secret, no runner. HANDBOOK §6.4 / §11.5.
+- **Changelog is local, not a CI action.** Claude composes it during `/deploy` from commit subjects since the last tag, applying editorial rules (filter `refactor`/`style`/`test`/`docs`/`chore`, rewrite internals as user-facing prose) that template tools (release-please) can't. Single-writer (`/deploy` only) eliminates duplicate-bullet bugs. No `ANTHROPIC_API_KEY` secret, no runner. handbook §6.4 / §11.5.
 - **Version bump is local, not auto-on-merge.** See §1.3 — auto-bump-on-merge is a NEVER-restore anti-pattern.
-- **PR title is the conventional-commit source.** Squash merge sets the squash commit = PR title; `commitlint` validates the **title only** (not branch commits — machine-generated PRs produce malformed branch commits with clean titles). The title drives the bump level. HANDBOOK §6.6 / §11.1.
-- **No persistent working branch.** After merge you're on `main`; next task gets a fresh descriptively-named branch. Branch-per-body-of-work is the entry model; HANDBOOK §3.2.
+- **PR title is the conventional-commit source.** Squash merge sets the squash commit = PR title; `commitlint` validates the **title only** (not branch commits — machine-generated PRs produce malformed branch commits with clean titles). The title drives the bump level. handbook §6.6 / §11.1.
+- **No persistent working branch.** After merge you're on `main`; next task gets a fresh descriptively-named branch. Branch-per-body-of-work is the entry model; handbook §3.2.
 
 ## 1.3 `/deploy` as a human-serialized release boundary
 
 **`/merge` is not `/deploy`.** Multiple merges accumulate on `main`; a release ships everything since the last tag in one deliberate invocation.
 
-`/deploy` does bump → changelog → tag → push → trigger-deploy in **one human-in-the-loop CLI run**, so the source-of-truth version field and the deployed artifact match **by construction**. The bump commit is **pushed directly to main** (require-PR off, the default — §1.1) — no release branch, no PR, no admin-merge; the bump commit + tag are the release record. Deploy workflows are `workflow_dispatch:`-ONLY and fired explicitly via `gh workflow run` against post-bump HEAD. Full procedure + history in HANDBOOK §6.5; trigger contract in §11.4.
+`/deploy` does bump → changelog → tag → push → trigger-deploy in **one human-in-the-loop CLI run**, so the source-of-truth version field and the deployed artifact match **by construction**. The bump commit is **pushed directly to main** (require-PR off, the default — §1.1) — no release branch, no PR, no admin-merge; the bump commit + tag are the release record. Deploy workflows are `workflow_dispatch:`-ONLY and fired explicitly via `gh workflow run` against post-bump HEAD. Full procedure + history in handbook §6.5; trigger contract in §11.4.
 
 **Why not auto-bump-on-merge** (the rejected pattern, NEVER restore):
 
@@ -89,19 +89,19 @@ If a `MIGRATE_WORKFLOW` is configured, `/deploy` runs it **once, first, watched,
 - **Split-deploy monorepo** (e.g. a multi-app repo): the schema migration was duplicated inside all N app deploy workflows (no-op in the trailing N−1). Pulling it to one gated pre-step runs it exactly once.
 - **Migrate-only repo** (a DB-maintenance service with no app artifact): `MIGRATE_WORKFLOW` set + `DEPLOY_WORKFLOWS` empty → deploy migrates with zero app workflows.
 
-The migrate workflow body is project-owned and MUST exit 0 on a no-op and non-zero only on genuine failure (the orchestrator gates on run conclusion). **Never blanket `|| true`** — trap a specific no-op signal and re-raise everything else. Forward-only migrations keep old and new code compatible with the same schema (add column → use column → later remove column). See HANDBOOK §6.5 "Migration phase" + the no-op-tolerant reference pattern.
+The migrate workflow body is project-owned and MUST exit 0 on a no-op and non-zero only on genuine failure (the orchestrator gates on run conclusion). **Never blanket `|| true`** — trap a specific no-op signal and re-raise everything else. Forward-only migrations keep old and new code compatible with the same schema (add column → use column → later remove column). See handbook §6.5 "Migration phase" + the no-op-tolerant reference pattern.
 
 ## 1.4 Quality + security tools
 
 | Tool | Role | Why |
 |------|------|-----|
 | **Biome** (CI lint) | Lint-only (formatter disabled). `recommended` ruleset, all `a11y/*` on, `noExplicitAny` error. | AI-authored JSX omits a11y patterns (training data omits them); `any` blinds the type info AI reasons from. Formatter off because a 100%-AI codebase has no human formatting concern and enabling it produces a giant normalization diff. Fix violations in source, suppress only as last resort (constitution §XIII). |
-| **Semgrep CE** (CI SAST) | `--config auto`, ~10s. Mandatory `.semgrepignore`. | Free, 1000+ rules. The ignore file is mandatory, not optional — generic secret-regex rules false-match base64 runs inside binary assets (PDF/EPS) and time out CI per file. Ship it with Semgrep, don't wait for the incident. HANDBOOK §11.8. |
-| **Gemini Code Assist** (advisory PR review) | Inline + summary on every PR, free for private repos. Triage via `/triage`. | Independent model family (most distinct second opinion from Claude). Reads `.claude/rules/*.md` + `.gemini/styleguide.md` as review context — cites constitution rules unprompted. Catches the structural-diff-defect class; complements (does not replace) tests. HANDBOOK §6.7 / §11.11. |
-| **Dependabot** | Version + security PRs, monthly + cooldown + grouping. | Monthly batching (not weekly) because weekly is noise-dominant for a small shop. Cooldown (patch 3d / minor 7d / major 30d) dodges the 48–72h window where supply-chain attacks get caught and the bad version yanked; security fixes skip cooldown automatically. HANDBOOK §11.10. |
-| **Dependabot surfacing** | One tracking issue per vulnerable package, onto the project board, self-closing. | The Security tab is storage, not surfacing — small teams never open it. Anything needing action must land on the board (the one surface that's actually watched). Constitution §X "fail loud." HANDBOOK §11.6. |
-| **Node LTS check** | Monthly cron; opens a tracking issue on a new Active-LTS major. | Dependabot can't tell LTS from non-LTS (odd majors are never LTS) → either PR spam on non-LTS majors or blind to the LTS transition you DO want. HANDBOOK §11.14. |
-| **dep-alignment** (CI gate, Node-only) | Fails a PR if any shared dependency is declared at more than one version across workspaces. Node-gated in `ci.yml`, no-op on single-package / Python-only repos. | A monorepo runs ONE stack; cross-app version skew causes "works in one app, breaks in another" outages Dependabot *creates* (it bumps each manifest independently). Reads `package.json` only, no install. HANDBOOK §11.13a / DEPENDENCY-MANAGEMENT.md. |
+| **Semgrep CE** (CI SAST) | `--config auto`, ~10s. Mandatory `.semgrepignore`. | Free, 1000+ rules. The ignore file is mandatory, not optional — generic secret-regex rules false-match base64 runs inside binary assets (PDF/EPS) and time out CI per file. Ship it with Semgrep, don't wait for the incident. handbook §11.8. |
+| **Gemini Code Assist** (advisory PR review) | Inline + summary on every PR, free for private repos. Triage via `/triage`. | Independent model family (most distinct second opinion from Claude). Reads `.claude/rules/*.md` + `.gemini/styleguide.md` as review context — cites constitution rules unprompted. Catches the structural-diff-defect class; complements (does not replace) tests. handbook §6.7 / §11.11. |
+| **Dependabot** | Version + security PRs, monthly + cooldown + grouping. | Monthly batching (not weekly) because weekly is noise-dominant for a small shop. Cooldown (patch 3d / minor 7d / major 30d) dodges the 48–72h window where supply-chain attacks get caught and the bad version yanked; security fixes skip cooldown automatically. handbook §11.10. |
+| **Dependabot surfacing** | One tracking issue per vulnerable package, onto the project board, self-closing. | The Security tab is storage, not surfacing — small teams never open it. Anything needing action must land on the board (the one surface that's actually watched). Constitution §X "fail loud." handbook §11.6. |
+| **Node LTS check** | Monthly cron; opens a tracking issue on a new Active-LTS major. | Dependabot can't tell LTS from non-LTS (odd majors are never LTS) → either PR spam on non-LTS majors or blind to the LTS transition you DO want. handbook §11.14. |
+| **dep-alignment** (CI gate, Node-only) | Fails a PR if any shared dependency is declared at more than one version across workspaces. Node-gated in `ci.yml`, no-op on single-package / Python-only repos. | A monorepo runs ONE stack; cross-app version skew causes "works in one app, breaks in another" outages Dependabot *creates* (it bumps each manifest independently). Reads `package.json` only, no install. handbook §11.13a / dependency-management.md. |
 
 **Rejected, and why** (terse — empirical, not theoretical):
 
@@ -136,7 +136,7 @@ The migrate workflow body is project-owned and MUST exit 0 on a no-op and non-ze
 | Behavioral failure detection | Tests the real stack (real Stripe test mode, real DB branch, real auth, real runtime) — catches the "all functions work but the page doesn't render" class scripted unit/integration tests miss. |
 | Paired with production monitoring | Because E2E is a manual verification not an enforced barrier, Sentry + UptimeRobot provide post-deploy catch-up. |
 
-Structured assertions are added by **accretion** — only when a specific failure class keeps slipping through does that step get codified as a structured `agent-browser eval` check. Default is behavioral. HANDBOOK §11.15.
+Structured assertions are added by **accretion** — only when a specific failure class keeps slipping through does that step get codified as a structured `agent-browser eval` check. Default is behavioral. handbook §11.15.
 
 ---
 

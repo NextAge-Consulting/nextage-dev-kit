@@ -92,7 +92,7 @@ branch or half-finished edit the kit working tree happens to be sitting on.
   before non-trivial kit work: `.claude/rules/project/dev-kit-workflow.md`
   (source surfaces, dogfood manifest, propagation),
   `.claude/rules/project/sync-design-pre-read.md` (read before touching
-  substitution/template behavior), `project-documentation/HANDBOOK.md`.
+  substitution/template behavior), `project-documentation/handbook.md`.
 
 ## The routing decision — make it before editing any `.claude/**` file
 

@@ -47,7 +47,7 @@ The kit isn't enforcing 100% compliance. It's a baseline sync — consumer proje
 The kit has two human roles:
 
 - **Maintainer** — kit author, master of every project. The only role that runs `/sync-dev-kit`, and the only one who installs the maintainer surface (`/install-kit --maintainer`). Maintains opinions centrally in `_claude-project/`.
-- **Consumer developer** — any other developer on a project. Never touches the kit directly. Clones projects, gets a working setup from the repo. See `DEVELOPER-ONBOARDING.md`.
+- **Consumer developer** — any other developer on a project. Never touches the kit directly. Clones projects, gets a working setup from the repo. See `developer-onboarding.md`.
 
 Anything else in this handbook is for Claude (local or cloud) to follow mechanically.
 
@@ -403,7 +403,7 @@ Note: `/open-pr` does NOT touch `changelog.md`; `/deploy` is the single changelo
 
 ### 6.5. `/deploy` procedure (direct-push to main)
 
-> **`/deploy` pushes the version bump DIRECTLY to `main`** — no release branch, no PR, no admin-merge. It reuses the same direct-to-main mechanism as `/ship-main` (§6.8). The bump commit + tag ARE the release record. This works because the pipeline uses no branch protection and `main` does not require a PR (PIPELINE.md §1.1, NEW-PROJECT-SETUP.md step 3). No command admin-merges: `/deploy` direct-pushes the bump, and `/sync-dev-kit` does no git at all (it stamps the lockfile and leaves the synced files for the user to land via `/ship-main`). So `enforce_admins: false` is not required by anything.
+> **`/deploy` pushes the version bump DIRECTLY to `main`** — no release branch, no PR, no admin-merge. It reuses the same direct-to-main mechanism as `/ship-main` (§6.8). The bump commit + tag ARE the release record. This works because the pipeline uses no branch protection and `main` does not require a PR (pipeline.md §1.1, new-project-setup.md step 3). No command admin-merges: `/deploy` direct-pushes the bump, and `/sync-dev-kit` does no git at all (it stamps the lockfile and leaves the synced files for the user to land via `/ship-main`). So `enforce_admins: false` is not required by anything.
 
 `/deploy` is the **human-serialized release boundary**: bump and deploy fire in one invocation, in order, so the source-of-truth version and the deployed artifact match by construction — no skew. The bump commit lands on `main` moments before `gh workflow run deploy.yml` fires; the deploy reads the just-bumped source. (See §11.2 for why auto-bump-on-merge is forbidden.)
 
@@ -449,7 +449,7 @@ File: `.claude/skills/gitflow/scripts/deploy.sh` (per project, kit-synced). Slas
 **`/sync-dev-kit` does NO git.** Sync only applies the accepted kit updates to the working tree and stamps the lockfile — it does not commit or push. The synced files are left uncommitted; the user lands them with `/ship-main` (or `/commit`). Committing is gitflow's job, not sync's — see §9.4.1.
 
 **Migration audit when adopting direct-push deploy:** `/sync-dev-kit` brings `deploy.sh` (direct-push, no release branch / PR / admin-merge) + `commands/deploy.md`. Consumer-side checks:
-1. Confirm `main` does not require a PR (the default — PIPELINE.md §1.1). With require-PR on, the direct push to main is rejected.
+1. Confirm `main` does not require a PR (the default — pipeline.md §1.1). With require-PR on, the direct push to main is rejected.
 2. Confirm `.commitlintrc.json` includes `"release"` in `type-enum` (the `🚀 release:` subject still flows through the bump-level scan).
 3. Confirm every workflow named in `DEPLOY_WORKFLOWS` is `workflow_dispatch:` ONLY (§11.4) — push-to-main and tag-push triggers will double-fire. Single-app consumers can leave `DEPLOY_WORKFLOWS` empty (defaults to `deploy.yml`); split-deploy consumers populate the substitution with a space-separated workflow list.
 
@@ -535,7 +535,7 @@ See `commands/triage.md` for the full procedure and edge cases.
 - **Validation stays.** The script runs `check-types` + `biome lint` (the same assist as `/commit`). `--skip-typecheck` is a true-emergency override only.
 - **Pushes straight to main.** If `origin/main` advanced, it rebases the commit onto it and re-pushes; conflict → stop and resolve.
 - **Feeds `/deploy` like any main commit.** `/ship-main` commits land on `main` and are read by the next `/deploy` (commit subjects since the last tag) to compute the bump level + changelog, exactly like a merged-PR squash commit. Conventional format is therefore required, not optional.
-- **Requires require-PR off** (the default — §6.5, PIPELINE.md §1.1). With require-PR set, GitHub rejects the direct push.
+- **Requires require-PR off** (the default — §6.5, pipeline.md §1.1). With require-PR set, GitHub rejects the direct push.
 
 Full spec: `commands/ship-main.md`.
 
@@ -598,7 +598,7 @@ Setting up a new project to use this kit:
    .claude/settings.local.json
    ```
 3. Commit the new `.claude/` and `.mcp.json`
-4. No branch protection to apply — the pipeline uses none (`/merge` self-gates; see `PIPELINE.md` §1.1). Just confirm `main` does not require a PR (the default), so the direct-push paths work.
+4. No branch protection to apply — the pipeline uses none (`/merge` self-gates; see `pipeline.md` §1.1). Just confirm `main` does not require a PR (the default), so the direct-push paths work.
 5. Copy `commitlint.yml`, `ci.yml`, `dependabot-surfacing.yml` templates (below) into `.github/workflows/`. Author project-specific `deploy.yml` with `workflow_dispatch:` ONLY trigger (§11.4).
 6. Register bot GitHub App ONLY if the project uses `dependabot-surfacing.yml` or other App-token workflows (see §11.3); store `BOT_APP_CLIENT_ID` + `BOT_APP_PRIVATE_KEY` as org-level secrets.
 7. Each dev: set `REF_API_KEY` and `EXA_API_KEY` in their shell rc
@@ -874,9 +874,9 @@ Fires on `pull_request: opened/edited/synchronize/reopened`. Pipes the PR title 
 **Why title-only:**
 - Consumer repos squash-merge with `commit title = PR_TITLE`. The squash commit that lands on `main` IS the PR title; branch commits are discarded.
 - Local gitflow enforces conventional format at commit time for human-authored commits — that's the real guard.
-- Machine-generated PRs (Dependabot, Renovate) produce malformed branch commits on a regular basis. Dependabot specifically double-scopes `chore(deps)(deps):` even when `include: scope` is absent from `dependabot.yml`. Linting those branch commits blocks merges that would land as clean squashes. Pointless — fixed 2026-04-20 after first real Dependabot wave.
+- Machine-generated PRs (Dependabot, Renovate) produce malformed branch commits on a regular basis. Dependabot specifically double-scopes `chore(deps)(deps):` even when `include: scope` is absent from `dependabot.yml`. Linting those branch commits blocks merges that would land as clean squashes.
 
-**Earlier design** used `wagoid/commitlint-github-action@v5`, which lints EVERY commit in the PR by default. That rejected Dependabot PRs whose branch commits didn't conform even when the PR title was clean. Swapped to PR-title-only.
+**Do NOT swap in a commitlint action that lints every commit in the PR** (`wagoid/commitlint-github-action` and similar do this by default). It rejects Dependabot PRs whose branch commits don't conform even when the PR title is clean, and the branch commits never reach `main`.
 
 **Required `permissions:` block.** The workflow declares `permissions: { contents: read, pull-requests: read }`. Kept even though the inline approach only reads `github.event.pull_request.title` — cheap, documented, explicit.
 
@@ -886,11 +886,11 @@ Fires on `pull_request: opened/edited/synchronize/reopened`. Pipes the PR title 
 
 ### 11.2. Anti-pattern: never auto-bump the version on merge
 
-Version bump + tag live in the local `/deploy` command (§6.5), never in a CI workflow or a release-bot. Do NOT reintroduce auto-bump-on-merge (the old `version-bump.yml` / release-bot-PR pattern). It caused:
+Version bump + tag live in the local `/deploy` command (§6.5), never in a CI workflow or a release-bot. Do NOT introduce auto-bump-on-merge — a `version-bump.yml` workflow or a release-bot PR. It fails three ways:
 
-- **Version skew** — bumps trailed feature merges by a cycle, so the version on `main` rarely matched the deployed code.
-- **Pre-bump deploys** — a push-triggered deploy raced the bump workflow and shipped the wrong version.
-- **Adversarial body parsing** — auto-bump scanning commit *bodies* for `BREAKING CHANGE` / conventional markers false-matched prose embedded in PR descriptions. Pipeline control signals read STRUCTURED metadata (commit subject, `author.name`), never freeform body text.
+- **Version skew** — the bump trails the feature merge by a cycle, so the version on `main` doesn't match the deployed code.
+- **Pre-bump deploys** — a push-triggered deploy races the bump workflow and ships the wrong version.
+- **Adversarial body parsing** — scanning commit *bodies* for `BREAKING CHANGE` / conventional markers false-matches prose embedded in PR descriptions. Pipeline control signals read STRUCTURED metadata (commit subject, `author.name`), never freeform body text.
 
 ### 11.3. Bot GitHub App setup
 
@@ -1221,7 +1221,7 @@ The weekly Dependabot triage **process** is a kit skill (`_claude-project/skills
 - Universal: the "PR-CI doesn't build" fact; the three blast-radius tiers; rebase-before-trusting-red; toolchain-build-before-merge; the verification standard; the guardrails.
 - Project-specific, **discovered at runtime** (not configured): which packages are Tier 3 (read the `npm-toolchain` group in `dependabot.yml` — §11.10); the build/run commands and app ports (read the project's `Dockerfile.*` + deploy workflows). This is deliberate — the values vary and AI reads them from the repo; a config surface would be over-engineering.
 
-**Pairs with** the `npm-toolchain` / `npm-patch` split in `dependabot.yml` (§11.10, now kit-standard) and the `dep-alignment` gate (§11.13a). Deeper dependency discipline: `DEPENDENCY-MANAGEMENT.md`.
+**Pairs with** the `npm-toolchain` / `npm-patch` split in `dependabot.yml` (§11.10, now kit-standard) and the `dep-alignment` gate (§11.13a). Deeper dependency discipline: `dependency-management.md`.
 
 ### 11.11. `.gemini/config.yaml` + `.gemini/styleguide.md` (Gemini Code Assist config)
 
@@ -1258,7 +1258,7 @@ The styleguide is project-context Gemini reads on every review. The kit template
 
 Customize the styleguide per project. The defaults assume a TanStack/Hono/drizzle stack — strip what doesn't apply.
 
-**Why Gemini and not a paid alternative**: see `PIPELINE.md` §1.4 (rejected tools). Short version: Gemini's consumer / free tier matches CR Pro's catch quality on the bake-off seed defects, reads in-repo `.claude/rules/*.md` as review context out of the box, and runs at $0/seat. The 33 PR/day quota is far above typical 2-dev-shop cadence.
+**Why Gemini and not a paid alternative**: see `pipeline.md` §1.4 (rejected tools). Short version: Gemini's consumer / free tier matches CR Pro's catch quality on the bake-off seed defects, reads in-repo `.claude/rules/*.md` as review context out of the box, and runs at $0/seat. The 33 PR/day quota is far above typical 2-dev-shop cadence.
 
 **Pairs with `.github/dependabot.yml` (§11.10):** Gemini's `include_drafts: false` plus dependabot's commit-prefix conventions keep mechanical PRs from triggering review cycles.
 
@@ -1313,7 +1313,7 @@ A consumer legitimately customizing an `owned` file is expected in at least one 
 | `test-utils.ts` | Setup file. Pins `process.env.TZ` (chosen per consumer — UTC for UTC-stored projects, local TZ for projects that store in local time). Exposes a deterministic UUID-v7-like helper. Re-exports auth mocks. |
 | `smoke.test.ts` | 4 assertions proving vitest picks up the config, runs the setup file, resolves module imports, runs assertions under node env. |
 
-**TS LSP diagnostics on kit-side files**: the kit repo has no npm deps (see KIT-REPO-GITHUB-CONFIG §1), so any LSP scoped to the kit will flag `Cannot find module 'vitest'` / `Cannot find name 'process'` on the template `.ts` files. Expected — they aren't meant to compile in the kit, only in the consumer where the deps exist.
+**TS LSP diagnostics on kit-side files**: the kit repo has no npm deps (see kit-repo-github-config §1), so any LSP scoped to the kit will flag `Cannot find module 'vitest'` / `Cannot find name 'process'` on the template `.ts` files. Expected — they aren't meant to compile in the kit, only in the consumer where the deps exist.
 
 **Enabling it for a consumer:**
 
@@ -1373,7 +1373,7 @@ Adopting projects with non-Drizzle migration runners: swap the `execSync` comman
 
 Integration tests use the `*.integration.test.ts` filename convention as the `integration` project's include glob (the `unit` project excludes it); `npm test` runs both projects in one command.
 
-**Wiring CI** — kit ships a **stack-detecting** `ci.yml` at `_github-project/workflows/ci.yml`. A fast `detect` job checks out and sets `node`/`python` outputs; the rest gate on `needs.detect.outputs.*` (NOT `hashFiles()`, which is empty at job-`if:` time — the workspace isn't checked out yet). Node (root `package.json`) → `dep-alignment`, `check-types`, `biome`, `vitest`; Python (any `pyproject.toml`) → a `python` job running `ruff check` + `pytest` via uv in each pyproject dir (monorepo layouts like `services/<x>/` work with zero config); `semgrep` always runs. (`dep-alignment` is the cross-workspace dependency-version gate — §11.13a / DEPENDENCY-MANAGEMENT.md.) Sync via `/sync-dev-kit` to land it at `<consumer>/.github/workflows/ci.yml`. The Node `vitest` job runs `npm test` — Node projects need a `test` script in root `package.json` pointing at their vitest config (see "Install steps for a consumer" above). Python projects need uv (shop standard) with `ruff`/`pytest` as dev deps — no per-project config. A repo lacking a stack simply skips that stack's jobs; `/merge` self-gates on the check-runs that actually report, so skipped jobs don't block (there are no GitHub-required checks to wait forever on a never-run job).
+**Wiring CI** — kit ships a **stack-detecting** `ci.yml` at `_github-project/workflows/ci.yml`. A fast `detect` job checks out and sets `node`/`python` outputs; the rest gate on `needs.detect.outputs.*` (NOT `hashFiles()`, which is empty at job-`if:` time — the workspace isn't checked out yet). Node (root `package.json`) → `dep-alignment`, `check-types`, `biome`, `vitest`; Python (any `pyproject.toml`) → a `python` job running `ruff check` + `pytest` via uv in each pyproject dir (monorepo layouts like `services/<x>/` work with zero config); `semgrep` always runs. (`dep-alignment` is the cross-workspace dependency-version gate — §11.13a / dependency-management.md.) Sync via `/sync-dev-kit` to land it at `<consumer>/.github/workflows/ci.yml`. The Node `vitest` job runs `npm test` — Node projects need a `test` script in root `package.json` pointing at their vitest config (see "Install steps for a consumer" above). Python projects need uv (shop standard) with `ruff`/`pytest` as dev deps — no per-project config. A repo lacking a stack simply skips that stack's jobs; `/merge` self-gates on the check-runs that actually report, so skipped jobs don't block (there are no GitHub-required checks to wait forever on a never-run job).
 
 **No required-status-check promotion.** The pipeline uses no branch protection — `/merge` self-gates by reading the PR's check-runs directly and blocks on any failure, so a job gates merges as soon as it runs on a PR, with nothing to configure on GitHub. New CI jobs are picked up automatically.
 
@@ -1393,7 +1393,7 @@ If your shared module (e.g. `apps/shared/`) is consumed via tsconfig path alias 
 
 ### 11.13a. `dep-alignment` job + `scripts/check-dep-alignment.mjs` (cross-workspace dependency-version gate)
 
-Monorepo invariant enforcement: every shared dependency is declared at **one** version across all workspaces. A 3-version skew of a single auth dependency across apps caused a real production outage that no other check caught — Dependabot bumps each manifest independently and *creates* this skew. This gate is the safety net. Full discipline (trust-but-verify, solid-version philosophy, the "logged-in not 200" verification standard, accepted-residuals handling) lives in **`DEPENDENCY-MANAGEMENT.md`**.
+Monorepo invariant enforcement: every shared dependency is declared at **one** version across all workspaces. Version skew across apps produces runtime failures no other check catches, and Dependabot *creates* that skew because it bumps each manifest independently. This gate is the safety net. Full discipline (trust-but-verify, solid-version philosophy, the "logged-in not 200" verification standard, accepted-residuals handling) lives in **`dependency-management.md`**.
 
 **The script.** `scripts/check-dep-alignment.mjs` reads the root `package.json`, expands `workspaces` (literal dirs and trailing-glob `apps/*`; also the `{ packages: [...] }` form), and fails (exit 1) if any dependency name is declared at more than one version-range across the manifests. No install — it reads `package.json` files only. A single-package repo (no `workspaces`) has one manifest, so it's a guaranteed pass: **safe to run on any Node repo.** Fails loud on an unreadable *declared* workspace manifest (never reports "aligned" while a manifest is broken — constitution §X).
 
@@ -1407,9 +1407,9 @@ Monorepo invariant enforcement: every shared dependency is declared at **one** v
 "scripts": { "check:deps": "node scripts/check-dep-alignment.mjs" }
 ```
 
-so `npm run check:deps` reproduces the CI gate locally. The CI job calls the script directly and does NOT depend on this npm script existing, but adopting it is the documented convention (the script's failure message and `DEPENDENCY-MANAGEMENT.md §1` both assume `npm run check:deps`).
+so `npm run check:deps` reproduces the CI gate locally. The CI job calls the script directly and does NOT depend on this npm script existing, but adopting it is the documented convention (the script's failure message and `dependency-management.md §1` both assume `npm run check:deps`).
 
-**Updating a shared dep:** bump it to the same version in *every* workspace that declares it in one change, run `npm run check:deps` (must be ✓), then verify per `DEPENDENCY-MANAGEMENT.md §5`. Never bump one workspace and not the others — the gate fails the PR, by design.
+**Updating a shared dep:** bump it to the same version in *every* workspace that declares it in one change, run `npm run check:deps` (must be ✓), then verify per `dependency-management.md §5`. Never bump one workspace and not the others — the gate fails the PR, by design.
 
 ### 11.14. `node-lts-check.yml` (Node LTS transition surfacing)
 
@@ -1437,7 +1437,7 @@ Closes a real gap that `dependabot.yml` alone can't: Dependabot doesn't understa
 
 ### 11.15. `/e2e` skill (Claude-as-intelligent-tester)
 
-**What this is.** A Skill that implements the locked E2E testing model (kit `PIPELINE.md` §1.5): Claude drives `agent-browser` through plain-English flow files, detects failure behaviorally, reports pass/fail. **Not a scripted test suite. Not Playwright. Not Stagehand.**
+**What this is.** A Skill that implements the locked E2E testing model (kit `pipeline.md` §1.5): Claude drives `agent-browser` through plain-English flow files, detects failure behaviorally, reports pass/fail. **Not a scripted test suite. Not Playwright. Not Stagehand.**
 
 **Components ship:**
 - `_claude-project/skills/e2e/SKILL.md` — the skill protocol (discovery, scoping via PR diff, server startup per dev-server.md, execution, reporting)
@@ -1587,7 +1587,7 @@ Solving #1 by adjusting iTerm settings is impossible — Agents view doesn't upd
 | `_claude-project/skills/dev-server/templates/DevServer.json` | iTerm DynamicProfile template. Installed once per dev machine to `~/Library/Application Support/iTerm2/DynamicProfiles/DevServer.json`. See §12.3.1. |
 | `_claude-project/commands/dev.md` | `/dev` slash command spec. |
 | `_claude-project/rules/dev-server.md` | The 5 lifecycle rules (check first, use occupied, never kill, leave running). Updated with `/dev` canonical-path declaration. |
-| `project-documentation/DEVSERVER-CHEATSHEET.md` | One-page user reference. Companion to `GITFLOW-CHEATSHEET.md`. |
+| `project-documentation/devserver-cheatsheet.md` | One-page user reference. Companion to `gitflow-cheatsheet.md`. |
 
 ### 12.2.1. DevServer iTerm profile (one-time install per dev machine)
 
@@ -1816,7 +1816,7 @@ Kit added new files since your last sync. The lockfile's `lastSyncedCommit` is b
 - `6`: HEAD has failed CI check-runs on GitHub → fix CI on main first
 - `7`: no commits since last `v*.*.*` tag → nothing to deploy
 - `10`: `npm version` / manifest-mutation failed
-- `11`: push rejected → is require-PR off for this repo? (require-PR on `main` rejects direct pushes; the pipeline expects it off — PIPELINE.md §1.1)
+- `11`: push rejected → is require-PR off for this repo? (require-PR on `main` rejects direct pushes; the pipeline expects it off — pipeline.md §1.1)
 - `12`: `gh workflow run deploy.yml` failed → does `deploy.yml` exist on the default branch with `workflow_dispatch:` enabled?
 - `13`: deploy run watched failed → check the Actions tab for the run URL printed by the script
 
@@ -1824,7 +1824,7 @@ If `/deploy` succeeded but the deploy workflow itself failed, see the run URL in
 
 ### 12.6. A consumer developer's Claude session keeps falling back to raw git
 
-The developer didn't set `includeGitInstructions: false` in their `~/.claude/settings.json`. See `DEVELOPER-ONBOARDING.md`. Hooks should still catch raw git, so this is a fallback-frequency issue, not a correctness issue.
+The developer didn't set `includeGitInstructions: false` in their `~/.claude/settings.json`. See `developer-onboarding.md`. Hooks should still catch raw git, so this is a fallback-frequency issue, not a correctness issue.
 
 ---
 
@@ -1847,7 +1847,7 @@ The developer didn't set `includeGitInstructions: false` in their `~/.claude/set
 - `.claude/hooks/git-guard.sh` — raw-git blocker (commit + destructive ops)
 - `templates/settings.base.json` — settings.json starting point for new projects
 - `templates/.mcp.json` — MCP template for new projects
-- `DEVELOPER-ONBOARDING.md` — second-dev setup doc
+- `developer-onboarding.md` — second-dev setup doc
 - Anthropic docs: https://code.claude.com/docs/en/claude-code-on-the-web.md (cloud session behavior)
 - Anthropic docs: https://code.claude.com/docs/en/mcp.md (MCP config, env var expansion)
 - Exa docs: https://docs.exa.ai/reference/exa-mcp (Exa MCP HTTP transport for Claude Code)

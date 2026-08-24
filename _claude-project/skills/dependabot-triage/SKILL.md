@@ -51,12 +51,12 @@ The repeatable process for clearing Dependabot PRs without re-deciding from scra
 
 ## Verification standard (Tier 3)
 
-"Solid" means **build the real prod image, run it on the app's native port, and complete a real login** — NOT "200 on a route" and NOT "server ready" in the log (crypto/auth often loads lazily per request, so a boot can succeed while every request 500s). Full standard: the kit's **`DEPENDENCY-MANAGEMENT.md §5`**.
+"Solid" means **build the real prod image, run it on the app's native port, and complete a real login** — NOT "200 on a route" and NOT "server ready" in the log (crypto/auth often loads lazily per request, so a boot can succeed while every request 500s). Full standard: the kit's **`dependency-management.md §5`**.
 
 ## Dependency discipline (read alongside)
 
 - **One version per shared dependency** is CI-gated by `dep-alignment` (`npm run check:deps`). When a shared dep updates, bump it to the same version in every workspace that declares it.
-- The deeper discipline — trust-but-verify on old workarounds/pins, solid-version philosophy, accepted-residuals handling — lives in the kit's **`DEPENDENCY-MANAGEMENT.md`**.
+- The deeper discipline — trust-but-verify on old workarounds/pins, solid-version philosophy, accepted-residuals handling — lives in the kit's **`dependency-management.md`**.
 
 ## Guardrails
 

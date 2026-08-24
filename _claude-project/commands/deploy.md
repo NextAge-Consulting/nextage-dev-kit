@@ -10,9 +10,9 @@ $ARGUMENTS
 
 `/deploy` is the **human-serialized release boundary**. Bump and deploy fire in the same invocation, in order — the source-of-truth version field and the deployed artifact built from that source match by construction. No skew, ever.
 
-The bump commit pushes **directly to `main`** — no release branch, no PR, no admin-merge. It reuses the same direct-to-main mechanism as `/ship-main`. The bump commit + tag ARE the release record. This works because the pipeline uses no branch protection and `main` does not require a PR (PIPELINE.md §1.1); the diff has already passed full CI on the feature PRs that landed on main, so there is nothing for a release PR to gate on.
+The bump commit pushes **directly to `main`** — no release branch, no PR, no admin-merge. It reuses the same direct-to-main mechanism as `/ship-main`. The bump commit + tag ARE the release record. This works because the pipeline uses no branch protection and `main` does not require a PR (pipeline.md §1.1); the diff has already passed full CI on the feature PRs that landed on main, so there is nothing for a release PR to gate on.
 
-No command admin-merges — `/deploy` direct-pushes the bump and `/sync-dev-kit` does no git — so nothing depends on `enforce_admins`. See HANDBOOK §6.5.
+No command admin-merges — `/deploy` direct-pushes the bump and `/sync-dev-kit` does no git — so nothing depends on `enforce_admins`. See handbook §6.5.
 
 ## Procedure
 
@@ -99,16 +99,16 @@ Then run:
 
 If the invocation named a service subset (e.g. `/deploy worker`, or `/deploy worker rest`), forward those bare service names as trailing positional args (`… --changelog-file <file> worker rest`); the script maps each to `deploy-<service>.yml` and validates it before the bump. Adjust the plan's last line to name the targeted workflow(s) instead of the full `DEPLOY_WORKFLOWS`. A raw `--workflow <file>` from the invocation forwards unchanged. With no service named, omit both — the full fleet ships.
 
-The script bumps, commits bump + changelog on `main` as `🚀 release: v<NEW>`, pushes `main` directly to origin (rebasing onto `origin/main` if it advanced), tags `v<NEW>` at the bump SHA, pushes the tag, then — **if `MIGRATE_WORKFLOW` is set — runs the migration workflow first and watches it to completion, aborting the whole deploy (exit 18/19) if it fails before any app deploy fires** — and finally triggers each workflow listed in `DEPLOY_WORKFLOWS` (resolved from `.claude/sync-substitutions.json`; falls back to `deploy.yml` if unset AND no `MIGRATE_WORKFLOW`), watching each run sequentially. A migrate-only repo (`MIGRATE_WORKFLOW` set, `DEPLOY_WORKFLOWS` empty) stops after the migration — see HANDBOOK §6.5 "Migration phase."
+The script bumps, commits bump + changelog on `main` as `🚀 release: v<NEW>`, pushes `main` directly to origin (rebasing onto `origin/main` if it advanced), tags `v<NEW>` at the bump SHA, pushes the tag, then — **if `MIGRATE_WORKFLOW` is set — runs the migration workflow first and watches it to completion, aborting the whole deploy (exit 18/19) if it fails before any app deploy fires** — and finally triggers each workflow listed in `DEPLOY_WORKFLOWS` (resolved from `.claude/sync-substitutions.json`; falls back to `deploy.yml` if unset AND no `MIGRATE_WORKFLOW`), watching each run sequentially. A migrate-only repo (`MIGRATE_WORKFLOW` set, `DEPLOY_WORKFLOWS` empty) stops after the migration — see handbook §6.5 "Migration phase."
 
-The direct push to `main` requires require-PR to be OFF on the consumer repo's `main` (the default — see PIPELINE.md §1.1). With require-PR set, GitHub rejects the push. `/deploy` no longer admin-merges or needs `enforce_admins: false`.
+The direct push to `main` requires require-PR to be OFF on the consumer repo's `main` (the default — see pipeline.md §1.1). With require-PR set, GitHub rejects the push. `/deploy` no longer admin-merges or needs `enforce_admins: false`.
 
 ### Step 5: Report
 
 | Outcome | Action |
 |---|---|
 | Success | Report `v<NEW>` deployed; link to the workflow run |
-| Push to main rejected | Usually require-PR is still ON on `main` — turn it off (PIPELINE.md §1.1) then retry. Other cause: `origin/main` advanced and the rebase hit a conflict; resolve and re-push. |
+| Push to main rejected | Usually require-PR is still ON on `main` — turn it off (pipeline.md §1.1) then retry. Other cause: `origin/main` advanced and the rebase hit a conflict; resolve and re-push. |
 | Exit 17 (tag push failed) | Tag-protection rules may be present; check `gh api repos/{owner}/{repo}/tags/protection` |
 | Exit 18 (migration trigger failed) | `gh workflow run <migrate-wf>` failed — check the workflow exists, has `workflow_dispatch:`, and is on main. Tag is already pushed; re-run the migrate + deploys manually (see Recovery) or fix and re-invoke. |
 | Exit 19 (migration run failed) | The migration workflow ran and failed (or its run id couldn't be resolved) — deploy aborted BEFORE any app deploy. Surface the run URL; fix the migration, then trigger `MIGRATE_WORKFLOW` + the `DEPLOY_WORKFLOWS` manually (Recovery) — do NOT deploy apps against a failed migration. |
@@ -130,14 +130,14 @@ done
 - Runs **no build gate**. `/merge` owns it, and builds while the PR is still open so a failure is fixed on the branch that caused it. A `/ship-main` commit reaches `/deploy` without a PR by design — re-adding a gate here would defeat the point of `/ship-main`.
 - Commits the bump + changelog on `main` and pushes `main` directly (require-PR off, the default) — no release branch, no PR
 - Tags after the bump commit lands on main (the tag lives on the bump SHA on main)
-- Runs a **gated migration phase first** if `MIGRATE_WORKFLOW` is set (per-project sync-substitution, runtime-read; `--migrate-workflow <file>` overrides). Migration is deploy step 1 — watched to completion, real failure aborts before any app deploy. The migrate workflow's body owns no-op-as-success / trap-real-failures semantics (HANDBOOK §6.5). Migration is never invoked standalone. **Skipped entirely** when `MIGRATE_PATHS` (per-project sync-substitution, runtime-read; `--migrate-paths <path>...` overrides, space-separated) is set and nothing under those paths changed since the last deploy's tag — no runner is spun up (that's where the ~2 min goes: runner boot + `npm ci` to reach a no-op). Empty/missing `MIGRATE_PATHS` → the migration always fires (prior behavior). The reference is the previous deploy's tag, so a failed-then-recovered migration is unaffected (HANDBOOK §6.5).
+- Runs a **gated migration phase first** if `MIGRATE_WORKFLOW` is set (per-project sync-substitution, runtime-read; `--migrate-workflow <file>` overrides). Migration is deploy step 1 — watched to completion, real failure aborts before any app deploy. The migrate workflow's body owns no-op-as-success / trap-real-failures semantics (handbook §6.5). Migration is never invoked standalone. **Skipped entirely** when `MIGRATE_PATHS` (per-project sync-substitution, runtime-read; `--migrate-paths <path>...` overrides, space-separated) is set and nothing under those paths changed since the last deploy's tag — no runner is spun up (that's where the ~2 min goes: runner boot + `npm ci` to reach a no-op). Empty/missing `MIGRATE_PATHS` → the migration always fires (prior behavior). The reference is the previous deploy's tag, so a failed-then-recovered migration is unaffected (handbook §6.5).
 - Triggers every workflow in `DEPLOY_WORKFLOWS` (per-project sync-substitution, runtime-read; falls back to `deploy.yml` if unset AND no `MIGRATE_WORKFLOW`) via `workflow_dispatch:` only. A migrate-only repo (`MIGRATE_WORKFLOW` set + `DEPLOY_WORKFLOWS` empty) ships no app artifact.
 - **Targets a subset with bare service names** — `/deploy worker` (or `/deploy worker rest`) ships only those services, mirroring `/dev <workspace>`. A bare positional maps to `deploy-<service>.yml` and is validated against `DEPLOY_WORKFLOWS` before any bump, so a typo fails loud (exit 2, nothing mutated) with the valid names rather than half-deploying. `--workflow <file>` remains the raw-filename escape hatch for a workflow not in the set; positional services and `--workflow` accumulate. Bare `/deploy` with neither still ships the full fleet.
 
 ## What this command does NOT do
 
 - Does NOT open a release PR or admin-merge anything — the bump commit pushes straight to `main` (require-PR off, the default). No command admin-merges, so nothing needs `enforce_admins: false` (`/sync-dev-kit` does no git at all).
-- Does NOT auto-bump on every feature-PR merge — auto-bump-on-merge causes version-skew between source and deployed artifact. NEVER restore it (see HANDBOOK §11.2).
+- Does NOT auto-bump on every feature-PR merge — auto-bump-on-merge causes version-skew between source and deployed artifact. NEVER restore it (see handbook §11.2).
 - Does NOT generate the changelog from PR descriptions — uses commit subjects since last tag
 
 ## Blocking conditions
@@ -146,11 +146,11 @@ All come from deploy.sh state gates. See exit codes in the script header.
 
 Additional cases specific to the direct-push flow:
 
-- Push to `main` rejected: require-PR is still ON on `main`. Turn it off (PIPELINE.md §1.1) and retry. With require-PR set, GitHub rejects every direct push to main.
+- Push to `main` rejected: require-PR is still ON on `main`. Turn it off (pipeline.md §1.1) and retry. With require-PR set, GitHub rejects every direct push to main.
 - `origin/main` advanced between the state-gate check and the push: the script rebases the bump commit onto the new main and re-pushes. On rebase conflict it stops; resolve and `git push origin main`.
 
 ## GitHub repo requirements
 
-- Every workflow listed in `DEPLOY_WORKFLOWS` (or `deploy.yml` if unset) MUST have `workflow_dispatch:` as a trigger (and ideally ONLY that — see HANDBOOK §11.4)
+- Every workflow listed in `DEPLOY_WORKFLOWS` (or `deploy.yml` if unset) MUST have `workflow_dispatch:` as a trigger (and ideally ONLY that — see handbook §11.4)
 - `gh` CLI installed and authed
-- `main` must have **require-PR OFF** (the default — PIPELINE.md §1.1) so the bump commit can push directly. The pipeline uses no branch protection.
+- `main` must have **require-PR OFF** (the default — pipeline.md §1.1) so the bump commit can push directly. The pipeline uses no branch protection.

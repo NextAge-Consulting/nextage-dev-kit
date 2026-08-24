@@ -70,7 +70,7 @@ PROJECT_PATH="${PWD}"
 # context for the rest of that session instead of stranded until a merge. And
 # kit updates riding the same commit as product work is the house model (one
 # body of work, one PR — rules/git.md), not something to guard against.
-# See HANDBOOK §9 for the design rationale.
+# See handbook §9 for the design rationale.
 
 # Refuse to run from inside the kit itself
 if [ "$PROJECT_PATH" = "$KIT_PATH" ]; then
@@ -94,7 +94,7 @@ SKIP_LIST=(
     # in; every project's values differ, so kit's empty-template version
     # always conflicts after first sync. Skip unconditionally. First-time
     # bootstrap (copying the template) is handled via /install-kit or
-    # manually per HANDBOOK instructions.
+    # manually per handbook instructions.
     "_claude-project/sync-substitutions.json"
 )
 
@@ -155,7 +155,7 @@ load_substitutions() {
 
     # Additive key merge — the kit owns the KEY SET, the consumer owns the VALUES.
     #
-    # HANDBOOK §9.7 "Adding a new placeholder" step 6 assumed a new kit key reaches
+    # handbook §9.7 "Adding a new placeholder" step 6 assumed a new kit key reaches
     # existing consumers because this file syncs as a `kit-only` diff. It does not:
     # the file is in SKIP_LIST (every project's values differ, so the kit's empty
     # template would conflict forever after first sync), so that delivery path does
@@ -164,7 +164,7 @@ load_substitutions() {
     # Canonical `{{KEY}}` placeholders at least nagged — the unsubstituted marker
     # survived into the synced file as a standing diff. Runtime-read keys (read via
     # `jq` at execution time, never substituted into any template — AWS_*, and see
-    # HANDBOOK §9.7 "Runtime-read placeholders") have no marker anywhere, so they
+    # handbook §9.7 "Runtime-read placeholders") have no marker anywhere, so they
     # failed SILENTLY: the rule that reads them shipped, its config surface did not.
     #
     # Merging only keys the consumer LACKS restores step 6's intent without
@@ -298,7 +298,7 @@ sha256_substituted() {
 # content is semantically identical. Every field flows through normal 3-way
 # state; the kit owns them all.
 #
-# See HANDBOOK §9.6.
+# See handbook §9.6.
 is_settings_json() {
     [ "$1" = "_claude-project/settings.json" ]
 }
@@ -626,7 +626,7 @@ if [ "$MODE" = "scan" ]; then
         # template with {{KEY}} matches a project file with the real value.
         # proj_sha is the raw project file (already the real values).
         # settings.json takes a separate path: both sides are canonicalized
-        # via jq before SHA. See HANDBOOK §9.6.
+        # via jq before SHA. See handbook §9.6.
         if is_settings_json "$kit_rel"; then
             kit_sha=$(sha256_settings_kit "$kit_full")
             proj_sha=$(sha256_settings_proj "$proj_full")
@@ -799,7 +799,7 @@ if [ "$MODE" = "apply" ]; then
     # defined, apply_substitutions is a pass-through so behavior matches
     # the pre-substitution cp.
     # settings.json takes a separate path: canonicalized via jq so the written
-    # file matches the SHA the scan computed. See HANDBOOK §9.6.
+    # file matches the SHA the scan computed. See handbook §9.6.
     if is_settings_json "$APPLY_FILE"; then
         tmp_subst=$(mktemp)
         tmp_final=$(mktemp)

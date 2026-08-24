@@ -8,7 +8,7 @@ allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*), Bash(lsof:*), B
 
 ## What this is
 
-The E2E testing model for this shop is locked (kit `PIPELINE.md` §1.5). **No Playwright. No Stagehand. No scripted test suite.** Claude drives `agent-browser` through plain-English flow files; failure is detected behaviorally. This skill is the entry point.
+The E2E testing model for this shop is locked (kit `pipeline.md` §1.5). **No Playwright. No Stagehand. No scripted test suite.** Claude drives `agent-browser` through plain-English flow files; failure is detected behaviorally. This skill is the entry point.
 
 ## Invocation modes
 
@@ -152,4 +152,4 @@ When a failure surfaces and you want concrete state: `agent-browser eval 'JSON.s
 
 - `.claude/rules/dev-server.md` — server lifecycle
 - `.claude/rules/integrations/agent-browser.md` — agent-browser startup conventions
-- kit `PIPELINE.md` §1.5 — why this model (no Playwright / no scripted suite)
+- kit `pipeline.md` §1.5 — why this model (no Playwright / no scripted suite)

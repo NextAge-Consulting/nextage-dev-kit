@@ -85,7 +85,7 @@ From inside the **dev-kit repo**, run `/install-kit`. This copies `_claude-globa
 
 > `/work` is global because it must be invokable from the agents view *before* the session is inside any repo. Everything else a project needs is per-project, delivered by sync.
 
-**The kit maintainer runs `/install-kit --maintainer` instead.** That adds the maintainer surface — `sync-dev-kit.sh`, the `/sync-dev-kit` command, and `kit-maintainer.md`. Only the person who syncs projects into the kit needs it; every other dev gets the consumer install above and receives kit updates when the maintainer syncs their project. See `HANDBOOK.md` §0.
+**The kit maintainer runs `/install-kit --maintainer` instead.** That adds the maintainer surface — `sync-dev-kit.sh`, the `/sync-dev-kit` command, and `kit-maintainer.md`. Only the person who syncs projects into the kit needs it; every other dev gets the consumer install above and receives kit updates when the maintainer syncs their project. See `handbook.md` §0.
 
 **Verify (every dev):**
 
@@ -164,7 +164,7 @@ From the **project root** (not inside the kit), run `/sync-dev-kit`. First-run f
    - `GITFLOW_PROJECT_ID` + the `GITFLOW_STATUS_*` IDs — only if you use a GitHub Project board (Claude can run the `gh api graphql` discovery for you). Leave empty / `_intentionally_empty` to skip board integration.
    - `DEPLOY_WORKFLOWS` — space-separated deploy workflow filenames; leave empty to default to `deploy.yml`.
 
-   > Three states per key (HANDBOOK §9.7): **missing** = undecided, marker survives, re-nags every sync; **empty string** = intentionally disabled; **populated** = normal value. `_intentionally_empty` distinguishes "informed disable" from "deferred."
+   > Three states per key (handbook §9.7): **missing** = undecided, marker survives, re-nags every sync; **empty string** = intentionally disabled; **populated** = normal value. `_intentionally_empty` distinguishes "informed disable" from "deferred."
 3. **Per-file review (Steps 2–5)** — accept the kit files (`.claude/`, `.github/workflows/`, `.gemini/`, `.mcp.json`, `.commitlintrc.json`, `biome.json`, `.semgrepignore`) and the `.gitignore` additions.
 4. **Finalize (Step 6)** — stamps the lockfile. Sync does **not** commit or push; the synced files are left uncommitted in the working tree. Land them with `/ship-main` (commits + pushes straight to `main`).
 
@@ -206,7 +206,7 @@ grep -oE '\$\{[A-Z_]+\}' .mcp.json 2>/dev/null | tr -d '${}' | sort -u \
 
 ### 7 — Deploy workflow (if this project deploys) `[claude+you]`
 
-Deploy workflows are **project-specific** — the kit does NOT ship one (different targets, registries, hosts). Author `.github/workflows/<name>.yml` with a `workflow_dispatch:` trigger and **no** `push:` trigger (so `/deploy` is the only thing that fires it). List the filename(s) in the `DEPLOY_WORKFLOWS` substitution. See HANDBOOK §11.9 for the per-app `detect` pattern when a monorepo splits deploys.
+Deploy workflows are **project-specific** — the kit does NOT ship one (different targets, registries, hosts). Author `.github/workflows/<name>.yml` with a `workflow_dispatch:` trigger and **no** `push:` trigger (so `/deploy` is the only thing that fires it). List the filename(s) in the `DEPLOY_WORKFLOWS` substitution. See handbook §11.9 for the per-app `detect` pattern when a monorepo splits deploys.
 
 **Verify:** each workflow named in `DEPLOY_WORKFLOWS` exists:
 
@@ -240,17 +240,32 @@ aws ecr create-repository --repository-name "<repo>" \
 
 aws ecr put-lifecycle-policy --repository-name "<repo>" \
   --lifecycle-policy-text '{"rules":[{"rulePriority":1,
+    "description":"Expire untagged after 1 day.",
+    "selection":{"tagStatus":"untagged","countType":"sinceImagePushed","countUnit":"days","countNumber":1},
+    "action":{"type":"expire"}},{"rulePriority":2,
     "description":"Expires images after 3 images created.",
     "selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":3},
     "action":{"type":"expire"}}]}' \
   --profile "$PROFILE" --region "$REGION"
 ```
 
+**This exact two-rule text is what the workflow guard below prints as its
+remediation.** Keep the two identical. A guard that tells you to paste a policy
+different from the one the setup step creates teaches the reader that one of them
+is wrong, and they cannot tell which.
+
 **Why 3.** One deploy pushes several tags (`latest`, short-sha, `v<timestamp>`)
-that count as a single image, plus a `buildcache` image. Three keeps roughly the
-last two deploys — one more than has ever actually been rolled back to. Rollback
-is a last resort, not a workflow; don't pay storage rent to make it marginally
-easier.
+that count as a single image, plus a `buildcache` image that takes one of the three
+slots — so the real rollback depth is the current release plus one prior. Rollback
+is a last resort rather than a workflow, and any older release is rebuildable from
+its git sha; don't pay storage rent to make it marginally easier.
+
+**Why the untagged rule as well.** Each build replaces the `buildcache` tag, which
+orphans the previous cache image. That churn, not released images, is the bulk of
+what accumulates in a repository with no policy. Rule 1 claims untagged images
+before rule 2 can, so they expire on age rather than waiting to fall out of a count. Untagged layers still referenced by the live `buildcache`
+manifest list are never expired regardless: ECR will not break a manifest list, so
+a healthy repository still shows untagged images and that is not a policy failure.
 
 **Name the repository to match the CI push policy.** That policy is normally
 scoped by prefix (e.g. `repository/<project>-*`). A repository named for the
@@ -311,20 +326,23 @@ Make the deploy workflow assert it instead:
 The requirement then travels with the thing that gets copied, and a new service
 cannot deploy without satisfying it.
 
-**A guard must never guess why it failed.** The first version of this check sent
-both failures to `/dev/null` and reported "NO lifecycle policy" for either one —
-so a missing *permission* was announced as a missing *policy*, sending the reader
-to fix something that was already correct. Branching on the error is four extra
-lines and the difference between a guard that diagnoses and one that misleads.
+**A guard must never guess why it failed.** `get-lifecycle-policy` fails both when
+the policy is absent and when the caller lacks permission to read it. Branch on the
+error text and report each case separately: send both to `/dev/null` and a missing
+*permission* is announced as a missing *policy*, sending the reader to fix something
+that is already correct. Four extra lines, and the difference between a guard that
+diagnoses and one that misleads.
 
 **The general rule this is an instance of:** when omitting a setup step produces
 *no failure* — only slow cost, drift, or silent risk — a checklist entry is not
 enough, because the checklist is read once and the pattern is copied forever.
 Encode it as an assertion in the pipeline.
 
-**Also run the verify against established projects.** A missing policy never
-fails a build, so nothing surfaces it retroactively. First audit across two
-accounts: six of eight repositories had no policy — 648 dead images, 138 GB.
+**Run the verify against established projects, and against every account — not
+only the accounts you work in.** A missing policy never fails a build, so nothing
+surfaces it retroactively; the repositories that need it most are the ones in an
+account nobody has thought about lately. Enumerate the accounts from the profiles in
+`~/.aws/config` rather than from memory, and run the loop in each.
 
 ### 8 — Full verification `[claude]`
 
@@ -336,7 +354,7 @@ Re-run each section's **Verify** block above, top to bottom, and read the output
 /work <issue#>     # or bare /work to start a feature branch with no issue
 ```
 
-`/work` fast-forwards local `main`, cuts a fresh feature branch, links the issue (board → In Progress if configured), and reads the issue so Claude can propose an approach. From here the normal loop is live: `/commit` → `/open-pr` → `/triage` → `/merge` → `/deploy`. See `GITFLOW-CHEATSHEET.md`.
+`/work` fast-forwards local `main`, cuts a fresh feature branch, links the issue (board → In Progress if configured), and reads the issue so Claude can propose an approach. From here the normal loop is live: `/commit` → `/open-pr` → `/triage` → `/merge` → `/deploy`. See `gitflow-cheatsheet.md`.
 
 ---
 
@@ -346,7 +364,7 @@ When all nine boxes are checked and every verify block passes: the project has t
 
 ## Related docs
 
-- `GITFLOW-CHEATSHEET.md` — the day-to-day command flow once setup is done
+- `gitflow-cheatsheet.md` — the day-to-day command flow once setup is done
 - `gemini-code-review-setup.md` — full Gemini Code Assist install (step 5)
-- `KIT-REPO-GITHUB-CONFIG.md` — repo / GitHub config reference
-- `HANDBOOK.md` — §0 kit layout, §9 sync workflow, §9.7 substitutions, §11 workflow templates, §6.5 deploy direct-push, §9.4.1 sync does no git
+- `kit-repo-github-config.md` — repo / GitHub config reference
+- `handbook.md` — §0 kit layout, §9 sync workflow, §9.7 substitutions, §11 workflow templates, §6.5 deploy direct-push, §9.4.1 sync does no git

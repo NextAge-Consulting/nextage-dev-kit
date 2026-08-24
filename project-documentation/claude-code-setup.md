@@ -1,6 +1,6 @@
 # Claude Code Setup
 
-Installing Claude Code itself, managing plugins, and LSP configuration. Complementary to `HANDBOOK.md` — the handbook covers kit architecture and project-level config; this doc covers the Claude Code CLI install and plugin ecosystem.
+Installing Claude Code itself, managing plugins, and LSP configuration. Complementary to `handbook.md` — the handbook covers kit architecture and project-level config; this doc covers the Claude Code CLI install and plugin ecosystem.
 
 ---
 
@@ -33,7 +33,7 @@ For a fresh machine:
 1. Install Claude Code (above).
 2. Clone the dev kit.
 3. Run `/install-kit` from inside the kit repo — this installs the global bootstrap (`~/.claude/commands/sync-dev-kit.md` + script) and writes `~/.claude/dev-kit-config.json` pointing at the kit path.
-4. Set `REF_API_KEY` and `EXA_API_KEY` in your shell rc (see HANDBOOK Section 10).
+4. Set `REF_API_KEY` and `EXA_API_KEY` in your shell rc (see handbook Section 10).
 5. Optional: `/install-statusline` from the kit repo — installs the custom statusline to `~/.claude/statusline.sh`.
 6. Optional: `/install-cpl` from the kit repo — builds and installs CPL launcher.
 7. Open any project and run `/sync-dev-kit` to set up its `.claude/` from the kit.
@@ -203,8 +203,8 @@ If `/sync-dev-kit` reports "kit path invalid" or similar, your `~/.claude/dev-ki
 
 ## What this doc does NOT cover
 
-- Kit architecture (`_claude-project/`, `_claude-global/`, `.claude/`) — see `HANDBOOK.md`
-- Git workflow via gitflow — see `HANDBOOK.md` Sections 3-6
-- MCP server config (Ref, Exa) — see `HANDBOOK.md` Section 10
-- Second-dev onboarding path — see `DEVELOPER-ONBOARDING.md`
+- Kit architecture (`_claude-project/`, `_claude-global/`, `.claude/`) — see `handbook.md`
+- Git workflow via gitflow — see `handbook.md` Sections 3-6
+- MCP server config (Ref, Exa) — see `handbook.md` Section 10
+- Second-dev onboarding path — see `developer-onboarding.md`
 - Hook authoring patterns (async, token-based enforcement) — see `hook-patterns.md`

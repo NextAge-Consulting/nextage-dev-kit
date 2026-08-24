@@ -32,7 +32,7 @@ A drift the user declines must be acknowledged with
 writing the file. Without that, the same drift re-reports on every sync forever.
 Ack is not permanent: the next kit change to that file surfaces again.
 
-Full pattern, install steps and the integration model: HANDBOOK §11.13.
+Full pattern, install steps and the integration model: handbook §11.13.
 
 ## What's in this directory
 

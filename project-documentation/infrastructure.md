@@ -4,7 +4,7 @@ How the box under a kit-pipeline app is normally built. **This is how we do it, 
 the only way to do it** — a project is free to diverge with a reason.
 
 A reference, read when relevant. Not a rule, not enforced, not synced into consumer
-projects. The kit ships no `deploy.yml` because deploy targets vary (HANDBOOK §11.9);
+projects. The kit ships no `deploy.yml` because deploy targets vary (handbook §11.9);
 what does not vary in practice is the shape below, and re-deriving it per project is
 how pieces get silently skipped.
 
@@ -48,9 +48,40 @@ projects entitled to different ones. When you do need to compare, diff the file 
 two projects — it is cheap, and it is the right tool for spotting a genuine improvement
 worth carrying by hand.
 
-**Images live in ECR.** The deploy workflow ensures the repository exists and applies a
-lifecycle policy, so old layers expire instead of accumulating until the registry bill or
-the disk becomes the problem.
+**Images live in ECR, and a repository is created together with its lifecycle policy —
+one step, never two.** Creating the repository is self-enforcing: the first push fails
+without it. The policy is not. Nothing fails when it is missing; images simply accumulate
+forever and the bill arrives months later. The standard policy drops untagged images after
+a day and keeps the three newest images, which is roughly the last two deploys:
+
+```json
+{"rules":[
+  {"rulePriority":1,
+   "description":"Expire untagged after 1 day.",
+   "selection":{"tagStatus":"untagged","countType":"sinceImagePushed","countUnit":"days","countNumber":1},
+   "action":{"type":"expire"}},
+  {"rulePriority":2,
+   "description":"Expires images after 3 images created.",
+   "selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":3},
+   "action":{"type":"expire"}}]}
+```
+
+One deploy pushes several tags — `latest`, a short sha, a timestamp — that ECR counts as a
+single image, plus a separate `buildcache` image which takes one of the three slots. So the
+real rollback depth is the current release plus one prior. Untagged layers still referenced
+by a live `buildcache` manifest list are never expired; ECR refuses to break a manifest list,
+so a repository legitimately retains untagged images beyond the count.
+
+**The deploy workflow asserts both and fails when either is missing.** That assertion, not
+this document, is what prevents recurrence. No `deploy.yml` is templated, so the requirement
+has to travel with the file people actually copy: a service is added to an existing project
+by copying a neighbouring workflow, never by re-reading a setup doc. The check itself, the
+read-only `ecr:GetLifecyclePolicy` grant it needs, and why it must distinguish a missing
+policy from a missing permission are in `new-project-setup.md` §7a.
+
+**Sweep established projects and every new account.** A missing policy never fails a build,
+so nothing surfaces it retroactively, and an account nobody has audited is where it hides.
+§7a's verify block loops every repository in a region and is the entire audit.
 
 **Runtime configuration lives in SSM Parameter Store**, fetched by path at deploy time.
 Not baked into the image, not a `.env` sitting on the box. Rotating a value is a parameter

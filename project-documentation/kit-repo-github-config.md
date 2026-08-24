@@ -47,7 +47,7 @@ Pushes branch, creates PR, prepends `Closes #N` from any branch-linked issues. N
 
 `merge.sh` probes `repos/:owner/:repo/branches/main/protection/required_status_checks`. Private repo without Pro returns **403**, which the script interprets as "no gate configured" and proceeds to squash-merge. Logs: `"no required checks configured on main — CI gate skipped"`.
 
-**Consequence:** `/merge` on the kit repo is effectively "squash-merge the PR immediately" with no CI wait — and the kit repo has no CI workflows anyway. This is the same as every project: the pipeline uses no branch protection (PIPELINE.md §1.1, NEW-PROJECT-SETUP.md step 3), and `/merge` self-gates by reading the PR's check-runs directly. The only requirement is that `main` not require a PR — the default — so the direct-push paths work: `/deploy` pushes the version bump directly to `main`, `/ship-main` pushes infra/emergency commits, and `/sync-dev-kit` leaves its applied changes for you to land with `/ship-main` (it does no git itself). `enforce_admins` is irrelevant — nothing admin-merges. Normal `/merge` always goes through a PR.
+**Consequence:** `/merge` on the kit repo is effectively "squash-merge the PR immediately" with no CI wait — and the kit repo has no CI workflows anyway. This is the same as every project: the pipeline uses no branch protection (pipeline.md §1.1, new-project-setup.md step 3), and `/merge` self-gates by reading the PR's check-runs directly. The only requirement is that `main` not require a PR — the default — so the direct-push paths work: `/deploy` pushes the version bump directly to `main`, `/ship-main` pushes infra/emergency commits, and `/sync-dev-kit` leaves its applied changes for you to land with `/ship-main` (it does no git itself). `enforce_admins` is irrelevant — nothing admin-merges. Normal `/merge` always goes through a PR.
 
 ---
 
@@ -63,7 +63,7 @@ Pushes branch, creates PR, prepends `Closes #N` from any branch-linked issues. N
 | `node-lts-check.yml` | Watches a pinned node version the kit does not declare. |
 
 Version bump and tag are **not** workflows and are not coming back as workflows — they
-live in the local `/deploy` command, single-writer and human-serialized (HANDBOOK §6.5,
+live in the local `/deploy` command, single-writer and human-serialized (handbook §6.5,
 and the do-not-reintroduce note at §11.5).
 
 ---
@@ -98,9 +98,9 @@ That's it — `/merge` self-gates by reading the workflow's check-runs directly.
 
 ## 6. Related docs
 
-- `HANDBOOK.md` — full architecture, sync flow, three-surface layout
-- `GITFLOW-CHEATSHEET.md` — day-to-day developer reference (applies to all projects)
-- `DEVELOPER-ONBOARDING.md` — second-dev setup procedure
+- `handbook.md` — full architecture, sync flow, three-surface layout
+- `gitflow-cheatsheet.md` — day-to-day developer reference (applies to all projects)
+- `developer-onboarding.md` — second-dev setup procedure
 
 ---
 

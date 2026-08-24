@@ -200,7 +200,7 @@ If any verification fails, report to the maintainer with the specific failure.
 
 ## Section 8: Working with the gitflow subsystem
 
-The developer's day-to-day git interactions go through the gitflow subsystem. **See `project-documentation/GITFLOW-CHEATSHEET.md` for the one-page day-to-day reference** — it covers `/work`, `/link`, `/checkpoint`, `/commit`, `/open-pr`, `/merge` with examples.
+The developer's day-to-day git interactions go through the gitflow subsystem. **See `project-documentation/gitflow-cheatsheet.md` for the one-page day-to-day reference** — it covers `/work`, `/link`, `/checkpoint`, `/commit`, `/open-pr`, `/merge` with examples.
 
 Short version:
 
@@ -215,7 +215,7 @@ Short version:
 
 The developer never runs raw `git commit`, `git push`, `git merge`, `git checkout <file>`, `git reset`, `git revert`, `git clean`, `git restore`. Those are blocked by the project's `git-guard.sh` hook. If the developer needs one legitimately, use the `SKIP_GIT_GUARD=1` prefix with explicit reason.
 
-Claude handles the commit message generation, PR title, PR body. The developer provides the trigger. For internals and the full architecture, see `project-documentation/HANDBOOK.md`.
+Claude handles the commit message generation, PR title, PR body. The developer provides the trigger. For internals and the full architecture, see `project-documentation/handbook.md`.
 
 ---
 

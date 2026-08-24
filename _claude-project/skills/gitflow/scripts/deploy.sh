@@ -38,7 +38,7 @@
 # omitted, the script reads `MIGRATE_PATHS` from `.claude/sync-substitutions.json`;
 # if that is also empty the workflow ALWAYS fires (prior behavior). The reference
 # is the PREVIOUS deploy's tag (LAST_TAG), so a failed-then-recovered migration is
-# unaffected — see the skip block at step 10 and HANDBOOK §6.5.
+# unaffected — see the skip block at step 10 and handbook §6.5.
 #
 # ─── Design ─────────────────────────────────────────────────────────────
 # /deploy is a HUMAN-SERIALIZED release boundary, not an auto-bump-on-merge.
@@ -47,7 +47,7 @@
 # the moment after the bump lands on main) match by construction. No skew.
 #
 # The bump commit is pushed DIRECTLY to main (the pipeline uses no branch
-# protection; require-PR is off — see PIPELINE.md §1.1 / HANDBOOK §6.5). No
+# protection; require-PR is off — see pipeline.md §1.1 / handbook §6.5). No
 # release branch, no PR, no admin-merge — the bump commit + the tag ARE the
 # release record. This is the same direct-to-main mechanism as ship-main.sh.
 #
@@ -125,7 +125,7 @@ CHANGELOG_FILE=""
 # WORKFLOWS: empty after arg parse means "read DEPLOY_WORKFLOWS from
 # .claude/sync-substitutions.json at runtime; fall back to deploy.yml if
 # unset". --workflow flags accumulate (repeatable) and override the
-# substitution. See HANDBOOK §6.5 for split-deploy consumer pattern.
+# substitution. See handbook §6.5 for split-deploy consumer pattern.
 WORKFLOWS=()
 # Bare positional service names (e.g. `worker`) → deploy-<name>.yml, resolved +
 # validated against DEPLOY_WORKFLOWS after arg parse. Accumulate with --workflow.
@@ -409,7 +409,7 @@ fi
 mv "${CHANGELOG_PATH}.tmp" "$CHANGELOG_PATH"
 
 # --- Commit bump + changelog directly on main ---------------------------
-# No branch protection (PIPELINE.md §1.1): main requires no PR and accepts
+# No branch protection (pipeline.md §1.1): main requires no PR and accepts
 # direct pushes, so the release bump lands STRAIGHT on main — no release branch, no PR, no
 # admin-merge. The state gates above already guarantee local main ==
 # origin/main, so this push is a clean fast-forward. The bump commit + the
@@ -430,7 +430,7 @@ git commit --no-verify -m "🚀 release: v${NEW}" >&2
 if ! git push origin main; then
     echo "deploy.sh: push of the release commit to main failed." >&2
     echo "  Likely origin/main advanced since the state gate, OR main still requires a PR." >&2
-    echo "  Fix: git pull --ff-only origin main (then re-run /deploy), or turn require-PR off (PIPELINE.md §1.1)." >&2
+    echo "  Fix: git pull --ff-only origin main (then re-run /deploy), or turn require-PR off (pipeline.md §1.1)." >&2
     exit 11
 fi
 
@@ -527,7 +527,7 @@ if [ -n "$MIGRATE_WF" ]; then
     # deploy is unaffected: that deploy's tag exists, so re-running /deploy hits
     # the "no commits since tag" gate and stops — the operator's documented manual
     # recovery applies the migration, and the migration workflow stays idempotent
-    # as the backstop. See HANDBOOK §6.5.
+    # as the backstop. See handbook §6.5.
     SKIP_MIGRATE=0
     if [ -n "$MIGRATE_PATHS" ] && [ -n "$LAST_TAG" ]; then
         # shellcheck disable=SC2086 # intentional word-splitting: MIGRATE_PATHS is a space-separated pathspec list

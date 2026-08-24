@@ -15,7 +15,7 @@
 # hashFiles would be empty and every job would skip.
 #
 # A gated-out job reports "skipped" (neutral) — harmless: the pipeline uses no
-# branch protection (PIPELINE.md §1.1), and `/merge` self-gates on the check-runs
+# branch protection (pipeline.md §1.1), and `/merge` self-gates on the check-runs
 # it actually finds, blocking on any failure. A skipped job is not a failure, so
 # it never blocks; there are no GitHub-required checks to wait forever on a
 # never-run job, and nothing to promote.
@@ -157,7 +157,7 @@ jobs:
       # integration project on (vitest.config.ts): both present → integration
       # tests run; absent → unit-only. DATABASE_NAME + ROLE_NAME are optional
       # but typically needed when the app's schema lives in a non-default DB.
-      # All four live in repo Secrets — see HANDBOOK §11.13. Add via:
+      # All four live in repo Secrets — see handbook §11.13. Add via:
       # Settings → Secrets and variables → Actions.
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
       NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}

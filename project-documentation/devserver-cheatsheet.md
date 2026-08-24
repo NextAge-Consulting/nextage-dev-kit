@@ -1,6 +1,6 @@
 # Dev-Server Cheat Sheet
 
-One-page reference for starting dev servers in a kit-enabled project. Companion to `GITFLOW-CHEATSHEET.md`.
+One-page reference for starting dev servers in a kit-enabled project. Companion to `gitflow-cheatsheet.md`.
 
 The `/dev` skill (`_claude-project/skills/dev-server/`) and slash command (`_claude-project/commands/dev.md`) are the canonical entry point. Universal across projects via kit sync.
 
@@ -182,4 +182,4 @@ No per-project zshrc functions. No project-specific shell aliases. The kit is th
 - `.claude/rules/dev-server.md` — the 5 rules (always check, use occupied port, never kill, etc.) that still govern lifecycle regardless of how the server was started.
 - `.claude/skills/e2e/SKILL.md` — the one legitimate path that auto-starts servers outside `/dev`.
 - `.claude/skills/agent-browser/SKILL.md` — the precedent for skill-as-canonical-by-convention without a guard hook.
-- `GITFLOW-CHEATSHEET.md` — same shape, same model, for git ops.
+- `gitflow-cheatsheet.md` — same shape, same model, for git ops.

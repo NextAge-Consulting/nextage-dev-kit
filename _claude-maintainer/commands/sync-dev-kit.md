@@ -150,7 +150,7 @@ The lockfile tolerates both schemas: a legacy bare-string value means `owned`. E
 
 The helpers live in `sync-dev-kit.sh` (`canonicalize_settings` + `sha256_settings_kit` + `sha256_settings_proj`). Every field — hooks, permissions, env — flows through normal 3-way state; the kit owns them all. The lockfile baseline SHA tracks the canonicalized content, matching subsequent scans.
 
-You (Claude) don't need to invoke anything special — the script handles it. See HANDBOOK §9.6.
+You (Claude) don't need to invoke anything special — the script handles it. See handbook §9.6.
 
 ### Step 3: Present each non-clean file
 

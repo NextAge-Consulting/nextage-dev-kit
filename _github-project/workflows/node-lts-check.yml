@@ -72,7 +72,7 @@ jobs:
             echo "Release-bot App secret present — proceeding."
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=node-lts-check skipped::BOT_APP_CLIENT_ID secret is not set — this repo has no release-bot GitHub App installed, so Node LTS surfacing is disabled. Install the bot App and add BOT_APP_CLIENT_ID + BOT_APP_PRIVATE_KEY secrets (HANDBOOK §11.3) to activate."
+            echo "::notice title=node-lts-check skipped::BOT_APP_CLIENT_ID secret is not set — this repo has no release-bot GitHub App installed, so Node LTS surfacing is disabled. Install the bot App and add BOT_APP_CLIENT_ID + BOT_APP_PRIVATE_KEY secrets (handbook §11.3) to activate."
           fi
 
   check:

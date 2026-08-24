@@ -107,7 +107,7 @@ project/
 
 The kit does NOT manage `.git/hooks/`. Git hooks cannot be tracked in git and do
 not survive a clone, so enforcement lives entirely in the Claude Code hooks under
-`.claude/hooks/` (which do sync) plus the CI gates. See HANDBOOK §3.
+`.claude/hooks/` (which do sync) plus the CI gates. See handbook §3.
 
 ### Global `~/.claude/` (minimal)
 
@@ -205,8 +205,8 @@ See `.claude/rules/project/dev-kit-workflow.md` for details.
 
 | Doc | Purpose |
 |-----|---------|
-| `project-documentation/HANDBOOK.md` | Full architecture, sync flow, three-surface layout. The authoritative reference. |
-| `project-documentation/GITFLOW-CHEATSHEET.md` | Day-to-day developer reference for `/branch`, `/link`, `/checkpoint`, `/commit`, `/open-pr`, `/merge`. |
-| `project-documentation/KIT-REPO-GITHUB-CONFIG.md` | How THIS repo is configured on GitHub and why it differs from consumer projects. Pre-flight sanity checklist before changes that might need GitHub-side config. |
-| `project-documentation/DEPENDENCY-MANAGEMENT.md` | The monorepo "one stack" discipline + the `dep-alignment` CI gate: trust-but-verify on old workarounds, solid-version philosophy, the "logged-in not 200" verification standard, accepted-residuals handling. |
-| `project-documentation/DEVELOPER-ONBOARDING.md` | Second-dev setup procedure. |
+| `project-documentation/handbook.md` | Full architecture, sync flow, three-surface layout. The authoritative reference. |
+| `project-documentation/gitflow-cheatsheet.md` | Day-to-day developer reference for `/branch`, `/link`, `/checkpoint`, `/commit`, `/open-pr`, `/merge`. |
+| `project-documentation/kit-repo-github-config.md` | How THIS repo is configured on GitHub and why it differs from consumer projects. Pre-flight sanity checklist before changes that might need GitHub-side config. |
+| `project-documentation/dependency-management.md` | The monorepo "one stack" discipline + the `dep-alignment` CI gate: trust-but-verify on old workarounds, solid-version philosophy, the "logged-in not 200" verification standard, accepted-residuals handling. |
+| `project-documentation/developer-onboarding.md` | Second-dev setup procedure. |

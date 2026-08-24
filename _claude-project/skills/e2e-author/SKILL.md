@@ -10,7 +10,7 @@ allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*), Bash(lsof:*), B
 
 The **writing** half of the E2E model. `/e2e` *runs* flows; this skill *authors and maintains* them. A "flow" is a plain-English markdown file with YAML frontmatter — no Playwright spec, no assertions. When you build a new flow or a UI change makes an existing flow stale, do it through here so the flow lands in the right shape and doesn't re-hit the agent-browser potholes that bit the last run.
 
-The model is locked (kit `PIPELINE.md` §1.5): **no Playwright, no Stagehand, no scripted suite.** Flows are read and driven by Claude. So a good flow file is one a fresh Claude can execute without guessing.
+The model is locked (kit `pipeline.md` §1.5): **no Playwright, no Stagehand, no scripted suite.** Flows are read and driven by Claude. So a good flow file is one a fresh Claude can execute without guessing.
 
 ## When to use
 
@@ -230,4 +230,4 @@ A flow authored here should be runnable by `e2e` with zero extra guessing. If th
 - `.claude/skills/e2e/SKILL.md` — the running skill (scope question, execution, report)
 - `.claude/rules/integrations/agent-browser.md` — canonical agent-browser conventions (viewport, iframe recipe, auth)
 - `.claude/rules/dev-server.md` — server lifecycle (check port, never kill, leave running)
-- kit `PIPELINE.md` §1.5 — why this model (no Playwright / no scripted suite)
+- kit `pipeline.md` §1.5 — why this model (no Playwright / no scripted suite)

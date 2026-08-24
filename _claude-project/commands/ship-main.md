@@ -52,4 +52,4 @@ The script:
 
 ## Prerequisite
 
-`main` must NOT require a PR — the default on a new repo (the pipeline uses no branch protection; see `PIPELINE.md` §1.1). With require-PR set, GitHub rejects the direct push.
+`main` must NOT require a PR — the default on a new repo (the pipeline uses no branch protection; see `pipeline.md` §1.1). With require-PR set, GitHub rejects the direct push.

@@ -194,7 +194,7 @@ stage_app() {
   #
   # The DevServer profile JSON lives at:
   #   ~/Library/Application Support/iTerm2/DynamicProfiles/DevServer.json
-  # See DEVSERVER-CHEATSHEET.md for one-time install steps.
+  # See devserver-cheatsheet.md for one-time install steps.
   #
   # We use `printf` (not a `# comment` line) because zsh interactive shells
   # default INTERACTIVE_COMMENTS off — `# foo (:3010)` would parse as a

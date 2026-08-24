@@ -89,4 +89,4 @@ The new iTerm tab:
 - `.claude/rules/dev-server.md` — the rules of server lifecycle (check first, use occupied, never kill, leave running) that still apply once a server is running.
 - `.claude/skills/dev-server/SKILL.md` — natural-language routing layer.
 - `.claude/skills/e2e/SKILL.md` — the one path that legitimately auto-starts servers outside `/dev` (unattended verification runs).
-- `project-documentation/DEVSERVER-CHEATSHEET.md` — one-page reference.
+- `project-documentation/devserver-cheatsheet.md` — one-page reference.

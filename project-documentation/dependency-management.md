@@ -1,12 +1,12 @@
 # Dependency Management — the monorepo "one stack" discipline
 
-**What this is.** The hard-won discipline for keeping a multi-workspace (monorepo) JavaScript/TypeScript project on **one** coherent dependency stack, plus the CI gate that enforces it. Distilled from a real production outage (a 3-version `better-auth` skew across apps that no check caught) and the cleanup that followed.
+**What this is.** The discipline for keeping a multi-workspace (monorepo) JavaScript/TypeScript project on **one** coherent dependency stack, plus the CI gate that enforces it.
 
 **Who it's for.** Any Node consumer of the kit, especially monorepos with multiple apps/packages under `workspaces`. Single-package repos still get the gate (it's a guaranteed no-op pass for them) and still benefit from the trust-but-verify and verification-standard sections.
 
 **The machinery this doc backs:**
-- `scripts/check-dep-alignment.mjs` — the alignment gate (ships via `_claude-project/templates/scripts/`; HANDBOOK §11.16).
-- the `dep-alignment` CI job in `ci.yml` (Node-gated; HANDBOOK §11.16).
+- `scripts/check-dep-alignment.mjs` — the alignment gate (ships via `_claude-project/templates/scripts/`; handbook §11.16).
+- the `dep-alignment` CI job in `ci.yml` (Node-gated; handbook §11.16).
 - `npm run check:deps` — the local convenience script consumers add to `package.json`.
 
 ---
@@ -17,7 +17,7 @@ A monorepo exists **because every workspace runs the same stack.** The entire va
 
 **Dependabot makes this worse, not better.** It bumps each manifest independently and has no concept of cross-app consistency, so it *creates* skew rather than catching it.
 
-**The gate:** `scripts/check-dep-alignment.mjs` fails if any dependency is declared at more than one version across the workspaces. It reads `package.json` files only (no install), runs as the `dep-alignment` CI job on every PR, and is the check that would have caught the outage.
+**The gate:** `scripts/check-dep-alignment.mjs` fails if any dependency is declared at more than one version across the workspaces. It reads `package.json` files only (no install) and runs as the `dep-alignment` CI job on every PR.
 
 ### When a dependency needs updating
 
@@ -35,9 +35,9 @@ Never bump one workspace and not the others — the gate will fail the PR. That 
 
 ## 2. Trust but verify — old workarounds are guilty until proven innocent
 
-**The single most expensive lesson.** A dependency update that "physically can't be applied" is almost never the new dep's fault — it's usually an **old workaround masking the real problem**, treated as gospel ever since it was first guessed at.
+A dependency update that "physically can't be applied" is almost never the new dep's fault — it's usually an **old workaround masking the real problem**, treated as gospel ever since it was first guessed at.
 
-Real example: months of running on a transitive-dependency override + an `ssr.noExternal` hack added in a panic to fix a production SSR crash — when the **actual** root cause was a package that was imported and used but never *declared* as a dependency. It rode transitive-resolution luck; a patch bump shifted that luck and the "crash" came back, and the instinct was to pile new hacks on the old ones.
+The classic shape: an override plus an `ssr.noExternal` entry, both added to stop a crash, when the real cause is a package the app imports and uses but never *declares* as a dependency. It resolves transitively by luck; any patch bump shifts that luck and the crash returns, and the instinct is to pile new hacks on the old ones.
 
 **Rules:**
 - **Old pins / overrides / `noExternal` / `resolutions` are guilty until proven innocent.** Before working *around* one, `git log -S '<the-config>'` it: when it was added, by whom, for what. A "fix … in Docker build" commit from months ago is a prime suspect, not scripture.
@@ -46,7 +46,7 @@ Real example: months of running on a transitive-dependency override + an `ssr.no
 - **Verify on the DIVERGENT surface, not the convenient one.** If app A passes but app B carries extra config app A never had, app A passing proves nothing about app B. Build the app that actually differs.
 - **Don't accept "it runs" as "it's clean."** A green build can be a pile of old cruft luckily cohering. After it runs, ask which pins/overrides/hacks are still earning their place, and drop the rest.
 
-**The counter-lesson (equally important):** "removal proves deadness" holds ONLY when you build + run the real deploy image **and exercise the real path** (e.g. log in). A workaround that looks dead because the dev server boots fine can still be load-bearing for a production code path that loads lazily. Some `noExternal` / bundling config is the **canonical, documented** pattern for a library's SSR build (verify against the library's own docs via Ref before touching it) — removing it because "another app works without it" is how you cause the *next* outage. Prove deadness on the real image, on the real path, on the divergent app.
+**The limit on that last rule:** "removal proves deadness" holds ONLY when you build and run the real deploy image **and exercise the real path** (e.g. log in). A workaround that looks dead because the dev server boots fine can still be load-bearing for a production code path that loads lazily. Some `noExternal` / bundling config is the **canonical, documented** pattern for a library's SSR build — verify against the library's own docs via Ref before touching it, and never remove it because "another app works without it". Prove deadness on the real image, on the real path, on the divergent app.
 
 ---
 
@@ -54,7 +54,7 @@ Real example: months of running on a transitive-dependency override + an `ssr.no
 
 Put cross-cutting build policy — bundler plugins, SSR externalization rules (`ssr.noExternal`), shared compiler options — in **ONE** shared file that every workspace's config is a thin wrapper over. The way these drift is by being copied per-app and then edited in one place but not another. A single source means:
 - **Do NOT** add a per-app override block that the shared config is supposed to own — that is exactly how they diverge.
-- **Do NOT** remove a load-bearing entry because one app "works without it" — see §2's counter-lesson. Cite the source (library docs / issue) in the shared file so the next reader knows it's deliberate.
+- **Do NOT** remove a load-bearing entry because one app "works without it" — see the limit rule in §2. Cite the source (library docs / issue) in the shared file so the next reader knows it's deliberate.
 
 ---
 
@@ -101,8 +101,8 @@ A `dependabot.yml` group governs **version** updates. **Security** PRs are a *se
 
 ## 7. Cross-references
 
-- **HANDBOOK §11.16** — the `dep-alignment` job + `scripts/check-dep-alignment.mjs` wiring and the `check:deps` convention.
-- **HANDBOOK §11.10** — `dependabot.yml` (grouping / cooldown / monthly cadence).
-- **HANDBOOK §11.6** — `dependabot-surfacing.yml`.
-- **PIPELINE.md §1.4** — quality + security tools (where the gate sits in the pipeline).
+- **handbook §11.16** — the `dep-alignment` job + `scripts/check-dep-alignment.mjs` wiring and the `check:deps` convention.
+- **handbook §11.10** — `dependabot.yml` (grouping / cooldown / monthly cadence).
+- **handbook §11.6** — `dependabot-surfacing.yml`.
+- **pipeline.md §1.4** — quality + security tools (where the gate sits in the pipeline).
 - **constitution §X / §XIII** — fail-loud and suppression discipline (the gate fails loud; §6 residuals are the disciplined alternative to silent suppression).

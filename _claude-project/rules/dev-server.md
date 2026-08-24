@@ -4,7 +4,7 @@
 
 `/dev` opens a new iTerm tab in the project root and runs the dev command. It detects port collisions with `lsof` and bumps by `+10` (3001 → 3011 → 3021, capped at 3 hops), titling the tab `<app> @ <project-name> (:<port>)`.
 
-Do not start a dev server without the user invoking it. `.claude/skills/dev-server/SKILL.md` carries the natural-language routing, `.claude/commands/dev.md` the slash command, and the kit's `project-documentation/DEVSERVER-CHEATSHEET.md` the one-page reference.
+Do not start a dev server without the user invoking it. `.claude/skills/dev-server/SKILL.md` carries the natural-language routing, `.claude/commands/dev.md` the slash command, and the kit's `project-documentation/devserver-cheatsheet.md` the one-page reference.
 
 `/e2e` is the one exception — it auto-starts a server when no port is occupied, so a verification run can proceed unattended. When a port is occupied it uses the occupant, like everything else. The rules below still apply to it.
 

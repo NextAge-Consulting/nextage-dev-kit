@@ -20,7 +20,7 @@
 #   - Pushes straight to main; rebases the commit onto origin/main if it advanced.
 #
 # Requires main to NOT require a PR — the default; the pipeline uses no branch
-# protection (see PIPELINE.md §1.1). A direct push to main triggers NO workflows
+# protection (see pipeline.md §1.1). A direct push to main triggers NO workflows
 # (CI is pull_request-only; deploys are workflow_dispatch-only), so it lands
 # silently and instantly. CI is intentionally skipped — this is the exception
 # path; the local typecheck above is the safety net.

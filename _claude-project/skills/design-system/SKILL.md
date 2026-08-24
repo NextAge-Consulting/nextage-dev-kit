@@ -83,7 +83,7 @@ After making changes that affect tokens (added a color, added an atom variant, e
 npm run lint:design
 ```
 
-This runs the `@google/design.md` spec linter. It must be wired as a project dev tool — `@google/design.md` in `devDependencies` plus a `"lint:design": "design.md lint design.md"` script (see kit HANDBOOK §12a.4). Use the declared script, **not** an ad-hoc `npx @google/design.md …`: declaring it keeps the lint reproducible and avoids agent sandboxes blocking an undeclared external download. If the script is missing, add the devDependency + script first, then run it.
+This runs the `@google/design.md` spec linter. It must be wired as a project dev tool — `@google/design.md` in `devDependencies` plus a `"lint:design": "design.md lint design.md"` script (see kit handbook §12a.4). Use the declared script, **not** an ad-hoc `npx @google/design.md …`: declaring it keeps the lint reproducible and avoids agent sandboxes blocking an undeclared external download. If the script is missing, add the devDependency + script first, then run it.
 
 If `design.md` was not modified, skip this step. If it was, the lint MUST pass before changes are committed. Fix lint findings before declaring the task done.
 

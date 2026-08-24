@@ -66,6 +66,6 @@ When a user request matches a dev-server trigger:
 - `.claude/rules/dev-server.md` — the rules of server lifecycle (check first, use occupied, never kill, leave running) that still govern any running server regardless of how it was started.
 - `.claude/commands/dev.md` — slash command specification.
 - `.claude/skills/dev-server/scripts/dev.sh` — implementation.
-- `project-documentation/DEVSERVER-CHEATSHEET.md` — one-page reference.
+- `project-documentation/devserver-cheatsheet.md` — one-page reference.
 - `.claude/skills/e2e/SKILL.md` — the one path that legitimately auto-starts servers outside this skill.
 - `.claude/skills/gitflow/SKILL.md` — same shape, same model, for git ops.
