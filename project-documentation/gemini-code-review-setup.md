@@ -6,7 +6,7 @@ Sets up the Gemini Code Assist PR-review bot (`gemini-code-assist[bot]`) on a re
 a brand-new project: billing linked + the three APIs enabled → the **Code Assist for Source
 Code Management** card renders immediately. Nothing else is needed to reach the setup UI.
 
-Two things — and ONLY these two — have ever broken this. Both are invisible to `gcloud`:
+Three things — and ONLY these three — have ever broken this. All are invisible to `gcloud`:
 
 **1. The bare Console URL.** Always paste
 `agents-tools?project=$PROJECT`. Never the bare URL, never "select the project in the
@@ -19,6 +19,12 @@ reports `installationState: COMPLETE`, repos linked, and `fetchLinkableGitReposi
 returning live results — while Gemini silently ignores every `/gemini review`. The toggle has
 no `gcloud`, no REST, no Terraform surface, and **leaves no audit-log entry**. There is no way
 to read its state except looking at the page.
+
+**3. The `LINK` button below the fold.** In *Link Git repositories*, picking repos and
+clicking **OK** only dismisses the multiselect — the **LINK** that submits sits at the bottom of
+the side panel, off-screen on a short browser window. Nothing gets linked, and the
+**Connections** tab shows a *Link repository* action either way, so it cannot tell you. Verify
+on the **Repositories** tab. Full detail in step 2.
 
 **The only trustworthy check is the 👀 reaction** (see Verify). If a trigger gets no eyeball,
 stop testing config and go look at the toggle. Do not debug the connection — it is not the
@@ -87,6 +93,10 @@ happened to be right. Always pin the project; never tell anyone to "select the p
   gcloud projects add-iam-policy-binding "$PROJECT" --member="user:$EMAIL" --role="roles/serviceusage.serviceUsageAdmin"
   gcloud projects add-iam-policy-binding "$PROJECT" --member="user:$EMAIL" --role="roles/geminicodeassistmanagement.scmConnectionAdmin"
   ```
+  **A fresh IAM grant takes several minutes to propagate.** Until it lands, Developer Connect
+  returns `permission_denied` on a role that is already correct. `roles/owner` does carry the
+  Developer Connect permissions — verify with `gcloud iam roles describe roles/owner` rather
+  than assuming the role is wrong. Wait and retry; do not start adding roles.
 - You are a **GitHub Owner** of the org (required to install the App).
 - `gcloud` and `gh` authenticated as you.
 
@@ -160,6 +170,21 @@ same repos, and only one carries the agent toggle — so every CLI check reads g
 while reviews never arrive. If you find more than one, delete all but the
 lowercase one and re-link its repos.
 
+**A duplicate can sit in another region, where the list command above will not find it.**
+`--location` scopes the query, so a connection left behind in a different region by an earlier
+attempt stays invisible while still breaking things. The Console's **Connections** tab lists
+every region at once — use it, or repeat the list for each region an earlier attempt touched.
+
+**Delete the repo links before the connection.** A connection with `gitRepositoryLink`
+children cannot be deleted, and the Console greys the action out without saying why. Remove
+each linked repo on **Git repositories → Repositories** first.
+
+**Deleting a duplicate flips the agent toggle back to off.** The toggle binds to exactly one
+connection; if it was bound to the one you just removed, Code Assist reads *not enabled* again.
+That looks like the deletion broke something, when it only exposed that the toggle had been on
+the wrong connection the whole time — which is also why reviews never arrived. **Always re-do
+step 3 after removing a duplicate**, and expect the toggle to be off.
+
 Connections in the same project also **share one OAuth secret**, named after
 whichever connection was created first. Deleting that connection can take the
 secret with it. Do not untangle this: tear the whole project down and rebuild.
@@ -201,6 +226,12 @@ on resource '//developerconnect.googleapis.com/projects/…/connections/…'
 (or it may not exist)
 ```
 
+**Retry the Enable once before concluding anything.** This same error also appears
+transiently against a Console-created connection that is entirely correct —
+`gitProxyConfig.enabled` set, `installationState: COMPLETE`, repos linked — and clears on a
+retry minutes later with nothing changed. Observed 2026-08-24. The remedy below is to delete
+the whole project, so spend two minutes on a retry first.
+
 The resource exists and your IAM is fine — the message is misleading in the same
 way step 3's other error is. The observable difference against a working
 connection is `gitProxyConfig.enabled`, which the Console sets and the CLI leaves
@@ -238,6 +269,16 @@ gcloud projects get-iam-policy "$PROJECT" --flatten='bindings[].members' \
 → pick `$ORG` → select the repo (or all) → **Install** → finish GitHub auth
 → **Link repositories** → select repos → **Link**
 → back in **Select a connection**, choose `$CONN` → **Done**.
+
+> **The `LINK` button is below the fold — maximize the window first.** In *Link Git
+> repositories*, the repo multiselect's **OK** only closes the dropdown. The **LINK** that
+> actually submits is at the bottom of the side panel, and on a short window it is off-screen
+> with no scroll cue. The symptom is selecting every repo, clicking **OK**, and finding nothing
+> linked — repeatedly. Maximize or zoom the browser out to 67% before you start.
+>
+> **Confirm on Git repositories → Repositories**, which lists the links themselves. The
+> **Connections** tab carries a permanent *Link repository* action whether or not anything is
+> linked, so it never distinguishes the two states.
 
 > **If the flow stalls** (a sunsetting card appears, or the pane dead-ends): the OAuth token
 > and App install are already saved and the connection sits at `PENDING_INSTALL_APP`. Finish
