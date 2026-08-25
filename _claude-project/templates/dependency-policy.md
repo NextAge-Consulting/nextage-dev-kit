@@ -4,6 +4,13 @@
 > table is the dial: tune it to this client's risk appetite. Nothing else needs to
 > change when you do.
 
+The doctrine behind this pass — one version per shared dependency, one shared build
+config, the verification standard, how a security residual is accepted — lives in the
+kit's `project-documentation/dependency-management.md`. Read it there; it is
+deliberately not copied into consumer projects, so there is one copy to keep true.
+This file holds only what that document cannot know about a given project: its
+owners, its timelines, and the project-specific facts a maintainer adds below.
+
 ## Who owns this
 
 | | |

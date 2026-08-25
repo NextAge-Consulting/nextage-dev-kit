@@ -12,3 +12,9 @@
 .env
 .env.*
 !.env.example
+# `.env.*` has no leading slash, so it matches at EVERY depth. A workspace
+# package that legitimately tracks per-target build config (public keys,
+# public URLs) must re-include those files BY EXACT NAME:
+#     !apps/<pkg>/.env.production
+# Never by glob — `!apps/<pkg>/.env.*` also un-ignores `.env.local` there,
+# which is exactly where a real secret lands.
