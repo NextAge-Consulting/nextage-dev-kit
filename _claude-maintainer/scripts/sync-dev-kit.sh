@@ -113,18 +113,17 @@ sha256() {
 
 # ─── Substitutions (project-specific placeholder resolution) ───────────────
 # Kit templates use `{{KEY}}` markers for values that are project-specific
-# (org name, repo slug, release-bot App slug, etc.). Consumer projects define
+# (org name, repo slug, etc.). Consumer projects define
 # the actual values in `.claude/sync-substitutions.json`:
 #
 #   {
-#     "OWNER_REPO": "acme/widget",
-#     "RELEASE_BOT_APP": "acme-release-bot",
+#     "PROJECT_ABBREV": "wa",
 #     "ORG": "acme"
 #   }
 #
 # sync-dev-kit applies these substitutions to kit content in two places:
 #   1. During scan — computes kit SHA against substituted content, so a kit
-#      template with `{{OWNER_REPO}}` matching a project file with `acme/widget`
+#      template with `{{PROJECT_ABBREV}}` matching a project file with `wa`
 #      reports `clean`, not `conflict`.
 #   2. During apply — writes substituted content into the project, so the
 #      project file on disk has real values, not placeholders.
@@ -400,6 +399,13 @@ dest_for_kit_path() {
         _claude-project/templates/scripts/db-branch.mjs)
             echo "scripts/db-branch.mjs"
             ;;
+        _claude-project/templates/dependency-policy.md)
+            # Operating procedure for dependency + vulnerability work. Lands in
+            # the consumer's docs, not .claude/ — it is read by humans, not
+            # loaded as a rule. Mode `template`: the timelines table and the
+            # owner names are each project's own.
+            echo "project-documentation/dependency-policy.md"
+            ;;
         _claude-project/templates/ui-inventory.md)
             # Lands in the consumer's PROJECT-OWNED rules dir. It cannot ship
             # from `_claude-project/rules/project/` — `is_skipped` skips that
@@ -505,6 +511,9 @@ mode_for_kit_path() {
         # purpose is to enumerate THIS project's components and patterns, so a
         # consumer that has not rewritten it entirely has not adopted it. The
         # kit ships the shape; the content is the project's from first sync.
+        # Dependency policy. The timelines table is explicitly the dial each
+        # client tunes to its own risk appetite, and the owner names are theirs.
+        _claude-project/templates/dependency-policy.md) echo "template" ;;
         _claude-project/templates/ui-inventory.md) echo "template" ;;
         *) echo "owned" ;;
     esac

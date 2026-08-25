@@ -40,7 +40,7 @@ npm lists packages whose install scripts are not covered by `allowScripts` at th
 
 Never bypass it with `--dangerously-allow-all-scripts`, and never approve silently: `allowScripts` is a security allowlist that ships in `package.json` to the whole team, so the human approves.
 
-Approve pinned (`pkg@1.2.3: true`, the default) so a version bump re-surfaces the package for review — that re-prompt is the feature. Fold the approval into the `dependabot-triage` skill's pass, which is where dependency bumps get reviewed anyway.
+Approve pinned (`pkg@1.2.3: true`, the default) so a version bump re-surfaces the package for review — that re-prompt is the feature. Fold the approval into the `dependency-triage` skill's pass, which is where dependency bumps get reviewed anyway.
 
 Run `npm approve-scripts --allow-scripts-pending` when an install surfaces the advisory, or during that triage pass, to see what is unreviewed without writing anything.
 

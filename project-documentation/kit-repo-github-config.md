@@ -59,8 +59,6 @@ Pushes branch, creates PR, prepends `Closes #N` from any branch-linked issues. N
 |----------|------------------------|
 | `ci.yml` | Runs `check-types`, `biome` and `vitest` off a `package.json` the kit does not have — every job would no-op. |
 | `commitlint.yml` | Optional. Local `/commit` already enforces conventional format. Would need `.commitlintrc.json` at root. Install if a PR-title backstop is wanted. |
-| `dependabot-surfacing.yml` | No dependency manifests to scan. |
-| `node-lts-check.yml` | Watches a pinned node version the kit does not declare. |
 
 Version bump and tag are **not** workflows and are not coming back as workflows — they
 live in the local `/deploy` command, single-writer and human-serialized (handbook §6.5,

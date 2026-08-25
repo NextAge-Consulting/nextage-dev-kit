@@ -1,9 +1,6 @@
 {
   "_comment": "Per-project placeholder substitutions applied by /sync-dev-kit. See handbook §9.7 for the full walkthrough. Most keys match {{KEY}} markers in kit templates (canonical model); some are runtime-read by kit scripts via `jq` directly (e.g. GEMINI_NOT_INSTALLED) — see §9.7 'Runtime-read placeholders'. Values are the real project-specific strings.",
   "_placeholders_referenced_by_kit": {
-    "OWNER_REPO": "GitHub <owner>/<repo> slug for this project, e.g. acme/widget. Used in dependabot-surfacing.yml and similar.",
-    "RELEASE_BOT_APP": "Slug of the org's release-bot GitHub App, e.g. acme-release-bot. Used in dependabot-surfacing.yml and any other workflows that mint App-installation tokens.",
-    "ORG": "GitHub org login for URLs like github.com/organizations/<org>/settings/... . Used in dependabot-surfacing.yml setup docs.",
     "GITFLOW_PROJECT_ID": "GraphQL node ID of the GitHub Project (Projects v2) that issues for this repo are tracked in. Discover with: gh api graphql -f query='{ organization(login:\"<ORG>\") { projectsV2(first:10) { nodes { id title } } } }'. Empty value = gitflow project integration disabled (branch/link still work; project board just doesn't auto-update). Used in gitflow-project.conf.",
     "GITFLOW_STATUS_FIELD_ID": "GraphQL field ID of the Status single-select field on the project. Discover with: gh api graphql -f query='{ node(id:\"<PROJECT_ID>\") { ... on ProjectV2 { fields(first:20) { nodes { ... on ProjectV2SingleSelectField { id name options { id name } } } } } } }'. Empty value = gitflow project integration disabled. Used in gitflow-project.conf.",
     "GITFLOW_STATUS_IN_PROGRESS_ID": "GraphQL option ID of the 'In Progress' value within the Status field (from same query as GITFLOW_STATUS_FIELD_ID). Set by /work and /link. Empty value = transition skipped (consumer's board has no In Progress column); add to _intentionally_empty to suppress walkthrough. Used in gitflow-project.conf. With GITFLOW_PROJECT_ID set, empty value here causes /work and /link to fail loud — populate or _intentionally_empty.",
@@ -23,9 +20,6 @@
   "_documented_behavior": "Three states per key. (1) Key MISSING from this file → /sync-dev-kit leaves {{KEY}} marker untouched in applied content; surfaces as a diff on every scan until populated. Use this for placeholders you haven't decided about yet. (2) Key present with EMPTY STRING value → /sync-dev-kit substitutes {{KEY}} with empty string; consumer file ends up with the real empty value (e.g. FOO=\"\"). Use this as the explicit opt-out for features that support being disabled (e.g. GITFLOW_*). (3) Key present with NON-EMPTY value → normal substitution. Missing-vs-empty distinction is intentional: missing forces attention, empty signals informed disable.",
   "_intentionally_empty": [],
   "_intentionally_empty_doc": "Walkthrough metadata used by /sync-dev-kit Step 1.5. Keys listed here are skipped by the per-key walkthrough (the user has already decided to leave them off). Empty values NOT in this list get re-surfaced on every sync until populated or explicitly disabled. The substitution engine ignores _-prefixed keys, so this metadata never affects {{KEY}} replacement behavior.",
-  "OWNER_REPO": "",
-  "RELEASE_BOT_APP": "",
-  "ORG": "",
   "GITFLOW_PROJECT_ID": "",
   "GITFLOW_STATUS_FIELD_ID": "",
   "GITFLOW_STATUS_IN_PROGRESS_ID": "",

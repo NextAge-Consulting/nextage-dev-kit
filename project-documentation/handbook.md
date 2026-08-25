@@ -599,8 +599,7 @@ Setting up a new project to use this kit:
    ```
 3. Commit the new `.claude/` and `.mcp.json`
 4. No branch protection to apply — the pipeline uses none (`/merge` self-gates; see `pipeline.md` §1.1). Just confirm `main` does not require a PR (the default), so the direct-push paths work.
-5. Copy `commitlint.yml`, `ci.yml`, `dependabot-surfacing.yml` templates (below) into `.github/workflows/`. Author project-specific `deploy.yml` with `workflow_dispatch:` ONLY trigger (§11.4).
-6. Register bot GitHub App ONLY if the project uses `dependabot-surfacing.yml` or other App-token workflows (see §11.3); store `BOT_APP_CLIENT_ID` + `BOT_APP_PRIVATE_KEY` as org-level secrets.
+5. Copy `commitlint.yml` and `ci.yml` templates (below) into `.github/workflows/`. Author project-specific `deploy.yml` with `workflow_dispatch:` ONLY trigger (§11.4).
 7. Each dev: set `REF_API_KEY` and `EXA_API_KEY` in their shell rc
 
 ---
@@ -695,17 +694,14 @@ Cross-reference: §9.7 (placeholder substitutions, the general kit-template spec
 
 ### 9.7. Placeholder substitutions (`sync-substitutions.json`)
 
-Some kit templates — workflow files, config files — contain values that are specific to each consumer project: the org login, the repo slug, the release-bot App slug, etc. Shipping these as hardcoded strings ties the kit to one project; shipping them as plain placeholders means every consumer's actual values conflict with the kit on every sync. Neither works.
+Some kit templates — workflow files, config files — contain values that are specific to each consumer project. Shipping these as hardcoded strings ties the kit to one project; shipping them as plain placeholders means every consumer's actual values conflict with the kit on every sync. Neither works.
 
 The solution is an inline placeholder + per-project substitution table.
 
 **Kit side** — templates use `{{KEY}}` markers:
 
 ```yaml
-# In _github-project/workflows/dependabot-surfacing.yml:
-# Uses the `{{RELEASE_BOT_APP}}` GitHub App installation token
-# filter: is:issue repo:{{OWNER_REPO}}
-# URL: github.com/organizations/{{ORG}}/settings/apps/{{RELEASE_BOT_APP}}/permissions
+# In a kit workflow template:
 ```
 
 `{{KEY}}` syntax is used specifically because it's unambiguous — won't collide with legitimate content in shell, YAML, JSON, or Markdown. (Older `<name>` style risks matching literal angle-bracket text in docs.) All future kit templates use `{{KEY}}` for any project-specific value.
@@ -714,9 +710,6 @@ The solution is an inline placeholder + per-project substitution table.
 
 ```json
 {
-  "OWNER_REPO": "acme/widget",
-  "RELEASE_BOT_APP": "acme-release-bot",
-  "ORG": "acme",
   "GITFLOW_PROJECT_ID": "PVT_...",
   "GITFLOW_STATUS_FIELD_ID": "PVTSSF_...",
   "GITFLOW_STATUS_IN_PROGRESS_ID": "..."
@@ -727,9 +720,6 @@ Current kit-referenced placeholders (authoritative list is in `_claude-project/s
 
 | Key | Consumed by | What the value is |
 |-----|------------|-------------------|
-| `OWNER_REPO` | `dependabot-surfacing.yml` | GitHub `<owner>/<repo>` slug for this repo |
-| `RELEASE_BOT_APP` | `dependabot-surfacing.yml` (other workflows that use bot App tokens) | Slug of the org's release-bot GitHub App. |
-| `ORG` | `dependabot-surfacing.yml` setup docs | GitHub org login for `github.com/organizations/<org>/...` URLs |
 | `GITFLOW_PROJECT_ID` | `_claude-project/gitflow-project.conf` | GraphQL node ID of the Project the lifecycle transitions write to. Empty → board integration off (silent skip); any other GITFLOW_STATUS_* empty when this is set → fail-loud at the transition site. |
 | `GITFLOW_STATUS_FIELD_ID` | `_claude-project/gitflow-project.conf` | GraphQL field ID of the Status single-select on that project |
 | `GITFLOW_STATUS_IN_PROGRESS_ID` | `_claude-project/gitflow-project.conf` | GraphQL option ID for "In Progress" — set by `/work` and `/link` |
@@ -745,7 +735,7 @@ The kit ships a template at `_claude-project/sync-substitutions.json` with empty
 
 **Sync flow** — `sync-dev-kit.sh` uses the substitutions in two places:
 
-1. **During scan**: the `kit_sha` for each file is computed AFTER substituting placeholders with project values. So a kit template with `{{OWNER_REPO}}` matches a project file with `acme/widget` and reports `clean`, not `conflict`. Three states per key, with deliberately distinct behavior:
+1. **During scan**: the `kit_sha` for each file is computed AFTER substituting placeholders with project values. So a kit template with `{{PROJECT_ABBREV}}` matches a project file with `wa` and reports `clean`, not `conflict`. Three states per key, with deliberately distinct behavior:
    - **Key present, non-empty value** → normal substitution, `{{KEY}}` → value.
    - **Key present, empty string value** → substitution still happens, `{{KEY}}` → empty. This is the explicit opt-out for features that gate on a placeholder being unset (e.g. `GITFLOW_*` for gitflow project integration). The conf file lands with `FOO=""` and runtime treats as off.
    - **Key absent from the file** → no substitution, `{{KEY}}` marker survives in the content. Surfaces as a real diff on every scan until the consumer addresses it. Used as a "you haven't decided yet" signal — distinct from empty (informed off).
@@ -819,7 +809,6 @@ Both intentional-disable and not-yet-populated states sit as `""` in the JSON, s
 {
   "_intentionally_empty": ["GITFLOW_PROJECT_ID", "GITFLOW_STATUS_FIELD_ID", "GITFLOW_STATUS_IN_PROGRESS_ID"],
   "_comment": "...",
-  "OWNER_REPO": "acme/widget",
   "GITFLOW_PROJECT_ID": "",
   "GITFLOW_STATUS_FIELD_ID": "",
   "GITFLOW_STATUS_IN_PROGRESS_ID": ""
@@ -853,9 +842,7 @@ export EXA_API_KEY="..."
 
 Cloud sessions: set these in the cloud environment's env-var editor. Per-dev, not committed anywhere.
 
-For repos that use bot-App-token workflows (e.g., `dependabot-surfacing.yml`):
 
-- **GitHub org secrets:** `BOT_APP_CLIENT_ID` + `BOT_APP_PRIVATE_KEY` — The maintainer registers the bot App once per org (§11.3); secrets are visible to all repos in the org, so no per-project step. No `ANTHROPIC_API_KEY` is needed — changelog generation is fully local (single-writer `/deploy`, see §6.4).
 
 Maintainer's local: `includeGitInstructions: false` in `~/.claude/settings.json` strips Claude's native git instructions from the system prompt, reducing fallback to raw git. User-level only; doesn't load in cloud. Not a required setting — hook backstop catches anything this doesn't.
 
@@ -891,36 +878,6 @@ Version bump + tag live in the local `/deploy` command (§6.5), never in a CI wo
 - **Version skew** — the bump trails the feature merge by a cycle, so the version on `main` doesn't match the deployed code.
 - **Pre-bump deploys** — a push-triggered deploy races the bump workflow and ships the wrong version.
 - **Adversarial body parsing** — scanning commit *bodies* for `BREAKING CHANGE` / conventional markers false-matches prose embedded in PR descriptions. Pipeline control signals read STRUCTURED metadata (commit subject, `author.name`), never freeform body text.
-
-### 11.3. Bot GitHub App setup
-
-The bot GitHub App is required ONLY for workflows that need an installation token (currently `dependabot-surfacing.yml` — see §11.6 — and `node-lts-check.yml` — see §11.14). Using a fine-grained PAT for this makes the PAT owner a bypass actor — a human who can then accidentally push to `main` from their shell. The App is an independent identity. Skip this section entirely if your project doesn't use any App-token workflow.
-
-**Self-gating — safe to sync without the bot.** Substitution injects file strings; it cannot create GHA secrets. So an App-token workflow's dependency (`BOT_APP_CLIENT_ID` / `BOT_APP_PRIVATE_KEY`) can't be supplied at sync time. Rather than make these workflows a sync-time cherry-pick (the consumer deciding every sync whether to apply them — recurring noise) or a standing-red scheduled job (failing at the token-mint step on every cron tick when the bot is absent), the kit's App-token workflows **self-gate at runtime**: a cheap `preflight` job checks whether `BOT_APP_CLIENT_ID` is set (`secrets` isn't available in a job-level `if:`, so it's mapped to an output first) and the real job runs only when it is. No bot installed → the job is **skipped (neutral, not failed)** with a `::notice::` annotation explaining how to enable. This means: always accept these on `/sync-dev-kit` (no per-sync decision), they stay inert until you complete the setup below, and they **self-activate the moment the secrets land** — no re-sync needed. This is the kit's progressive-gating model (config gated by substitution; secret-dependencies gated at runtime) applied at the Actions layer.
-
-**Setup (once per GitHub org):**
-
-1. **Register the App** — org Settings → Developer settings → GitHub Apps → New GitHub App.
-   - Name: e.g., `<org>-bot`
-   - Homepage URL: org URL (anything, unused)
-   - Webhook: disable (uncheck Active)
-   - Repository permissions — only set what's required by the App-token workflows actually present in the consumer repo. Common combinations:
-     - **Issues: Read & write** — required for `dependabot-surfacing.yml` (§11.6), `node-lts-check.yml` (§11.14)
-     - **Dependabot alerts: Read-only** — required for `dependabot-surfacing.yml`. `GITHUB_TOKEN` CANNOT read this API on org-owned private repos — the App token is mandatory.
-     - **Metadata: Read-only** (GitHub sets this automatically; don't remove)
-     - **Contents: Read & write**, **Pull requests: Read & write** — only if a future App-token workflow needs to push or open PRs (none ship in the kit as of 2026-05-06)
-   - Where can this GitHub App be installed?: *Only on this account.*
-2. **Generate a private key** — on the App's page, scroll to *Private keys* → Generate a private key. Downloads a `.pem` file. Handle once, do not commit.
-3. **Install the App on the org** — on the App's page, *Install App* → select the org → *All repositories* (or a curated list).
-4. **Store secrets at the org level** (Settings → Secrets and variables → Actions → *New organization secret*, visibility: *All repositories* or *Selected*):
-   - `BOT_APP_CLIENT_ID` — Client ID from the App's *About* page (format like `Iv23liXXXX`). Passed as the `client-id:` input to `actions/create-github-app-token@v3`.
-   - `BOT_APP_PRIVATE_KEY` — the full contents of the downloaded `.pem` file, including `-----BEGIN/END-----` lines
-5. **Branch-protection bypass actor — N/A.** The pipeline uses no branch protection, so there is nothing for the App to bypass. No kit-shipped workflow pushes to `main` through protection.
-6. **Delete the `.pem` from local disk** once the secret is stored. GitHub cannot recover it; rotate by generating a new key on the App page if needed.
-
-**Verify:** trigger any App-token workflow (e.g., `dependabot-surfacing.yml` via `workflow_dispatch`). The first step `Generate App token` should succeed. If it fails with `401`/`404`, the secrets are wrong; if it fails with `permissions denied`, the App's repo-permission set doesn't cover the API the workflow calls.
-
-**Rotation:** generate a new private key on the App page, update `BOT_APP_PRIVATE_KEY`, then revoke the old key. Zero-downtime if both keys are valid briefly.
 
 ### 11.4. Deploy trigger contract (MANDATORY)
 
@@ -1011,38 +968,6 @@ Required:
 Adoption migration for projects with non-conforming changelogs: convert all date headers to `## YYYY-MM-DD`, add `## [Unreleased]` placeholder. The renderer (if any) can preserve the prior visual style by swapping the h2/h3 component CSS.
 
 See `commands/open-pr.md`, `commands/deploy.md`, and `skills/gitflow/references/changelog-rules.md`.
-
-### 11.6. `dependabot-surfacing.yml`
-
-Dependabot posts security advisories in `github.com/<owner>/<repo>/security/dependabot` — a dashboard small teams without a dedicated devops role never open. Advisories Dependabot can't auto-patch (transitive deps pinned by a parent, upstream conflict) sit there silently. Auto-update workflow failures for unresolvable advisories also end up buried in the Actions tab.
-
-**`dependabot-surfacing.yml` closes that gap** by creating one GitHub Issue per vulnerable package, labeled `dependabot-alert` + `security` + `severity-<highest>`. Those issues flow onto the org Project board via the project's built-in "Auto-add to project" workflow (§11.7) — where the team actually looks. Idempotent reconcile: creates new issues, updates existing bodies when alert state changes, auto-closes when a package has no remaining open advisories.
-
-**Triggers:**
-- Weekly cron — Mondays 14:00 UTC (~09:00 CT), start-of-week review cadence
-- `workflow_dispatch` — ad-hoc reconcile
-- **OPTIONAL** `workflow_run` completion of this repo's deploy workflow(s) on success — refreshes state right after new versions ship. Not shipped in the template (deploy-workflow `name:` values are project-specific and can't be templated cleanly); the template ships a commented-out `workflow_run` stub to uncomment + fill in. The job's `if:` already gates on `workflow_run` success.
-
-**Auth — MANDATORY App token, not GITHUB_TOKEN:**
-
-`GITHUB_TOKEN` CANNOT read `/repos/:owner/:repo/dependabot/alerts` on org-owned private repos. Returns HTTP 403 regardless of workflow `permissions:` declarations. The endpoint is only accessible via a GitHub App installation token with `Dependabot alerts: Read-only`. Workflow mints an App token via `actions/create-github-app-token@v3` using the same `BOT_APP_CLIENT_ID` / `BOT_APP_PRIVATE_KEY` secrets from §11.3.
-
-**Self-gates** when the bot App isn't installed — the `surface` job is skipped (neutral, not red) via a `preflight` secret-presence gate, so this is safe to sync into a repo with no bot and self-activates when the secrets land (§11.3 "Self-gating").
-
-**Required App permissions** (in addition to §11.3 defaults):
-- `Dependabot alerts: Read-only` — the load-bearing one
-- `Issues: Read & write` — create/update/close tracking issues
-
-**Mandatory companion — enable the Project's built-in "Auto-add to project" workflow:**
-
-1. Open the org project → top-right `⋯` → **Workflows**
-2. Find **"Auto-add to project"** (built-in) → **Enable**
-3. Filter: `is:issue,pr repo:<owner>/<repo>` (or broader if the project watches multiple repos)
-4. Default Status on arrival: **Todo**
-
-**Hide drafts from active views**: add `-is:draft` to each per-repo tab filter in the project UI. Drafts still land in the project data (a separate "PRs in flight" tab can include them); the day-to-day backlog stays focused on work asking for attention.
-
-Without the Project auto-add workflow enabled, `dependabot-surfacing.yml` still creates issues — they just don't appear on the board. Verify the project config after the first surfacing run.
 
 ### 11.7. Issue → branch → PR linking
 
@@ -1173,7 +1098,7 @@ row: E67.
 
 ### 11.10. `dependabot.yml` (monthly + cooldown + grouping)
 
-Companion to §11.6 (surfacing) and §11.14 (Node LTS check). Where those workflows turn advisories / LTS transitions into tracking issues, `dependabot.yml` schedules the PRs that Dependabot opens for version + security updates.
+`dependabot.yml` schedules the PRs that Dependabot opens for version + security updates. Acting on those PRs is the `dependency-triage` pass (§11.10a), under the policy in §11.10b.
 
 **Ships via:** `/sync-dev-kit` copies `_github-project/dependabot.yml` → `<consumer>/.github/dependabot.yml`. No placeholders.
 
@@ -1203,15 +1128,15 @@ Result: one monthly grouped wave per ecosystem + majors individually after 30-da
 
 **Ignore rules — one ships by default:**
 
-- `dependency-name: "node"` / `update-types: ["version-update:semver-major"]` in the docker block. **Why:** Dependabot doesn't understand Node's LTS policy. Odd-numbered Node releases (25, 27, …) never become LTS; even-numbered ones enter Active LTS ~6 months after release. Without this ignore, every 6 months we'd get a wave of Node-major PRs we don't want to merge. Patches (24.x.y security fixes) still flow through. The ONE major bump we DO care about — the Active-LTS transition — is surfaced by the `node-lts-check.yml` workflow (§11.14), not by Dependabot.
+- `dependency-name: "node"` / `update-types: ["version-update:semver-major"]` in the docker block. **Why:** Dependabot doesn't understand Node's LTS policy. Odd-numbered Node releases (25, 27, …) never become LTS; even-numbered ones enter Active LTS ~6 months after release. Without this ignore, every 6 months we'd get a wave of Node-major PRs we don't want to merge. Patches (24.x.y security fixes) still flow through. The ONE major bump we DO care about — the Active-LTS transition — is checked during the `dependency-triage` pass (§11.10a), not by Dependabot.
 
 If a project adds other framework-specific holds (pinned transitive dep, known-broken major), add them in the consumer's `.github/dependabot.yml` as `locally-modified` overrides. Document the hold reason as a comment in the consumer's `.github/dependabot.yml`.
 
 **Auto-review skip coordination**: dep PR prefixes (`chore(deps):` etc.) are the same prefixes used by other pipeline-generated PRs. Gemini Code Assist (§11.11) does not have a built-in `ignore_title_keywords` equivalent at the consumer-config tier; if review noise on dep PRs becomes an issue, switch the dependabot prefix or open a Gemini config feature request.
 
-### 11.10a. `dependabot-triage` skill (weekly Dependabot cleanup)
+### 11.10a. `dependency-triage` skill (the weekly dependency + vulnerability pass)
 
-The weekly Dependabot triage **process** is a kit skill (`_claude-project/skills/dependabot-triage/SKILL.md`), not a per-project runbook — every kit-pipeline project triages the same way. Claude runs the analysis + verification; the human authorizes every main-landing merge.
+The weekly dependency **process** is a kit skill (`_claude-project/skills/dependency-triage/SKILL.md`); the per-project **policy** — timelines, owner, exceptions — is `dependency-policy.md` (§11.10b). Claude runs the analysis + verification; the human authorizes every main-landing merge.
 
 **Why a skill, not a doc:** you want Claude to *execute* the same triage everywhere, identically — reading prose and re-deriving the process each time is exactly what drifts. The skill encodes the load-bearing facts so they don't have to be re-argued per project.
 
@@ -1222,6 +1147,35 @@ The weekly Dependabot triage **process** is a kit skill (`_claude-project/skills
 - Project-specific, **discovered at runtime** (not configured): which packages are Tier 3 (read the `npm-toolchain` group in `dependabot.yml` — §11.10); the build/run commands and app ports (read the project's `Dockerfile.*` + deploy workflows). This is deliberate — the values vary and AI reads them from the repo; a config surface would be over-engineering.
 
 **Pairs with** the `npm-toolchain` / `npm-patch` split in `dependabot.yml` (§11.10, now kit-standard) and the `dep-alignment` gate (§11.13a). Deeper dependency discipline: `dependency-management.md`.
+
+### 11.10b. `dependency-policy.md` (synced as `template` mode)
+
+The operating procedure for dependency and vulnerability work — what to do with what
+Dependabot produces. The kit long shipped the configuration (§11.10) and the triage
+skill (§11.10a) but never the procedure, so the answer to "who acts on this, and by
+when" was undefined in every consumer.
+
+**Ships via:** `/sync-dev-kit` copies `_claude-project/templates/dependency-policy.md`
+→ `<consumer>/project-documentation/dependency-policy.md`. It lands in the project's
+docs rather than `.claude/` because it is read by a human on a cadence, not loaded as
+a rule on every turn.
+
+**Mode `template`.** The timelines table and the owner names are each client's own.
+A consumer that tunes them gets `template-drift` (informational), never a reverted
+edit. `--ack-file` records "seen it, keeping ours".
+
+**The timelines table is the only dial.** Tightening toward a formal standard —
+ISO 27001 Annex A 8.8 wants a documented discover → prioritise → treat → review
+process with defined roles, timelines and evidence — is editing that table and adding
+a sign-off, not writing a different document. A 8.8 does not require zero
+vulnerabilities; it requires them managed deliberately and defensibly, which is what
+the exceptions-with-expiry-dates section provides.
+
+**Why there is no enforcing gate.** A gate assumes whoever hits it can resolve it.
+Build-graph updates can cost hours and the person holding the keys after handover has
+less context than the person who built it, so a gate either stops them shipping or
+teaches them to bypass it. The cadence is honour-system by design; the document's job
+is to make "did we do it" answerable, not enforced.
 
 ### 11.11. `.gemini/config.yaml` + `.gemini/styleguide.md` (Gemini Code Assist config)
 
@@ -1410,30 +1364,6 @@ Monorepo invariant enforcement: every shared dependency is declared at **one** v
 so `npm run check:deps` reproduces the CI gate locally. The CI job calls the script directly and does NOT depend on this npm script existing, but adopting it is the documented convention (the script's failure message and `dependency-management.md §1` both assume `npm run check:deps`).
 
 **Updating a shared dep:** bump it to the same version in *every* workspace that declares it in one change, run `npm run check:deps` (must be ✓), then verify per `dependency-management.md §5`. Never bump one workspace and not the others — the gate fails the PR, by design.
-
-### 11.14. `node-lts-check.yml` (Node LTS transition surfacing)
-
-Closes a real gap that `dependabot.yml` alone can't: Dependabot doesn't understand Node's LTS policy. Odd-numbered Node releases (25, 27, …) never become LTS; even ones enter Active LTS ~6 months after release. Without intervention, Dependabot would either spam us with non-LTS major PRs we never merge, or (with the ignore rule we ship in §11.10) go completely silent on Node majors and blind us to the Active-LTS transition we DO want to act on.
-
-**`node-lts-check.yml` is the targeted signal.** Monthly cron. Reads the official Node schedule JSON. Compares the Active-LTS major to the major pinned in Dockerfiles. If Active-LTS is higher, opens a tracking issue on the project board with bump instructions. Idempotent — refreshes the issue body on subsequent runs while the condition holds; auto-closes the issue once Dockerfiles catch up. Zero noise between LTS transitions (once per ~2 years on Node's cadence).
-
-**Ships via:** `/sync-dev-kit` copies `_github-project/workflows/node-lts-check.yml` → `<consumer>/.github/workflows/node-lts-check.yml`. No placeholders.
-
-**Triggers:**
-- Monthly cron (1st of month, 14:00 UTC ≈ 09:00 CT) — aligned with the pipeline's general Monday 14:00 UTC cadence for dep-review signals.
-- `workflow_dispatch` for ad-hoc checks.
-
-**Auth:** same bot App installation token as `dependabot-surfacing.yml` (§11.6). App permissions needed: `Issues: Read & write` (label + issue create/edit/close); `Contents: Read` (Dockerfile parse); `Metadata: Read`. These are already granted for dependabot-surfacing; no additional permission step. **Self-gates** when the bot App isn't installed — the `check` job is skipped (neutral) via a `preflight` secret-presence gate, so this is safe to sync into a repo with no bot (§11.3 "Self-gating").
-
-**Dockerfile parser invariant:** `Dockerfile.*` files in the repo root must agree on Node major. The workflow fails loud on divergence rather than guess which one is authoritative. Keep prod Dockerfiles aligned (it's a constitution-level thing anyway — prod services should run the same Node major).
-
-**Coordination with CI:** when the tracking issue is acted on, bump BOTH the Dockerfile `FROM` AND the `node-version:` in `.github/workflows/*.yml` to match prod. The issue body includes this as a checklist.
-
-**Why this pattern instead of bumping the ignore rule to be version-aware:** Dependabot's `ignore` syntax has no LTS-awareness operator. The closest approximation (`versions: ["25.x"]`) would need manual edits every ~6 months as new non-LTS majors release. A tiny dedicated workflow reading the authoritative source is more durable.
-
-**Why nodejs/release schedule JSON and not endoflife.date:** the Node Foundation is the authoritative source; the format has been stable for a decade. endoflife.date is a consumer of the same data with an extra layer of availability risk.
-
----
 
 ### 11.15. `/e2e` skill (Claude-as-intelligent-tester)
 
@@ -1777,6 +1707,20 @@ The kit itself has no UI — no JSX/TSX, no `design.md`. The skill and its compa
 The design-system skill is one entry in a larger set of template-only (not-dogfooded) items. The authoritative list — what the kit excludes from its own `.claude/` and why — is the **"Kit dogfood manifest" table in `.claude/rules/project/dev-kit-workflow.md`**, which also carries the mandate that every new kit item gets an explicit dogfood decision. This section is illustrative; that table is the single source of truth.
 
 ---
+
+## 12b. Autonomous mode
+
+`/autonomous <what to work on>` is the only way a turn becomes autonomous when a human launched it. The mode itself is defined in `rules/autonomous-sessions.md`; the command exists to enter it reliably.
+
+The argument is free-form natural language. Scope resolves from a named plan file (`/autonomous execute plan @<path>`), from the conversation (`/autonomous I'm stepping away — finish what we've been discussing`), or from the argument itself (`/autonomous fix the failing integration tests and open a PR`).
+
+Every invocation converges on the same steps: resolve scope, get it into a plan document under `project-documentation/temporary/`, stamp an autonomous line with the date into that document, run to completion without check-ins, then clear the stamp and produce the final report.
+
+The stamp is the point. The mode is declared mid-conversation, and a long turn gets summarized — taking the sentence that set the mode with it. A line in a file survives compaction; the conversation does not.
+
+Dogfooded: the command lives in both `_claude-project/commands/autonomous.md` and the kit's own `.claude/commands/`.
+
+Full spec: `commands/autonomous.md`.
 
 ## 13. Troubleshooting
 

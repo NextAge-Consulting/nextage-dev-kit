@@ -81,7 +81,7 @@ Both `repo` and `project` scopes are required. If either is missing: `gh auth re
 
 ### P1 — Install the kit globally `[claude]`
 
-From inside the **dev-kit repo**, run `/install-kit`. This copies `_claude-global/` into `~/.claude/` — the global `/work` bootstrap — and writes `~/.claude/dev-kit-config.json` with `kit_path`. Idempotent.
+From inside the **dev-kit repo**, run `/install-kit`. This copies `_claude-global/` into `~/.claude/` — the global `/work` bootstrap — and writes `~/.claude/dev-kit-config.json` with `devKitPath`. Idempotent.
 
 > `/work` is global because it must be invokable from the agents view *before* the session is inside any repo. Everything else a project needs is per-project, delivered by sync.
 
@@ -91,7 +91,7 @@ From inside the **dev-kit repo**, run `/install-kit`. This copies `_claude-globa
 
 ```bash
 ls ~/.claude/commands/work.md                       # /work available
-jq -r .kit_path ~/.claude/dev-kit-config.json   # points at your kit clone
+jq -r .devKitPath ~/.claude/dev-kit-config.json  # points at your kit clone
 ```
 
 **Verify (maintainer only):**
@@ -139,7 +139,7 @@ Claude can create it via `gh`:
 gh repo create <owner>/<repo> --private --source=. --remote=origin --push
 ```
 
-Confirm the `<owner>/<repo>` slug with you first (it becomes the `OWNER_REPO` substitution in step 4).
+Confirm the `<owner>/<repo>` slug with you first.
 
 **Verify:** `gh repo view <owner>/<repo>` resolves; `main` exists on origin.
 
@@ -157,7 +157,6 @@ From the **project root** (not inside the kit), run `/sync-dev-kit`. First-run f
 
 1. **Scan** — compares kit templates against the (empty) project; bootstraps `.claude/sync-substitutions.json`.
 2. **Substitutions walkthrough (Step 1.5)** — Claude walks you through each empty placeholder, one at a time. The ones you'll almost always set:
-   - `OWNER_REPO` — `<owner>/<repo>` from step 2.
    - `ORG` — GitHub org login.
    - `PROJECT_ABBREV` — short label for `wip/<abbrev>-…` branch names (Claude pre-computes a default from the dir name; accept or shorten).
    - `GEMINI_NOT_INSTALLED` — leave empty for now if you're installing Gemini in step 5; set to `"true"` if this repo will not have Gemini.
@@ -195,7 +194,7 @@ Full procedure (two lanes — billing/IAM owner vs configurer) lives in **`gemin
   export REF_API_KEY="…"
   export EXA_API_KEY="…"
   ```
-- **GitHub Actions secrets** `[you]` — set under repo (or org) *Settings → Secrets and variables → Actions*. Only what your workflows reference (e.g. release-bot App credentials at org level, Neon/DB secrets for CI test branches, deploy credentials).
+- **GitHub Actions secrets** `[you]` — set under repo (or org) *Settings → Secrets and variables → Actions*. Only what your workflows reference (e.g. Neon/DB secrets for CI test branches, deploy credentials).
 
 **Verify:** every `${VAR}` referenced in `.mcp.json` is exported in your shell:
 

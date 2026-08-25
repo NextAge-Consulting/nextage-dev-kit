@@ -1,12 +1,14 @@
 ---
-name: dependabot-triage
-description: Weekly Dependabot PR triage for kit-pipeline projects — clear dependency PRs by blast-radius tier without re-deciding from scratch each time. Assumes the kit pipeline (gitflow + /deploy + CI-does-NOT-build). Use when the user asks to "triage dependabot", "clear the dependabot PRs", "do the weekly dependency cleanup", "dependabot triage", "weekly deps", or works through open Dependabot PRs. Triggers: "triage dependabot", "weekly deps", "clear dep PRs".
-allowed-tools: Bash(gh:*), Bash(git pull:*), Bash(git status:*), Bash(git log:*), Bash(git fetch:*), Bash(npm:*), Bash(docker:*), Bash(lsof:*), Read, Glob, Grep
+name: dependency-triage
+description: The weekly dependency and vulnerability pass for kit-pipeline projects — clear dependency PRs by blast-radius tier, handle security advisories including ones with no fix, and check Node LTS, without re-deciding from scratch each time. Executes the procedure in project-documentation/dependency-policy.md. Assumes the kit pipeline (gitflow + /deploy + CI-does-NOT-build). Use when the user asks to "triage dependabot", "dependency triage", "clear the dependabot PRs", "do the weekly dependency cleanup", "weekly deps", "check vulnerabilities", or works through open Dependabot PRs or security advisories. Triggers: "triage dependabot", "dependency triage", "weekly deps", "clear dep PRs", "check advisories".
+allowed-tools: Bash(gh:*), Bash(git pull:*), Bash(git status:*), Bash(git log:*), Bash(git fetch:*), Bash(npm:*), Bash(docker:*), Bash(lsof:*), Bash(curl:*), Bash(jq:*), Bash(grep:*), Read, Glob, Grep
 ---
 
-# dependabot-triage — weekly Dependabot cleanup
+# dependency-triage — the weekly dependency + vulnerability pass
 
-The repeatable process for clearing Dependabot PRs without re-deciding from scratch each time. Run ~weekly. Claude does the analysis + verification; **the human authorizes every main-landing merge** (merging a Dependabot PR squashes to `main`).
+The repeatable process for clearing dependency PRs and security advisories without re-deciding from scratch each time. Run ~weekly. Claude does the analysis + verification; **the human authorizes every main-landing merge** (merging a Dependabot PR squashes to `main`).
+
+**Read `project-documentation/dependency-policy.md` first.** It holds this project's timelines, who owns the pass, and where an exception is recorded. This skill executes that policy; it does not define it. If the file is missing, say so — the project has not decided its timelines yet.
 
 **Pipeline assumption.** This skill assumes the project is on the **kit pipeline**: gitflow tooling, `/deploy` as the release boundary, and CI that does **not** build the app. A project that broke from that pipeline owns the subtraction — this skill's gating logic won't fit it (and such projects don't run dependabot triage anyway).
 
@@ -49,6 +51,56 @@ The repeatable process for clearing Dependabot PRs without re-deciding from scra
 
 6. **Close superseded.** When a group PR already contains a package that also has a standalone PR, close the standalone with a note once the group lands.
 
+## Advisories — the other half of the pass
+
+Dependabot PRs cover what CAN be fixed by a version bump. Advisories cover what is
+KNOWN to be vulnerable. They overlap but are not the same list, and the gap between
+them is where the real risk sits.
+
+```bash
+gh api repos/:owner/:repo/dependabot/alerts --jq \
+  '.[] | select(.state=="open") |
+   "\(.security_advisory.severity)\t\(.dependency.package.name)\t\(.security_vulnerability.first_patched_version.identifier // "NO FIX")"'
+```
+
+If that call 403s, read the repo's Security tab in a browser instead — the API is
+restricted on org-owned private repos, the web UI is not.
+
+For each open advisory, exactly one of:
+
+- **A patched version exists and a Dependabot PR is already open** — it is not a
+  separate piece of work. Handle it as the PR, by tier, above. Do not track it twice.
+- **A patched version exists but no PR opened** — usually a transitive dependency.
+  Bump the DIRECT dependency that pulls it in, not the transitive one; forcing a
+  transitive to a version its parent was not built against is how you destabilise an
+  app to fix a finding. `npm why <pkg>` shows what pulls it in.
+- **No patched version exists** — nobody can fix this, including us. Record an
+  exception per the policy: what it is, why it can't be fixed, who approved it, and
+  the date it gets reviewed again. Then move on. An advisory with no fix is not a
+  failure to remediate; leaving it unrecorded is.
+
+**Security PRs skip the cooldown.** Dependabot delays version updates (3d patch / 7d
+minor / 30d major) to sit out the window where a compromised release gets yanked —
+but security updates open immediately. So a security PR has had *less* soak than a
+routine one, not more. Read what actually changed before merging it; do not treat
+"security" as a reason to merge faster.
+
+## Node LTS — part of every pass
+
+`dependabot.yml` blocks Node major bumps because Dependabot cannot tell an LTS major
+from a non-LTS one, so nothing else will ever surface the transition. Two commands —
+run them every pass rather than making anyone remember a separate cadence:
+
+```bash
+curl -s https://nodejs.org/download/release/index.json | \
+  jq -r '[.[] | select(.lts != false)][0].version'
+grep -h '^FROM node:' Dockerfile.* 2>/dev/null | sed -E 's/^FROM node:([0-9]+).*/\1/' | sort -u
+```
+
+Almost every week this matches and there is nothing to do. When it doesn't, that is
+planned work — a tracked task, not a merge. Bump the Dockerfile `FROM` and the `node-version:` in
+`.github/workflows/*.yml` together, or CI and prod drift apart.
+
 ## Verification standard (Tier 3)
 
 "Solid" means **build the real prod image, run it on the app's native port, and complete a real login** — NOT "200 on a route" and NOT "server ready" in the log (crypto/auth often loads lazily per request, so a boot can succeed while every request 500s). Full standard: the kit's **`dependency-management.md §5`**.
@@ -63,5 +115,5 @@ The repeatable process for clearing Dependabot PRs without re-deciding from scra
 - **Never `/deploy` or `/ship-main` as part of triage** — those are the human's to trigger.
 - **Merges land on `main`** — the human authorizes each (or the batch) explicitly.
 - **Never merge a Tier-3 PR on green CI alone.** The build gate is the whole point.
-- **Node major bumps are blocked** in `dependabot.yml`; `node-lts-check.yml` surfaces real Active-LTS transitions. Don't override.
+- **Never override the Node major ignore rule** in `dependabot.yml`. LTS transitions are handled by the quarterly check above.
 - `dependabot.yml` group definitions (the toolchain/leaf split) are kit-standard; cooldown / limits / ignore lists and pattern *extensions* are per-project tunables in its header.

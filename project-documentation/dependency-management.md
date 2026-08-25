@@ -103,6 +103,5 @@ A `dependabot.yml` group governs **version** updates. **Security** PRs are a *se
 
 - **handbook §11.16** — the `dep-alignment` job + `scripts/check-dep-alignment.mjs` wiring and the `check:deps` convention.
 - **handbook §11.10** — `dependabot.yml` (grouping / cooldown / monthly cadence).
-- **handbook §11.6** — `dependabot-surfacing.yml`.
 - **pipeline.md §1.4** — quality + security tools (where the gate sits in the pipeline).
 - **constitution §X / §XIII** — fail-loud and suppression discipline (the gate fails loud; §6 residuals are the disciplined alternative to silent suppression).

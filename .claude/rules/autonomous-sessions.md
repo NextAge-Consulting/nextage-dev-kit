@@ -12,6 +12,8 @@ Its purpose is to extend that one turn until the work is finished. Every stop en
 
 A turn is autonomous only when the launch was unattended (cron or scheduled), or the human said so in this conversation — handed over a body of work and stated they are stepping away.
 
+`/autonomous <what to work on>` is how they say so: a plan to execute, work named outright, or continuing what the conversation has been building while they step away.
+
 Everything else is interactive, including a long silence. A background job is not autonomous by virtue of being a background job; the human may be watching it live. Neither is a big task, an agreed plan, or a night-time timestamp.
 
 Guessing wrong is costly both ways. Inferred autonomous when they were watching means they discover the divergence at the end. Inferred interactive when they had left costs every hour until they next look at the screen. If it genuinely matters and the mode was never stated, ask once, early, and proceed interactively until answered.
@@ -20,7 +22,7 @@ Guessing wrong is costly both ways. Inferred autonomous when they were watching 
 
 The mode is almost always declared mid-conversation, so nothing structural marks the turn — and a long turn gets summarized, taking the sentence that set the mode with it.
 
-The moment a turn is declared autonomous, write a line into the plan or task document the work runs off: that it is autonomous, and the date. Then continue. A file survives compaction; a conversation does not.
+The moment a turn is declared autonomous, write a line into the plan or task document the work runs off: that it is autonomous, and the date. Then continue. A file survives compaction; a conversation does not. `/autonomous` writes that line as part of entering the mode; when the mode is declared in prose instead, write it by hand.
 
 Clear that line as part of handing back. A document still claiming to be autonomous would suppress check-ins the human is waiting for.
 

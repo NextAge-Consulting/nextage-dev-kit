@@ -7,3 +7,8 @@
 .uv
 .bin
 .cache
+
+# Secrets — never tracked
+.env
+.env.*
+!.env.example

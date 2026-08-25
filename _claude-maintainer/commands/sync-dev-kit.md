@@ -70,7 +70,7 @@ If the list is empty, skip Step 1.5 entirely and proceed to Step 2.
    - Offer: "Run discovery for this key? [y/n/skip/disable]"
    - On `y`: extract the command from the description (it's quoted with `gh api graphql -f query='...'`), run it via Bash, parse the JSON output. Show candidate values (e.g. project list with IDs and titles). Ask user to pick one or paste a value directly. Confirm.
    - On `n`: ask user to paste the value directly.
-4. **If no discovery command is present** (typical: `OWNER_REPO`, `ORG`, `RELEASE_BOT_APP`):
+4. **If no discovery command is present**:
    - Show the description's example/format hint and ask the user directly: "Value for <KEY>?"
    - **If the description contains a `Suggested default:` line with an embedded shell command** (typical: `PROJECT_ABBREV`):
      - Extract the command (it appears between backticks after `Suggested default:`).
