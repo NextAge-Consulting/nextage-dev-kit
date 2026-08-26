@@ -1,0 +1,82 @@
+# zshrc.example — the shell setup a kit project expects
+#
+# macOS + zsh + Apple Silicon Homebrew. Copy the parts you need into ~/.zshrc;
+# this is not meant to be sourced wholesale over an existing setup.
+#
+# Only dev tooling the kit itself relies on is here. Language SDKs, emulators and
+# editor extras belong in your own ~/.zshrc, not in a shared example.
+
+# ── Homebrew ─────────────────────────────────────────────────────────────────
+# Put this first. macOS otherwise adds /opt/homebrew/bin only via path_helper in
+# /etc/zprofile, which has two consequences people hit without noticing:
+#
+#   1. It runs for LOGIN shells only. A non-login zsh — a script, a hook, an
+#      editor terminal — gets no Homebrew at all, so `node`, `psql`, `jq` and
+#      `python3` silently vanish where a hook expects them.
+#   2. It appends LAST, after /usr/bin. So Apple's older git, jq and python3 win
+#      over the Homebrew ones you installed on purpose.
+#
+# `brew shellenv` fixes both: Homebrew ahead of the system dirs, in every shell.
+eval "$(/opt/homebrew/bin/brew shellenv)"
+
+# ── PATH ─────────────────────────────────────────────────────────────────────
+# Each prepend wins over the ones above it. Add a directory once; a duplicate
+# entry is harmless but hides which copy is actually winning.
+export PATH="$HOME/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
+
+# A versioned keg (python@3.13, node@24) ships only VERSIONED command names in
+# its bin — python3.13, not python3. Adding its bin to PATH does not change what
+# `python3` resolves to; `brew link` does. Check what actually wins:
+#   ls -l "$(brew --prefix)/bin/python3"
+
+# ── Node ─────────────────────────────────────────────────────────────────────
+# Install the Active LTS major EXPLICITLY — `brew install node@24`, never bare
+# `brew install node`, which tracks the latest Current release and will move you
+# off LTS at the next cut (project-documentation/../rules/dependencies.md §II).
+#
+# Read the current Active LTS major from Node's own schedule rather than guessing:
+#   curl -s https://raw.githubusercontent.com/nodejs/Release/main/schedule.json
+# A major is Active LTS when its `lts` date has passed and `maintenance` has not.
+#
+# Homebrew keeps versioned formulae unlinked by default. Link the one you want:
+#   brew link --overwrite node@24
+# Then confirm which formula is actually serving `node`:
+#   ls -l "$(brew --prefix)/bin/node"
+#
+# Projects pin their major in .nvmrc and package.json `engines.node`; keep the
+# brew-linked major in agreement with them.
+
+# ── Python ───────────────────────────────────────────────────────────────────
+# Homebrew's python is externally managed: `pip install` outside a venv fails with
+# `externally-managed-environment`, by design. Use a venv per project, and pipx
+# for standalone CLI tools (`brew install pipx`). Do not reach for
+# --break-system-packages; it does what it says.
+
+# ── Editor ───────────────────────────────────────────────────────────────────
+# Anything that blocks until the file is closed. Git and gh open it for commit
+# messages, so a non-blocking editor silently commits an empty message.
+export EDITOR="zed --wait"     # or: code --wait / vim / nano
+
+# ── iTerm2 shell integration ─────────────────────────────────────────────────
+# /dev opens a new iTerm tab per dev server and titles it. Integration is not
+# required for that, but it is what makes tab titles and marks behave.
+[ -e "$HOME/.iterm2_shell_integration.zsh" ] && source "$HOME/.iterm2_shell_integration.zsh"
+
+# ── Secrets ──────────────────────────────────────────────────────────────────
+# Keep every key in ~/.zshrc.secrets at chmod 600, and source it from here. That
+# keeps ~/.zshrc safe to paste into a chat, diff, or back up, and it means a key
+# is never one screen-share away from being read aloud.
+#
+#   umask 077 && touch ~/.zshrc.secrets && chmod 600 ~/.zshrc.secrets
+#
+# Contents (all optional — nothing here is needed to start work):
+#
+#   export EXA_API_KEY="..."     # enables the `research` skill's tier 3:
+#                                # non-English and primary sources, and
+#                                # conceptual research. Documentation lookup
+#                                # runs on built-in tools and needs no key.
+#
+# A key that has ever been committed, pasted or shared is burned — rotate it at
+# the provider rather than moving it to a safer file.
+[ -f "$HOME/.zshrc.secrets" ] && source "$HOME/.zshrc.secrets"

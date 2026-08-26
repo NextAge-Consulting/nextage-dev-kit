@@ -64,7 +64,7 @@ When reviewing, check every `onError`, `catch`, `.catch()` and `except` for a pa
 
 ## XI. Best Solution, Not Quick Solution (Zero Tolerance)
 
-Implement the canonical, officially-documented, future-proof approach. Research it with Ref MCP and the official docs before choosing, and pick a pattern for correctness rather than for how fast it is to type.
+Implement the canonical, officially-documented, future-proof approach. Research it against the official docs before choosing — the `research` skill carries the ladder — and pick a pattern for correctness rather than for how fast it is to type.
 
 Eliminate workarounds rather than documenting them — an undocumented workaround gets read as the intended design by the next reader. When a rewrite is the correct end state, lead with it and its real cost; verify any blocker you would use to argue for something smaller against the actual code.
 

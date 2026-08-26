@@ -2,6 +2,17 @@
 
 A developer workflow blueprint for AI-assisted development. This repository contains standardized configurations for Claude Code — rules, hooks, skills, commands, and settings — that can be synced across multiple projects.
 
+> **macOS only.** The kit is built and tested on Apple Silicon macOS and assumes it
+> throughout: Homebrew paths under `/opt/homebrew`, hooks written for the bash 3.2 that
+> Apple ships, BSD `sed` and `awk` rather than the GNU ones, `osascript` to drive iTerm2,
+> and iTerm2 dynamic profiles for `/dev` tabs and the launcher.
+>
+> On **Linux** expect the shell tooling to mostly work and the terminal integration not to —
+> `/dev` and the launcher are macOS-specific, and GNU/BSD differences cut the other way from
+> the ones the hooks guard against. On **Windows** it does not apply at all; even under WSL
+> the terminal and launcher pieces have no equivalent. Porting either is real work nobody
+> has done. See `project-documentation/macbook-setup.md` for the machine this expects.
+
 ## What This Is
 
 - **Blueprint Repository**: Defines your standard development setup and AI agent behaviors
@@ -141,34 +152,56 @@ The `project/` subfolder is created automatically by `/sync-dev-kit` if it doesn
 
 | File | Purpose |
 |------|---------|
-| `constitution.md` | Core enforcement (TypeScript quality, naming, security, timezones) |
-| `development-guidelines.md` | Code quality, logging, UI patterns |
-| `git.md` | Git workflow rules (mandates gitpro skill) |
-| `bashtools.md` | Shell tooling standards |
-| `projectrules.md` | Project-specific template (customized per project) |
-| `integrations/ref.md` | Library docs via Ref MCP |
-| `integrations/exa.md` | Deep research via Exa MCP |
+| `constitution.md` | Core enforcement (quality, naming, security, timezones, error handling) |
+| `development-guidelines.md` | Documentation locations, env config, code health |
+| `communication.md` | What to report and what to cut |
+| `working-discipline.md` | Goals are fixed; judgment applies to the how |
+| `autonomous-sessions.md` | The single definition of an unattended turn |
+| `asking-questions.md` | Which mechanism carries a question, and what an option must carry |
+| `git.md` | Git workflow rules (routes through the gitflow skill) |
+| `testing-verification.md` | Who runs tests, and how the suite is invoked |
+| `dependencies.md` | Lockfile installs and pinned node version |
+| `typescript-rules.md` / `python-rules.md` | Language rules, loaded by path targeting |
+| `postgres-drizzle.md` | The three silent failures on Postgres + Drizzle |
+| `ui-design.md` / `ui-patterns.md` / `a11y-baseline.md` | UI tokens, composition, accessibility floor |
+| `dev-server.md` | Dev servers are started by the human, via `/dev` |
+| `cli-utilities.md` | AWS CLI account/region discipline |
+| `memory-discipline.md` | Routing a fact to a rule, a doc, or memory |
+| `bash-rules.md` | Shell script rules, loaded by path targeting |
 | `integrations/agent-browser.md` | Browser automation |
+| `project/**` | Project-owned rules; never synced from the kit |
 
 ### Hooks
 
 | Hook | Purpose |
 |------|---------|
-| `git-guard.sh` | Blocks dangerous git commands, enforces gitpro skill |
-| `block-db-commands.sh` | Blocks migration commands (requires human) |
-| `dev-server-guard.sh` | Prevents AI from starting/killing dev server |
-| `block-console-log.sh` | Enforces structured logging (Pino) |
-| `pre-gitpro.sh` | TypeScript/Python validation before commits |
-| `architect_enforcer.sh` | Enforces principal engineer persona |
+| `git-guard.sh` | Blocks destructive git commands; routes the rest through gitflow |
+| `block-db-commands.sh` | Blocks migration commands (requires human approval) |
+| `block-drizzle-handroll.sh` | Blocks hand-authored migration bookkeeping |
+| `block-kit-edit.sh` | Blocks consumer edits to kit-owned files |
+| `dev-server-guard.sh` | Prevents AI from killing a dev server it did not start |
+| `block-console-log.sh` | Enforces structured logging |
+| `npm-guard.sh` | Blocks bare `npm install` when a lockfile exists |
+| `rule-authoring-guard.sh` | Routes rule/skill/CLAUDE.md authoring through the `rule-authoring` skill |
+| `test-on-edit.sh` | Runs the relevant tests after an edit |
 
 ### Skills
 
 | Skill | Purpose |
 |-------|---------|
-| `gitpro` | Git operations with conventional commits and changelog |
+| `gitflow` | Work sessions, commits, PRs, review triage, merges |
+| `research` | The documentation/research ladder — WebSearch, WebFetch, Exa, ctx7 |
+| `mfing-bible-of-tanstack` | TanStack Start/Router/Query/Table/Form house rules |
+| `postgres-neon-drizzle` | Schema, migrations, collations, Neon branching |
+| `design-system` | Tokens and atoms, backed by the project's `design.md` |
+| `ui-patterns` | How surfaces are composed and how they behave |
 | `shadcn` | shadcn/ui component management |
 | `agent-browser` | Browser automation for testing |
-| `mfing-bible-of-tanstack` | TanStack Start/Router/Query reference |
+| `e2e` / `e2e-author` | Running and authoring plain-English E2E flows |
+| `analysis` | Written analyses packaged to share |
+| `dependency-triage` | The weekly dependency and vulnerability pass |
+| `dev-server` | Routes dev-server requests to `/dev` |
+| `rule-authoring` | How a rule is written so that it binds |
 
 ## Commands
 
@@ -209,4 +242,6 @@ See `.claude/rules/project/dev-kit-workflow.md` for details.
 | `project-documentation/gitflow-cheatsheet.md` | Day-to-day developer reference for `/branch`, `/link`, `/checkpoint`, `/commit`, `/open-pr`, `/merge`. |
 | `project-documentation/kit-repo-github-config.md` | How THIS repo is configured on GitHub and why it differs from consumer projects. Pre-flight sanity checklist before changes that might need GitHub-side config. |
 | `project-documentation/dependency-management.md` | The monorepo "one stack" discipline + the `dep-alignment` CI gate: trust-but-verify on old workarounds, solid-version philosophy, the "logged-in not 200" verification standard, accepted-residuals handling. |
-| `project-documentation/developer-onboarding.md` | Second-dev setup procedure. |
+| `project-documentation/macbook-setup.md` | Fresh Apple Silicon MacBook, end to end: Xcode CLT, Homebrew, shell, the CLI toolchain, editors, GUI apps, Parallels for legacy WINDEV work, launcher and statusline. |
+| `project-documentation/zshrc.example` | Reference `~/.zshrc` — Homebrew ordering, Node LTS pin, the secrets pattern. |
+| `project-documentation/developer-onboarding.md` | Second-dev setup procedure, once the machine is ready. |

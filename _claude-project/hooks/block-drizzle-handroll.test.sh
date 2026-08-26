@@ -43,6 +43,11 @@ t allow "$tmp/drizzle/migrations/0032_thing.sql"           Edit  'Edit an existi
 echo "MUST ALLOW — not a drizzle dir (no meta/_journal.json sibling):"
 t allow "$tmp/plain/migrations/001_init.sql"               Write 'hand-written .sql elsewhere'
 
+echo "MULTIEDIT — same contract as Edit (it can only touch an existing file):"
+t deny  "$tmp/drizzle/migrations/meta/_journal.json"      MultiEdit 'journal via MultiEdit'
+t deny  "$tmp/drizzle/migrations/meta/0001_snapshot.json" MultiEdit 'snapshot via MultiEdit'
+t allow "$tmp/drizzle/migrations/0032_thing.sql"          MultiEdit 'edit an existing .sql via MultiEdit'
+
 echo "MUST ALLOW — ordinary files:"
 t allow "$tmp/drizzle/migrations/README.md"                Write 'a README beside migrations'
 t allow "apps/shared/src/db/schema/user.ts"                Write 'a schema source file'

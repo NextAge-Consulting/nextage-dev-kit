@@ -189,9 +189,8 @@ Full procedure (two lanes — billing/IAM owner vs configurer) lives in **`gemin
 ### 6 — Secrets & env `[claude+you]`
 
 - **`.env`** (root, gitignored) — dev environment. Claude reads existing values first, only adds new ones; never overwrites secrets without consent.
-- **MCP keys** — `.mcp.json` declares servers (Ref, Exa). Export their keys in your shell profile or `.env`:
+- **MCP keys** `[optional]` — `.mcp.json` declares the Exa server. Nothing breaks without it; the `research` skill's tiers 0–2 use built-in tools. To enable tier 3, export the key in your shell profile or `.env`:
   ```bash
-  export REF_API_KEY="…"
   export EXA_API_KEY="…"
   ```
 - **GitHub Actions secrets** `[you]` — set under repo (or org) *Settings → Secrets and variables → Actions*. Only what your workflows reference (e.g. Neon/DB secrets for CI test branches, deploy credentials).

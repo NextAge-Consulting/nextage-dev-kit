@@ -107,13 +107,6 @@ Store API keys in cloud environment config (claude.ai/code → environment setti
 ```json
 {
   "mcpServers": {
-    "ref": {
-      "type": "http",
-      "url": "https://ref.example.com/mcp",
-      "headers": {
-        "Authorization": "Bearer ${REF_API_KEY}"
-      }
-    },
     "exa": {
       "type": "http",
       "url": "https://api.exa.ai/mcp",

@@ -22,9 +22,12 @@ INPUT=$(cat)
 [ -f "$HOME/.claude/kitmaster" ] && exit 0
 
 TOOL_NAME=$(printf '%s' "$INPUT" | jq -r '.tool_name')
-if [ "$TOOL_NAME" != "Edit" ] && [ "$TOOL_NAME" != "Write" ]; then
-    exit 0
-fi
+# MultiEdit carries a file_path exactly like Edit/Write; omitting it here let a
+# multi-edit rewrite a kit-owned file straight past this guard.
+case "$TOOL_NAME" in
+    Edit|Write|MultiEdit) ;;
+    *) exit 0 ;;
+esac
 
 FILE_PATH=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // ""')
 [ -z "$FILE_PATH" ] && exit 0

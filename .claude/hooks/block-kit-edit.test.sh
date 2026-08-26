@@ -50,6 +50,10 @@ t deny "$tmp/proj/.claude/hooks/git-guard.sh"    x 'owned hook'
 t deny "$tmp/proj/.claude/legacy-bare-string.md" x 'legacy bare-string entry means owned'
 t deny "$tmp/proj/.claude/rules/constitution.md" x 'owned rule via Write' Write
 
+echo "CONSUMER MACHINE — MultiEdit is a write path too:"
+t deny "$tmp/proj/.claude/rules/constitution.md" x 'owned rule via MultiEdit' MultiEdit
+t deny "$tmp/proj/.claude/hooks/git-guard.sh"    x 'owned hook via MultiEdit' MultiEdit
+
 echo "CONSUMER MACHINE — mode:template is the PROJECT'S, must be allowed:"
 t allow "$tmp/proj/.claude/rules/project/ui-inventory.md" x 'template: ui-inventory'
 t allow "$tmp/proj/.github/workflows/ci.yml"              x 'template: ci.yml'

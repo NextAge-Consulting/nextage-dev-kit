@@ -1,5 +1,9 @@
 # Developer Onboarding
 
+> **Machine not set up yet?** `macbook-setup.md` in this directory covers the fresh-Mac
+> install — Xcode CLT, Homebrew, shell, CLI toolchain, editors, GUI apps and the kit's
+> launcher and statusline. Do that first; this file assumes it is done.
+
 This document is the reference a developer's Claude Code session follows to configure their machine for working on the maintainer's projects. Hand this doc to the developer; their Claude reads it end-to-end and walks them through current-state-vs-desired-state comparison.
 
 ---
@@ -52,33 +56,48 @@ The developer installs Claude Code per Anthropic's current instructions at https
 
 ---
 
-## Section 2: Shell environment (API keys)
+## Section 2: Shell environment (optional API key)
 
 ### Desired state
 
-Two environment variables exported in the developer's shell rc (`~/.zshrc` or `~/.bashrc` — detect which shell they use via `echo $SHELL`):
+**Nothing here is required to start work.** Documentation and research run on the
+built-in `WebSearch` and `WebFetch` tools, which need no account, no key and no MCP
+server. A developer who skips this section entirely has a working setup.
+
+`zshrc.example` in this directory is the reference shell setup — PATH, the pinned
+Node LTS major, `EDITOR`, iTerm2 integration, and the secrets pattern. Point the
+developer at it rather than dictating lines here.
+
+Keys go in `~/.zshrc.secrets` at chmod 600, sourced from `~/.zshrc`, so the rc
+itself stays safe to paste and diff:
 
 ```bash
-export REF_API_KEY="ref-..."      # the developer's own Ref API key
-export EXA_API_KEY="..."          # the developer's own Exa API key
+umask 077 && touch ~/.zshrc.secrets && chmod 600 ~/.zshrc.secrets
+echo 'export EXA_API_KEY="..."' >> ~/.zshrc.secrets   # optional — see below
 ```
 
-These are per-developer. The developer does not use the maintainer's keys. They get their own:
+What it buys: the `research` skill's tier 3 — non-English and primary/institutional
+sources, and conceptual research with no single doc page to find. Without it those
+cases are slower and need the publisher known up front; everything else is
+unaffected.
 
-- **Ref**: https://ref.tools — sign up, create API key
-- **Exa**: https://exa.ai — sign up, create API key
+If the developer wants it: **Exa** — https://exa.ai, sign up, create an API key.
+The free tier covers normal use. Per-developer; never the maintainer's key.
 
 ### Check
 
 ```bash
-echo "REF_API_KEY set: $([ -n \"$REF_API_KEY\" ] && echo yes || echo NO)"
 echo "EXA_API_KEY set: $([ -n \"$EXA_API_KEY\" ] && echo yes || echo NO)"
-grep -E "^export (REF|EXA)_API_KEY" ~/.zshrc ~/.bashrc 2>/dev/null
+grep -E "^export EXA_API_KEY" ~/.zshrc.secrets 2>/dev/null
+ls -l ~/.zshrc.secrets 2>/dev/null   # must be 600
 ```
+
+`NO` is a valid state — do not treat it as a failed setup step.
 
 ### If missing
 
-Claude prompts the developer to get their keys from Ref and Exa, then writes the `export` lines to the appropriate shell rc. The developer runs `source ~/.zshrc` (or opens a new terminal) to apply.
+Mention what tier 3 buys and offer to write the `export` line. If the developer
+declines or defers, proceed — the rest of onboarding does not depend on it.
 
 ---
 
@@ -191,7 +210,7 @@ When the developer clones a project that uses the dev kit:
 
 Once in the project, ask Claude to:
 1. List available slash commands (should include `/commit`, `/checkpoint`, `/open-pr`, `/merge`)
-2. Verify MCP servers load (Ref + Exa should be available — check with a trivial `mcp__Ref__ref_search_documentation` call)
+2. Verify the Exa MCP server loads (check with a trivial `mcp__exa__web_search_exa` call)
 3. Try a trivial checkpoint: the developer runs `/checkpoint test` on a throwaway file change (then reverts)
 
 If any verification fails, report to the maintainer with the specific failure.

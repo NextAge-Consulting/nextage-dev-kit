@@ -61,7 +61,11 @@ When in doubt, write `if ! cmd; then handle; fi`.
 
 ## IV. Shellcheck
 
-Run `shellcheck <script>` before committing any meaningful bash change. The gitflow scripts pass cleanly today; keep it that way. Suppress a genuine false positive with `# shellcheck disable=SCxxxx` and a one-line reason.
+Run `shellcheck -x <script>` before committing any meaningful bash change. `-x` follows sourced files; without it every `source` line reports SC1091. A `source "$SCRIPT_DIR/…"` reports SC1091 even with `-x`, because the path is not resolvable statically — that one is noise.
+
+Treat an error or warning as a defect and a note as judgment. Suppress a genuine false positive with `# shellcheck disable=SCxxxx` and a one-line reason naming why it does not apply.
+
+**SC2207 advises `mapfile`, which §II forbids on bash 3.2.** Split with `while IFS= read -r` instead, or suppress it with that reason — never take the suggestion.
 
 ## V. BSD awk vs gawk
 

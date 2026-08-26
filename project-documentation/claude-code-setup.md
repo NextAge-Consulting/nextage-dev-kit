@@ -9,8 +9,10 @@ Installing Claude Code itself, managing plugins, and LSP configuration. Compleme
 ### macOS (Homebrew)
 
 ```bash
-brew install claude-code
+brew install --cask claude-code
 ```
+
+It is a cask, not a formula — `brew install claude-code` without `--cask` fails.
 
 ### npm (cross-platform)
 
@@ -28,12 +30,14 @@ claude --version
 
 ## First-time configuration
 
-For a fresh machine:
+For a fresh machine, `macbook-setup.md` covers the whole machine — Homebrew, shell, the
+CLI toolchain, editors and the GUI apps — and ends where this list begins. The steps below
+are the kit-specific tail of it.
 
 1. Install Claude Code (above).
 2. Clone the dev kit.
 3. Run `/install-kit` from inside the kit repo — this installs the global bootstrap (`~/.claude/commands/sync-dev-kit.md` + script) and writes `~/.claude/dev-kit-config.json` pointing at the kit path.
-4. Set `REF_API_KEY` and `EXA_API_KEY` in your shell rc (see handbook Section 10).
+4. Optional: set `EXA_API_KEY` in your shell rc (see handbook Section 10) — research works without it.
 5. Optional: `/install-statusline` from the kit repo — installs the custom statusline to `~/.claude/statusline.sh`.
 6. Optional: `/install-cpl` from the kit repo — builds and installs CPL launcher.
 7. Open any project and run `/sync-dev-kit` to set up its `.claude/` from the kit.

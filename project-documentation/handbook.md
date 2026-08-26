@@ -600,7 +600,7 @@ Setting up a new project to use this kit:
 3. Commit the new `.claude/` and `.mcp.json`
 4. No branch protection to apply — the pipeline uses none (`/merge` self-gates; see `pipeline.md` §1.1). Just confirm `main` does not require a PR (the default), so the direct-push paths work.
 5. Copy `commitlint.yml` and `ci.yml` templates (below) into `.github/workflows/`. Author project-specific `deploy.yml` with `workflow_dispatch:` ONLY trigger (§11.4).
-7. Each dev: set `REF_API_KEY` and `EXA_API_KEY` in their shell rc
+7. Optional, per dev: set `EXA_API_KEY` in their shell rc (research tier 3; the built-in tools need no key)
 
 ---
 
@@ -833,14 +833,19 @@ The orchestration is in the `/sync-dev-kit` slash command (`_claude-maintainer/c
 
 ## 10. Environment variables
 
-Each dev sets once in shell rc (`.bashrc` / `.zshrc`):
+**None are required.** Documentation and research run on the built-in `WebSearch`
+and `WebFetch` tools, which need no key or account.
+
+One optional key, set once per dev in shell rc (`.bashrc` / `.zshrc`):
 
 ```bash
-export REF_API_KEY="ref-..."
 export EXA_API_KEY="..."
 ```
 
-Cloud sessions: set these in the cloud environment's env-var editor. Per-dev, not committed anywhere.
+It enables the `research` skill's tier 3 — non-English and primary sources, and
+conceptual research. Absent, those degrade to tier 1/2 and nothing else changes.
+
+Cloud sessions: set it in the cloud environment's env-var editor. Per-dev, not committed anywhere.
 
 
 
@@ -1743,7 +1748,7 @@ Emergency override, under explicit user authorization: `SKIP_GIT_GUARD=1 git com
 
 ### 12.3. MCP server fails to authenticate
 
-Verify `REF_API_KEY` and `EXA_API_KEY` are exported in the current shell. For cloud sessions, verify they're in the cloud environment's env-var editor.
+Verify `EXA_API_KEY` is exported in the current shell. For cloud sessions, verify it's in the cloud environment's env-var editor.
 
 ### 12.4. Sync shows files I don't recognize as kit-only
 

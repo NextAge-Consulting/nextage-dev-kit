@@ -6,10 +6,11 @@
 INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name')
 
-# Only check Edit and Write tools
-if [ "$TOOL_NAME" != "Edit" ] && [ "$TOOL_NAME" != "Write" ]; then
-    exit 0
-fi
+# Only check the file-writing tools
+case "$TOOL_NAME" in
+    Edit|Write|MultiEdit) ;;
+    *) exit 0 ;;
+esac
 
 # Check if project uses Pino (skip if not)
 if [ ! -f "package.json" ]; then
@@ -29,7 +30,14 @@ fi
 
 # Get the content being written
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // ""')
-NEW_CONTENT=$(echo "$INPUT" | jq -r '.tool_input.new_string // .tool_input.content // ""')
+# MultiEdit carries neither new_string nor content — its payload is edits[].new_string.
+# Without that branch this guard is INVOKED on a MultiEdit and matches nothing, which is
+# an allow that looks exactly like a pass.
+NEW_CONTENT=$(echo "$INPUT" | jq -r '
+    .tool_input.new_string
+    // .tool_input.content
+    // ([.tool_input.edits[]?.new_string] | join("\n"))
+    // ""')
 
 # Only check TypeScript/JavaScript files
 if ! echo "$FILE_PATH" | grep -qE '\.(ts|tsx|js|jsx)$'; then

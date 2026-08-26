@@ -56,6 +56,35 @@ t allow "$tmp/nopkg"  'src/a.ts' 'console.log("fine here")'   'no package.json a
 echo "MONOREPO — pino declared in packages/shared still engages:"
 t deny  "$tmp/mono"   'src/a.ts' 'console.log("hi")'          'pino via packages/shared'
 
+echo "MULTIEDIT — content lives in edits[].new_string, not new_string/content:"
+# Built separately because MultiEdit's payload shape differs. Before the guard learned
+# it, every case here returned allow — invoked, matching nothing, indistinguishable
+# from a pass.
+medit(){  # $1 cwd  $2 file_path  $3..$N edit strings
+  local cwd="$1" fp="$2"; shift 2
+  python3 -c '
+import json, sys
+fp = sys.argv[1]
+edits = [{"old_string": "x", "new_string": e} for e in sys.argv[2:]]
+print(json.dumps({"tool_name": "MultiEdit",
+                  "tool_input": {"file_path": fp, "edits": edits}}))
+' "$fp" "$@" | (cd "$cwd" && "$H" 2>/dev/null) | python3 -c '
+import json,sys
+raw=sys.stdin.read().strip()
+if not raw: print("allow"); raise SystemExit
+try: print((json.loads(raw).get("hookSpecificOutput") or {}).get("permissionDecision") or "allow")
+except Exception: print("malformed")
+'
+}
+mt(){ local want="$1" desc="$2"; shift 2; d=$(medit "$@"); d=${d:-allow}
+      if [ "$d" = "$want" ]; then echo "  ✓ $desc"; else echo "  ✗ FAIL ($d, want $want) — $desc"; fail=1; fi; }
+
+mt deny  'console.log in the first edit'  "$tmp/pino" 'src/a.ts' 'console.log("hi")' 'const ok = 1'
+mt deny  'console.error in a later edit'  "$tmp/pino" 'src/a.ts' 'const ok = 1' 'console.error(err)'
+mt allow 'clean edits'                    "$tmp/pino" 'src/a.ts' 'logger.info("hi")' 'const ok = 1'
+mt allow 'non-TS file'                    "$tmp/pino" 'README.md' 'console.log("in a doc")'
+mt allow 'no pino dependency'             "$tmp/nopino" 'src/a.ts' 'console.log("fine here")'
+
 echo "DENY PAYLOAD MUST BE VALID JSON (a malformed deny is silently discarded):"
 tmpout=$(mktemp)
 jsonok(){

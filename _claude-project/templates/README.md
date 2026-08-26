@@ -4,7 +4,7 @@ Files whose destination is **not** the plain `_claude-project/` → `.claude/` m
 
 Sync behavior (`/sync-dev-kit`):
 
-- **`.mcp.json`** — copied to consumer's `/.mcp.json` during bootstrap. Subject to diff/review on subsequent syncs like any other kit-owned file. Uses `${REF_API_KEY}` and `${EXA_API_KEY}` env var expansion so keys never land in the repo.
+- **`.mcp.json`** — copied to consumer's `/.mcp.json` during bootstrap. Subject to diff/review on subsequent syncs like any other kit-owned file. Uses `${EXA_API_KEY}` env var expansion so keys never land in the repo.
 - **`.commitlintrc.json`** — copied to consumer's `/.commitlintrc.json`. Paired with `.github/workflows/commitlint.yml` (under `_github-project/`). Defines the conventional-commit types accepted by the commitlint CI gate; must match the gitflow skill's `references/commit-types.md`.
 - **`biome.json`** — copied to consumer's `/biome.json` during bootstrap. Subject to diff/review on subsequent syncs. Opinionated default for AI-authored TS/JS projects: formatter disabled, linter on `"recommended": true`, scoped via `**/*.{ts,tsx,js,jsx,mjs,cjs,mts,cts,json}` with build outputs excluded via `vcs.useIgnoreFile` (trusts the project's `.gitignore`). See kit `pipeline.md` §1.4 for rationale.
 - **`.gitignore-additions`** — NOT copied as a file. Sync script reads the entries and ensures each line is present in the consumer's `.gitignore`. Missing entries are appended; existing entries are left alone.

@@ -27,10 +27,12 @@
 INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name')
 
-# Only Edit and Write carry a file_path we guard.
-if [ "$TOOL_NAME" != "Edit" ] && [ "$TOOL_NAME" != "Write" ]; then
-    exit 0
-fi
+# Only the file-writing tools carry a file_path we guard. MultiEdit carries one too,
+# and omitting it here let a multi-edit walk straight past this guard.
+case "$TOOL_NAME" in
+    Edit|Write|MultiEdit) ;;
+    *) exit 0 ;;
+esac
 
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // ""')
 [ -z "$FILE_PATH" ] && exit 0
