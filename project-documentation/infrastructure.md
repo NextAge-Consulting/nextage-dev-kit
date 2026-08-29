@@ -127,6 +127,35 @@ it touch the thing that actually fails — a database round-trip, a cache read.
 A bind-mounted `logs/` volume fills the root disk given long enough. Rotate them, and
 set the docker daemon's own log driver limits — the defaults grow without bound.
 
+## Scheduled workloads run in AWS, not on GitHub's clock
+
+**Anything that runs on a schedule and touches AWS is scheduled by EventBridge Scheduler
+and executed by an ECS Fargate task in the client's own account.** Not a GitHub Actions
+`cron` — and when standing up a new client, do not start there intending to move it later.
+The move is the expensive part.
+
+The nightly database backup is the case that forces this, and today it is the only one.
+**Its full recipe is `db-backup-pattern.md`** — the image, both IAM roles, the schedule,
+the bucket lifecycle, the monitor and the restore procedure. That doc is long and
+operational because it is a runbook; this section only says where it sits in the build-out.
+
+**Why not Actions.** GitHub's Actions scheduler does not deliver reliably: measured across
+two unrelated orgs, nightly backups fired 3 and 10 hours late and then, on one night, not
+at all — with the status page reporting Actions operational, no incident raised, and no
+record left behind, because a schedule that does not fire creates no run object. A deploy
+survives that, since a human dispatched it and is watching. A nightly job has nobody
+watching, so the same unreliability is silent.
+
+**Every scheduled job needs a liveness signal — proof it RAN, not just proof it did not
+fail.** This is the part that gets built wrong. An alarm on task failure cannot fire when
+the task never starts: no run, no metric, no alarm, and the job is silently not happening.
+
+**That monitor is healthchecks.io**, the same one everything else here reports to. One
+vendor, one place to look. Keeping it outside AWS is deliberate, and is the same argument
+as moving the compute in: a monitor sharing an account and credentials with its subject
+fails alongside it. The workload belongs where its data is; the monitor belongs where the
+workload is not.
+
 ## What "monitored" should mean at this scale
 
 A memory limit plus a restart policy is self-healing with no monitoring at all.

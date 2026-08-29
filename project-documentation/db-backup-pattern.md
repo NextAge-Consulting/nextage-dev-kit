@@ -1,13 +1,67 @@
 # Pattern: Offsite Neon → S3 Database Backups
 
-**What this is:** the reusable recipe for giving a kit-consumer project a daily
-offsite logical backup of its Neon Postgres database to AWS S3, with rolling
-retention. Hand this doc to a fresh AI session when standing backups up on a new
-project — it contains every setting, the AWS provisioning commands, the workflow
-template, the project-specific knobs, and the restore procedure.
+**What this is:** the recipe for giving a kit-consumer project a daily offsite logical
+backup of its Neon Postgres database to AWS S3, with rolling retention and a
+dead-man's-switch monitor. Hand this doc to a fresh AI session when standing backups up
+on a project — it carries the architecture, the AWS provisioning, the project-specific
+knobs, the monitor, and the restore procedure.
 
-Values below marked `<project>` / `<PLACEHOLDER>` are the ones that change per
-project.
+Values marked `<project>` / `<PLACEHOLDER>` are the ones that change per project.
+
+---
+
+## The shape
+
+```
+EventBridge Scheduler  (daily, in the project's AWS account)
+  └─ runs ECS Fargate task
+       └─ ping healthchecks.io /start          ← dead-man's switch, before anything else
+       └─ read DATABASE_URL from SSM Parameter Store
+       └─ pg_dump -Fc  →  local file
+       └─ validate with pg_restore --list      ← a truncated dump must fail, not upload
+       └─ aws s3 cp    →  s3://<bucket>/nightly/
+       └─ ping healthchecks.io success   (or /fail on any error)
+S3 bucket
+  └─ lifecycle rule: expire nightly/ after N days     ← retention lives HERE
+healthchecks.io check  (period 1 day, grace ~2h)
+  └─ no success ping in window → PAGES               ← catches every silent-loss mode
+```
+
+**The schedule and the compute both live in the account that owns the data.** Nothing in
+this path depends on GitHub.
+
+### Why not a GitHub Actions cron
+
+Actions is the least reliable GitHub component, and its *scheduler* is the least reliable
+part of it. Measured across two unrelated orgs on 2026-08-27/28: nightly backups fired
+3h07m late, 10h05m late, and on one night not at all — with GitHub's status page reporting
+Actions operational throughout, no incident raised, and **no record left behind**. A
+schedule that does not fire creates no run object, so there is nothing in the Actions tab
+and nothing in the API to find afterwards.
+
+A deploy on Actions survives that because a human dispatched it and is watching. A nightly
+backup has nobody watching, so the same unreliability is silent — and it is silent about
+the one artifact you only reach for on your worst day.
+
+Two shapes that look like fixes and are not:
+
+- **EventBridge Scheduler → GitHub `workflow_dispatch`.** Replaces GitHub's scheduler but
+  keeps the Actions control plane in the path, so an Actions outage still stops the backup.
+  It also adds a stored GitHub token as a new standing credential. One of two problems.
+- **Keepalive commits** to dodge the 60-day dormancy disable. Pollutes history, and treats
+  a symptom the dead-man's switch already detects.
+
+### Why Fargate rather than Lambda or CodeBuild
+
+- **Lambda** is cheaper and simpler at today's dump sizes, but needs `pg_dump` packaged as
+  a layer or container image and carries a hard 15-minute ceiling. That ceiling sits on the
+  disaster-recovery path and arrives silently as a database grows.
+- **CodeBuild** is the right home for the workloads that *are* builds. A backup has no
+  source to check out and nothing to compile; carrying a build project for it is cosmetic
+  consistency.
+
+Fargate has no execution-time limit, needs no packaging beyond an ordinary container
+image, and scales with the database instead of hitting a wall.
 
 ---
 
@@ -15,292 +69,220 @@ project.
 
 **Custom-per-project, kit-documented — same model as `deploy-*.yml` / `migrate.yml`.**
 
-The kit does **not** sync `.github/workflows/` YAML (there is no
-`_claude-project/.github/`). Workflows are project-owned; the kit governs them
-via (a) documentation like this file and (b) runtime-read substitution keys in
-`sync-substitutions.json` that point kit *scripts* at project workflow filenames.
-A backup workflow varies exactly where deploy ones do (bucket, SSM path, PG major,
-DB name, region, schedule, single vs multi-DB), so it follows the same rule:
-**generate a project-specific `db-backup.yml` from this doc; do not template it.**
+The pieces vary exactly where the deploy ones do: bucket, SSM path, PG major, database
+name, region, schedule, retention, single vs multi-DB. Generate project-specific
+infrastructure from this doc; do not template it.
 
-There is intentionally **no** `sync-substitutions.json` key for backups —
-`/deploy` does not trigger backups (they run on cron), so no kit script needs to
-know the filename. If a project ever wires backup into `/deploy`, add a
-`BACKUP_WORKFLOW` runtime-read key mirroring `MIGRATE_WORKFLOW`.
-
----
-
-## Architecture
-
-```
-GitHub Actions (cron, daily)
-  └─ ping healthchecks.io /start        ← dead-man's switch (fail-loud)
-  └─ install pg_dump matching Neon's PG major (PGDG apt repo)
-  └─ auth to AWS (static IAM keys today; OIDC is the tracked migration)
-  └─ load DATABASE_URL from SSM Parameter Store (NOT a GH secret)
-  └─ strip "-pooler" → Neon DIRECT endpoint (pg_dump requires unpooled)
-  └─ pg_dump -Fc → local file → validate (pg_restore --list) → aws s3 cp
-  └─ ping healthchecks.io success  (or /fail on any failed step)
-S3 bucket
-  └─ lifecycle rule: expire nightly/ after N days   ← retention lives HERE
-healthchecks.io check (period 1 day, grace ~6h)
-  └─ no success ping in window → PAGES  ← catches ALL silent-loss modes
-```
-
-**Why offsite at all:** Neon's own history window (PITR) covers *accidental*
-deletes fast, but only within the retention window (commonly 24h). The S3
-copy is for off-platform redundancy, archival beyond the window, and compliance —
-a copy that survives the Neon project being lost entirely.
-
-**Retention is an S3 lifecycle rule, not workflow bash.** Declarative, cannot
-silently fail, and prunes even if a run is skipped. Do not re-implement deletion
-in the workflow.
-
-**A dead-man's switch is mandatory, not optional** — see its own section below.
-A backup you don't monitor is a backup you will silently lose.
+No `sync-substitutions.json` key is needed. No kit script triggers a backup — the schedule
+lives in AWS — so nothing needs to know its name.
 
 ---
 
 ## Prerequisites (per project)
 
-1. **Neon Postgres** with the connection string in **SSM Parameter Store** under
-   the project path (e.g. `/<project>/DATABASE_URL`) — the same source the
-   deploy/migrate workflows read via `scripts/load-env.sh`. Know the Neon
-   **major version** (`SELECT version();`) — the dump client must be `>=` it.
-2. **AWS account** with the CI IAM identity the other workflows already use
-   (static-key user, e.g. `github-actions-ecr-push`, exposed as GH secrets
-   `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION`).
-3. `scripts/load-env.sh` present in the repo (kit-standard SSM loader).
-4. A **healthchecks.io check** for this backup, and its ping URL stored as a
-   **GitHub Actions secret** `HEALTHCHECKS_PING_URL_BACKUP` (NOT SSM — see the
-   dead-man's-switch section for why). Same account/pattern the worker uses.
+1. **Neon Postgres**, with the connection string in **SSM Parameter Store** under the
+   project path (e.g. `/<project>/DATABASE_URL`) — the same source deploy and migrate
+   read. Know the Neon **major version** (`SELECT version();`); the dump client must be
+   `>=` it.
+2. **An AWS account** for the project, reached through a named profile.
+3. **An ECR repository** for the backup image, with a lifecycle policy created in the same
+   step (see `infrastructure.md` — a missing lifecycle policy never fails anything, it
+   just bills forever).
+4. **A healthchecks.io check** for this backup, with its ping URL stored as an SSM
+   parameter under the project path.
+
+---
+
+## The image
+
+A small image carrying a matching-major `pg_dump` and the AWS CLI, plus the backup script
+as its entrypoint. Built once and pushed to the project's ECR; rebuilt only when Neon's
+major version moves.
+
+```dockerfile
+FROM public.ecr.aws/docker/library/postgres:<PG_MAJOR>-alpine
+RUN apk add --no-cache aws-cli curl
+COPY backup.sh /usr/local/bin/backup.sh
+RUN chmod +x /usr/local/bin/backup.sh
+ENTRYPOINT ["/usr/local/bin/backup.sh"]
+```
+
+The script's shape, in order — **the ordering is the design, not incidental**:
+
+1. Ping `${HEALTHCHECKS_URL}/start` **first**, before any AWS call, so a failure in the
+   AWS path still produces a `/fail` rather than silence.
+2. `set -euo pipefail`, and trap failure to ping `${HEALTHCHECKS_URL}/fail`.
+3. Read each database URL from SSM with `--with-decryption`. **Never echo a URL.**
+4. `pg_dump -Fc -d "$url" -f "$dump_file"` — **to a local file, never piped straight to
+   S3.** A pipe can upload a truncated object and still exit 0 if `pg_dump` dies
+   mid-stream.
+5. `pg_restore --list "$dump_file" > /dev/null` to validate, so a corrupt dump fails the
+   task instead of poisoning the bucket.
+6. `aws s3 cp` to `s3://<bucket>/nightly/`.
+7. Ping `${HEALTHCHECKS_URL}` on success.
+
+Pings are best-effort (`|| true`) — a monitoring hiccup must never fail the actual backup.
+Use `--retry 3` for transient blips.
+
+**Back up every database together when a project has more than one.** A multi-tenant
+project's registry and its tenant data are restored as a set; a lone restore leaves the
+pair inconsistent.
 
 ---
 
 ## AWS provisioning (one-time, per project)
 
-Run as an admin identity. **First confirm you're in the right account/region** —
-these operators use several AWS accounts; `aws sts get-caller-identity` must show
-the project's account. Use a named profile (`aws --profile <project> ...`) and
-pass `--region` on every command; never rely on the ambient default. See the
-account+region-drift warning at the bottom.
+Run as an admin identity. **Confirm the account first** — these operators work across
+several AWS accounts and regions. `aws sts get-caller-identity --profile <project>` must
+show the project's account before any create. See the drift warning near the bottom.
+
+### 1. The bucket
 
 ```bash
 BUCKET=<project>-db-backups        # globally-unique S3 name
-REGION=us-east-1                   # MUST match the project's infra/Neon region
-CI_USER=github-actions-ecr-push    # the static-key CI user (varies per project)
+REGION=<region>                    # MUST match the project's infra
 RETENTION_DAYS=7
+PROFILE=<project>
 
-# 1. Bucket (us-east-1 takes NO LocationConstraint; every other region does)
-aws s3api create-bucket --bucket "$BUCKET" --region "$REGION"
+# us-east-1 takes NO LocationConstraint; every other region does
+aws s3api create-bucket --bucket "$BUCKET" --region "$REGION" --profile "$PROFILE"
 
-# 2. Block all public access
-aws s3api put-public-access-block --bucket "$BUCKET" \
+aws s3api put-public-access-block --bucket "$BUCKET" --profile "$PROFILE" \
   --public-access-block-configuration \
   BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
 
-# 3. Default encryption (SSE-S3)
-aws s3api put-bucket-encryption --bucket "$BUCKET" \
+aws s3api put-bucket-encryption --bucket "$BUCKET" --profile "$PROFILE" \
   --server-side-encryption-configuration \
   '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"},"BucketKeyEnabled":true}]}'
 
-# 4. Lifecycle: expire nightly/ after N days + abort stale multipart uploads
-aws s3api put-bucket-lifecycle-configuration --bucket "$BUCKET" \
+# Retention is a lifecycle rule, NOT script logic — declarative, cannot silently
+# fail, and prunes even when a run is skipped. Do not re-implement deletion.
+aws s3api put-bucket-lifecycle-configuration --bucket "$BUCKET" --profile "$PROFILE" \
   --lifecycle-configuration "{\"Rules\":[{\"ID\":\"expire-nightly-after-${RETENTION_DAYS}-days\",\"Filter\":{\"Prefix\":\"nightly/\"},\"Status\":\"Enabled\",\"Expiration\":{\"Days\":${RETENTION_DAYS}},\"AbortIncompleteMultipartUpload\":{\"DaysAfterInitiation\":1}}]}"
-
-# 5. Least-privilege S3 policy for the CI user (write to nightly/ only)
-aws iam create-policy --policy-name <Project>DBBackupS3Policy \
-  --description "Least-privilege S3 write for the nightly Neon pg_dump backup" \
-  --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"PutNightlyBackups\",\"Effect\":\"Allow\",\"Action\":\"s3:PutObject\",\"Resource\":\"arn:aws:s3:::${BUCKET}/nightly/*\"},{\"Sid\":\"ListBackupBucket\",\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::${BUCKET}\"}]}"
-
-aws iam attach-user-policy --user-name "$CI_USER" \
-  --policy-arn arn:aws:iam::<ACCOUNT_ID>:policy/<Project>DBBackupS3Policy
 ```
 
-The CI user typically already carries SSM-read (`ParameterStoreREADPolicy`) and
-ECR-push; this adds only scoped S3 write. Verify:
-`aws iam list-attached-user-policies --user-name "$CI_USER"`.
+### 2. The two roles
 
----
+Fargate needs both, and conflating them is the usual mistake:
 
-## The workflow template
+- **Execution role** — what ECS itself uses to pull the image and write task logs.
+  `AmazonECSTaskExecutionRolePolicy`, plus `ssm:GetParameter` if any parameter is injected
+  as a task-definition secret.
+- **Task role** — what the *backup script* uses. Scope it to exactly two things:
+  `ssm:GetParameter` on `/<project>/*`, and `s3:PutObject` on
+  `arn:aws:s3:::<bucket>/nightly/*` plus `s3:ListBucket` on the bucket.
 
-Drop as `.github/workflows/db-backup.yml`. Replace the `<...>` knobs. Pin action
-SHAs to whatever the repo's other workflows already use (keep them consistent).
+**The task role is the only identity with write access to `nightly/`.** Nothing else — no
+CI identity, no deploy role, no user — needs it, and any other principal holding it is a
+standing grant on the backups nobody is watching. Worth confirming on an audit, since
+nothing fails when it is wrong.
 
-```yaml
-name: Nightly Neon DB Backup
+No standing IAM user, and no long-lived access key anywhere in this path.
 
-on:
-  schedule:
-    - cron: '0 6 * * *'   # 06:00 UTC daily (state in UTC; DST shifts local hour)
-  workflow_dispatch:
+### 3. The task definition
 
-env:
-  S3_BUCKET: <project>-db-backups
-  PG_MAJOR: '18'          # MUST match Neon server major version
+Fargate, `awsvpc` networking, the ECR image above, both roles attached, and a CloudWatch
+log group. Pass the SSM parameter *names* and the bucket as environment variables; the
+script reads the values at runtime through the task role. `0.25 vCPU / 512 MB` is
+generous for a dump of a few hundred MB — size up only when a measurement says to.
 
-jobs:
-  backup:
-    name: Dump NeonDB and upload to S3
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read       # id-token: write only if you switch to OIDC
+The task needs egress to reach Neon, SSM, S3 and healthchecks.io. Public subnets with
+`assignPublicIp: ENABLED`, or private subnets with a NAT — the same choice the rest of the
+project's infrastructure already made.
 
-    steps:
-      - name: Signal backup start          # dead-man's switch, best-effort
-        run: curl -fsS -m 10 --retry 3 "${{ secrets.HEALTHCHECKS_PING_URL_BACKUP }}/start" || true
+### 4. The schedule
 
-      - uses: actions/checkout@<sha>   # need scripts/load-env.sh
+An **EventBridge Scheduler** schedule with an `ECS RunTask` target, a
+`cron(<minute> <hour> * * ? *)` expression in UTC, and `FlexibleTimeWindow: OFF`.
 
-      # Use PostgreSQL's OFFICIAL repo setup script — do NOT hand-roll
-      # `curl | sudo gpg --dearmor`: sudo gpg opens /dev/tty (absent on the
-      # runner) and the step dies under pipefail.
-      - name: Install PostgreSQL ${{ env.PG_MAJOR }} client
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y postgresql-common ca-certificates
-          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
-          sudo apt-get install -y "postgresql-client-${PG_MAJOR}"
-          # /usr/bin/pg_dump is Ubuntu's pg_wrapper → resolves to the runner's
-          # preinstalled client 16; call the versioned binary explicitly.
-          "/usr/lib/postgresql/${PG_MAJOR}/bin/pg_dump" --version
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@<sha>
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Load DATABASE_URL from Parameter Store
-        env:
-          SSM_PATHS: "/<project>/"
-          AWS_REGION: ${{ secrets.AWS_REGION }}
-        run: |
-          chmod +x .github/workflows/scripts/load-env.sh
-          .github/workflows/scripts/load-env.sh
-          grep -q '^DATABASE_URL=' .env || {
-            echo "::error::DATABASE_URL not found in /<project>/ SSM params"; exit 1; }
-
-      - name: Dump NeonDB and upload to S3
-        run: |
-          set -euo pipefail
-          # SSM URL is the POOLED endpoint; pg_dump needs the DIRECT one.
-          # Neon host naming: pooled = <ep>-pooler.<...>, direct = <ep>.<...>
-          source_url="$(grep '^DATABASE_URL=' .env | cut -d= -f2-)"
-          direct_url="${source_url/-pooler/}"
-          ts="$(date -u +'%Y-%m-%dT%H%M%SZ')"
-          dump_file="<dbname>-${ts}.dump"
-          # Explicit versioned binary — bare pg_dump hits pg_wrapper (client 16).
-          pg_bin="/usr/lib/postgresql/${PG_MAJOR}/bin"
-          "${pg_bin}/pg_dump" -Fc -d "${direct_url}" -f "${dump_file}"
-          "${pg_bin}/pg_restore" --list "${dump_file}" > /dev/null   # integrity gate
-          aws s3 cp "${dump_file}" "s3://${S3_BUCKET}/nightly/${dump_file}" --no-progress
-
-      - name: Signal backup success        # only runs if every step above passed
-        run: curl -fsS -m 10 --retry 3 "${{ secrets.HEALTHCHECKS_PING_URL_BACKUP }}" || true
-
-      - name: Signal backup failure
-        if: failure()
-        run: curl -fsS -m 10 --retry 3 "${{ secrets.HEALTHCHECKS_PING_URL_BACKUP }}/fail" || true
-```
-
-**Why dump-to-file-then-upload, not `pg_dump | aws s3 cp -`:** a naked pipe can
-upload a truncated object and still exit 0 if `pg_dump` dies mid-stream, poisoning
-the bucket with a corrupt "backup." Dumping locally lets `pg_restore --list`
-validate the archive before upload, so a bad dump fails the job instead.
+**Pick an hour that is low-traffic for the client's users, not for you** — a dump takes a
+consistent snapshot but still competes for the database. Derive the hour from the client's
+actual timezone.
 
 ---
 
 ## Project-specific knobs (the only things that change)
 
-| Knob | example value | Where |
+| Knob | Example | Where |
 |---|---|---|
-| S3 bucket | `<project>-db-backups` | `env.S3_BUCKET` + AWS setup |
-| PG major | `18` | `env.PG_MAJOR` (match `SELECT version()`) |
-| SSM path | `/<project>/` | Load step `SSM_PATHS` |
-| DB / dump prefix | `<dbname>` | `dump_file=` |
-| Region | `us-east-1` | AWS setup + `secrets.AWS_REGION` |
+| S3 bucket | `<project>-db-backups` | Bucket setup + task env |
+| PG major | `18` | Image `FROM`, must match `SELECT version()` |
+| SSM path | `/<project>/` | Task role policy + task env |
+| Databases | one, or a registry + tenants | Script's list |
+| Region | `<region>` | Every provisioning command |
 | Retention days | `7` | S3 lifecycle rule |
-| Schedule | `0 6 * * *` | `cron` |
-| CI user | `github-actions-ecr-push` | IAM attach |
-| Healthchecks ping | `HEALTHCHECKS_PING_URL_BACKUP` | GH secret + `curl` steps |
+| Schedule | `cron(37 10 * * ? *)` | EventBridge Scheduler |
+| Healthchecks ping | SSM `/<project>/HEALTHCHECKS_URL_BACKUP` | Task env + check |
 
-Everything else — PGDG install, `-pooler` strip, dump/validate/upload logic,
-static-key auth block, SSM loader — is byte-identical across projects.
+Everything else — the script, both role shapes, the validate-before-upload order — is
+identical across projects.
 
 ---
 
 ## Neon gotchas (do not skip)
 
-1. **Use the DIRECT (unpooled) endpoint for `pg_dump`.** Pooled connections
-   (host contains `-pooler`) break `pg_dump`'s session `SET` usage — Neon returns
-   errors. The workflow strips `-pooler`; Neon's naming guarantees the stripped
-   host is the valid direct endpoint for the same compute.
-2. **Client version must be `>=` server version.** `apt install postgresql-client`
-   (unpinned) or the runner's default is usually too old. Pin the major via PGDG
-   — **and call the versioned binary directly** (`/usr/lib/postgresql/<major>/bin/pg_dump`).
-   Bare `pg_dump` on Ubuntu is `pg_wrapper`, which resolves to the runner's
-   *preinstalled* client (16 on ubuntu-24.04) and aborts on a version mismatch
-   even after you install the newer client.
-3. **`-Fc` custom format**, not plain SQL + gzip: already compressed, and
-   `pg_restore` can do selective/parallel restore and `--list` validation.
+1. **Use the DIRECT (unpooled) endpoint for `pg_dump`.** A pooled host (containing
+   `-pooler`) breaks `pg_dump`'s session `SET` usage. Some projects already store the
+   direct endpoint in SSM because migrations need it too — **check before adding a strip
+   step**, and do not add one whose input is already direct.
+2. **Client version must be `>=` server version.** This is why the image pins the major
+   rather than taking whatever the base image ships.
+3. **`-Fc` custom format**, not plain SQL plus gzip: already compressed, and `pg_restore`
+   gets selective restore, parallel restore, and `--list` validation.
 
 ---
 
-## Dead-man's switch (mandatory)
+## The dead-man's switch (mandatory)
 
-A cron backup fails silently by default: a broken step, revoked creds, Neon down,
-or GitHub **auto-disabling the schedule after 60 days of repo dormancy** all leave
-you with no backup and no signal. Prevention (keeping the cron armed) only
-addresses the dormancy case; the correct design is **detection** — a dead-man's
-switch that pages when a backup is missing *for any reason*.
+A scheduled backup fails silently by default. A broken step, revoked credentials, Neon
+down, or a schedule that simply does not fire all leave you with no backup and no signal.
+Prevention addresses none of it; the correct design is **detection**.
 
-**Mechanism** (reuse the healthchecks.io account):
+**healthchecks.io is the monitoring system for this, and for everything else that needs
+one.** One vendor, one place to look, one set of alert routing. Do not add a second
+monitoring implementation per workload — monitoring scattered across four vendors is four
+places to check and four ways to miss something.
 
-- **`/start`** ping as the first workflow step,
-- **success** ping as the last step (`if: success()` by default),
-- **`/fail`** ping in a trailing `if: failure()` step.
+It is deliberately **outside AWS**. A monitor that shares an account and credentials with
+the thing it watches fails with its subject, which is the case you most need to hear
+about. That is the same argument that moves the compute into AWS, applied in the other
+direction: the workload belongs where its data is, and the monitor belongs where the
+workload is not.
 
-Configure the healthchecks.io check: **period 1 day, grace ~6h**. Then:
+**Mechanism:**
 
 | Failure mode | What healthchecks sees | Result |
 |---|---|---|
 | Backup runs clean | success ping in window | quiet |
-| A step fails (dump/creds/S3/Neon) | `/fail` ping | pages immediately |
-| Schedule disabled by dormancy, or GitHub skips it | no ping at all | pages after grace |
+| A step fails (dump, creds, S3, Neon) | `/fail` ping | pages immediately |
+| Task never starts, or schedule never fires | no ping at all | pages after grace |
 
-**Why the ping URL is a GitHub secret, not SSM:** the monitor must be independent
-of the path it watches. If the ping URL came from SSM via `load-env.sh`, an
-AWS-auth or SSM failure would break the backup *and* silence the `/fail` ping —
-the exact case you most need to hear about. A GitHub secret is available from step
-0, so `/start` fires before any AWS call and `/fail` fires even if AWS auth is
-what broke.
+**A liveness signal is the point — not a failure signal.** An alarm wired to task failure
+cannot fire when the task never starts: no run, no metric, no alarm, and the backup is
+silently not happening. Alarm on the *absence* of success.
 
-Pings are best-effort (`|| true`): a monitoring hiccup must never fail the actual
-backup. Retries (`--retry 3`) cover transient blips.
+**Grace: ~2h on a daily period.** With the schedule in EventBridge there is no
+hours-late-delivery problem to absorb, so the window only needs to cover a slow dump plus
+a retry. A wide grace is detection latency you are choosing to accept; do not carry one
+that was sized for a scheduler you no longer use.
 
-**Structural alternative to the dormancy disable (optional):** drive the run from
-off GitHub's scheduler — AWS EventBridge Scheduler → GitHub `workflow_dispatch`
-API. `workflow_dispatch` is never subject to the 60-day rule. Adds a serverless
-cron + a stored GitHub token; only worth it for projects that genuinely go quiet
-for months. The dead-man's switch already *detects* the disable, so this is
-belt-and-suspenders, not a substitute. Do **not** use keepalive-commit hacks that
-fake repo activity — they pollute history and are the kind of workaround the
-constitution rules out.
+**Store the ping URL in SSM alongside the other parameters.** The earlier reason to keep
+it out of SSM was that a GitHub-hosted job could lose AWS auth and thereby silence its own
+`/fail`. A Fargate task cannot start at all without AWS working, so that case no longer
+exists.
+
+---
 
 ## Restore procedure
 
-1. **Provision a target.** Create a new Neon project (or branch), then create a
-   database with the **same name** as the source (e.g. `<dbname>`).
-2. **Get the target's DIRECT connection string** (Connect modal → *deselect*
-   Connection pooling; host must NOT contain `-pooler`).
-3. **Pull the dump from S3:**
+1. **Provision a target.** Create a new Neon project (or branch), then create a database
+   with the **same name** as the source.
+2. **Get the target's DIRECT connection string** (Connect modal → *deselect* connection
+   pooling; the host must not contain `-pooler`).
+3. **Pull the dump:**
    ```bash
-   aws s3 ls s3://<project>-db-backups/nightly/          # pick the file
-   aws s3 cp s3://<project>-db-backups/nightly/<dbname>-<ts>.dump ./restore.dump
+   aws s3 ls s3://<project>-db-backups/nightly/ --profile <project>
+   aws s3 cp s3://<project>-db-backups/nightly/<dbname>-<ts>.dump ./restore.dump --profile <project>
    ```
 4. **Restore** (install a matching-major `pg_restore` locally first):
    ```bash
@@ -308,54 +290,55 @@ constitution rules out.
      -d "postgresql://<user>:<pw>@<direct-host>/<dbname>?sslmode=require" \
      ./restore.dump
    ```
-   `--no-owner --no-privileges` because the source's owner role/ACLs won't exist
-   on the fresh target — let objects be owned by the restoring role. Drop them if
-   you are restoring into an identically-roled instance and want ACLs preserved.
-5. **Verify:** row counts / `\dt` against the restored DB; spot-check a few tables.
-6. **Repoint** the app's `DATABASE_URL` (SSM) at the restored DB if this is a
-   real recovery, not a drill.
+   `--no-owner --no-privileges` because the source's owner role and ACLs do not exist on a
+   fresh target. Drop those flags only when restoring into an identically-roled instance
+   where you want the ACLs preserved.
+5. **Verify:** row counts and `\dt` against the restored database; spot-check tables.
+6. **Restore every database of a multi-database project together**, then repoint the app's
+   SSM parameters if this is a real recovery rather than a drill.
 
-> Recovery drills belong on a schedule — an untested backup is a hope, not a
-> backup. Restore to a throwaway Neon branch quarterly and confirm the row counts.
+> Recovery drills belong on a schedule — an untested backup is a hope, not a backup.
+> Restore to a throwaway Neon branch quarterly and confirm the row counts.
 
 ---
 
 ## Verification (first run)
 
-After provisioning + committing the workflow: trigger `workflow_dispatch` once,
-confirm the object lands (`aws s3 ls s3://<project>-db-backups/nightly/`), confirm
-the summary shows a non-trivial size, and confirm the **healthchecks.io check
-flipped to "up"** (proves the dead-man's switch is wired). A 403 on upload = the
-IAM policy didn't attach to the CI user. No ping received = the
-`HEALTHCHECKS_PING_URL_BACKUP` secret is missing or wrong.
+Trigger the task once by hand (`aws ecs run-task` with the same definition, or the
+schedule's target), then confirm all four:
+
+- the object lands (`aws s3 ls s3://<project>-db-backups/nightly/`) at a non-trivial size,
+- the task exits 0 and its CloudWatch log shows the validate step passing,
+- the **healthchecks.io check flips to "up"** — which is what proves the switch is wired,
+- **no connection string appears in the log.**
+
+A 403 on upload means the *task* role lacks S3 write — check the task role, not the
+execution role. No ping received means the ping URL parameter is missing or wrong.
 
 ---
 
 ## ⚠️ Account + region drift (common footgun)
 
-Operators here work across **several AWS accounts and regions**, so there is no
-single "correct" machine default — the ambient `~/.aws/config` `[default]` will
-frequently be the wrong account/region for the project in hand, and it can also
-differ from the AWS **console** default (which follows last-used region). A bare
-CLI command then silently targets the wrong place and appears to "lose"
-resources. Do not try to fix this by pinning one global default. Instead:
+Operators here work across several AWS accounts and regions, so there is no correct
+machine default — the ambient `[default]` profile will frequently be the wrong account for
+the project in hand, and can differ from the console's default (which follows last-used
+region). A bare CLI command then silently targets the wrong place and appears to "lose"
+resources. Do not fix this by pinning one global default:
 
-- **Verify identity first:** run `aws sts get-caller-identity` and confirm the
-  `Account` matches the project's account **before** any create/attach.
-- **Use named profiles per account:** `aws --profile <project> ...` (or
-  `AWS_PROFILE=<project>`), rather than mutating the shared default.
-- **Always pass `--region` explicitly** in every provisioning command — never
-  inherit it. The workflows themselves are already safe (they pass
-  `secrets.AWS_REGION` everywhere); the risk is only in ad-hoc CLI provisioning.
+- **Verify identity first.** `aws sts get-caller-identity` must show the project's account
+  before any create or attach.
+- **Use a named profile per account** (`--profile <project>`), never mutate the shared
+  default.
+- **Pass `--region` explicitly** on every command.
 
 ---
 
 ## Cost
 
-Trivial for typical app DBs: a few MB–GB per daily dump × 7 days of retention in
-S3 Standard is cents/month. Revisit only if dumps grow to tens of GB (then
-consider `--expected-size` on streamed uploads, or S3 Infrequent-Access tiering
-in the lifecycle rule).
+Trivial. A Fargate task at `0.25 vCPU / 512 MB` running a couple of minutes a day is cents
+per month, and a few MB–GB per dump across 7 days of S3 Standard is cents more. Revisit
+only if dumps reach tens of GB, at which point consider S3 Infrequent-Access tiering in
+the lifecycle rule.
 
 ---
 
@@ -363,6 +346,7 @@ in the lifecycle rule).
 
 - Neon backups with `pg_dump`: https://neon.com/docs/manage/backup-pg-dump
 - Neon connection pooling (pooled vs direct): https://neon.com/docs/connect/connection-pooling
-- Neon automate pg_dump backups: https://neon.com/docs/manage/backup-pg-dump-automate
-- PostgreSQL APT (PGDG) repo: https://www.postgresql.org/download/linux/ubuntu/
-- GitHub OIDC for AWS (replaces long-lived access keys): https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services
+- EventBridge Scheduler targets: https://docs.aws.amazon.com/scheduler/latest/UserGuide/managing-targets.html
+- ECS task role vs execution role: https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-iam-roles.html
+- `infrastructure.md` — where this sits in the standard client build-out
+- `pipeline-improvements-to-implement.md` §9 — the decision to move AWS-touching workloads off Actions

@@ -20,6 +20,20 @@ Every option carries what it costs, what it risks, what it buys, and which one y
 
 Answer terse by default. Build a formatted HTML report (the `analysis` skill) on a clear cue: the human says "report", "analysis", "for review / approval / stakeholders", or the work is plainly for sharing. Never build Artifacts — they are not shareable without an enterprise or team Anthropic account.
 
+## Content the human will paste elsewhere
+
+**Anything whose destination is outside this conversation goes in a plain fenced code
+block.** A message to send, a commit body, a command for someone else to run, copy for a
+ticket or a doc.
+
+Never a blockquote, never a table. A blockquote puts `> ` on every line; the human copies
+it, pastes it into the chat app, and strips the markers by hand — every line, every time.
+A table drags its pipes and alignment row along with it. Both make the human edit text you
+had no reason to decorate.
+
+The test is one question: **will this be moved somewhere else verbatim?** Then fence it.
+Prose they are only going to read is ordinary prose.
+
 ## Decisions
 
 Infra, pipeline and tooling choices go to the human with their options; never pick unilaterally.
