@@ -213,6 +213,8 @@ fi
 DEPLOY_BACKEND="github"
 CODEBUILD_PROJECT_PREFIX=""
 CODEBUILD_MIGRATE_PROJECT=""
+CB_AWS_PROFILE=""
+CB_AWS_REGION=""
 if [ -f "$SUBS_FILE" ] && command -v jq >/dev/null 2>&1; then
     DEPLOY_BACKEND=$(jq -r '.DEPLOY_BACKEND // ""' "$SUBS_FILE")
     # Empty is the kit's "intentionally disabled" state for a substitution key,
@@ -221,6 +223,8 @@ if [ -f "$SUBS_FILE" ] && command -v jq >/dev/null 2>&1; then
     [ -n "$DEPLOY_BACKEND" ] || DEPLOY_BACKEND="github"
     CODEBUILD_PROJECT_PREFIX=$(jq -r '.CODEBUILD_PROJECT_PREFIX // ""' "$SUBS_FILE")
     CODEBUILD_MIGRATE_PROJECT=$(jq -r '.CODEBUILD_MIGRATE_PROJECT // ""' "$SUBS_FILE")
+    CB_AWS_PROFILE=$(jq -r '.AWS_PROFILE // ""' "$SUBS_FILE")
+    CB_AWS_REGION=$(jq -r '.AWS_REGION // ""' "$SUBS_FILE")
 fi
 case "$DEPLOY_BACKEND" in
     github) ;;
@@ -229,6 +233,13 @@ case "$DEPLOY_BACKEND" in
             echo "deploy.sh: DEPLOY_BACKEND=codebuild but the aws CLI is not installed" >&2; exit 8; }
         [ -n "$CODEBUILD_PROJECT_PREFIX" ] || {
             echo "deploy.sh: DEPLOY_BACKEND=codebuild requires CODEBUILD_PROJECT_PREFIX in $SUBS_FILE" >&2; exit 2; }
+        # Never rely on ambient AWS config. A shell with no default region makes
+        # every aws call exit 253 before it reaches the service, which reads as a
+        # deploy that started nothing — after the tag has already been pushed.
+        [ -n "$CB_AWS_REGION" ] || {
+            echo "deploy.sh: DEPLOY_BACKEND=codebuild requires AWS_REGION in $SUBS_FILE" >&2; exit 2; }
+        CB_AWS_ARGS="--region $CB_AWS_REGION"
+        [ -n "$CB_AWS_PROFILE" ] && CB_AWS_ARGS="$CB_AWS_ARGS --profile $CB_AWS_PROFILE"
         ;;
     *) echo "deploy.sh: DEPLOY_BACKEND must be github or codebuild (got: '$DEPLOY_BACKEND')" >&2; exit 2 ;;
 esac
@@ -236,8 +247,12 @@ esac
 # deploy-<service>.yml → <prefix><service>
 cb_project_for() { _s=${1#deploy-}; _s=${_s%.yml}; printf '%s%s' "$CODEBUILD_PROJECT_PREFIX" "$_s"; }
 
-# Start one build; echoes its id, empty on failure.
-cb_start() { aws codebuild start-build --project-name "$1" --query 'build.id' --output text 2>/dev/null; }
+# Start one build; echoes its id. On failure the aws error goes to stderr and the
+# non-zero status propagates — the caller MUST use `if ! id=$(cb_start ...)`, since
+# a bare `id=$(cb_start ...)` under `set -e` aborts the script before any guard on
+# the following line can run.
+# shellcheck disable=SC2086 # intentional word-splitting on the aws flag list
+cb_start() { aws $CB_AWS_ARGS codebuild start-build --project-name "$1" --query 'build.id' --output text; }
 
 # Poll a set of build ids until none is IN_PROGRESS, then echo "<id> <status>"
 # per line. Polling them TOGETHER is what makes a fleet release take as long as
@@ -246,7 +261,7 @@ cb_wait() {
     _ids="$*"
     while :; do
         # shellcheck disable=SC2086 # intentional word-splitting on the id list
-        _out=$(aws codebuild batch-get-builds --ids $_ids --query 'builds[].[id,buildStatus]' --output text 2>/dev/null)
+        _out=$(aws $CB_AWS_ARGS codebuild batch-get-builds --ids $_ids --query 'builds[].[id,buildStatus]' --output text) || _out=""
         if [ -z "$_out" ]; then
             echo "deploy.sh: batch-get-builds returned nothing for [$_ids] — cannot confirm the deploy (fail-loud, §X)" >&2
             return 1
@@ -620,7 +635,10 @@ if [ -n "$MIGRATE_WF" ]; then
         echo "deploy.sh: no migration files changed under [$MIGRATE_PATHS] since $LAST_TAG — skipping $MIGRATE_WF (nothing to apply)." >&2
     elif [ "$DEPLOY_BACKEND" = "codebuild" ]; then
         MIG_PROJECT="${CODEBUILD_MIGRATE_PROJECT:-$(cb_project_for "$MIGRATE_WF")}"
-        MIG_BUILD_ID=$(cb_start "$MIG_PROJECT")
+        MIG_BUILD_ID=""
+        cb_start "$MIG_PROJECT" >/tmp/cb_mig_id.$$ 2>/tmp/cb_mig_err.$$ && MIG_BUILD_ID=$(cat /tmp/cb_mig_id.$$)
+        [ -s /tmp/cb_mig_err.$$ ] && sed 's/^/deploy.sh:   aws: /' /tmp/cb_mig_err.$$ >&2
+        rm -f /tmp/cb_mig_id.$$ /tmp/cb_mig_err.$$
         if [ -z "$MIG_BUILD_ID" ] || [ "$MIG_BUILD_ID" = "None" ]; then
             echo "deploy.sh: could not start CodeBuild project $MIG_PROJECT (migration)" >&2
             exit 18
@@ -668,7 +686,10 @@ elif [ "$DEPLOY_BACKEND" = "codebuild" ]; then
     CB_IDS=""
     for WF in "${WORKFLOWS[@]}"; do
         PROJECT=$(cb_project_for "$WF")
-        BUILD_ID=$(cb_start "$PROJECT")
+        BUILD_ID=""
+        cb_start "$PROJECT" >/tmp/cb_id.$$ 2>/tmp/cb_err.$$ && BUILD_ID=$(cat /tmp/cb_id.$$)
+        [ -s /tmp/cb_err.$$ ] && sed 's/^/deploy.sh:   aws: /' /tmp/cb_err.$$ >&2
+        rm -f /tmp/cb_id.$$ /tmp/cb_err.$$
         if [ -z "$BUILD_ID" ] || [ "$BUILD_ID" = "None" ]; then
             echo "deploy.sh: could not start CodeBuild project $PROJECT" >&2
             exit 12
