@@ -92,14 +92,25 @@ write plus a recreate, with no rebuild.
 sibling containers and nginx up while one app rolls; without it a single app deploy
 restarts the whole box. Verify with `docker compose ps` and a log tail, not by assuming.
 
-**CI authenticates to AWS with OIDC** — a `role-to-assume` and no long-lived credentials
-in repository secrets. Static `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` is the older
-shape; a project still on it has not been migrated yet, and that is a gap rather than a
-choice.
+**Nothing that touches AWS holds a long-lived credential.** Three shapes exist across the
+estate, best first:
 
-**Migrations run from CI, not from the box.** An ubuntu runner with `drizzle-kit` against
-`DATABASE_URL`, so the migration is versioned and logged with the deploy rather than
-applied by hand over SSH.
+1. **Build and deploy on AWS compute** — CodeBuild assuming a service role, reaching the
+   host through SSM Session Manager rather than an inbound SSH port. No AWS credential in
+   any repository secret, and the only remaining GitHub dependency is the git clone.
+2. **GitHub Actions with OIDC** — a `role-to-assume` and no static keys. Correct for
+   anything that must stay on Actions.
+3. **Static `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`** — the older shape. A project
+   still on it has not been migrated, and that is a gap rather than a choice.
+
+**Migrations run away from the box**, with `drizzle-kit` against `DATABASE_URL` — in
+CodeBuild where the deploy has moved there, on a runner where it has not. Either way the
+migration is versioned and logged with the deploy rather than applied by hand over SSH.
+
+**A deploy reaching the host over SSM lets port 22 close entirely.** An attacker then
+needs AWS credentials *and* the SSH key, where an open port needs only the key. The
+deploy scripts do not change — the `scp` lines, the `ssh` heredocs and the `flock` all
+stay as written; only the transport underneath moves, via an SSH `ProxyCommand`.
 
 **Backups ping a dead-man's-switch.** The dump is pushed to S3 and the workflow pings a
 healthcheck URL on success. A backup job that silently stops running looks exactly like a

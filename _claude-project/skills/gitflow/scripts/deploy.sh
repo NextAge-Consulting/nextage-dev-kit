@@ -84,6 +84,24 @@
 #      optionally watch each (split-deploy consumers ship one per app).
 #      Migrate-only repos (no DEPLOY_WORKFLOWS) stop after step 10.
 #
+# ─── Dispatch backend (DEPLOY_BACKEND) ───────────────────────────────────
+# `github` (default) is the flow described above. `codebuild` starts AWS
+# CodeBuild projects instead: everything that touches AWS runs on AWS compute,
+# so no workflow holds a static AWS key and the only remaining GitHub
+# dependency is the git clone.
+#
+# Under codebuild the fleet is dispatched CONCURRENTLY and polled together,
+# where github watches each run in turn — a six-service release costs the
+# slowest service rather than the sum of all six.
+#
+# DEPLOY_WORKFLOWS remains the single service list. A workflow filename maps to
+# a project by CODEBUILD_PROJECT_PREFIX (deploy-worker.yml → <prefix>worker), so
+# there is no second list to drift. CODEBUILD_MIGRATE_PROJECT names the
+# migration project when it does not follow that pattern.
+#
+# The migrate gate is identical on both backends: watched to completion, a real
+# failure aborts with exit 19 before any app ships.
+#
 # ─── Exit codes ──────────────────────────────────────────────────────────
 #   2  bad args
 #   3  not on main
@@ -91,7 +109,7 @@
 #   5  out of sync with origin
 #   6  HEAD has failed required check-runs
 #   7  no commits since last tag (nothing to deploy)
-#   8  gh CLI not available
+#   8  required CLI not available (gh; also aws under DEPLOY_BACKEND=codebuild)
 #   9  npm/python3 not available
 #  10  bump failed
 #  11  push failed
@@ -178,6 +196,65 @@ if { [ "$NEED_LIST" -eq 1 ] || [ "$NEED_MIG" -eq 1 ] || [ "$NEED_MIG_PATHS" -eq 
     [ "$NEED_MIG" -eq 1 ] && MIGRATE_WF=$(jq -r '.MIGRATE_WORKFLOW // ""' "$SUBS_FILE")
     [ "$NEED_MIG_PATHS" -eq 1 ] && MIGRATE_PATHS=$(jq -r '.MIGRATE_PATHS // ""' "$SUBS_FILE")
 fi
+
+# ─── Dispatch backend ────────────────────────────────────────────────────
+# `github` (default) triggers GitHub Actions workflows; `codebuild` starts AWS
+# CodeBuild projects instead.
+#
+# Explicit per-consumer substitution rather than something sniffed from the
+# repo: a release boundary must not guess where it is shipping from. Consumers
+# cross one at a time; when the last one has, the default flips and the github
+# branch is deleted.
+#
+# DEPLOY_WORKFLOWS stays the single service list either way. Under codebuild a
+# workflow filename maps to a project by prefix — deploy-worker.yml with prefix
+# "acme-deploy-" is project acme-deploy-worker — so there is no second list to
+# drift out of step with the first.
+DEPLOY_BACKEND="github"
+CODEBUILD_PROJECT_PREFIX=""
+CODEBUILD_MIGRATE_PROJECT=""
+if [ -f "$SUBS_FILE" ] && command -v jq >/dev/null 2>&1; then
+    DEPLOY_BACKEND=$(jq -r '.DEPLOY_BACKEND // ""' "$SUBS_FILE")
+    # Empty is the kit's "intentionally disabled" state for a substitution key,
+    # and jq's // only falls back on a MISSING key — so normalize it here rather
+    # than failing every deploy on a consumer that left the key blank.
+    [ -n "$DEPLOY_BACKEND" ] || DEPLOY_BACKEND="github"
+    CODEBUILD_PROJECT_PREFIX=$(jq -r '.CODEBUILD_PROJECT_PREFIX // ""' "$SUBS_FILE")
+    CODEBUILD_MIGRATE_PROJECT=$(jq -r '.CODEBUILD_MIGRATE_PROJECT // ""' "$SUBS_FILE")
+fi
+case "$DEPLOY_BACKEND" in
+    github) ;;
+    codebuild)
+        command -v aws >/dev/null 2>&1 || {
+            echo "deploy.sh: DEPLOY_BACKEND=codebuild but the aws CLI is not installed" >&2; exit 8; }
+        [ -n "$CODEBUILD_PROJECT_PREFIX" ] || {
+            echo "deploy.sh: DEPLOY_BACKEND=codebuild requires CODEBUILD_PROJECT_PREFIX in $SUBS_FILE" >&2; exit 2; }
+        ;;
+    *) echo "deploy.sh: DEPLOY_BACKEND must be github or codebuild (got: '$DEPLOY_BACKEND')" >&2; exit 2 ;;
+esac
+
+# deploy-<service>.yml → <prefix><service>
+cb_project_for() { _s=${1#deploy-}; _s=${_s%.yml}; printf '%s%s' "$CODEBUILD_PROJECT_PREFIX" "$_s"; }
+
+# Start one build; echoes its id, empty on failure.
+cb_start() { aws codebuild start-build --project-name "$1" --query 'build.id' --output text 2>/dev/null; }
+
+# Poll a set of build ids until none is IN_PROGRESS, then echo "<id> <status>"
+# per line. Polling them TOGETHER is what makes a fleet release take as long as
+# its slowest service instead of the sum of all of them.
+cb_wait() {
+    _ids="$*"
+    while :; do
+        # shellcheck disable=SC2086 # intentional word-splitting on the id list
+        _out=$(aws codebuild batch-get-builds --ids $_ids --query 'builds[].[id,buildStatus]' --output text 2>/dev/null)
+        if [ -z "$_out" ]; then
+            echo "deploy.sh: batch-get-builds returned nothing for [$_ids] — cannot confirm the deploy (fail-loud, §X)" >&2
+            return 1
+        fi
+        printf '%s\n' "$_out" | grep -q 'IN_PROGRESS' || { printf '%s\n' "$_out"; return 0; }
+        sleep 10
+    done
+}
 
 # Map positional service names → deploy-<name>.yml, each validated against the
 # known DEPLOY_WORKFLOWS set. A typo fails loud HERE (before any bump/tag) with
@@ -541,6 +618,21 @@ if [ -n "$MIGRATE_WF" ]; then
 
     if [ "$SKIP_MIGRATE" -eq 1 ]; then
         echo "deploy.sh: no migration files changed under [$MIGRATE_PATHS] since $LAST_TAG — skipping $MIGRATE_WF (nothing to apply)." >&2
+    elif [ "$DEPLOY_BACKEND" = "codebuild" ]; then
+        MIG_PROJECT="${CODEBUILD_MIGRATE_PROJECT:-$(cb_project_for "$MIGRATE_WF")}"
+        MIG_BUILD_ID=$(cb_start "$MIG_PROJECT")
+        if [ -z "$MIG_BUILD_ID" ] || [ "$MIG_BUILD_ID" = "None" ]; then
+            echo "deploy.sh: could not start CodeBuild project $MIG_PROJECT (migration)" >&2
+            exit 18
+        fi
+        echo "deploy.sh: started migration $MIG_PROJECT ($MIG_BUILD_ID); waiting before deploying..." >&2
+        MIG_RESULT=$(cb_wait "$MIG_BUILD_ID") || exit 19
+        MIG_STATUS=$(printf '%s\n' "$MIG_RESULT" | awk '{print $2}')
+        if [ "$MIG_STATUS" != "SUCCEEDED" ]; then
+            echo "deploy.sh: migration $MIG_PROJECT finished $MIG_STATUS — aborting before any app deploy" >&2
+            exit 19
+        fi
+        echo "deploy.sh: migration $MIG_PROJECT succeeded; proceeding to app deploy(s)" >&2
     else
         if ! gh workflow run "$MIGRATE_WF" --ref main >&2; then
             echo "deploy.sh: gh workflow run $MIGRATE_WF (migration) failed to trigger" >&2
@@ -569,6 +661,37 @@ if [ ${#WORKFLOWS[@]} -eq 0 ]; then
     # that maintains a database but ships no app artifact. The migration above
     # WAS the deploy — nothing further to trigger.
     echo "deploy.sh: v${NEW} — migration-only deploy (no app workflows configured)." >&2
+elif [ "$DEPLOY_BACKEND" = "codebuild" ]; then
+    # Fire the whole fleet, THEN poll it together. The github branch below
+    # watches each run to completion in turn, which costs the sum of every
+    # service; this costs the slowest one.
+    CB_IDS=""
+    for WF in "${WORKFLOWS[@]}"; do
+        PROJECT=$(cb_project_for "$WF")
+        BUILD_ID=$(cb_start "$PROJECT")
+        if [ -z "$BUILD_ID" ] || [ "$BUILD_ID" = "None" ]; then
+            echo "deploy.sh: could not start CodeBuild project $PROJECT" >&2
+            exit 12
+        fi
+        CB_IDS="$CB_IDS $BUILD_ID"
+        echo "deploy.sh: started $PROJECT ($BUILD_ID)" >&2
+    done
+
+    if [ "$WATCH" -eq 1 ]; then
+        echo "deploy.sh: waiting on ${#WORKFLOWS[@]} build(s)..." >&2
+        # shellcheck disable=SC2086 # intentional word-splitting on the id list
+        CB_RESULT=$(cb_wait $CB_IDS) || exit 13
+        printf '%s\n' "$CB_RESULT" | while read -r _id _status; do
+            echo "deploy.sh:   $_id $_status" >&2
+        done
+        # A single non-SUCCEEDED build fails the release. Every id is reported
+        # above first, so one broken service does not hide the others' state.
+        if printf '%s\n' "$CB_RESULT" | awk '{print $2}' | grep -qv '^SUCCEEDED$'; then
+            echo "deploy.sh: at least one deploy build did not succeed" >&2
+            exit 13
+        fi
+        echo "deploy.sh: v${NEW} deployed across ${#WORKFLOWS[@]} project(s)." >&2
+    fi
 else
     for WF in "${WORKFLOWS[@]}"; do
         if ! gh workflow run "$WF" --ref main >&2; then
