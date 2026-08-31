@@ -521,6 +521,52 @@ mode_for_kit_path() {
 
 # Baseline SHA from the lockfile. Tolerates both schemas: the legacy bare-string
 # value (implicitly mode `owned`) and the current {sha, mode} object.
+# A kit .gitignore rule is "missing" only when it is not ALREADY IN EFFECT.
+#
+# The literal whole-line match this replaced called `.env` missing in a project
+# whose `.env*` already covers it, and had no lockfile state to be clean against
+# — so a brownfield project that expresses the same rule differently re-declined
+# the same lines on every sync, forever, while being fully protected. Ask git the
+# question that actually matters instead: would git ignore this path today?
+#
+# A greenfield project ignores nothing, so it is still offered the whole set —
+# which is the case this list exists for.
+gitignore_rule_in_effect() {
+    local rule="$1" probe negate=0
+
+    case "$rule" in
+        '!'*) negate=1; rule="${rule#!}" ;;
+    esac
+
+    # Turn the pattern into a concrete path git can rule on: a trailing slash is
+    # the directory marker, a leading one anchors at the root (where we probe),
+    # and every wildcard needs something to stand for.
+    probe="${rule%/}"
+    probe="${probe#/}"
+    probe="$(printf '%s' "$probe" | sed 's/\*\*/x/g; s/\*/x/g; s/?/x/g')"
+    [ -n "$probe" ] || return 0
+
+    # `node_modules/` ignores what is INSIDE the directory, so probe a path in it.
+    case "$rule" in */) probe="${probe}/x" ;; esac
+
+    # core.excludesFile is DISABLED for the probe. A rule covered only by the
+    # running developer's personal global ignore is not covered for anyone who
+    # clones the repo, and skipping it there would silently leave the file
+    # tracked for the whole team. Only ignore rules that ship WITH the repo
+    # count. ($GIT_DIR/info/exclude is per-clone too and cannot be switched off
+    # here, but it is a deliberate local override rather than a machine default.)
+    if git -C "$PROJECT_PATH" -c core.excludesFile=/dev/null \
+           check-ignore -q -- "$probe" 2>/dev/null; then
+        # Ignored: satisfies a normal rule, VIOLATES a negation.
+        [ "$negate" -eq 0 ]
+    else
+        # Not ignored: satisfies a negation, violates a normal rule. Also the
+        # answer when the project is not a git repo yet, which correctly offers
+        # every rule rather than hiding them.
+        [ "$negate" -eq 1 ]
+    fi
+}
+
 load_baseline_sha() {
     local dest_rel="$1"
     [ -f "$LOCKFILE" ] || { echo ""; return; }
@@ -735,7 +781,7 @@ if [ "$MODE" = "scan" ]; then
         while IFS= read -r line; do
             [ -z "$line" ] && continue
             case "$line" in \#*) continue ;; esac
-            if [ ! -f "${PROJECT_PATH}/.gitignore" ] || ! grep -Fxq "$line" "${PROJECT_PATH}/.gitignore"; then
+            if ! gitignore_rule_in_effect "$line"; then
                 MISSING_ENTRIES=$(echo "$MISSING_ENTRIES" | jq --arg e "$line" '. + [$e]')
             fi
         done < "$GITIGNORE_ADDITIONS_FILE"
@@ -945,19 +991,31 @@ if [ "$MODE" = "apply-gitignore" ]; then
 
     touch "${PROJECT_PATH}/.gitignore"
 
+    # Comments are held back and flushed only ahead of a rule that is actually
+    # being written, so a project that already covers everything gains no
+    # orphaned section headers explaining rules that were never added.
+    PENDING_COMMENTS=""
+
     while IFS= read -r line; do
         [ -z "$line" ] && continue
         case "$line" in \#*)
-            if ! grep -Fxq "$line" "${PROJECT_PATH}/.gitignore"; then
-                echo "$line" >> "${PROJECT_PATH}/.gitignore"
-            fi
+            PENDING_COMMENTS="${PENDING_COMMENTS}${line}\n"
             continue
             ;;
         esac
-        if ! grep -Fxq "$line" "${PROJECT_PATH}/.gitignore"; then
-            echo "$line" >> "${PROJECT_PATH}/.gitignore"
-            echo "sync-dev-kit.sh: added '$line' to .gitignore" >&2
+        # Same predicate the scan uses, so what was reported is what gets written.
+        # The literal check stays as the write guard — a rule can be in effect via
+        # a broader pattern AND absent as a line, and only the second decides
+        # whether appending would duplicate.
+        if gitignore_rule_in_effect "$line" || grep -Fxq "$line" "${PROJECT_PATH}/.gitignore"; then
+            continue
         fi
+        if [ -n "$PENDING_COMMENTS" ]; then
+            printf '%b' "$PENDING_COMMENTS" >> "${PROJECT_PATH}/.gitignore"
+            PENDING_COMMENTS=""
+        fi
+        echo "$line" >> "${PROJECT_PATH}/.gitignore"
+        echo "sync-dev-kit.sh: added '$line' to .gitignore" >&2
     done < "$ADD_FILE"
 
     exit 0

@@ -15,9 +15,26 @@ Read the actual security groups, the actual compose file, the actual nginx confi
 
 ## The standard shape
 
-One host. nginx terminates TLS and proxies to application containers. The containers
-bind to `127.0.0.1` only — never `0.0.0.0` — so the only way in is through nginx.
-Images come from ECR, orchestrated by docker-compose with `restart: unless-stopped`.
+One host behind an Application Load Balancer. **The ALB terminates TLS with an ACM
+certificate**; nginx on the box listens on `:80` only and proxies to application
+containers, splitting by `server_name` when the host serves more than one site. The
+containers bind to `127.0.0.1` only — never `0.0.0.0` — so the only way in is through
+nginx. Images come from ECR, orchestrated by docker-compose with
+`restart: unless-stopped`. A WAF is attached to the ALB.
+
+## Why not CloudFront instead of the ALB
+
+*Recorded against the present-tense rule (§XV) because it comes up about once a year,
+always in the same words: "why are we paying $16/month for a load balancer with one
+target."*
+
+**The ALB is not there to balance anything. It is there so that TLS is AWS-managed and
+invisible.** That is the whole purchase, and it is why a single-target ALB is correct
+rather than embarrassing.
+
+Drop it and the certificate moves onto the box, where it expires on a timer, unattended,
+and its failure mode is the site ceasing to serve HTTPS. About $194/year to never own
+that is the trade, and we take it.
 
 ## Network boundaries
 
@@ -87,6 +104,52 @@ so nothing surfaces it retroactively, and an account nobody has audited is where
 Not baked into the image, not a `.env` sitting on the box. Rotating a value is a parameter
 write plus a recreate, with no rebuild.
 
+**Client build-time config is a different thing from runtime config, and it fails
+differently.** A bundler inlines its public variables at BUILD time, so by the time the
+container starts the bundle is already written and no amount of correct runtime
+configuration can fix it. A missing one does not crash: it falls back to a development
+default and ships, which is how a customer portal reaches production with its auth client
+still pointed at `http://localhost`. The build must therefore verify them itself.
+
+**Derive the required list from the source, never from a declaration.** The build asserts
+that every public variable the application code READS was actually fetched, by scanning
+the source for the framework's own accessor (`import.meta.env.VITE_*` for Vite, and its
+equivalent elsewhere) and checking each name against what came back from Parameter Store.
+
+**Derive the SCOPE from the project too, never from a directory list in the buildspec.**
+Start at the service's own app directory and read the aliases the project already
+declares for itself — `compilerOptions.paths` in that app's `tsconfig.json`, or the
+equivalent resolver config. Add an aliased directory to the scan only when the service's
+source actually imports that alias, matched against a quote-anchored import specifier so
+a mention in a comment pulls nothing in, and iterate to a fixpoint so a shared package
+that reaches another shared package is followed. A package the service never touches then
+contributes no requirement.
+
+The block that results names no directory, no alias and no package. That is the point:
+the same block ships unmodified to the next repo and reads the layout out of the project
+it is building. A buildspec carrying `apps/$SERVICE plus packages plus apps/shared` looks
+generic and is not — it encodes one repo's shape, passes review, and has to be
+re-tailored by hand for every project after it.
+
+The source is both the consumer and the contract, which is what makes this
+self-maintaining: adding a variable to a component makes it required on the next build,
+and removing the last reference retires the requirement. Three other shapes were tried
+first and all were wrong — worth recording so none is reinvented:
+
+- **Keying off the Dockerfile declaring the build ARG** fails every build for a project
+  that carries the plumbing and legitimately uses no public variables. The ARG is generic
+  infrastructure; its presence says nothing about whether the app has any.
+- **Keying off a hand-set "this project needs them" flag** goes silent the moment someone
+  adds a variable and forgets to flip it — reintroducing the exact silent failure the
+  check exists to prevent, while looking like it is still guarding.
+- **Hardcoding the scan roots** as the app directory plus a fixed list of shared
+  directories. It passes its own project's builds, so nothing surfaces the flaw: it
+  demands one app's variables of a sibling that never imports the package they live in,
+  and it is a fresh hand-edit in every repo that adopts it.
+
+A dynamic lookup escapes the scan, but the bundler cannot inline one either, so it is
+already broken more visibly.
+
 **A deploy pulls one image and recreates one service.** `docker compose pull <app>`, then
 `docker compose up -d --force-recreate --no-deps <app>`. `--no-deps` is what keeps the
 sibling containers and nginx up while one app rolls; without it a single app deploy
@@ -103,6 +166,54 @@ estate, best first:
 3. **Static `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`** — the older shape. A project
    still on it has not been migrated, and that is a gap rather than a choice.
 
+**One CodeBuild service role per project, `<project>-codebuild-deploy`, shared by every
+build project — the migration project included.** Not one role per project-per-workload.
+Settled; provision the single role and move on.
+
+The reason is that a per-workload split does not create a boundary between different
+principals. Every build project runs buildspecs out of the same repository, authored by
+the same people, reviewed the same way. A narrower role on the migration project would
+defend against a buildspec that reaches for ECR or the host — but anyone able to edit
+that buildspec can edit the deploy one just as easily, so the split costs provisioning
+surface and buys nothing against the attacker it appears to address. The boundary that
+does real work is the account: the role is reachable only from CodeBuild in the project's
+own account, and it holds no credential anyone can carry away.
+
+Scope the one role to the union of what the build projects need — ECR push on the
+project's repository prefix, parameter read on the project's path, an SSM session onto
+the deploy target, its own log group, and use of the source connection. Scope it to the
+prefix and the path, never to `*`.
+
+**The scheduled backup is the exception and keeps its own roles.** It is a different
+principal on a different substrate, it is the only identity that may write to the backup
+prefix, and nothing else in the estate should hold that grant — see `db-backup-pattern.md`
+§"The two roles". A shared build role has no business writing backups, and the backup task
+has no business pushing an image.
+
+**Moving a project onto AWS compute is finished by the dispatch flip, not by the
+provisioning.** The build projects, the roles, the buildspecs and the source connection
+are all preparation. The migration happens when the deploy script's backend selector is
+switched and a real release ships through it — before that moment, every green deploy is
+the old path proving the old path.
+
+**Leaving the selector unflipped "as a precaution" is the failure mode to watch for**, and
+it has nearly been declared done at least once: every build project existed, everything
+was verified, and the estate had not moved. A precaution against a cutover is a cutover
+that did not happen, and it is worse than not starting, because it looks finished. The old
+path remains in git history if the new one fails, which is what makes flipping first the
+safe move rather than the bold one — a failure after the flip is fixed forward.
+
+**Then finish it.** Done means the old workflows are deleted, their secrets removed, the
+now-unused identities and federation trusts deleted rather than narrowed, the ports they
+justified closed, and every document rewritten to describe the infrastructure as it now
+is. Write a checklist whose lines are each verifiable by one command, and treat any
+unticked line as unfinished work regardless of how much else is built. "Built but not
+flipped", "flipped but the secrets are still there" and "working but the docs still
+describe the old path" are all the same answer: not done.
+
+Docs get rewritten, never annotated — no note recording what was removed or what replaced
+it. A named dead thing reads as live to the next person.
+
 **Migrations run away from the box**, with `drizzle-kit` against `DATABASE_URL` — in
 CodeBuild where the deploy has moved there, on a runner where it has not. Either way the
 migration is versioned and logged with the deploy rather than applied by hand over SSH.
@@ -112,20 +223,58 @@ needs AWS credentials *and* the SSH key, where an open port needs only the key. 
 deploy scripts do not change — the `scp` lines, the `ssh` heredocs and the `flock` all
 stay as written; only the transport underneath moves, via an SSH `ProxyCommand`.
 
+**Install the SSM client on the operator's machine BEFORE closing the port, never after.**
+The build gets its own copy — a buildspec installs `session-manager-plugin` in its
+`install` phase on every run, so the pipeline half needs nothing local. The machine the
+operator works from is a separate question, and it is the one that gets forgotten, because
+the pipeline keeps working and hides it.
+
+Closing `:22` removes the operator's shell too. Everything after that — an interactive
+`start-session`, and the SSH `ProxyCommand` form equally — needs `session-manager-plugin`
+locally, and installing it usually wants a package manager and an admin password. Get the
+order wrong and access disappears at exactly the moment the cutover most needs verifying:
+the deploy reports green or red and nobody can open the host to find out which is true.
+
+**Assume the host has no second operator.** Where the AI does the host-level work, "a
+human can log in and check" is not a fallback — there is no one holding a second key.
+Treat operator access as part of the infrastructure and prove it works before removing
+what it replaces: install the client, open a session, and do something real over it —
+read a log, list the containers — rather than accepting a successful handshake as proof.
+
+`ssm:SendCommand` runs a shell command and returns output with no local plugin at all,
+which makes it a genuine fallback for "tail me that log" and a poor one for debugging. It
+is a reason not to panic, never a reason to skip the install.
+
+**The agent is not on every image.** AWS preinstalls it on Amazon Linux, Ubuntu, SLES,
+AlmaLinux, macOS and Windows — **Debian is not on that list**, and a Debian host needs the
+`.deb` fetched from `s3.<region>.amazonaws.com/amazon-ssm-<region>/latest/debian_amd64/`
+and enabled by hand. Attaching `AmazonSSMManagedInstanceCore` to the instance role is
+necessary and not sufficient; with no agent installed the role changes nothing and the
+instance simply never appears in `describe-instance-information`, which reads like an IAM
+problem and is not one. Check the AMI before concluding anything about permissions.
+
 **Backups ping a dead-man's-switch.** The dump is pushed to S3 and the workflow pings a
 healthcheck URL on success. A backup job that silently stops running looks exactly like a
 backup job that is working, and the ping is the only thing that distinguishes them.
 
 ## Container resource limits
 
-**Set `mem_limit` (and `memswap_limit`) on every service.** Without them the kernel's
-OOM killer picks its victim by footprint rather than importance, so a leak in one app
-can take out nginx or a sibling container — a whole-host outage. With a limit, the same
-leak restarts one container, which `restart: unless-stopped` already handles.
+**Set `mem_limit` on every service, and set `memswap_limit` to the same value.** A
+container with no limit is an unbounded host-level risk: the kernel's OOM killer picks
+its victim by footprint rather than importance, so a leak in one app can take out nginx
+or a sibling — a whole-host outage. With a limit, the same leak restarts one container,
+which `restart: unless-stopped` already handles.
 
 Size from a measurement, not a guess: `docker stats --no-stream` under real load, plus
 headroom for nginx and the OS. On a small host the sum of the limits must leave the OS
 room to breathe.
+
+**These hosts run without swap, deliberately — do not add it.** Swap does not prevent
+the failure a memory limit prevents; it converts a fast, contained OOM kill into the
+whole box thrashing on EBS, which takes every service down together and is harder to
+diagnose because nothing died. Equal `mem_limit` and `memswap_limit` is what switches
+swap off for a container, which is why the two are set together above. A container that
+keeps hitting its ceiling needs a bigger limit or a bigger box, never swap.
 
 ## Health checks that mean something
 
@@ -175,9 +324,24 @@ plainly rather than building a dashboard nobody reads.
 
 ## The things forgotten on the second box
 
-Swap, or the deliberate absence of it, on a small instance. Unattended security upgrades.
-Disk headroom for image layers — pulls accumulate. What happens to running containers on
-reboot. None of these are interesting, and all of them are only noticed when missing.
+None of these are interesting, and all of them are only noticed when missing. **Each
+line is one command against the live account** — run them on every box, not only new
+ones. An established project is where these hide, because nothing ever surfaced them.
+
+| Check | Command | Wrong answer looks like |
+|---|---|---|
+| A WAF is actually attached | `aws wafv2 list-web-acls --scope REGIONAL` then `list-resources-for-web-acl` | An empty list. A project ran for months with an ALB and no WAF, and nothing anywhere reported it |
+| The public IP is Elastic, not auto-assigned | `aws ec2 describe-instances --query 'Reservations[].Instances[].NetworkInterfaces[].Association.IpOwnerId'` | `amazon` — the IP **moves on stop/start**, silently breaking `EC2_HOST` secrets and any A record pointing at it |
+| The instance group is not world-open | `aws ec2 describe-security-groups` | Any `0.0.0.0/0` on the *instance* group. `:80` there bypasses the WAF entirely; `:22` there is a standing invitation |
+| SSH is closed and SSM works | `aws ssm describe-instance-information` | Agent absent while `:22` is open — the port cannot be closed until the agent is proven |
+| ECR repositories have a lifecycle policy | `aws ecr get-lifecycle-policy` per repository | `LifecyclePolicyNotFoundException`. Nothing fails; images accumulate and the bill arrives months later |
+| Swap is OFF | `swapon --show` | Any swap on a container host — it trades a contained OOM kill for host-wide thrashing |
+| Containers report healthy | `docker ps` | `(unhealthy)`. Check the probe target before the app — a healthcheck pointed at a path that redirects fails forever while the app is fine |
+| Every container has `mem_limit` | `docker inspect -f '{{.Name}} {{.HostConfig.Memory}}' $(docker ps -q)` | A `0`. Unbounded containers are the actual control here — this is the row that matters |
+| The instance is not wildly oversized | 30-day `CPUUtilization` in CloudWatch | A flat 3% with burst credits pinned at maximum, usually left over from a build-on-the-box era |
+
+Unattended security upgrades, disk headroom for image layers, and what happens to running
+containers on reboot round out the list.
 
 ## When to stop co-hosting
 

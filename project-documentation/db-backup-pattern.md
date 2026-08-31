@@ -10,6 +10,43 @@ Values marked `<project>` / `<PLACEHOLDER>` are the ones that change per project
 
 ---
 
+## This is the SECOND line of defence — size the effort accordingly
+
+**Neon's own point-in-time recovery is the primary backup.** It is continuous, it is the
+thing you actually reach for after a bad migration or a mistaken `DELETE`, and it needs
+no work from us. This pattern is the *offsite* copy: it covers the cases PITR cannot —
+the Neon project itself lost, an account closed or compromised, a provider-wide failure,
+or a retention window that has already rolled past the damage.
+
+That ranking is not a footnote, it is the budget. It means the correct amount of
+machinery here is: dump, validate, upload, and one dead-man's switch. Everything past
+that is being built for the second line of defence against a failure whose first line
+still works, and it competes for attention with real work.
+
+**So the bar for adding anything to this pattern is high, and "it would be nice to be
+warned earlier" does not clear it.** The worked example, decided and not to be reopened:
+a check comparing the image's `pg_dump` major against the live server major, so a Neon
+major upgrade is announced before the dump fails. It sounds prudent and it is not worth
+building.
+
+- The case is **already fail-loud**. Postgres refuses outright — "pg_dump cannot dump
+  from PostgreSQL servers newer than its own major version; it will refuse to even try" —
+  so the run exits non-zero, the trap pings `/fail`, and the monitor pages that night.
+  Nothing is silent.
+- Nothing is **down**. The primary backup is unaffected; what has stopped is the copy of
+  a copy, and the fix is a one-line `FROM` bump and an image push.
+- The check **cannot warn earlier anyway**. Nothing inside the container can see a
+  scheduled provider upgrade, so the first signal is the first failed run either way. The
+  gain is a better error message on a once-in-two-years event.
+- A second monitor for it is worse than nothing — see the dead-man's-switch section.
+  One vendor, one place to look.
+
+Apply the same test to anything else proposed here: does it detect a failure that is
+otherwise silent, and does that failure put real data at risk? If not, it is tinkering,
+and the documentation is the control.
+
+---
+
 ## The shape
 
 ```
@@ -349,4 +386,4 @@ the lifecycle rule.
 - EventBridge Scheduler targets: https://docs.aws.amazon.com/scheduler/latest/UserGuide/managing-targets.html
 - ECS task role vs execution role: https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-iam-roles.html
 - `infrastructure.md` — where this sits in the standard client build-out
-- `pipeline-improvements-to-implement.md` §9 — the decision to move AWS-touching workloads off Actions
+- `pipeline-improvements-to-implement.md` §8 — the decision to move AWS-touching workloads off Actions
