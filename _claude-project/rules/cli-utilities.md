@@ -69,6 +69,30 @@ So a client profile that reports an expired session is fixed by logging into
 **`nextage`**, not that profile. The CLI calls STS itself, caches the temporary
 credentials under `~/.aws/cli/cache`, and refreshes them without asking.
 
+**NEVER run `aws login` against a client profile — the hub is the ONLY profile anyone
+ever logs into.** Read `~/.aws/config` before handing over any login command: the hub is
+the profile carrying `login_session`, a client is one carrying `role_arn` +
+`source_profile`. `AWS_PROFILE` in `sync-substitutions.json` names the profile to USE,
+never the one to log into, and reaching for it there is exactly how this goes wrong.
+
+**Logging into a client profile CORRUPTS it.** `aws login --profile <client>` appends a
+`login_session` line to a profile that only ever meant to assume a role. That line then
+shadows the role chain and every command fails with:
+
+```
+ValidationException ... CreateOAuth2Token ... The provided authorization grant is
+invalid, expired, revoked, or malformed
+```
+
+which reads as an expired session — so the natural response is to log in again, which
+rewrites the line and breaks it again. Recognise the loop by the error naming
+`CreateOAuth2Token` on a profile that has a `role_arn`.
+
+**Recovery:** delete that one `login_session` line from the client profile in
+`~/.aws/config`, then `aws login --profile <hub>`. Nothing else needs touching; the
+client profile works again immediately. Do NOT sign out of the browser or clear
+cookies for this — that is the fix for the 400 below, a different failure.
+
 **The human runs `aws login --profile nextage`** — hand them
 `! aws login --profile nextage` and wait. It is a browser console sign-in that writes
 a `login_session` line and manages temporary credentials with a refresh token, so no
