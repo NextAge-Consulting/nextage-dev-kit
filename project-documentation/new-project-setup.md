@@ -30,7 +30,7 @@ The single walkthrough for taking a brand-new project from nothing to "kit insta
 - [ ] **4** — `/sync-dev-kit` run; substitutions walkthrough completed `[claude+you]`
 - [ ] **5** — Gemini Code Review installed + repo linked — or explicitly marked not-installed `[you]` then `[claude]`
 - [ ] **6** — Secrets & env: `.env`, GitHub Actions secrets, MCP API keys `[claude+you]`
-- [ ] **7** — Project-specific deploy workflow authored, + registry repo AND lifecycle policy per image (if this project deploys) `[claude+you]`
+- [ ] **7** — Project-specific CodeBuild deploy pipeline authored (buildspecs + projects + CodeConnections), + registry repo AND lifecycle policy per image (if this project deploys) `[claude+you]`
 - [ ] **8** — Every section's verify command passes `[claude]`
 - [ ] **9** — First `/work` session — pipeline proven end-to-end `[claude]`
 
@@ -266,7 +266,7 @@ From the **project root** (not inside the kit), run `/sync-dev-kit`. First-run f
    - `PROJECT_ABBREV` — short label for `wip/<abbrev>-…` branch names (Claude pre-computes a default from the dir name; accept or shorten).
    - `GEMINI_NOT_INSTALLED` — leave empty for now if you're installing Gemini in step 5; set to `"true"` if this repo will not have Gemini.
    - `GITFLOW_PROJECT_ID` + the `GITFLOW_STATUS_*` IDs — only if you use a GitHub Project board (Claude can run the `gh api graphql` discovery for you). Leave empty / `_intentionally_empty` to skip board integration.
-   - `DEPLOY_WORKFLOWS` — space-separated deploy workflow filenames; leave empty to default to `deploy.yml`.
+   - `DEPLOY_BACKEND` + `DEPLOY_WORKFLOWS` + `CODEBUILD_PROJECT_PREFIX` — the deploy pipeline; see step 7. Leave all empty if this repo doesn't deploy.
 
    > Three states per key (handbook §9.7): **missing** = undecided, marker survives, re-nags every sync; **empty string** = intentionally disabled; **populated** = normal value. `_intentionally_empty` distinguishes "informed disable" from "deferred."
 3. **Per-file review (Steps 2–5)** — accept the kit files (`.claude/`, `.github/workflows/`, `.gemini/`, `.mcp.json`, `.commitlintrc.json`, `biome.json`, `.semgrepignore`) and the `.gitignore` additions.
@@ -298,7 +298,7 @@ Full procedure (two lanes — billing/IAM owner vs configurer) lives in **`gemin
   ```bash
   export EXA_API_KEY="…"
   ```
-- **GitHub Actions secrets** `[you]` — set under repo (or org) *Settings → Secrets and variables → Actions*. Only what your workflows reference (e.g. Neon/DB secrets for CI test branches, deploy credentials).
+- **GitHub Actions secrets** `[you]` — set under repo (or org) *Settings → Secrets and variables → Actions*. Only what CI references (e.g. Neon/DB secrets for CI test branches). **No AWS credential belongs here** — deploys run on CodeBuild under a service role (step 7).
 
 **Verify:** every `${VAR}` referenced in `.mcp.json` is exported in your shell:
 
@@ -307,19 +307,73 @@ grep -oE '\$\{[A-Z_]+\}' .mcp.json 2>/dev/null | tr -d '${}' | sort -u \
   | while read -r v; do [ -n "${!v:-}" ] && echo "  set:   $v" || echo "  UNSET: $v"; done
 ```
 
-### 7 — Deploy workflow (if this project deploys) `[claude+you]`
+### 7 — Deploy pipeline (if this project deploys) `[claude+you]`
 
-Deploy workflows are **project-specific** — the kit does NOT ship one (different targets, registries, hosts). Author `.github/workflows/<name>.yml` with a `workflow_dispatch:` trigger and **no** `push:` trigger (so `/deploy` is the only thing that fires it). List the filename(s) in the `DEPLOY_WORKFLOWS` substitution. See handbook §11.9 for the per-app `detect` pattern when a monorepo splits deploys.
+**Deploys run on AWS CodeBuild.** Everything that touches AWS runs in AWS; only PR CI and
+commit linting stay on GitHub Actions (`infrastructure.md`). **Start a new project here** —
+standing the deploy up on Actions intending to move it later is the expensive path.
 
-**Verify:** each workflow named in `DEPLOY_WORKFLOWS` exists:
+The pipeline is **project-specific** — the kit ships no buildspec (different targets,
+registries, hosts). Per deployable service, author a buildspec in the repo and provision a
+CodeBuild project named `<CODEBUILD_PROJECT_PREFIX><service>`, plus one for the migration if
+the project has a database. All of them share the one `<project>-codebuild-deploy` service
+role (`infrastructure.md`). See handbook §11.9 for the per-app `detect` pattern when a
+monorepo splits deploys.
+
+Set in `.claude/sync-substitutions.json`:
+
+- `DEPLOY_BACKEND` — `codebuild`. It is the default, so leaving it unset works; set it explicitly anyway, so the file records the decision.
+- `DEPLOY_WORKFLOWS` — the service list, one `deploy-<service>.yml`-shaped name per service. It stays the single service list under both backends: `deploy.sh` maps each name to its CodeBuild project by stripping `deploy-` / `.yml` and applying the prefix, so there is no second list to drift.
+- `CODEBUILD_PROJECT_PREFIX` — e.g. `myproj-deploy-`. Required; `/deploy` exits 2 without it.
+- `CODEBUILD_MIGRATE_PROJECT` — only when the migration project does not follow the prefix pattern.
+- `MIGRATE_WORKFLOW` — if this project migrates a database. `/deploy` runs it first and gates on it.
+- `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_PROFILE`.
+
+Empty `DEPLOY_WORKFLOWS` means this repo doesn't deploy — record that in
+`_intentionally_empty` so the sync walkthrough stops asking. Empty with `MIGRATE_WORKFLOW`
+set means a migration-only deploy.
+
+**Verify:** every project `/deploy` will dispatch exists in the account:
 
 ```bash
-jq -r '.DEPLOY_WORKFLOWS // ""' .claude/sync-substitutions.json \
+PROFILE=$(jq -r .AWS_PROFILE .claude/sync-substitutions.json)
+REGION=$(jq -r .AWS_REGION  .claude/sync-substitutions.json)
+PREFIX=$(jq -r .CODEBUILD_PROJECT_PREFIX .claude/sync-substitutions.json)
+jq -r '[.DEPLOY_WORKFLOWS, .MIGRATE_WORKFLOW] | map(select(. != null and . != "")) | join(" ")' \
+     .claude/sync-substitutions.json \
   | tr ' ' '\n' | grep -v '^$' \
-  | while read -r w; do ls ".github/workflows/$w" >/dev/null 2>&1 && echo "  ok:      $w" || echo "  MISSING: $w"; done
+  | while read -r w; do
+      p="${PREFIX}$(echo "${w#deploy-}" | sed 's/\.yml$//')"
+      aws codebuild batch-get-projects --names "$p" --profile "$PROFILE" --region "$REGION" \
+        --query 'projects[0].name' --output text 2>/dev/null | grep -q . \
+        && echo "  ok:      $p" || echo "  MISSING: $p"
+    done
 ```
 
-Empty `DEPLOY_WORKFLOWS` means this repo doesn't deploy — record that in `_intentionally_empty` so the sync walkthrough stops asking.
+#### 7-prereq — CodeConnections, once per AWS account `[claude+you]`
+
+CodeBuild clones over a GitHub App connection, and it must be both **completed** and
+**registered as the account's source credential** — two separate things, and skipping the
+second fails every build at `DOWNLOAD_SOURCE` with "authentication required" while the
+connection itself reads `AVAILABLE`.
+
+```bash
+PROFILE=$(jq -r .AWS_PROFILE .claude/sync-substitutions.json)
+REGION=$(jq -r .AWS_REGION  .claude/sync-substitutions.json)
+
+# 1. Create it. The CLI leaves it PENDING; a human finishes the handshake in the console.
+aws codeconnections create-connection --provider-type GitHub --connection-name "<project>-github" \
+  --profile "$PROFILE" --region "$REGION"
+
+# 2. [you] Console → Developer Tools → Connections → Update pending connection.
+
+# 3. Register it account-wide.
+aws codebuild import-source-credentials --server-type GITHUB --auth-type CODECONNECTIONS \
+  --token "<connection-arn>" --profile "$PROFILE" --region "$REGION"
+```
+
+**Verify:** `aws codeconnections list-connections` reports `AVAILABLE`, and
+`aws codebuild list-source-credentials` lists the ARN.
 
 #### 7a — Container registry: create the repository AND its lifecycle policy `[claude]`
 
@@ -352,7 +406,7 @@ aws ecr put-lifecycle-policy --repository-name "<repo>" \
   --profile "$PROFILE" --region "$REGION"
 ```
 
-**This exact two-rule text is what the workflow guard below prints as its
+**This exact two-rule text is what the buildspec guard below prints as its
 remediation.** Keep the two identical. A guard that tells you to paste a policy
 different from the one the setup step creates teaches the reader that one of them
 is wrong, and they cannot tell which.
@@ -370,7 +424,7 @@ before rule 2 can, so they expire on age rather than waiting to fall out of a co
 manifest list are never expired regardless: ECR will not break a manifest list, so
 a healthy repository still shows untagged images and that is not a policy failure.
 
-**Name the repository to match the CI push policy.** That policy is normally
+**Name the repository to match the push policy on the CodeBuild service role.** That policy is normally
 scoped by prefix (e.g. `repository/<project>-*`). A repository named for the
 project alone (`myproj`) does **not** match `myproj-*`, and the push fails with
 an opaque 403 — name it `myproj-<service>`.
@@ -387,9 +441,9 @@ for r in $(aws ecr describe-repositories --profile "$PROFILE" --region "$REGION"
 done
 ```
 
-**Grant the CI identity `ecr:GetLifecyclePolicy`.** The push permissions every
+**Grant the CodeBuild service role `ecr:GetLifecyclePolicy`.** The push permissions every
 container project already has (`PutImage`, `UploadLayerPart`, `DescribeRepositories`,
-…) do **not** include it, so the workflow check below cannot read the policy it is
+…) do **not** include it, so the buildspec check below cannot read the policy it is
 checking. Add it to the same statement that scopes the push, alongside
 `ecr:DescribeRepositories`:
 
@@ -399,31 +453,32 @@ checking. Add it to the same statement that scopes the push, alongside
 ```
 
 Read-only, and the guard is useless without it. `ecr:PutLifecyclePolicy` is
-deliberately **not** granted — CI verifies the policy, a human creates it.
+deliberately **not** granted — the build verifies the policy, a human creates it.
 
-**Put the check in the deploy workflow, not only in this document.** That is the
+**Put the check in the buildspec, not only in this document.** That is the
 part that actually prevents recurrence, and it generalises well beyond ECR.
 
 Adding a container to an *existing* project never involves reading this file —
-you copy the neighbouring `Dockerfile`, `docker-compose` service and deploy
-workflow, because that is where the working pattern lives. A setup step that
+you copy the neighbouring `Dockerfile`, `docker-compose` service and buildspec,
+because that is where the working pattern lives. A setup step that
 exists only in a setup doc therefore gets skipped every time after the first.
-Make the deploy workflow assert it instead:
+Make the buildspec assert it instead, in `pre_build`:
 
 ```yaml
-- name: Verify ECR repository and lifecycle policy
-  run: |
-    REPO="${{ env.IMAGE_NAME }}"; REGION="${{ secrets.AWS_REGION }}"
-    aws ecr describe-repositories --repository-names "$REPO" --region "$REGION" >/dev/null 2>&1 || {
-      echo "::error::ECR repository '$REPO' does not exist. Fix: aws ecr create-repository …"; exit 1; }
-    if ! ERR=$(aws ecr get-lifecycle-policy --repository-name "$REPO" --region "$REGION" 2>&1); then
-      case "$ERR" in
-        *AccessDenied*|*not\ authorized*)
-          echo "::error::CI identity lacks ecr:GetLifecyclePolicy on '$REPO' — cannot verify. Grant it; do not weaken this check."; exit 1 ;;
-        *)
-          echo "::error::'$REPO' has NO lifecycle policy — images accumulate forever. Fix: aws ecr put-lifecycle-policy …"; exit 1 ;;
-      esac
-    fi
+pre_build:
+  commands:
+    - |
+      aws ecr describe-repositories --repository-names "$IMAGE_NAME" --region "$AWS_REGION" >/dev/null 2>&1 || {
+        echo "ERROR: ECR repository '$IMAGE_NAME' does not exist. Fix: aws ecr create-repository …"; exit 1; }
+    - |
+      if ! ERR=$(aws ecr get-lifecycle-policy --repository-name "$IMAGE_NAME" --region "$AWS_REGION" 2>&1); then
+        case "$ERR" in
+          *AccessDenied*|*not\ authorized*)
+            echo "ERROR: the CodeBuild service role lacks ecr:GetLifecyclePolicy on '$IMAGE_NAME' — cannot verify. Grant it; do not weaken this check."; exit 1 ;;
+          *)
+            echo "ERROR: '$IMAGE_NAME' has NO lifecycle policy — images accumulate forever. Fix: aws ecr put-lifecycle-policy …"; exit 1 ;;
+        esac
+      fi
 ```
 
 The requirement then travels with the thing that gets copied, and a new service
@@ -447,9 +502,27 @@ surfaces it retroactively; the repositories that need it most are the ones in an
 account nobody has thought about lately. Enumerate the accounts from the profiles in
 `~/.aws/config` rather than from memory, and run the loop in each.
 
+#### 7b — Buildspec traps `[claude]`
+
+Four things bite when authoring a buildspec, each failing in a way that does not name its
+cause:
+
+- **The standard CodeBuild image is Amazon Linux, not Ubuntu.** A step that installs a
+  `.deb` dies with a bare exit 127. Use the Amazon Linux package manager, or pin an image.
+- **The registry cache needs the `docker-container` buildx driver.** `--cache-to
+  type=registry` fails outright with "Cache export is not supported for the docker driver"
+  unless the buildspec creates and selects a `docker-container` builder first. The cache
+  itself lives in the registry, so it is runner-agnostic once the driver is right.
+- **A compose service name may not match the deploy target name.** Parameterise it rather
+  than assuming they match — the mismatch fails exactly one service in a fleet, at
+  `POST_BUILD`, long after the build passed.
+- **Mint a fresh deploy key for the host rather than reusing an existing one.** An old key
+  usually exists only as an unreadable secret somewhere; a new one lets the old identity be
+  deleted outright instead of lingering with standing access.
+
 ### 8 — Full verification `[claude]`
 
-Re-run each section's **Verify** block above, top to bottom, and read the output. Resolve anything that reports missing or unset before developing. The machine checks (P0) only need re-running if you changed toolchain since; the project checks (steps 4, 6, 7, 7a) are the ones that catch a half-finished setup. Step 7a's verify is also worth running periodically against **established** projects — a missing lifecycle policy never fails a build, so nothing else will surface it.
+Re-run each section's **Verify** block above, top to bottom, and read the output. Resolve anything that reports missing or unset before developing. The machine checks (P0) only need re-running if you changed toolchain since; the project checks (steps 4, 6, 7, 7-prereq, 7a) are the ones that catch a half-finished setup. Step 7a's verify is also worth running periodically against **established** projects — a missing lifecycle policy never fails a build, so nothing else will surface it.
 
 ### 9 — First work session `[claude]`
 

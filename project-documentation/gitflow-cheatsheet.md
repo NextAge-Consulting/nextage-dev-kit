@@ -79,7 +79,7 @@ No new branch, no stash. Just link and keep working.
                 # does NOT transition the project board (Staged stays until /deploy)
                 # post-merge: if landing on main changed package*.json, merge.sh runs `npm ci`
                 #   so node_modules isn't left stale (bites the next /merge build gate)
-/deploy       # bump version, tag, push, trigger deploy workflow(s)
+/deploy       # bump version, tag, push, dispatch the deploy build(s)
                 # transitions every closed issue in the release → "Done" on the project board
 
 /ship-main    # THE EXCEPTION: conventional commit straight onto main — no branch, no PR, no CI
@@ -199,7 +199,7 @@ Dev server lifecycle governed by `.claude/rules/dev-server.md` — Claude checks
 /triage              ← walk Gemini items one at a time (fix or skip, your call)
 /e2e                 ← optional manual verification
 /merge               ← ship after CI green; current/ removed (NOT auto-recreated); primary syncs to new main. Board state unchanged (still Staged). Next /work creates a fresh current/.
-/deploy              ← release: bump version, tag, trigger deploy workflow(s). Board → Done for every issue closed by this release.
+/deploy              ← release: bump version, tag, dispatch the deploy build(s). Board → Done for every issue closed by this release.
 ```
 
 Picking up tomorrow on unfinished work: same launch, just `/work` (no args). You are still on yesterday's branch; `/work` sees that and resumes exactly where you left off.

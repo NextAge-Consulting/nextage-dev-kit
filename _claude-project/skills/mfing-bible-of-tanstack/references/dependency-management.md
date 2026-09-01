@@ -46,3 +46,54 @@ If any surface fails, revert the override; the version is not safe to force. Doc
 - Alert's dependency chain runs through `@tanstack/*` or `vite` → **bump Start/Vite, never `overrides`.**
 - Alert is a leaf dev/tooling dep with no react-start/vite ancestry (e.g. a standalone CLI) → a normal override/bump is fine; the fragility above doesn't apply.
 - Unsure → run `npm ls <pkg>` and look at the ancestry before deciding.
+
+## A greenfield install duplicates peers that established lockfiles pinned long ago
+
+**Symptom, on a brand-new project only:** `tsc` rejects the QueryClient handed to
+`setupRouterSsrQueryIntegration` —
+
+```
+Type 'QueryClient' is not assignable to type 'QueryClient'.
+  Property '#private' in type 'QueryClient' refers to a different member that
+  cannot be accessed from within type 'QueryClient'.
+```
+
+Two copies of `@tanstack/query-core` are installed. `npm ls @tanstack/query-core`
+shows one nested under `@tanstack/react-query` and a different one under
+`@tanstack/react-router-ssr-query`.
+
+**Why it only happens on a new repo.** `@tanstack/query-core` is a **peer**
+dependency of `react-router-ssr-query` and `router-ssr-query-core`, declared with an
+open range (`>=5.90.0`). `react-query`, by contrast, pins its own copy exactly. When
+a project was first installed, the newest thing satisfying the open range *was* the
+version react-query pinned, so npm hoisted one copy and the lockfile has held it
+there ever since — `npm ci` never re-resolves it. Install the same blessed manifest
+today and npm satisfies that open range with whatever is newest now, which no longer
+matches react-query's pin.
+
+So every established project is green and the new one is red **on identical pins**.
+The blessed set is not at fault, and this is not a reason to move a pin.
+
+**The fix is to declare the peer explicitly**, as a normal direct dependency of the
+app, at the version `react-query` pins:
+
+```jsonc
+"dependencies": {
+  "@tanstack/query-core": "<react-query's exact pinned version>",
+  "@tanstack/react-query": "<same>",
+}
+```
+
+Then delete `node_modules` and the lockfile and reinstall — editing the manifest
+alone will not move a version the lockfile has already resolved. `npm ls
+@tanstack/query-core` must then show one copy with every other reference `deduped`.
+
+**This is not the `overrides` hazard above.** Declaring a peer you actually consume
+is the supported way to control its resolution; it forces nothing onto the Start
+chain and adds no entry to `overrides`. The distinction is worth holding: the rule
+above forbids forcing a version *underneath* packages that pin their own set, while
+this is naming a version for a range that was left open for the consumer to close.
+
+**Suspect this whenever a new project fails a check an old one passes on the same
+manifest.** The generalisation is not specific to Query: any peer declared with an
+open range drifts on a fresh resolution, and the lockfile is what hides it.

@@ -107,19 +107,29 @@ The direct push to `main` requires require-PR to be OFF on the consumer repo's `
 
 | Outcome | Action |
 |---|---|
-| Success | Report `v<NEW>` deployed; link to the workflow run |
+| Success | Report `v<NEW>` deployed; link to the build (CodeBuild console, or the workflow run under `github`) |
 | Push to main rejected | Usually require-PR is still ON on `main` — turn it off (pipeline.md §1.1) then retry. Other cause: `origin/main` advanced and the rebase hit a conflict; resolve and re-push. |
 | Exit 17 (tag push failed) | Tag-protection rules may be present; check `gh api repos/{owner}/{repo}/tags/protection` |
-| Exit 18 (migration trigger failed) | `gh workflow run <migrate-wf>` failed — check the workflow exists, has `workflow_dispatch:`, and is on main. Tag is already pushed; re-run the migrate + deploys manually (see Recovery) or fix and re-invoke. |
+| Exit 18 (migration trigger failed) | The migration dispatch failed — under `codebuild`, check the project named by `CODEBUILD_MIGRATE_PROJECT` (or the prefix-derived name) exists and the role can start it; under `github`, check the workflow exists, has `workflow_dispatch:`, and is on main. Tag is already pushed; re-run the migrate + deploys manually (see Recovery) or fix and re-invoke. |
 | Exit 19 (migration run failed) | The migration workflow ran and failed (or its run id couldn't be resolved) — deploy aborted BEFORE any app deploy. Surface the run URL; fix the migration, then trigger `MIGRATE_WORKFLOW` + the `DEPLOY_WORKFLOWS` manually (Recovery) — do NOT deploy apps against a failed migration. |
-| Exit 13 (deploy run failed) | Surface the run URL; user investigates via GitHub Actions UI |
+| Exit 13 (deploy run failed) | Surface the build URL; user investigates in the CodeBuild console (Actions UI under `github`). Every build's status is reported, so one broken service does not hide the others. |
 
-If the script fails AFTER the bump commit pushed to `main` but BEFORE the tag / workflow trigger, the bump is already live on main. Recovery:
+If the script fails AFTER the bump commit pushed to `main` but BEFORE the tag / dispatch, the bump is already live on main. Recovery:
 
 ```bash
 git checkout main && git pull --ff-only
 git tag v<NEW> $(git rev-parse HEAD) && git push origin v<NEW>
-# Trigger each workflow named in DEPLOY_WORKFLOWS (or deploy.yml if unset):
+
+# DEPLOY_BACKEND=codebuild — start each project by name:
+PREFIX=$(jq -r .CODEBUILD_PROJECT_PREFIX .claude/sync-substitutions.json)
+REGION=$(jq -r .AWS_REGION .claude/sync-substitutions.json)
+PROFILE=$(jq -r .AWS_PROFILE .claude/sync-substitutions.json)
+for wf in $(jq -r '.DEPLOY_WORKFLOWS // ""' .claude/sync-substitutions.json); do
+    svc=${wf#deploy-}; svc=${svc%.yml}
+    aws codebuild start-build --project-name "${PREFIX}${svc}" --profile "$PROFILE" --region "$REGION"
+done
+
+# DEPLOY_BACKEND=github (fallback) — trigger each workflow:
 for wf in $(jq -r '.DEPLOY_WORKFLOWS // "deploy.yml"' .claude/sync-substitutions.json); do
     gh workflow run "$wf" --ref main
 done
@@ -131,7 +141,7 @@ done
 - Commits the bump + changelog on `main` and pushes `main` directly (require-PR off, the default) — no release branch, no PR
 - Tags after the bump commit lands on main (the tag lives on the bump SHA on main)
 - Runs a **gated migration phase first** if `MIGRATE_WORKFLOW` is set (per-project sync-substitution, runtime-read; `--migrate-workflow <file>` overrides). Migration is deploy step 1 — watched to completion, real failure aborts before any app deploy. The migrate workflow's body owns no-op-as-success / trap-real-failures semantics (handbook §6.5). Migration is never invoked standalone. **Skipped entirely** when `MIGRATE_PATHS` (per-project sync-substitution, runtime-read; `--migrate-paths <path>...` overrides, space-separated) is set and nothing under those paths changed since the last deploy's tag — no runner is spun up (that's where the ~2 min goes: runner boot + `npm ci` to reach a no-op). Empty/missing `MIGRATE_PATHS` → the migration always fires (prior behavior). The reference is the previous deploy's tag, so a failed-then-recovered migration is unaffected (handbook §6.5).
-- Triggers every workflow in `DEPLOY_WORKFLOWS` (per-project sync-substitution, runtime-read; falls back to `deploy.yml` if unset AND no `MIGRATE_WORKFLOW`) via `workflow_dispatch:` only. A migrate-only repo (`MIGRATE_WORKFLOW` set + `DEPLOY_WORKFLOWS` empty) ships no app artifact.
+- Dispatches every service in `DEPLOY_WORKFLOWS` (per-project sync-substitution, runtime-read; falls back to `deploy.yml` if unset AND no `MIGRATE_WORKFLOW`) to the compute named by `DEPLOY_BACKEND`. Under `codebuild` — the default — each name maps to a CodeBuild project via `CODEBUILD_PROJECT_PREFIX` and the fleet is dispatched concurrently and polled together; under `github` each is a `workflow_dispatch:`-only workflow watched in turn. A migrate-only repo (`MIGRATE_WORKFLOW` set + `DEPLOY_WORKFLOWS` empty) ships no app artifact.
 - **Targets a subset with bare service names** — `/deploy worker` (or `/deploy worker rest`) ships only those services, mirroring `/dev <workspace>`. A bare positional maps to `deploy-<service>.yml` and is validated against `DEPLOY_WORKFLOWS` before any bump, so a typo fails loud (exit 2, nothing mutated) with the valid names rather than half-deploying. `--workflow <file>` remains the raw-filename escape hatch for a workflow not in the set; positional services and `--workflow` accumulate. Bare `/deploy` with neither still ships the full fleet.
 
 ## What this command does NOT do
@@ -149,8 +159,9 @@ Additional cases specific to the direct-push flow:
 - Push to `main` rejected: require-PR is still ON on `main`. Turn it off (pipeline.md §1.1) and retry. With require-PR set, GitHub rejects every direct push to main.
 - `origin/main` advanced between the state-gate check and the push: the script rebases the bump commit onto the new main and re-pushes. On rebase conflict it stops; resolve and `git push origin main`.
 
-## GitHub repo requirements
+## Repo and account requirements
 
-- Every workflow listed in `DEPLOY_WORKFLOWS` (or `deploy.yml` if unset) MUST have `workflow_dispatch:` as a trigger (and ideally ONLY that — see handbook §11.4)
+- Under `DEPLOY_BACKEND=codebuild` (the default, so this applies to an unset key too): the `aws` CLI installed and authed (exit 8 otherwise), `CODEBUILD_PROJECT_PREFIX` and `AWS_REGION` set (exit 2 otherwise), and a CodeBuild project existing for every name in `DEPLOY_WORKFLOWS` plus `MIGRATE_WORKFLOW`
+- Under `DEPLOY_BACKEND=github`: every workflow listed in `DEPLOY_WORKFLOWS` (or `deploy.yml` if unset) MUST have `workflow_dispatch:` as a trigger (and ideally ONLY that — see handbook §11.4)
 - `gh` CLI installed and authed
 - `main` must have **require-PR OFF** (the default — pipeline.md §1.1) so the bump commit can push directly. The pipeline uses no branch protection.

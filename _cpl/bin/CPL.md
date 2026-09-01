@@ -4,7 +4,7 @@ Spotlight-launchable app for opening Claude Code / Terminal / custom commands in
 
 ## Source of Truth
 
-CPL source lives in `_cpl/` within the [nextage-dev-kit](https://github.com/petehalsted/nextage-dev-kit) repo. All changes are made there and synced via `sync-cpl.sh`.
+CPL source lives in `_cpl/` within the [nextage-dev-kit](https://github.com/NextAge-Consulting/nextage-dev-kit) repo. All changes are made there and synced via `sync-cpl.sh`.
 
 ```bash
 ./_cpl/sync-cpl.sh          # from the kit repo

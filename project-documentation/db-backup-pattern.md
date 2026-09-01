@@ -386,4 +386,3 @@ the lifecycle rule.
 - EventBridge Scheduler targets: https://docs.aws.amazon.com/scheduler/latest/UserGuide/managing-targets.html
 - ECS task role vs execution role: https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-iam-roles.html
 - `infrastructure.md` — where this sits in the standard client build-out
-- `pipeline-improvements-to-implement.md` §8 — the decision to move AWS-touching workloads off Actions

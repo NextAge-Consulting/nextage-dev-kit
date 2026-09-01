@@ -120,7 +120,7 @@ Zero external callers still gets a line, naming the file. List only sites you ac
 
 Reference and operational docs describe only what is true right now. Before writing any sentence naming a workflow, script, field, flag or pattern, ask whether it exists and behaves that way today.
 
-When you remove or change something, scrub every reference to zero. Never leave a note about what the thing was, what replaced it, or that it was deleted — a skimmer reads the name as live and acts on it, so "the old `update-env.yml` has been deleted" resurrects the dead concept. Silence is strictly safer.
+When you remove or change something, scrub every reference to zero. Never leave a note about what the thing was, what replaced it, or that it was deleted — naming a dead thing to say it is dead resurrects it, because a skimmer reads the name as live and acts on it. Silence is strictly safer.
 
 Cut a removed feature's section rather than keeping it for reference; git history is the archive. Mark planned work explicitly as not-yet-built rather than describing it as live behaviour.
 

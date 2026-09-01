@@ -70,7 +70,7 @@ Design choices baked in:
 
 **`/merge` is not `/deploy`.** Multiple merges accumulate on `main`; a release ships everything since the last tag in one deliberate invocation.
 
-`/deploy` does bump → changelog → tag → push → trigger-deploy in **one human-in-the-loop CLI run**, so the source-of-truth version field and the deployed artifact match **by construction**. The bump commit is **pushed directly to main** (require-PR off, the default — §1.1) — no release branch, no PR, no admin-merge; the bump commit + tag are the release record. Deploy workflows are `workflow_dispatch:`-ONLY and fired explicitly via `gh workflow run` against post-bump HEAD. Full procedure + history in handbook §6.5; trigger contract in §11.4.
+`/deploy` does bump → changelog → tag → push → trigger-deploy in **one human-in-the-loop CLI run**, so the source-of-truth version field and the deployed artifact match **by construction**. The bump commit is **pushed directly to main** (require-PR off, the default — §1.1) — no release branch, no PR, no admin-merge; the bump commit + tag are the release record. Deploys are fired explicitly against post-bump HEAD — `aws codebuild start-build` under the `codebuild` backend, the fleet dispatched concurrently and polled together (handbook §6.5). Full procedure + history in handbook §6.5; trigger contract in §11.4.
 
 **Why not auto-bump-on-merge** (the rejected pattern, NEVER restore):
 

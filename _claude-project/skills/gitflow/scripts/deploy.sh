@@ -85,10 +85,11 @@
 #      Migrate-only repos (no DEPLOY_WORKFLOWS) stop after step 10.
 #
 # ─── Dispatch backend (DEPLOY_BACKEND) ───────────────────────────────────
-# `github` (default) is the flow described above. `codebuild` starts AWS
-# CodeBuild projects instead: everything that touches AWS runs on AWS compute,
-# so no workflow holds a static AWS key and the only remaining GitHub
-# dependency is the git clone.
+# `codebuild` (the default) starts AWS CodeBuild projects: everything that
+# touches AWS runs on AWS compute, so no workflow holds an AWS credential and
+# the only remaining GitHub dependency is the git clone. `github` is the flow
+# described above, and is correct for a repo that deploys somewhere with no
+# AWS account behind it.
 #
 # Under codebuild the fleet is dispatched CONCURRENTLY and polled together,
 # where github watches each run in turn — a six-service release costs the
@@ -109,7 +110,7 @@
 #   5  out of sync with origin
 #   6  HEAD has failed required check-runs
 #   7  no commits since last tag (nothing to deploy)
-#   8  required CLI not available (gh; also aws under DEPLOY_BACKEND=codebuild)
+#   8  required CLI not available (gh; also aws under the default codebuild backend)
 #   9  npm/python3 not available
 #  10  bump failed
 #  11  push failed
@@ -198,19 +199,20 @@ if { [ "$NEED_LIST" -eq 1 ] || [ "$NEED_MIG" -eq 1 ] || [ "$NEED_MIG_PATHS" -eq 
 fi
 
 # ─── Dispatch backend ────────────────────────────────────────────────────
-# `github` (default) triggers GitHub Actions workflows; `codebuild` starts AWS
-# CodeBuild projects instead.
+# `codebuild` (the default) starts AWS CodeBuild projects; `github` triggers
+# GitHub Actions workflows, and stays because a repo deploying somewhere with
+# no AWS account behind it has nowhere to put a build project.
 #
-# Explicit per-consumer substitution rather than something sniffed from the
-# repo: a release boundary must not guess where it is shipping from. Consumers
-# cross one at a time; when the last one has, the default flips and the github
-# branch is deleted.
+# Read from a per-consumer substitution, never sniffed from the repo: a release
+# boundary must not guess where it is shipping from. An unset key therefore
+# lands on the default and fails loud below if the project has not provisioned
+# for it, rather than silently shipping through the other one.
 #
 # DEPLOY_WORKFLOWS stays the single service list either way. Under codebuild a
 # workflow filename maps to a project by prefix — deploy-worker.yml with prefix
 # "acme-deploy-" is project acme-deploy-worker — so there is no second list to
 # drift out of step with the first.
-DEPLOY_BACKEND="github"
+DEPLOY_BACKEND="codebuild"
 CODEBUILD_PROJECT_PREFIX=""
 CODEBUILD_MIGRATE_PROJECT=""
 CB_AWS_PROFILE=""
@@ -220,7 +222,7 @@ if [ -f "$SUBS_FILE" ] && command -v jq >/dev/null 2>&1; then
     # Empty is the kit's "intentionally disabled" state for a substitution key,
     # and jq's // only falls back on a MISSING key — so normalize it here rather
     # than failing every deploy on a consumer that left the key blank.
-    [ -n "$DEPLOY_BACKEND" ] || DEPLOY_BACKEND="github"
+    [ -n "$DEPLOY_BACKEND" ] || DEPLOY_BACKEND="codebuild"
     CODEBUILD_PROJECT_PREFIX=$(jq -r '.CODEBUILD_PROJECT_PREFIX // ""' "$SUBS_FILE")
     CODEBUILD_MIGRATE_PROJECT=$(jq -r '.CODEBUILD_MIGRATE_PROJECT // ""' "$SUBS_FILE")
     CB_AWS_PROFILE=$(jq -r '.AWS_PROFILE // ""' "$SUBS_FILE")
@@ -232,7 +234,9 @@ case "$DEPLOY_BACKEND" in
         command -v aws >/dev/null 2>&1 || {
             echo "deploy.sh: DEPLOY_BACKEND=codebuild but the aws CLI is not installed" >&2; exit 8; }
         [ -n "$CODEBUILD_PROJECT_PREFIX" ] || {
-            echo "deploy.sh: DEPLOY_BACKEND=codebuild requires CODEBUILD_PROJECT_PREFIX in $SUBS_FILE" >&2; exit 2; }
+            echo "deploy.sh: DEPLOY_BACKEND=codebuild requires CODEBUILD_PROJECT_PREFIX in $SUBS_FILE" >&2
+            echo "  codebuild is the default. If this project deploys via GitHub Actions instead, set DEPLOY_BACKEND=github." >&2
+            exit 2; }
         # Never rely on ambient AWS config. A shell with no default region makes
         # every aws call exit 253 before it reaches the service, which reads as a
         # deploy that started nothing — after the tag has already been pushed.
@@ -414,8 +418,18 @@ if [ -f "package.json" ] && [ -f "pyproject.toml" ]; then
 fi
 
 if [ -f "package.json" ]; then
-    NEW=$(npm version "$LEVEL" --no-git-tag-version --allow-same-version | tr -d 'v') || {
+    # Do NOT parse npm's stdout for the version. `npm version` runs the project's
+    # `version` lifecycle script, whose output lands on stdout ahead of the version
+    # itself — a project that syncs a sibling manifest or rebuilds an artifact there
+    # will bury it. Read the manifest back instead; it is the source of truth anyway.
+    # (The previous form also used `tr -d 'v'`, which deletes EVERY v — turning
+    # "version" into "ersion" and any package name containing a v into nonsense.)
+    if ! npm version "$LEVEL" --no-git-tag-version --allow-same-version >/dev/null; then
         echo "deploy.sh: npm version $LEVEL failed" >&2
+        exit 10
+    fi
+    NEW=$(jq -r '.version' package.json) || {
+        echo "deploy.sh: could not read version back from package.json" >&2
         exit 10
     }
     PROJECT_TYPE="node"

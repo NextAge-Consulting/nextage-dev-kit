@@ -155,16 +155,17 @@ already broken more visibly.
 sibling containers and nginx up while one app rolls; without it a single app deploy
 restarts the whole box. Verify with `docker compose ps` and a log tail, not by assuming.
 
-**Nothing that touches AWS holds a long-lived credential.** Three shapes exist across the
-estate, best first:
+**Nothing that touches AWS holds a long-lived credential, and everything that touches AWS
+runs on AWS compute.** Deploy, migrate and every other AWS-touching workload is a
+CodeBuild project assuming a service role, reaching the host through SSM Session Manager
+rather than an inbound SSH port. No AWS credential lives in a repository secret, and the
+only remaining GitHub dependency is the git clone. **This is where a new project starts** —
+standing one up on GitHub Actions intending to move it later is the expensive path.
 
-1. **Build and deploy on AWS compute** — CodeBuild assuming a service role, reaching the
-   host through SSM Session Manager rather than an inbound SSH port. No AWS credential in
-   any repository secret, and the only remaining GitHub dependency is the git clone.
-2. **GitHub Actions with OIDC** — a `role-to-assume` and no static keys. Correct for
-   anything that must stay on Actions.
-3. **Static `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`** — the older shape. A project
-   still on it has not been migrated, and that is a gap rather than a choice.
+Only PR CI and commit linting stay on Actions: event-driven, high-frequency, wanting the
+PR-integrated UI, and touching no AWS credential at all. Where something genuinely must
+stay on Actions and still needs AWS, it uses OIDC (`role-to-assume`) — never a static key
+pair.
 
 **One CodeBuild service role per project, `<project>-codebuild-deploy`, shared by every
 build project — the migration project included.** Not one role per project-per-workload.
@@ -190,33 +191,9 @@ prefix, and nothing else in the estate should hold that grant — see `db-backup
 §"The two roles". A shared build role has no business writing backups, and the backup task
 has no business pushing an image.
 
-**Moving a project onto AWS compute is finished by the dispatch flip, not by the
-provisioning.** The build projects, the roles, the buildspecs and the source connection
-are all preparation. The migration happens when the deploy script's backend selector is
-switched and a real release ships through it — before that moment, every green deploy is
-the old path proving the old path.
-
-**Leaving the selector unflipped "as a precaution" is the failure mode to watch for**, and
-it has nearly been declared done at least once: every build project existed, everything
-was verified, and the estate had not moved. A precaution against a cutover is a cutover
-that did not happen, and it is worse than not starting, because it looks finished. The old
-path remains in git history if the new one fails, which is what makes flipping first the
-safe move rather than the bold one — a failure after the flip is fixed forward.
-
-**Then finish it.** Done means the old workflows are deleted, their secrets removed, the
-now-unused identities and federation trusts deleted rather than narrowed, the ports they
-justified closed, and every document rewritten to describe the infrastructure as it now
-is. Write a checklist whose lines are each verifiable by one command, and treat any
-unticked line as unfinished work regardless of how much else is built. "Built but not
-flipped", "flipped but the secrets are still there" and "working but the docs still
-describe the old path" are all the same answer: not done.
-
-Docs get rewritten, never annotated — no note recording what was removed or what replaced
-it. A named dead thing reads as live to the next person.
-
-**Migrations run away from the box**, with `drizzle-kit` against `DATABASE_URL` — in
-CodeBuild where the deploy has moved there, on a runner where it has not. Either way the
-migration is versioned and logged with the deploy rather than applied by hand over SSH.
+**Migrations run away from the box**, with `drizzle-kit` against `DATABASE_URL`, in its
+own CodeBuild project gated ahead of the app deploy. The migration is versioned and logged
+with the deploy rather than applied by hand over SSH.
 
 **A deploy reaching the host over SSM lets port 22 close entirely.** An attacker then
 needs AWS credentials *and* the SSH key, where an open port needs only the key. The
