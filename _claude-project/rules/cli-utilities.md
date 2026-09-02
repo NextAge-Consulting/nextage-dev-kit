@@ -56,16 +56,15 @@ region = us-east-2
 [profile <client>]
 role_arn = arn:aws:iam::<client-account>:role/NextAgeOperator
 source_profile = nextage
-external_id = <per-client value>
 region = <their-region>
 ```
 
-Every client role carries an `sts:ExternalId` condition, so a profile missing
-`external_id` fails with `AccessDenied ... not authorized to perform: sts:AssumeRole`.
-That error means the config line is missing, **not** that the session expired — an
-expired session reports a token error against `nextage` instead.
+A client role's trust policy names the hub account and nothing else — one statement, no
+conditions. Anything that has to be carried in the profile ALONGSIDE the role is a second
+way for the chain to break, and the console's Switch Role form cannot send one at all, so
+a condition there costs console access to every client account.
 
-So a client profile that reports an expired session is fixed by logging into
+A client profile that reports an expired session is fixed by logging into
 **`nextage`**, not that profile. The CLI calls STS itself, caches the temporary
 credentials under `~/.aws/cli/cache`, and refreshes them without asking.
 

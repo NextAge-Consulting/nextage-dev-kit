@@ -137,18 +137,7 @@ reuses whatever console session the browser already holds, so authenticating to 
 second account while signed into a first returns a bare `400` and hangs (see
 `cli-utilities.md`).
 
-**Generate an external ID for this client first — YOU generate it, never them.** It
-guards against the confused-deputy problem: NextAge assumes roles for several
-customers, so each role must assert *which* customer it is being assumed for. AWS is
-explicit that the third party generates it, because customer-chosen values are not
-guaranteed unique. It is **not a secret** — anyone who can read the role can see it —
-so it travels in the instructions in plain text.
-
-```bash
-python3 -c "import secrets; print('nextage-' + secrets.token_hex(12))"
-```
-
-**Send the client this**, with the account id and external ID filled in — the account id is
+**Send the client this**, with the account id filled in — the account id is
 `aws sts get-caller-identity --profile nextage --query Account --output text`. It is written
 to be forwarded as-is:
 
@@ -161,17 +150,11 @@ In the AWS console: IAM → Roles → Create role
   Trusted entity type:  AWS account
   Account:              Another AWS account
   Account ID:           <NEXTAGE ACCOUNT ID>
-  Require external ID:  yes
-  External ID:          <PASTE THE GENERATED VALUE>
   Permissions:          AdministratorAccess
   Role name:            NextAgeOperator
 
 That is all we need. A role has no password and no access keys — it can only be
 used by our AWS account, and it issues short-lived credentials each time.
-
-The external ID is a value we generated for your account specifically. It means
-the role can only be assumed when we are acting on your behalf and not on another
-client's. It is not a password and does not need protecting.
 
 Two things worth knowing:
 
@@ -192,7 +175,6 @@ cat >> ~/.aws/config <<'EOF'
 [profile <project>]
 role_arn = arn:aws:iam::<CLIENT_ACCOUNT_ID>:role/NextAgeOperator
 source_profile = nextage
-external_id = <the same generated value>
 region = <their-region>
 EOF
 ```
@@ -212,17 +194,6 @@ last set it.
 aws sts get-caller-identity --profile <project> --query Arn --output text
 aws ec2 describe-vpcs --profile <project> --query 'length(Vpcs)' --output text
 ```
-
-Prove the external ID is actually enforced rather than merely present — comment
-`external_id` out, clear the cached credentials, and confirm the call is refused:
-
-```bash
-rm -f ~/.aws/cli/cache/*.json
-aws sts get-caller-identity --profile <project>   # expect AccessDenied on AssumeRole
-```
-
-An assume-role that still succeeds without it means the client created the role
-without the condition. Do not record the role as done until it fails.
 
 ### 1 — Project exists as a local git repo `[claude+you]`
 
