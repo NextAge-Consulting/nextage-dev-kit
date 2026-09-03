@@ -18,7 +18,7 @@ No backward compatibility — prefer a breaking change to technical debt. Comple
 
 ## V. Database & Naming
 
-Tables are singular (`user`, not `users`). Primary keys are `{table}id` (`userid`) using UUID v7. Foreign keys match the parent primary key's name. Database fields are lowercase. Use the real database names in code — `contact`, not `prospect`. Language-specific variable casing lives in the language rule files.
+Tables are singular (`user`, not `users`). Primary keys are `{table}id`. Foreign keys match the parent primary key's name. Database fields are lowercase. Use the real database names in code — `contact`, not `prospect`. Language-specific variable casing lives in the language rule files. The id's storage type and generation strategy are engine-specific — see the engine rule file.
 
 ## VI. Timezone-Aware Code (Zero Tolerance)
 

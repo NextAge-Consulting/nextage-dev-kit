@@ -36,6 +36,57 @@ fi
 
 Scripts already carrying `set -eo pipefail` (`work.sh`, `merge.sh`) are grandfathered, but new pipes added to them still use the explicit check. A new script may set `pipefail` too — it is the safety net, and the explicit check is still the design.
 
+## I-b. `grep` is ugrep, and it SKIPS files containing a NUL byte
+
+Claude Code replaces `grep` with a shell function (from `~/.claude/shell-snapshots/`)
+that runs **ugrep**, adding flags you did not type:
+
+```
+-G --ignore-files --hidden -I --exclude-dir=.git --exclude-dir=.svn …
+```
+
+**`-I` means "ignore binary files", and a single NUL byte makes a file binary.**
+Such a file is not searched at all — so a pattern that is present reports as
+absent.
+
+**The tell is NO OUTPUT, not a zero.** That distinction is the whole defence:
+
+```bash
+grep -c pattern present.txt    # -> 1     found
+grep -c pattern absent.txt     # -> 0     genuine miss, exit 1
+grep -c pattern hasnul.txt     # ->       NOTHING. file skipped, never searched
+```
+
+**So never pipe grep through a counter when the question is "is it there".**
+`grep -o … | wc -l` turns "skipped" into `0`, destroying the one signal that
+distinguishes a miss from a non-search:
+
+```bash
+grep -o "$pat" f | wc -l    # WRONG — prints 0 for both cases
+grep -c "$pat" f            # right — empty output means skipped
+```
+
+**`-a` overrides it** (verified), which is why the legacy-source rules prescribe
+`LC_ALL=C grep -a`. Keep using it there.
+
+**This is not exotic.** Real generated artifacts carry NUL bytes as delimiters —
+notably **TanStack Start's SSR HTML**, whose dehydrated router state contains
+them (`{i:"\x00route\x00route"}`). So verifying a served page with bare `grep`
+silently reports nothing rendered, on a page that rendered perfectly.
+
+For content verification on generated output, use one of:
+
+```bash
+/usr/bin/grep -c "$pat" file    # the real grep, no injected flags
+rg -c "$pat" file               # ripgrep: prints "0"/exits 1, does not skip
+python3 -c "print(open('file',encoding='utf-8').read().count('$pat'))"
+```
+
+The same reasoning as the mixed-encoding rule in the legacy handoffs, one layer
+down: **a tool that declines to read a file reports the same zero as a tool that
+read it and found nothing.** Whenever a zero would change a conclusion, confirm
+the file was actually searched.
+
 ## II. Target macOS bash 3.2
 
 Apple does not ship anything newer, so every script here must run on it.

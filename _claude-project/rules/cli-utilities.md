@@ -43,36 +43,59 @@ This project's target values live in `.claude/sync-substitutions.json`, relative
 
 ### Profile provisioning
 
-**Only ONE account is signed into. Every other account is reached by assuming a role
-from it.** The hub is `nextage`; client accounts hold a `NextAgeOperator` role that
-trusts it, and their profiles carry `role_arn` + `source_profile = nextage` with no
-credentials of their own:
+**Resolve the profile's shape before touching it — never assume which pattern is in
+play.** `AWS_PROFILE` in `sync-substitutions.json` names the profile *this project*
+authenticates through; how that profile itself is set up is a per-developer, per-machine
+choice, not something this file can hardcode. Check it:
+
+```bash
+aws configure get source_profile --profile "$PROFILE" 2>/dev/null
+```
+
+Empty means the default case below. A name means the hub-and-role case — and that name
+*is* the hub, resolved just now rather than assumed.
+
+**Default: a single account, one profile, nothing chained.** Most developers, and most
+clients running their own AI-assisted AWS work, have exactly one AWS account. `AWS_PROFILE`
+names a plain profile with its own credentials or its own login flow — authenticate it the
+way it was set up (`aws login --profile <name>`, `aws sso login --profile <name>`, or
+whatever that profile uses), same as any other AWS CLI session. Nothing else in this
+section applies.
+
+**Optional: one person's hub, reaching several accounts by role assumption.** For someone
+who works across multiple AWS accounts from one machine (a consultant with several
+clients, say) and does not want to sign in and out of each one, a personal hub profile can
+assume a scoped role into every other account instead:
 
 ```
-[profile nextage]
-login_session = arn:aws:iam::<hub-account>:user/<your-iam-user>
-region = us-east-2
+[profile <hub>]
+login_session = arn:aws:iam::<hub-account>:user/<iam-user>
+region = <hub-region>
 
 [profile <client>]
-role_arn = arn:aws:iam::<client-account>:role/NextAgeOperator
-source_profile = nextage
+role_arn = arn:aws:iam::<client-account>:role/<OperatorRoleName>
+source_profile = <hub>
 region = <their-region>
 ```
 
-A client role's trust policy names the hub account and nothing else — one statement, no
-conditions. Anything that has to be carried in the profile ALONGSIDE the role is a second
-way for the chain to break, and the console's Switch Role form cannot send one at all, so
-a condition there costs console access to every client account.
+This is a personal setup choice, not a project requirement — a client adopting AI-assisted
+AWS work in their own account has no reason to build this, and nothing here should suggest
+they need to. Where it IS in use:
 
-A client profile that reports an expired session is fixed by logging into
-**`nextage`**, not that profile. The CLI calls STS itself, caches the temporary
+A client role's trust policy names the hub account and nothing else — one statement, no
+conditions. Anything carried in the profile ALONGSIDE the role is a second way for the
+chain to break, and the console's Switch Role form cannot send one at all, so a condition
+there costs console access to every client account.
+
+A client profile that reports an expired session is fixed by logging into **the hub**
+(resolved above), not that profile. The CLI calls STS itself, caches the temporary
 credentials under `~/.aws/cli/cache`, and refreshes them without asking.
 
-**NEVER run `aws login` against a client profile — the hub is the ONLY profile anyone
-ever logs into.** Read `~/.aws/config` before handing over any login command: the hub is
-the profile carrying `login_session`, a client is one carrying `role_arn` +
-`source_profile`. `AWS_PROFILE` in `sync-substitutions.json` names the profile to USE,
-never the one to log into, and reaching for it there is exactly how this goes wrong.
+**NEVER run `aws login` against a client (role-assumption) profile — the hub is the ONLY
+profile anyone ever logs into.** Confirm which is which with the `source_profile` check
+above before handing over any login command — a profile with a `role_arn` is a client, a
+profile with a `login_session` is a hub, and guessing from the profile's name is exactly
+how this goes wrong on a machine you didn't set up.
 
 **Logging into a client profile CORRUPTS it.** `aws login --profile <client>` appends a
 `login_session` line to a profile that only ever meant to assume a role. That line then
@@ -92,27 +115,27 @@ rewrites the line and breaks it again. Recognise the loop by the error naming
 client profile works again immediately. Do NOT sign out of the browser or clear
 cookies for this — that is the fix for the 400 below, a different failure.
 
-**The human runs `aws login --profile nextage`** — hand them
-`! aws login --profile nextage` and wait. It is a browser console sign-in that writes
-a `login_session` line and manages temporary credentials with a refresh token, so no
-static keys land on disk. Invoked from a tool call it blocks until it times out,
-having accomplished nothing.
+**The human runs `aws login --profile <hub>`** (the name resolved above) — hand them
+`! aws login --profile <hub>` and wait. It is a browser console sign-in that writes a
+`login_session` line and manages temporary credentials with a refresh token, so no static
+keys land on disk. Invoked from a tool call it blocks until it times out, having
+accomplished nothing.
 
-Standing up a client account's role is `new-project-setup.md` step 0, and the client
-creates it — the assistant cannot, and should hand over the instructions there rather
-than improvising a policy document.
+One profile per AWS account, named for the account or client, not per project. Projects
+sharing an account share the profile, and each still records it in its own `AWS_PROFILE`
+value.
 
-One profile per AWS account, named for the account or client, not per project.
-Projects sharing an account share the profile, and each still records it in its own
-`AWS_PROFILE` value.
-
-Never create a profile via `aws configure` with static access keys, and never promote
-app runtime keys from `.env` into a CLI profile — those are scoped for the app, not
-for CLI work.
+Never create a profile via `aws configure` with static access keys, and never promote app
+runtime keys from `.env` into a CLI profile — those are scoped for the app, not for CLI
+work. This is about *personal, interactive* AWS work; a project's own recurring automated
+task (its deploy trigger, say) is a different problem with a different answer — a
+narrowly-scoped, long-lived credential created directly in that project's own account, with
+no relationship to any hub. See the project's own deploy/infra setup docs for that case;
+it has nothing to do with which AWS profile a developer authenticates with.
 
 ### 400 Bad Request from `aws login`
 
-**Fix it by signing into the AWS console in the default browser first, then running `aws login --profile nextage`.** Sign the browser in **as the account being authenticated** — a console session for a different account is what produces the 400, which is why the hub-and-role shape above avoids this entirely: there is only ever one account to sign into. Signing out and clearing cookies for `signin.aws.amazon.com` also works; an incognito window does not reliably, because the flow wants an established session.
+**Fix it by signing into the AWS console in the default browser first, then running `aws login --profile <hub>`.** Sign the browser in **as the account being authenticated** — a console session for a different account is what produces the 400, which is why the hub-and-role shape above avoids this entirely: there is only ever one account to sign into. Signing out and clearing cookies for `signin.aws.amazon.com` also works; an incognito window does not reliably, because the flow wants an established session.
 
 The symptom is a bare 400 at `https://<region>.signin.aws.amazon.com/oauth?…&client_id=arn:aws:signin:::devtools/same-device&…` while the CLI hangs for minutes on a loopback callback that never fires. The cause is stale or absent browser session cookies — not a credential, region or profile problem. Nothing in `~/.aws/` is wrong, so don't go hunting there; the 400 happens before anything reaches the token cache.
 

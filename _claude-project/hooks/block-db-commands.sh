@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Drizzle/migration guard — default-DENY with an explicit-approval bypass.
-# The rule this enforces (postgres-drizzle.md): commands that CHANGE a database
+# The rule this enforces (the project's engine rule — postgres-drizzle.md or
+# sqlserver-drizzle.md): commands that CHANGE a database
 # are never run on Claude's own judgment. When the human has explicitly approved
 # a run in the current conversation, Claude prefixes the command with
 # SKIP_DB_GUARD=1 and it passes. Same trust model as git-guard's SKIP_GIT_GUARD=1.

@@ -1,7 +1,22 @@
 # Postgres + Drizzle: The Three Silent Failures
 
-Applies only to a project on PostgreSQL with Drizzle. No `drizzle.config.ts` →
-none of this applies, stop here.
+**Gate — read this first.** This file applies only when the project declares
+PostgreSQL:
+
+```bash
+jq -r '.DB_ENGINE // ""' .claude/sync-substitutions.json
+```
+
+`PostgreSQL` → this rule applies. `SQLServer` → read `sqlserver-drizzle.md`
+instead; nothing here transfers. `Other` or `None` → none of this applies, stop
+here. Empty → **the engine has not been declared, which is not the same as not
+having one.** Ask before applying any engine-specific guidance, and get the key
+populated.
+
+The gate is the declared engine, never the presence of a `drizzle.config.ts`. A
+config file proves Drizzle is in use; it says nothing about the dialect, and a
+SQL Server project has one too — so gating on the file makes this rule fire on a
+project where `ILIKE`, `ciVarchar` and Neon branches are all wrong answers.
 
 Everything else about this stack — how to define the types, run the migration,
 branch the database, provision a new one — is the **postgres-neon-drizzle**
@@ -52,5 +67,6 @@ Your local `.env` normally points at a dev branch. Run the check rather than
 inferring in either direction: stalling on a dev branch wastes the session, and
 assuming a dev branch on prod is worse.
 
-Naming conventions (singular tables, `{table}id`, UUID v7) are engine-agnostic
-and live in the constitution, not here.
+Naming conventions (singular tables, `{table}id`) are engine-agnostic and live
+in the constitution, not here. The id itself is UUID v7 in the native `uuid`
+column type — free on Postgres, no engine-specific cost, always the default.

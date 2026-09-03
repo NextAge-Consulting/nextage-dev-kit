@@ -24,6 +24,22 @@ A project on a different stack runs whatever its own `package.json` or Makefile 
 
 **Before calling a suite blocked, run it the canonical way, read the actual error, quote it to the human, and name the specific cause.** A failure in global or session setup is a mis-invocation until proven otherwise. An inferred blocker is a fabricated one.
 
+### The integration tier is Postgres/Neon-specific
+
+Everything from here to the end of this section assumes `DB_ENGINE` is
+`PostgreSQL`. Check before applying any of it:
+
+```bash
+jq -r '.DB_ENGINE // ""' .claude/sync-substitutions.json
+```
+
+On any other engine the branch-per-run model does not exist — nothing else
+branches a database in one API call — so the project defines its own integration
+strategy (a disposable container per run, a transaction-rollback harness against a
+dev instance, or no integration tier) and records it in `rules/project/`. The
+root-invocation rule above, and the "read the actual error before calling it
+blocked" rule, hold on every engine.
+
 **Confirm the integration project actually ran.** The vitest config drops it silently when `NEON_API_KEY` or `NEON_PROJECT_ID` is missing from `.env`, and `npm test` still exits green. Read the summary for `|integration|` labels in the per-file output, and for a duration in tens of seconds rather than about one. A short run with no labels means integration did not run — say so and name the missing credential rather than reporting a pass.
 
 **Run the integration suite. It cannot touch production.** Each run provisions its own throwaway Neon branch, migrates it, points `DATABASE_URL` at that branch before any worker spawns, and deletes it in teardown. Every test runs inside a rolled-back transaction. It costs about a cent a run.

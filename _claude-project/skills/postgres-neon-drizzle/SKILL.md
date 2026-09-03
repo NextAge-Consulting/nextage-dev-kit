@@ -7,8 +7,16 @@ description: How we build on PostgreSQL + Neon + Drizzle ORM — migrations and 
 
 Read the section you need; the detail lives in `references/`, one file per job.
 
-**Check the stack first.** No `drizzle.config.ts` and no Neon connection string →
-nothing here applies.
+**Check the engine first**, and check the declared one rather than inferring it
+from a config file — a SQL Server project has a `drizzle.config.ts` too:
+
+```bash
+jq -r '.DB_ENGINE // ""' .claude/sync-substitutions.json
+```
+
+Anything other than `PostgreSQL` → nothing here applies. On `SQLServer` the rule
+is `sqlserver-drizzle.md`. On an empty value the engine has not been declared —
+ask, rather than assuming Postgres.
 
 ## What is deliberately NOT here
 
@@ -16,8 +24,9 @@ nothing here applies.
   foreign keys matching the parent PK, lowercase fields. House standards that
   hold on any engine, so they live in the constitution (§V). A project on MSSQL
   still follows them; it does not follow this skill.
-- **The human gate on applying migrations** — the always-on `postgres-drizzle.md`
-  rule, backed by a hook. A skill is consulted by choice; a safety gate cannot be.
+- **The human gate on applying migrations** — the always-on engine rule
+  (`postgres-drizzle.md` here, `sqlserver-drizzle.md` on SQL Server), backed by a
+  hook. A skill is consulted by choice; a safety gate cannot be.
 - **The three silent failures** — the always-on `postgres-drizzle.md` rule. They
   are there rather than here because you would never think to invoke a skill
   before typing `ilike`.

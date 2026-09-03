@@ -54,7 +54,7 @@ The kit dogfoods only what it actually uses. Everything below ships to consumers
 | `skills/shadcn/**` | Kit has no `components.json` / shadcn install. |
 | `skills/mfing-bible-of-tanstack/**` | Kit has no TanStack code. |
 | `tanstack-manifest.json` | Kit-blessed TanStack versions + vendored-reference provenance. Kit has no `package.json` and no TanStack dependency. Consumed by the (also template-only) `scripts/check-tanstack.mjs`. |
-| `rules/postgres-drizzle.md`, `skills/postgres-neon-drizzle/**` | Kit has no database, no Drizzle schema and no Neon project. |
+| `rules/postgres-drizzle.md`, `rules/sqlserver-drizzle.md`, `skills/postgres-neon-drizzle/**` | Kit has no database of any engine — its own `DB_ENGINE` is `None`, which is exactly the value that stands both engine rules down. |
 | `rules/cli-utilities.md` | Kit runs no AWS / cloud CLI — the account/region discipline never applies. |
 | `skills/agent-browser/**`, `rules/integrations/agent-browser.md` | Kit has no web app to drive a browser against. |
 | `skills/e2e/**` | Kit has no `test/e2e/*.md` flow files. |

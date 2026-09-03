@@ -5,7 +5,7 @@
  * ONE INVARIANT: database code and browser code never share a package.
  *
  *   server-shared  (apps/shared | packages/shared)
- *       Data/server tier. MAY import drizzle/pg. MUST NOT import React/browser
+ *       Data/server tier. MAY import the ORM and DB driver. MUST NOT import React/browser
  *       libs, contain .tsx, or reach the ui/web tiers at runtime. The single
  *       sanctioned crossing is `import type` from `@ui/contracts/*`.
  *   ui             (packages/ui)
@@ -176,8 +176,14 @@ const extensions = detectExtensionApps();
 
 const startsWithAny = (spec, prefixes) => prefixes.some((p) => spec === p || spec.startsWith(p));
 
+// Engine-agnostic on purpose: the wall is "database code never reaches the
+// browser", and that holds whichever driver the project uses. `mssql` and
+// `tedious` are here for the same reason `pg` is — a SQL Server project's data
+// tier is no less server-only than a Postgres one. Adding an engine later means
+// adding its driver here; a missing driver is a silent hole in the wall, not a
+// failing check.
 const isDbImport = (spec) =>
-  /^(drizzle-orm|drizzle-kit|pg|postgres|@neondatabase\/)(\/|$)/.test(spec) ||
+  /^(drizzle-orm|drizzle-kit|pg|postgres|@neondatabase|mssql|tedious|mysql2|better-sqlite3)(\/|$)/.test(spec) ||
   /\.server(\.|$|\/)/.test(spec);
 const isUiFramework = (spec) =>
   /^(react|react-dom|lucide-react|radix-ui|@radix-ui\/)(\/|$)/.test(spec) ||

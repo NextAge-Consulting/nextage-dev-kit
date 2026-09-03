@@ -167,6 +167,18 @@ PR-integrated UI, and touching no AWS credential at all. Where something genuine
 stay on Actions and still needs AWS, it uses OIDC (`role-to-assume`) — never a static key
 pair.
 
+**The carve-out is a credential whose own permissions are the safety boundary, not its
+lifetime.** The rule above is about admin/infra access — broad reach, where a long-lived
+credential is dangerous because of what it *could* do if it leaked. A recurring,
+single-purpose trigger is a different shape: a static key scoped to nothing but
+`codebuild:StartBuild` + `codebuild:BatchGetBuilds` on named project ARNs can never do
+anything else, whether it lives five minutes or five years — the IAM policy is the
+boundary, not the clock. That is the deploy-trigger case (`new-project-setup.md` §"Deploy
+trigger credential"): create it directly in the target account, store it wherever that
+project keeps secrets (`.env`, never committed), and never route it through a consultant's
+admin hub-and-role chain (`cli-utilities.md`) — that chain solves a different problem
+(one person, many client accounts) and has no bearing on one narrow job in one account.
+
 **One CodeBuild service role per project, `<project>-codebuild-deploy`, shared by every
 build project — the migration project included.** Not one role per project-per-workload.
 Settled; provision the single role and move on.

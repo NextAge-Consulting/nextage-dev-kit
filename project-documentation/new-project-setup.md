@@ -491,6 +491,104 @@ cause:
   usually exists only as an unreadable secret somewhere; a new one lets the old identity be
   deleted outright instead of lingering with standing access.
 
+#### 7c — Deploy trigger credential `[claude+you]`
+
+**`/deploy` needs its own identity, separate from `AWS_PROFILE`.** `AWS_PROFILE` is the
+admin hub-and-role chain (`cli-utilities.md`) — it exists so one person can reach six
+client accounts without ten logins a day, and every account it touches is only as safe as
+that one person's browser session. Routing `/deploy` through it means every teammate who
+runs `/deploy` needs that same admin-grade session, on their own machine, kept fresh —
+exactly the fragility that keeps breaking. Deploying isn't admin work: it is one fixed,
+recurring action — start these named CodeBuild projects, read their status — that never
+needs to touch anything else in the account, for anyone who runs it.
+
+So it gets a credential scoped to exactly that, created directly in the target account
+(never through the hub), long-lived on purpose (`infrastructure.md`'s carve-out: the IAM
+policy is the safety boundary here, not the key's age), and identical on every machine
+that deploys — you and a teammate use the same key, because triggering a deploy isn't a
+personal action.
+
+**1. Enumerate the exact project ARNs** this credential may touch — the same set
+`deploy.sh` dispatches, no more:
+
+```bash
+PROFILE=$(jq -r .AWS_PROFILE .claude/sync-substitutions.json)
+REGION=$(jq -r .AWS_REGION  .claude/sync-substitutions.json)
+ACCOUNT=$(jq -r .AWS_ACCOUNT_ID .claude/sync-substitutions.json)
+PREFIX=$(jq -r .CODEBUILD_PROJECT_PREFIX .claude/sync-substitutions.json)
+MIGRATE_WF=$(jq -r '.MIGRATE_WORKFLOW // ""' .claude/sync-substitutions.json)
+MIGRATE_PROJECT=$(jq -r '.CODEBUILD_MIGRATE_PROJECT // ""' .claude/sync-substitutions.json)
+
+PROJECT_NAMES=$(
+  jq -r '[.DEPLOY_WORKFLOWS, .MIGRATE_WORKFLOW] | map(select(. != null and . != "")) | join(" ")' \
+    .claude/sync-substitutions.json \
+  | tr ' ' '\n' | grep -v '^$' \
+  | while read -r w; do
+      if [ "$w" = "$MIGRATE_WF" ] && [ -n "$MIGRATE_PROJECT" ]; then
+        echo "$MIGRATE_PROJECT"
+      else
+        echo "${PREFIX}$(echo "${w#deploy-}" | sed 's/\.yml$//')"
+      fi
+    done
+)
+echo "$PROJECT_NAMES"
+
+PROJECT_ARNS=$(printf '%s\n' "$PROJECT_NAMES" \
+  | jq -R --arg acct "$ACCOUNT" --arg region "$REGION" \
+      '"arn:aws:codebuild:\($region):\($acct):project/" + .' \
+  | jq -s .)
+```
+
+**2. Create the policy, scoped to exactly those ARNs**, using the admin profile (creating
+IAM resources is legitimate admin work — only the resulting credential is narrow):
+
+```bash
+POLICY_DOC=$(jq -n --argjson arns "$PROJECT_ARNS" '{
+  Version: "2012-10-17",
+  Statement: [{
+    Effect: "Allow",
+    Action: ["codebuild:StartBuild", "codebuild:BatchGetBuilds"],
+    Resource: $arns
+  }]
+}')
+
+aws iam create-policy --policy-name "<project>-deploy-trigger" \
+  --policy-document "$POLICY_DOC" --profile "$PROFILE" --region "$REGION"
+```
+
+**3. Create the user directly in the target account — no role, no hub, no
+`source_profile`.** This is a standing identity on purpose; it does one thing and nothing
+else, so it does not need to be temporary the way admin access does.
+
+```bash
+aws iam create-user --user-name "<project>-deploy-trigger" --profile "$PROFILE" --region "$REGION"
+aws iam attach-user-policy --user-name "<project>-deploy-trigger" \
+  --policy-arn "arn:aws:iam::${ACCOUNT}:policy/<project>-deploy-trigger" \
+  --profile "$PROFILE" --region "$REGION"
+aws iam create-access-key --user-name "<project>-deploy-trigger" --profile "$PROFILE" --region "$REGION"
+```
+
+**4. Put the key in `.env` on every machine that runs `/deploy`** — never in
+`sync-substitutions.json` (that file is committed), never through `~/.aws/config`, never
+shared with `AWS_PROFILE`:
+
+```
+DEPLOY_AWS_ACCESS_KEY_ID=<from step 3>
+DEPLOY_AWS_SECRET_ACCESS_KEY=<from step 3>
+```
+
+**Verify** — `deploy.sh --check-only` authenticates with this key and passes its state
+gates (a clean tree and commits-since-tag aside):
+
+```bash
+AWS_ACCESS_KEY_ID=<key> AWS_SECRET_ACCESS_KEY=<secret> \
+  aws --region "$REGION" sts get-caller-identity
+```
+
+The same key is reused on a teammate's machine — just the `.env` line, nothing to
+provision twice. Revoking access for everyone at once is `aws iam delete-access-key` +
+`aws iam delete-user`, same as any other credential.
+
 ### 8 — Full verification `[claude]`
 
 Re-run each section's **Verify** block above, top to bottom, and read the output. Resolve anything that reports missing or unset before developing. The machine checks (P0) only need re-running if you changed toolchain since; the project checks (steps 4, 6, 7, 7-prereq, 7a) are the ones that catch a half-finished setup. Step 7a's verify is also worth running periodically against **established** projects — a missing lifecycle policy never fails a build, so nothing else will surface it.

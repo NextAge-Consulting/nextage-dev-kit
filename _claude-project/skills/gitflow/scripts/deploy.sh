@@ -52,6 +52,13 @@
 # release record. This is the same direct-to-main mechanism as ship-main.sh.
 #
 # ─── State gates (all enforced before any mutation) ──────────────────────
+#   - DEPLOY_BACKEND=codebuild (the default): AWS CLI installed, region/prefix
+#     configured, DEPLOY_AWS_ACCESS_KEY_ID/DEPLOY_AWS_SECRET_ACCESS_KEY present in
+#     .env, and `aws sts get-caller-identity` succeeds against them — a revoked
+#     or mistyped key is caught HERE, not at the migration/deploy dispatch step
+#     after the tag is already pushed. This is a dedicated, narrowly-scoped
+#     credential (new-project-setup.md §7c) — separate from AWS_PROFILE and the
+#     personal admin hub-and-role chain (cli-utilities.md); the two never mix.
 #   - On main branch
 #   - Working tree clean
 #   - Local main == origin/main (no stale local; nothing un-pushed)
@@ -121,6 +128,9 @@
 #  19  migration run failed (or its run id could not be resolved) — deploy
 #      aborted before any app workflow fired
 #  20  git diff for the migration-path skip check failed
+#  21  deploy-trigger AWS credential missing from .env or invalid (codebuild
+#      backend) — checked as a state gate before any mutation, so this never
+#      fires after the bump/tag
 #
 # ─── Recovery ────────────────────────────────────────────────────────────
 # The bump commit and the push to main happen together (steps 3–4). If the
@@ -215,7 +225,6 @@ fi
 DEPLOY_BACKEND="codebuild"
 CODEBUILD_PROJECT_PREFIX=""
 CODEBUILD_MIGRATE_PROJECT=""
-CB_AWS_PROFILE=""
 CB_AWS_REGION=""
 if [ -f "$SUBS_FILE" ] && command -v jq >/dev/null 2>&1; then
     DEPLOY_BACKEND=$(jq -r '.DEPLOY_BACKEND // ""' "$SUBS_FILE")
@@ -225,7 +234,6 @@ if [ -f "$SUBS_FILE" ] && command -v jq >/dev/null 2>&1; then
     [ -n "$DEPLOY_BACKEND" ] || DEPLOY_BACKEND="codebuild"
     CODEBUILD_PROJECT_PREFIX=$(jq -r '.CODEBUILD_PROJECT_PREFIX // ""' "$SUBS_FILE")
     CODEBUILD_MIGRATE_PROJECT=$(jq -r '.CODEBUILD_MIGRATE_PROJECT // ""' "$SUBS_FILE")
-    CB_AWS_PROFILE=$(jq -r '.AWS_PROFILE // ""' "$SUBS_FILE")
     CB_AWS_REGION=$(jq -r '.AWS_REGION // ""' "$SUBS_FILE")
 fi
 case "$DEPLOY_BACKEND" in
@@ -242,8 +250,43 @@ case "$DEPLOY_BACKEND" in
         # deploy that started nothing — after the tag has already been pushed.
         [ -n "$CB_AWS_REGION" ] || {
             echo "deploy.sh: DEPLOY_BACKEND=codebuild requires AWS_REGION in $SUBS_FILE" >&2; exit 2; }
+        # deploy.sh authenticates with its OWN narrowly-scoped credential —
+        # codebuild:StartBuild + codebuild:BatchGetBuilds on the named project ARNs
+        # only, created directly in the target account (new-project-setup.md §7c).
+        # It is DELIBERATELY separate from AWS_PROFILE / the admin hub-and-role
+        # chain (cli-utilities.md): that chain solves a different problem (one
+        # consultant, many client accounts) and has no bearing on this repo's own
+        # recurring deploy trigger. A long-lived static key is the right shape here
+        # (infrastructure.md's "long-lived credential" carve-out) because the IAM
+        # policy — not the key's age — is what bounds the risk: it can start these
+        # named builds and read their status, nothing else, ever.
+        #
+        # Read from .env, never from sync-substitutions.json (that file is
+        # committed; this is a secret) — same grep|cut|xargs convention as every
+        # other .env read in this repo (development-guidelines.md).
+        DEPLOY_AWS_ACCESS_KEY_ID=$(grep "^DEPLOY_AWS_ACCESS_KEY_ID=" .env 2>/dev/null | cut -d'=' -f2- | cut -d'#' -f1 | xargs || true)
+        DEPLOY_AWS_SECRET_ACCESS_KEY=$(grep "^DEPLOY_AWS_SECRET_ACCESS_KEY=" .env 2>/dev/null | cut -d'=' -f2- | cut -d'#' -f1 | xargs || true)
+        if [ -z "$DEPLOY_AWS_ACCESS_KEY_ID" ] || [ -z "$DEPLOY_AWS_SECRET_ACCESS_KEY" ]; then
+            echo "deploy.sh: DEPLOY_AWS_ACCESS_KEY_ID / DEPLOY_AWS_SECRET_ACCESS_KEY not set in .env" >&2
+            echo "  This is a separate, narrowly-scoped credential from your personal AWS_PROFILE —" >&2
+            echo "  provision it per new-project-setup.md §7c (\"Deploy trigger credential\")." >&2
+            exit 21
+        fi
+        export AWS_ACCESS_KEY_ID="$DEPLOY_AWS_ACCESS_KEY_ID"
+        export AWS_SECRET_ACCESS_KEY="$DEPLOY_AWS_SECRET_ACCESS_KEY"
         CB_AWS_ARGS="--region $CB_AWS_REGION"
-        [ -n "$CB_AWS_PROFILE" ] && CB_AWS_ARGS="$CB_AWS_ARGS --profile $CB_AWS_PROFILE"
+        # Fail loud on a revoked/wrong key HERE — before the bump, the commit, or
+        # the tag — not when the migration/deploy dispatch tries to use it.
+        # Discovering this at exit 18/19 leaves the tag already pushed and the
+        # release record half-true for a fact that was knowable up front.
+        # --check-only hits this too, since it's a state gate.
+        # shellcheck disable=SC2086 # intentional word-splitting on the aws flag list
+        if ! aws $CB_AWS_ARGS sts get-caller-identity >/dev/null 2>&1; then
+            echo "deploy.sh: the deploy-trigger AWS key in .env is not valid (DEPLOY_BACKEND=codebuild)" >&2
+            echo "  It does not expire on a schedule — a failure here means it was revoked or mistyped." >&2
+            echo "  Re-provision per new-project-setup.md §7c, or check .env for a typo." >&2
+            exit 21
+        fi
         ;;
     *) echo "deploy.sh: DEPLOY_BACKEND must be github or codebuild (got: '$DEPLOY_BACKEND')" >&2; exit 2 ;;
 esac

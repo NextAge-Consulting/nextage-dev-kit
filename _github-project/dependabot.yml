@@ -69,6 +69,13 @@ updates:
           - "@tanstack/*"
           - "hono"
           - "@hono/*"
+          # Drizzle sits here on purpose. A drizzle-orm/drizzle-kit bump can
+          # change generated migration SQL and snapshot format — damage PR-CI
+          # cannot see, because CI runs no migration and builds no artifact.
+          # Grouped patch+minor so it always gets the local build + smoke pass,
+          # never a green-CI auto-merge alongside leaf patches.
+          - "drizzle-orm"
+          - "drizzle-kit"
         update-types:
           - patch
           - minor
@@ -89,6 +96,8 @@ updates:
           - "@tanstack/*"
           - "hono"
           - "@hono/*"
+          - "drizzle-orm"
+          - "drizzle-kit"
         update-types:
           - patch
       npm-dev-minor:

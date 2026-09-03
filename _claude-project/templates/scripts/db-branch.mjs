@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 // Which Neon branch does DATABASE_URL actually point at?
 //
+// POSTGRES/NEON ONLY. Meaningless when DB_ENGINE is anything but
+// "PostgreSQL" — on another engine it can only ever exit 2 (UNKNOWN),
+// which reads as a warning about production rather than as "wrong tool".
+// The rules that invoke it are engine-gated; do not reach for it directly
+// on a project that is not on Neon.
+//
 // Exists because "am I about to write to production?" was being answered by
 // guesswork. Guessing wrong in the cautious direction stalls real work — refused
 // test runs, refused migrations, half-hour holds — and guessing wrong the other
