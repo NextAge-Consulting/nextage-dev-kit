@@ -43,15 +43,9 @@ Resolve in this order:
    ```bash
    PR_NUMBER=$(gh pr list --head "$(git branch --show-current)" --state open --json number --jq '.[0].number // empty' 2>/dev/null)
    ```
-3. **PR is open and the user did NOT specify a flag.** Use `AskUserQuestion` to prompt:
-   - Question: `Trigger Gemini review on this commit?`
-   - Header: `Gemini`
-   - Options:
-     - `Review` — "Post `/gemini review` after push. Use early in the PR or when fixes substantively change behavior."
-     - `Skip` — "Don't trigger Gemini. Use in late triage when you've already decided to ship; saves Gemini quota and lets /merge proceed on CI alone."
-   - `multiSelect: false`
+3. **PR is open and the user did NOT specify a flag.** Ask in prose and wait: whether to trigger a Gemini review on this commit. Carry both consequences — reviewing posts `/gemini review` after the push, which earns its keep early in the PR or when fixes substantively change behavior; skipping it is right in late triage once the decision to ship is made, saving Gemini quota and letting `/merge` proceed on CI alone.
 
-   Map answer to flag: `Review` → `--review`, `Skip` → `--no-review`.
+   Map the answer to the flag: review → `--review`, skip → `--no-review`.
 
 `GEMINI_NOT_INSTALLED="true"` in `.claude/sync-substitutions.json` makes `--review` a no-op (script skips the post and logs it). The prompt still appears — the slash command doesn't read the substitution file. That's intentional: the flag is the contract; the runtime decides whether the contract is satisfiable.
 

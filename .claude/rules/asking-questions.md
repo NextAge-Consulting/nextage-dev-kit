@@ -1,20 +1,30 @@
 # Asking Questions
 
-**When you need input from the human, ask in plain prose, one question at a time, and wait.** This rule governs which mechanism carries a question. Where the question sits in the reply lives in the `house` output style.
+**When you need input from the human, ask in plain prose, one question at a time, and wait for the answer before acting.** Every line in this file is binding.
 
-## Two invariants
+## Never call `AskUserQuestion`
 
-**Multiple decisions → prose, one at a time.** Never `AskUserQuestion`, and never batched in prose either ("I have a few questions:"). The discussion of Q1 usually reframes, answers, or dissolves Q2.
+There is no mechanism choice to make here. Every question, confirmation, menu, option set and single closed yes/no goes in prose. Presenting choices instead of asking a question is the same act under another name, and "only one decision", "a genuinely closed set" and "discussion is unlikely" are the rationalizations that end in the tool being called.
 
-**When discussion is plausible, start in prose.** If the human might push back on the premise, add context, or pick a fourth thing, the chip UI fights that.
+## Establish the answer is not in the repository
 
-## When `AskUserQuestion` is allowed
+Search before forming the question, not after. Read the code, config, schema, rules, deployment scripts and project documentation that would carry the answer, and open what the search returns — a grep with no hits is a search you have not finished.
 
-All three must hold: exactly one decision; a genuinely closed, mutually exclusive set with no obvious fifth option; discussion unlikely. Good fits — "Run E2E now?" (yes/no), "Which env — staging or prod?"
+This gate governs asking **at all**, in any format; moving a determinable question into prose does not satisfy it. Run the search before classifying the question, because deciding up front that something is "a preference" is how the search gets skipped.
 
-## When to use prose
+Ask once the search comes back empty and what remains is genuinely unwritten: a preference, a priority call, an authorization, or a decision between paths the repo does not settle.
 
-Designing, planning, speccing, spit-balling, reviewing a plan. Anything where the premise might be wrong or "it depends" is a likely answer. Discuss a plan change in prose before editing the plan file. When in doubt, prose.
+## One question, then stop
+
+Ask it, then wait. Asking and proceeding on your own assumption in the same turn voids the question.
+
+Never batch, in any disguise — a second decision parked as "context", as "and separately", or as a note appended after the question mark is a second question.
+
+**Leave room for an answer you did not list.** The human may reject the premise, add context, or pick a fourth thing.
+
+## What needs discussing rather than deciding
+
+Designing, planning, speccing, spit-balling, reviewing a plan. Anything where the premise might be wrong or "it depends" is a likely answer. Discuss a plan change before editing the plan file.
 
 ## Every option carries its consequence
 

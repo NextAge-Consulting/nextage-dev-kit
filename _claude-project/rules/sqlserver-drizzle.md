@@ -78,7 +78,8 @@ last verified against.
 | **Duplicate index names across tables break introspection** | `Failed to map the introspected schema` — no detail, no object named, even with stderr isolated | SQL Server scopes index names per table, so the same name on two tables is legal; introspection flattens them and collides. Find duplicates with the query below, then exclude one table via `tablesFilter` and hand-write its schema. |
 | **Check constraints emit a missing comma** | Generated `schema.ts` does not parse where a `check()` follows a `unique()` | One post-processing pass after every pull (below) |
 | **No relational query API** | `db.query` is `undefined` — no `findMany({ with: … })` | Explicit `select().from().leftJoin()`. Transactions do work. |
-| **No `.limit()`** | `db.select(…).limit is not a function` | SQL Server pagination is `.offset(n).fetch(n)` |
+| **No `.limit()`, and `.offset()` is also absent from the select chain** | `db.select(…).limit is not a function`; `.offset is not a function` on 1.0.0-rc.5 | No confirmed pagination method on this RC — re-check on upgrade. A `where` on a unique/primary-key column needs no limiting: it matches at most one row by construction |
+| **No `uniqueidentifier` column builder** | Not in `drizzle-orm/mssql-core`'s exports on 1.0.0-rc.5 — every other SQL Server scalar type is there, this one isn't | `customType<{ data: string }>({ dataType: () => 'uniqueidentifier' })`. Drop the custom type the day this ships natively. |
 
 Find duplicate index names before the first introspection — it is the difference
 between a five-minute fix and an afternoon:

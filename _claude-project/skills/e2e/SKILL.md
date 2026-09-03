@@ -22,13 +22,13 @@ This skill is invoked by the user. It is **not** an auto-firing gate — it runs
 
 ## The scope question
 
-When invoked with no flow-name arg, ask **one** `AskUserQuestion`: **"Which E2E flows?"**
+When invoked with no flow-name arg, ask in prose — **"Which E2E flows?"** — and wait for the answer.
 
 | Option | Behavior |
 |---|---|
 | **Diff-scoped** (default) | Run every flow whose `triggers:` match the current diff. This is where the diff logic fires. If the diff matches zero flows: report "no E2E coverage needed for this diff" and exit 0. |
 | **All flows** | Run every discovered flow. |
-| **Select specific…** | Ask a **second** `AskUserQuestion` with `multiSelect: true` listing every discovered flow's `name:`. Run exactly the checked flows. |
+| **Select specific…** | Ask a second prose question listing every discovered flow's `name:`. Run exactly the flows the user names. |
 
 The diff-scoped path's resolution: `git diff --name-only main..HEAD` (or against the PR base if different), intersect changed files with each flow's `triggers:`. On main / no PR with diff-scoped chosen: treat as all flows.
 
