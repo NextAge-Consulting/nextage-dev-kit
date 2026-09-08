@@ -115,6 +115,18 @@ rewrites the line and breaks it again. Recognise the loop by the error naming
 client profile works again immediately. Do NOT sign out of the browser or clear
 cookies for this — that is the fix for the 400 below, a different failure.
 
+**A profile with no region cannot be logged into — set the region first.** `aws login`
+prompts for one, and from the Claude Code prompt there is no terminal to prompt on, so it
+dies with `Warning: Input is not a terminal` followed by `[Errno 22] Invalid argument`.
+That failure names neither the profile nor the region, so it reads as a broken install. On
+a machine whose `~/.aws/config` has no entry for this profile yet, hand over both lines
+together:
+
+```bash
+aws configure set region <region> --profile <name>
+aws login --profile <name>
+```
+
 **The human runs `aws login --profile <hub>`** (the name resolved above) — hand them
 `! aws login --profile <hub>` and wait. It is a browser console sign-in that writes a
 `login_session` line and manages temporary credentials with a refresh token, so no static
