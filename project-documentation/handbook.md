@@ -165,6 +165,8 @@ All Claude-driven editing happens on a branch in the project checkout. One check
 - `/work` — on `main`, refresh from `origin/main` and cut a fresh `wip/<abbrev>-<timestamp>` branch. On a feature branch, resume it. Idempotent within a body of work.
 - `/work <issue#>` — on `main`, cut a branch derived from the issue title (e.g. `feat/add-email-to-users`) and link the issue. On a feature branch, behaves like `/link` — adds the issue to the branch you are on.
 - `/work --retrieve <branch>` — fetch a teammate's branch, fast-forward any local copy, switch to it. Refuses on a dirty tree; `/checkpoint` first.
+
+Every shape of `/work` also reads `project-documentation/temporary/handoff.md` once per session and folds it into the opening orientation (§12c).
 - `/merge` — squash-merge the PR, land the checkout back on `main`, delete the merged local branch.
 
 **One session = one body of work = one branch = one PR.** All commits made during a session land on the same feature branch. Use `/link` to add more issues mid-stream. Use `/open-pr` once and `/merge` once.
@@ -1735,6 +1737,26 @@ The stamp is the point. The mode is declared mid-conversation, and a long turn g
 Dogfooded: the command lives in both `_claude-project/commands/autonomous.md` and the kit's own `.claude/commands/`.
 
 Full spec: `commands/autonomous.md`.
+
+## 12c. Session handoff
+
+`/handoff` writes `project-documentation/temporary/handoff.md`; `/work` reads it. Together they are the continuity mechanism across sessions — the file survives compaction and a closed terminal, which the conversation does not.
+
+The document is written for the next session's AI, rewritten in full every time, and holds no git state. Branch names, file counts and last commits are stale the moment the next `/commit` runs, and `git log` returns them for free.
+
+**Continuity is enforced by classification, not by memory.** `/handoff` reads the outgoing document before writing the new one, and every open item in it resolves to exactly one of three outcomes: done (needs evidence from the session), dropped (needs a stated reason), or carried (the default). Silence is not a resolution — that is what stops a session that worked three of four items from dropping the fourth. The counter-pressure against the document growing into an unpruned backlog is the unmoved flag: an item carried unchanged into a third consecutive handoff is surfaced to the human with its age, since they are the one who can say whether it still matters.
+
+**Empty sections are absent, not empty.** Only the date, the summary of what happened, and the document index are mandatory. A session can finish clean with no blockers, no open questions and no next step, and that is a complete handoff. Manufacturing a next step to fill a heading is worse than omitting the heading, because the next session acts on it.
+
+`/handoff` also sweeps the rest of `temporary/`, applying the spent-plan rule from `rules/development-guidelines.md`: durable content promoted present-tense into the right permanent doc, the plan file deleted. `handoff.md` itself is exempt — it is the folder's one permanent resident, replaced rather than retired.
+
+`/work` reads the handoff once per session, on whichever invocation came first, including `--issue` and free-text forms. What the human pointed the session at leads the orientation summary; the handoff folds in where it bears on that, or trails as a marked note when it does not.
+
+`/autonomous` ends by invoking `/handoff` rather than doing the sweep inline. The run's final report and the handoff are different artifacts: the report is the account of the run, delivered in the conversation; the handoff is the next session's starting context, on disk.
+
+Dogfooded: the command lives in both `_claude-project/commands/handoff.md` and the kit's own `.claude/commands/`.
+
+Full spec: `commands/handoff.md`.
 
 ## 13. Troubleshooting
 

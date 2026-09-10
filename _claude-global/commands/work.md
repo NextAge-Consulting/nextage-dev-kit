@@ -1,6 +1,6 @@
 # /work
 
-Start or resume a body of work on a branch in this checkout. Part of the gitflow subsystem. This is the session-init command — invoke it first in any session that will edit code.
+Start or resume a body of work on a branch in this checkout. Part of the gitflow subsystem. This is the session-init command — invoke it first in any session that will edit code. It also loads the previous session's handoff, so the context comes with the branch.
 
 $ARGUMENTS
 
@@ -34,7 +34,7 @@ Identify the mode:
 - No tokens → default mode.
 - Single numeric token (`139` or `#139`) → `--issue 139`.
 - `--retrieve <branch>` → branch retrieval.
-- **Trailing free text matching no flag** (e.g. `/work what is the default retention for meter readings`) → default mode, AND the free text is captured as the session's **opening prompt**, handled in Step 5 *after* the branch action. Free text is never a mode and never suppresses execution.
+- **Trailing free text matching no flag** (e.g. `/work what is the default retention for meter readings`) → default mode, AND the free text is captured as the session's **opening prompt**, handled in Step 6 *after* the branch action. Free text is never a mode and never suppresses execution.
 
 Strip leading `#` from numeric tokens. Refuse if multiple *flag* modes are present (free text alongside a flag mode is allowed — it becomes the opening prompt).
 
@@ -48,13 +48,9 @@ Strip leading `#` from numeric tokens. Refuse if multiple *flag* modes are prese
 
 The script handles the branch mechanics. Do NOT call `EnterWorktree` — there is nothing to enter.
 
-### Step 3: For `--issue` mode, read issue context and respond
+### Step 3: For `--issue` mode, read the issue context
 
-The script dumps the issue's title, body, and comments to stdout. Claude MUST read that output and:
-
-1. Summarize what the issue asks for in plain language.
-2. Call out any ambiguity, missing context, or inconsistency.
-3. Propose an approach before touching code.
+The script dumps the issue's title, body, and comments to stdout. Read that output now. The response comes in Step 6, where it is combined with the handoff so the session gets one orientation rather than two summaries back to back.
 
 This is the whole point of linking issues at session-init time — Claude consumes the context up front and the human can correct the plan before any implementation starts.
 
@@ -65,9 +61,23 @@ This is the whole point of linking issues at session-init time — Claude consum
 - Issue side-effects (if `--issue` mode): report which issues were moved to In Progress / assigned / skipped (project status is best-effort).
 - Script exited non-zero: surface the reason.
 
-### Step 5: Handle the opening prompt (if free text was present)
+### Step 5: Read the handoff
 
-If `$ARGUMENTS` carried trailing free text (Step 1), treat it as the session's first prompt now that the branch action is done. Respond to it normally — answer questions, investigate, or act per its content. §II still applies here: if the prompt is a question, answer it and do not write code until directed. This step runs AFTER the branch action, never instead of it.
+**Once per session, on whichever `/work` came first** — every invocation shape, including `--issue`, free text and `--retrieve`. If a `/work` already ran this session, skip this step and Step 6; a second `/work` mid-session does not re-read or re-summarize.
+
+Read `project-documentation/temporary/handoff.md` and open the documents its index points at where they bear on what you are about to do.
+
+No handoff file — say so in one line and move on. That is not a problem to solve: new projects and mid-body-of-work resumes hit that path constantly, and noise there is what makes the step get skipped.
+
+### Step 6: Orient — one combined TLDR
+
+**Whatever the human pointed the session at leads.**
+
+- **`--issue`** — the issue leads: what it asks for, any ambiguity or missing context, and the proposed approach, before any code. The handoff then attaches to it. Related, fold it in — "the issue wants X; ABC from last session is half-done in the same file." Unrelated, a short trailing note marked as separate — "Also still open from last session: ABC, DEF. Neither touches this issue."
+- **Free text** — the prompt leads, same shape. §II still applies: a question gets answered, and no code until directed.
+- **Bare `/work`** — the handoff is the whole TLDR.
+
+The handoff never displaces what the human pointed at, and it never silently disappears into it.
 
 ## Blocking conditions
 
@@ -103,3 +113,4 @@ If `$ARGUMENTS` carried trailing free text (Step 1), treat it as the session's f
 - `/open-pr` — open a PR from the current branch. Closes-N's come from linked issues.
 - `/merge` — squash-merge the PR, land this checkout back on `main`, delete the merged branch.
 - `/ship-main` — commit straight to `main` with no branch and no PR, for infra and config work.
+- `/handoff` — writes the handoff this command reads. Run it at the end of the session.

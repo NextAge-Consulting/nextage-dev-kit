@@ -44,9 +44,13 @@ A blocker stops that deliverable, not the turn: record it in the plan document, 
 
 ### Step 5: Finish
 
-Delete the stamp line from the plan document. When every deliverable landed, follow `rules/development-guidelines.md` — write the permanent doc in the present tense and delete the plan file.
+Delete the stamp line from the plan document.
+
+Then run `/handoff`. It sweeps the temporary folder — promoting the durable content of a spent plan present-tense and deleting the plan file, per `rules/development-guidelines.md` — and writes the handoff for the next session. Do not do that work inline here; one owner, one procedure.
 
 Then produce the final report per `rules/autonomous-sessions.md`: what was completed, what was verified and with which commands, every blocker together, every assumption taken. Derive the list from the plan document deliverable by deliverable.
+
+The report and the handoff are not the same artifact. The report is the account of this run, delivered in the conversation. The handoff is the next session's starting context, on disk, where compaction cannot reach it.
 
 ## Blocking conditions
 
@@ -57,3 +61,4 @@ Then produce the final report per `rules/autonomous-sessions.md`: what was compl
 
 - `rules/autonomous-sessions.md` — the definition of the mode. This command enters it; the rule governs it.
 - `rules/testing-verification.md` — in this mode you verify your own work rather than handing off.
+- `/handoff` — invoked at Step 5 to sweep the temporary folder and write the next session's context.

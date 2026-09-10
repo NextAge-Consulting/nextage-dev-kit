@@ -246,6 +246,34 @@ problem and is not one. Check the AMI before concluding anything about permissio
 healthcheck URL on success. A backup job that silently stops running looks exactly like a
 backup job that is working, and the ping is the only thing that distinguishes them.
 
+**A container that uses the instance role needs `HttpPutResponseHopLimit` set to 2.**
+IMDSv2 fetches credentials by first PUTting for a token, and the response carries an IP
+TTL equal to the hop limit. A container on a bridge network sits one hop further from the
+metadata service than the host does, so at the default limit of 1 the token response is
+discarded in transit and the container gets no credentials at all. The host itself works
+fine, which is most of what makes this hard to see.
+
+The SDK reports it as `Could not load credentials from any providers` — indistinguishable
+from an unattached role, a wrong region or an expired key, so it sends people to audit an
+IAM policy that was already correct. The instance profile can be attached and perfectly
+scoped and the container still cannot use it.
+
+```bash
+aws ec2 modify-instance-metadata-options --instance-id <id> \
+  --http-tokens required --http-put-response-hop-limit 2 --http-endpoint enabled
+```
+
+It applies immediately with no restart, and `HttpTokens` stays `required` — this is not a
+retreat to IMDSv1. The cost is that every container on the box can now reach the metadata
+service, which makes the instance role's own scope the real boundary; keep it to what the
+host actually needs.
+
+**Nothing captures this in code, which is why it comes back.** User-data runs inside an
+instance that already exists and cannot set it, and no compose file or buildspec touches
+it — so the value is whatever the launch path happened to default to, recorded nowhere. A
+replaced or rebuilt host silently returns to 1, and the first symptom is a container
+failing to send mail or write to S3 while every health check stays green.
+
 ## Container resource limits
 
 **Set `mem_limit` on every service, and set `memswap_limit` to the same value.** A
@@ -322,6 +350,7 @@ ones. An established project is where these hide, because nothing ever surfaced 
 | A WAF is actually attached | `aws wafv2 list-web-acls --scope REGIONAL` then `list-resources-for-web-acl` | An empty list. A project ran for months with an ALB and no WAF, and nothing anywhere reported it |
 | The public IP is Elastic, not auto-assigned | `aws ec2 describe-instances --query 'Reservations[].Instances[].NetworkInterfaces[].Association.IpOwnerId'` | `amazon` — the IP **moves on stop/start**, silently breaking `EC2_HOST` secrets and any A record pointing at it |
 | The instance group is not world-open | `aws ec2 describe-security-groups` | Any `0.0.0.0/0` on the *instance* group. `:80` there bypasses the WAF entirely; `:22` there is a standing invitation |
+| Containers can reach the instance role | `aws ec2 describe-instances --query 'Reservations[].Instances[].MetadataOptions.HttpPutResponseHopLimit'` | A `1`. The host gets credentials and every container is refused them, reported as `Could not load credentials from any providers` |
 | SSH is closed and SSM works | `aws ssm describe-instance-information` | Agent absent while `:22` is open — the port cannot be closed until the agent is proven |
 | ECR repositories have a lifecycle policy | `aws ecr get-lifecycle-policy` per repository | `LifecyclePolicyNotFoundException`. Nothing fails; images accumulate and the bill arrives months later |
 | Swap is OFF | `swapon --show` | Any swap on a container host — it trades a contained OOM kill for host-wide thrashing |
