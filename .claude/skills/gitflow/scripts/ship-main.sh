@@ -85,12 +85,22 @@ if [ "$SKIP_TYPECHECK" -eq 0 ]; then
     fi
 fi
 
+# ALWAYS `@biomejs/biome`, NEVER a bare `biome`, and always `--no-install` —
+# see the note on the same gate in commit.sh. A bare `npx biome` runs an
+# unrelated package that exits 0, so this gate passed without linting.
 if [ -f "biome.json" ] || [ -f "biome.jsonc" ]; then
     echo "gitflow: running biome lint..." >&2
-    if ! npx biome lint >/dev/null 2>&1; then
+    if ! npx --no-install @biomejs/biome --version >/dev/null 2>&1; then
+        echo "" >&2
+        echo "gitflow: biome.json is present but @biomejs/biome is not installed." >&2
+        echo "  A gate that cannot run must not report success, so this is a failure." >&2
+        echo "  Fix: npm i -D @biomejs/biome@<the version biome.json's \$schema names>" >&2
+        exit 4
+    fi
+    if ! npx --no-install @biomejs/biome lint >/dev/null 2>&1; then
         echo "" >&2
         echo "gitflow: Biome lint errors detected. Fix before shipping to main (or --skip-typecheck)." >&2
-        echo "  Run: npx biome lint" >&2
+        echo "  Run: npx --no-install @biomejs/biome lint" >&2
         exit 4
     fi
 fi

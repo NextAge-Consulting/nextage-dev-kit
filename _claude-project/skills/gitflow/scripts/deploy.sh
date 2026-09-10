@@ -52,6 +52,9 @@
 # release record. This is the same direct-to-main mechanism as ship-main.sh.
 #
 # ─── State gates (all enforced before any mutation) ──────────────────────
+#   - DEPLOY_BACKEND is codebuild, github, custom or none. custom and none stop
+#     the run at exit 2 before any mutation — they are not failures, they are the
+#     project saying /deploy is not its release path.
 #   - DEPLOY_BACKEND=codebuild (the default): AWS CLI installed, region/prefix
 #     configured, DEPLOY_AWS_ACCESS_KEY_ID/DEPLOY_AWS_SECRET_ACCESS_KEY present in
 #     .env, and `aws sts get-caller-identity` succeeds against them — a revoked
@@ -92,11 +95,20 @@
 #      Migrate-only repos (no DEPLOY_WORKFLOWS) stop after step 10.
 #
 # ─── Dispatch backend (DEPLOY_BACKEND) ───────────────────────────────────
+# Four values, and the only question the key answers is what else must be set.
 # `codebuild` (the default) starts AWS CodeBuild projects: everything that
 # touches AWS runs on AWS compute, so no workflow holds an AWS credential and
 # the only remaining GitHub dependency is the git clone. `github` is the flow
 # described above, and is correct for a repo that deploys somewhere with no
-# AWS account behind it.
+# AWS account behind it. `custom` means the project DOES deploy, by a procedure
+# this script does not dispatch — /deploy stops before any bump and the
+# project's own rule under rules/project/ carries the steps. `none` means the
+# project does not deploy at all.
+#
+# custom and none are deliberately NOT a taxonomy of deploy mechanisms. An SSH
+# push, a container registry, a hand-run script and a hosting provider's own CLI
+# all say `custom`; the shape of that deploy lives in the project's deploy
+# script and rule, which is where it can actually be executed.
 #
 # Under codebuild the fleet is dispatched CONCURRENTLY and polled together,
 # where github watches each run in turn — a six-service release costs the
@@ -107,11 +119,13 @@
 # there is no second list to drift. CODEBUILD_MIGRATE_PROJECT names the
 # migration project when it does not follow that pattern.
 #
-# The migrate gate is identical on both backends: watched to completion, a real
+# The migrate gate is identical on both dispatching backends: watched to completion, a real
 # failure aborts with exit 19 before any app ships.
 #
 # ─── Exit codes ──────────────────────────────────────────────────────────
-#   2  bad args
+#   2  bad args; also DEPLOY_BACKEND=custom/none (this script does not deploy
+#      this project) or an unrecognized DEPLOY_BACKEND value — all raised
+#      before any bump, commit or tag
 #   3  not on main
 #   4  dirty working tree
 #   5  out of sync with origin
@@ -238,6 +252,17 @@ if [ -f "$SUBS_FILE" ] && command -v jq >/dev/null 2>&1; then
 fi
 case "$DEPLOY_BACKEND" in
     github) ;;
+    custom)
+        # The project DOES deploy — just not through a dispatcher this script
+        # owns. Its own procedure lives in rules/project/, so the honest thing
+        # is to stop here rather than bump a version for a release nobody ships.
+        echo "deploy.sh: DEPLOY_BACKEND=custom — this project deploys by its own procedure, not through /deploy." >&2
+        echo "  Follow the project's own deploy rule under .claude/rules/project/. Nothing was bumped or tagged." >&2
+        exit 2 ;;
+    none)
+        echo "deploy.sh: DEPLOY_BACKEND=none — this project does not deploy." >&2
+        echo "  If that is wrong, set DEPLOY_BACKEND in $SUBS_FILE. Nothing was bumped or tagged." >&2
+        exit 2 ;;
     codebuild)
         command -v aws >/dev/null 2>&1 || {
             echo "deploy.sh: DEPLOY_BACKEND=codebuild but the aws CLI is not installed" >&2; exit 8; }
@@ -288,7 +313,7 @@ case "$DEPLOY_BACKEND" in
             exit 21
         fi
         ;;
-    *) echo "deploy.sh: DEPLOY_BACKEND must be github or codebuild (got: '$DEPLOY_BACKEND')" >&2; exit 2 ;;
+    *) echo "deploy.sh: DEPLOY_BACKEND must be codebuild, github, custom or none (got: '$DEPLOY_BACKEND')" >&2; exit 2 ;;
 esac
 
 # deploy-<service>.yml → <prefix><service>

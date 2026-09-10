@@ -51,7 +51,7 @@ Flag any new linter suppression (`// biome-ignore`, `// @ts-ignore`, `// @ts-exp
 
 - **TanStack Table v9 `<table.FlexRender>`** and **`useSelector` imported from
   `@tanstack/react-form`**. Both are current API on the kit-pinned versions
-  (`.claude/tanstack-manifest.json`), and both are routinely mis-flagged by
+  (`.claude/stack-manifest.json`), and both are routinely mis-flagged by
   reasoning from the previous major:
   - react-table **v9** binds `FlexRender` to the table instance —
     `dist/createTableHook.d.ts` declares `FlexRender: () => ReactNode`, documented
@@ -64,6 +64,6 @@ Flag any new linter suppression (`// biome-ignore`, `// @ts-ignore`, `// @ts-exp
     not a correction.
 
   The pinned versions are the authority here, not the more common older API. If a
-  bump is ever taken, `/review-tanstack` updates this entry with it.
+  bump is ever taken, `/review-stack` updates this entry with it.
 
 The full rule set is in `.claude/rules/`.

@@ -93,10 +93,27 @@ The `@noble/*` entries belong to the same family of failure and are listed for
 the same reason — `managedNonce is not exported` (better-auth#7494) and a bare
 `ERR_MODULE_NOT_FOUND`, both from a hoisted major winning over a nested one.
 
-**Every app in the fleet already carries both.** If you are standing up a new app
-that uses Better Auth, add them at scaffold time rather than discovering them
-when the first container will not start — a green `npm run build`, a green
-typecheck and a working dev server all pass with this bug present.
+**`scripts/check-stack.mjs` checks this, and the two halves are NOT equally
+load-bearing.** Measured across the fleet:
+
+- **The app declaring the major itself is what protects it — REQUIRED.** The
+  inlined bundle resolves from the app's directory, so an app with its own
+  nested v4 is immune to whatever won the root hoist. All 7 Vite apps across the
+  3 projects declare `zod ^4.4.3`; the root hoist differs between them (two v3,
+  one v4) and none has failed in production.
+- **`ssr.noExternal` is hardening — ADVISORY.** 6 of those 7 apps do not carry
+  it and run in production. Failing them would be wrong, not strict.
+
+The list lives in `.claude/stack-manifest.json` under `ssr_no_external`, which
+is what the check reads. Adding an entry means updating it there so every
+project gets it — never a local fix in one app's config.
+
+**This paragraph used to assert that every app already carried both, and nothing
+checked it.** Six of seven did not, and the assertion had gone stale unnoticed.
+That is the argument for checking rather than documenting: a green
+`npm run build`, a green typecheck and a working dev server all pass with the
+weaker configuration, so a convention with no gate decays quietly and the
+documentation is the first thing to go.
 
 ## Version has to be read at runtime, from the right file
 

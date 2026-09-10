@@ -237,7 +237,7 @@ From the **project root** (not inside the kit), run `/sync-dev-kit`. First-run f
    - `PROJECT_ABBREV` — short label for `wip/<abbrev>-…` branch names (Claude pre-computes a default from the dir name; accept or shorten).
    - `GEMINI_NOT_INSTALLED` — leave empty for now if you're installing Gemini in step 5; set to `"true"` if this repo will not have Gemini.
    - `GITFLOW_PROJECT_ID` + the `GITFLOW_STATUS_*` IDs — only if you use a GitHub Project board (Claude can run the `gh api graphql` discovery for you). Leave empty / `_intentionally_empty` to skip board integration.
-   - `DEPLOY_BACKEND` + `DEPLOY_WORKFLOWS` + `CODEBUILD_PROJECT_PREFIX` — the deploy pipeline; see step 7. Leave all empty if this repo doesn't deploy.
+   - `DEPLOY_BACKEND` + `DEPLOY_WORKFLOWS` + `CODEBUILD_PROJECT_PREFIX` — the deploy pipeline; see step 7. A repo that deploys by its own procedure sets `DEPLOY_BACKEND=custom` and leaves the other two empty; a repo that does not deploy at all sets `none`.
 
    > Three states per key (handbook §9.7): **missing** = undecided, marker survives, re-nags every sync; **empty string** = intentionally disabled; **populated** = normal value. `_intentionally_empty` distinguishes "informed disable" from "deferred."
 3. **Per-file review (Steps 2–5)** — accept the kit files (`.claude/`, `.github/workflows/`, `.gemini/`, `.mcp.json`, `.commitlintrc.json`, `biome.json`, `.semgrepignore`) and the `.gitignore` additions.
@@ -293,8 +293,8 @@ monorepo splits deploys.
 
 Set in `.claude/sync-substitutions.json`:
 
-- `DEPLOY_BACKEND` — `codebuild`. It is the default, so leaving it unset works; set it explicitly anyway, so the file records the decision.
-- `DEPLOY_WORKFLOWS` — the service list, one `deploy-<service>.yml`-shaped name per service. It stays the single service list under both backends: `deploy.sh` maps each name to its CodeBuild project by stripping `deploy-` / `.yml` and applying the prefix, so there is no second list to drift.
+- `DEPLOY_BACKEND` — `codebuild`. It is the default, so leaving it unset works; set it explicitly anyway, so the file records the decision. The other three values are `github`, `custom` (deploys, but not through `/deploy`) and `none` (does not deploy).
+- `DEPLOY_WORKFLOWS` — the service list, one `deploy-<service>.yml`-shaped name per service. It stays the single service list under both dispatching backends: `deploy.sh` maps each name to its CodeBuild project by stripping `deploy-` / `.yml` and applying the prefix, so there is no second list to drift.
 - `CODEBUILD_PROJECT_PREFIX` — e.g. `myproj-deploy-`. Required; `/deploy` exits 2 without it.
 - `CODEBUILD_MIGRATE_PROJECT` — only when the migration project does not follow the prefix pattern.
 - `MIGRATE_WORKFLOW` — if this project migrates a database. `/deploy` runs it first and gates on it.

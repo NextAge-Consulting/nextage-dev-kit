@@ -123,7 +123,7 @@ After running `npx shadcn@latest add <name>`, audit the generated file:
 2. Search for `<input>`, `<textarea>`, `<select>` — make sure there's
    a way for the consumer to pass an `id` through (Radix primitives
    and shadcn wrappers generally forward `...props`, but verify).
-3. Run `npx biome lint <path>` on the new file.
+3. Run `npx --no-install @biomejs/biome lint <path>` on the new file.
 4. If the generated code has a11y gaps that can't be fixed at the
    primitive level, document them in a file-top comment so future
    edits know.

@@ -24,7 +24,7 @@ legitimate exemptions.
 
 `npx shadcn add form` installs **react-hook-form** as a hard dependency. Build
 field components from the plain atoms — `Input`, `Label`, `Select` — bound to
-TanStack Form. `scripts/check-tanstack.mjs` fails the build if RHF appears.
+TanStack Form. `scripts/check-stack.mjs` fails the build if RHF appears.
 
 Field components live in the **app**, not the shared UI package. A component
 bound to form state is not presentational, and the design system has to keep

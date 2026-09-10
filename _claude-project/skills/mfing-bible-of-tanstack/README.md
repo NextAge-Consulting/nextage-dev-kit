@@ -21,7 +21,7 @@ Progressive disclosure, three levels:
 **Vendored (marked ⇩ in the index).** Copied verbatim from the `SKILL.md` files
 TanStack ships inside its npm packages, with a provenance header naming the
 source package, version and vendor date. **Never hand-edit one** — the kit's
-`/review-tanstack` overwrites it on refresh, and your edit is lost.
+`/review-stack` overwrites it on refresh, and your edit is lost.
 
 **House.** Written and maintained by us, covering what upstream does not: the
 Query patterns, house auth, the Hono production server, our accumulated traps.
@@ -31,11 +31,11 @@ to refresh from and is entirely ours.
 ## Maintenance
 
 Which docs are vendored, from where, and which versions are blessed is recorded
-in `.claude/tanstack-manifest.json`. `scripts/check-tanstack.mjs` enforces the
+in `.claude/stack-manifest.json`. `scripts/check-stack.mjs` enforces the
 version pins, the banned form libraries, the per-app form decision, and that
 every reference the manifest names is actually present — CI job
-`tanstack-standard`.
+`stack-standard`.
 
 Refreshing the vendored set, reviewing the house docs against upstream changes,
-and deciding version bumps are all the kit maintainer's `/review-tanstack`. None
+and deciding version bumps are all the kit maintainer's `/review-stack`. None
 of it happens in a consumer project.

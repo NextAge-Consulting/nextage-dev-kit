@@ -1,5 +1,5 @@
 #!/bin/bash
-# review-tanstack.sh — gathers the raw material for a TanStack version review.
+# review-stack.sh — gathers the raw material for a TanStack version review.
 #
 # MAINTAINER-ONLY. Ships via _claude-maintainer/, installed to ~/.claude/scripts/
 # by `/install-kit --maintainer`. A consumer machine never receives it.
@@ -10,7 +10,7 @@
 #
 # It does NOT compare our files to upstream files. Our references are DISTILLED —
 # our subset in our words — so there is nothing to diff. Staleness is judged by
-# reading what changed upstream against what we wrote, which is /review-tanstack's
+# reading what changed upstream against what we wrote, which is /review-stack's
 # job, not this script's.
 #
 # Output: JSON on stdout — pinned vs latest, the release notes in between, the
@@ -20,11 +20,11 @@
 set -euo pipefail
 
 CONFIG="$HOME/.claude/dev-kit-config.json"
-[ -f "$CONFIG" ] || { echo "review-tanstack: $CONFIG not found — run /install-kit --maintainer" >&2; exit 4; }
+[ -f "$CONFIG" ] || { echo "review-stack: $CONFIG not found — run /install-kit --maintainer" >&2; exit 4; }
 KIT_PATH=$(jq -r .devKitPath "$CONFIG")
-[ -d "$KIT_PATH" ] || { echo "review-tanstack: kit path '$KIT_PATH' does not exist" >&2; exit 4; }
-MANIFEST="$KIT_PATH/_claude-project/tanstack-manifest.json"
-[ -f "$MANIFEST" ] || { echo "review-tanstack: manifest not found at $MANIFEST" >&2; exit 4; }
+[ -d "$KIT_PATH" ] || { echo "review-stack: kit path '$KIT_PATH' does not exist" >&2; exit 4; }
+MANIFEST="$KIT_PATH/_claude-project/stack-manifest.json"
+[ -f "$MANIFEST" ] || { echo "review-stack: manifest not found at $MANIFEST" >&2; exit 4; }
 
 # Which GitHub repo publishes releases for a package.
 repo_for() {
@@ -36,11 +36,11 @@ repo_for() {
     esac
 }
 
-echo "review-tanstack: manifest blessed $(jq -r .blessed_at "$MANIFEST")" >&2
+echo "review-stack: manifest blessed $(jq -r .blessed_at "$MANIFEST")" >&2
 
 versions="[]"
 while IFS=$'\t' read -r pkg pinned; do
-    echo "review-tanstack: $pkg" >&2
+    echo "review-stack: $pkg" >&2
     latest=$(npm view "$pkg" version 2>/dev/null || echo "")
     status="current"; [ -n "$latest" ] && [ "$latest" != "$pinned" ] && status="behind"
     [ -z "$latest" ] && status="unknown"
@@ -67,7 +67,7 @@ done < <(jq -r '.packages | to_entries[] | "\(.key)\t\(.value)"' "$MANIFEST")
 
 # Open issues touching what we actually use. Not exhaustive — a prompt for the
 # reviewer to look, not a verdict.
-echo "review-tanstack: scanning open issues" >&2
+echo "review-stack: scanning open issues" >&2
 issues="[]"
 for q in "repo:TanStack/router+is:issue+is:open+middleware" \
          "repo:TanStack/router+is:issue+is:open+loader" \

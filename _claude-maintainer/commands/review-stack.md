@@ -1,16 +1,16 @@
-# /review-tanstack
+# /review-stack
 
 Maintainer-only. Answers one question: **what has changed in TanStack since we
 pinned, does it affect us, and if we take a bump — what in our skill has to
 change to match.**
 
 **This is the only way the TanStack manifest changes.** A consumer project never
-bumps a version to make its build pass; `scripts/check-tanstack.mjs` failing
+bumps a version to make its build pass; `scripts/check-stack.mjs` failing
 there is the system working.
 
 ## When to invoke
 
-The user types `/review-tanstack`, or asks what's new in TanStack since we
+The user types `/review-stack`, or asks what's new in TanStack since we
 pinned. Run it when there is time to act on the answer — it produces judgment
 calls, not a notification. **Never proactively**, and never from a consumer
 session to work around a failing CI job.
@@ -18,7 +18,7 @@ session to work around a failing CI job.
 ## Step 1: Gather
 
 ```bash
-~/.claude/scripts/review-tanstack.sh
+~/.claude/scripts/review-stack.sh
 ```
 
 Emits JSON: `versions` (pinned vs latest, plus release notes for everything in
@@ -66,7 +66,7 @@ Present per package: what changed, whether it reaches us, and the recommendation
 together — it is an N-project event, and the projects most affected may not be
 the one the user is sitting in.
 
-Wait for the decision. Only then edit `_claude-project/tanstack-manifest.json`,
+Wait for the decision. Only then edit `_claude-project/stack-manifest.json`,
 and move `blessed_at` in the same edit — a pin without a date reads as accidental
 six weeks later.
 
@@ -90,7 +90,7 @@ text, and never add a section explaining a feature we do not use.
 Any change touches the kit source AND every consumer in ONE pass, per
 `kit-maintainer.md`:
 
-- `_claude-project/tanstack-manifest.json`
+- `_claude-project/stack-manifest.json`
 - `_claude-project/skills/mfing-bible-of-tanstack/**`
 - each consumer's `.claude/` copies
 

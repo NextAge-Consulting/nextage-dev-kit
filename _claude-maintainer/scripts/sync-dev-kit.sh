@@ -393,8 +393,8 @@ dest_for_kit_path() {
         _claude-project/templates/scripts/check-workspace-tiers.mjs)
             echo "scripts/check-workspace-tiers.mjs"
             ;;
-        _claude-project/templates/scripts/check-tanstack.mjs)
-            echo "scripts/check-tanstack.mjs"
+        _claude-project/templates/scripts/check-stack.mjs)
+            echo "scripts/check-stack.mjs"
             ;;
         _claude-project/templates/scripts/db-branch.mjs)
             echo "scripts/db-branch.mjs"

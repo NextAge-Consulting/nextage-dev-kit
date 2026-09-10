@@ -53,7 +53,7 @@ The kit dogfoods only what it actually uses. Everything below ships to consumers
 | `templates/ui-inventory.md` | Seed for a consumer's `rules/project/ui-inventory.md` — an enumeration of that project's own components. Kit has no UI, so there is nothing to enumerate. |
 | `skills/shadcn/**` | Kit has no `components.json` / shadcn install. |
 | `skills/mfing-bible-of-tanstack/**` | Kit has no TanStack code. |
-| `tanstack-manifest.json` | Kit-blessed TanStack versions + vendored-reference provenance. Kit has no `package.json` and no TanStack dependency. Consumed by the (also template-only) `scripts/check-tanstack.mjs`. |
+| `stack-manifest.json` | Every version the kit blesses, each with the condition it applies under — `whenDeclared` (the library standard), `whenFile` (a kit-shipped config implies its tool), `whenResolved` (a package the kit's own choices drag in, transitively). Plus vendored-reference provenance. Kit has no `package.json`, no lockfile and no TanStack dependency, so none of the triggers could fire here. Consumed by the (also template-only) `scripts/check-stack.mjs`. |
 | `rules/postgres-drizzle.md`, `rules/sqlserver-drizzle.md`, `skills/postgres-neon-drizzle/**` | Kit has no database of any engine — its own `DB_ENGINE` is `None`, which is exactly the value that stands both engine rules down. |
 | `rules/cli-utilities.md` | Kit runs no AWS / cloud CLI — the account/region discipline never applies. |
 | `skills/agent-browser/**`, `rules/integrations/agent-browser.md` | Kit has no web app to drive a browser against. |
@@ -65,7 +65,7 @@ The kit dogfoods only what it actually uses. Everything below ships to consumers
 | `rules/dev-server.md` | Companion to the (excluded) dev-server feature; kit runs no dev servers. |
 | `rules/dependencies.md` | Kit has no `package.json` — nothing to install, no lockfile to protect. |
 | `skills/dependency-triage/**` | Kit has no `package.json` and no `.github/dependabot.yml` — no dependency PRs are ever opened here. |
-| `templates/scripts/**` | Seeds for a consumer's `scripts/` — `check-dep-alignment.mjs`, `check-workspace-tiers.mjs`, `check-tanstack.mjs`, `db-branch.mjs`. The first three read a `package.json` / workspace graph the kit does not have; the fourth resolves a Neon branch, and the kit has no database. |
+| `templates/scripts/**` | Seeds for a consumer's `scripts/` — `check-dep-alignment.mjs`, `check-workspace-tiers.mjs`, `check-stack.mjs`, `db-branch.mjs`. The first three read a `package.json` / workspace graph the kit does not have; the fourth resolves a Neon branch, and the kit has no database. |
 | `rules/project/README.md` | Consumer scaffolding placeholder; the kit has its own `rules/project/` content. |
 
 Anything in `_claude-project/` not listed above IS dogfooded. Kit-custom items (`install-*`, `dev-kit-workflow.md`, `sync-design-pre-read.md`) live only in the kit's `.claude/` and are governed by the propagation table, not this one.

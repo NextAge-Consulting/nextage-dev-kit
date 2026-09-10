@@ -147,12 +147,27 @@ fi
 # Biome lint (if the project has adopted Biome — gated on biome.json presence).
 # Mirrors the CI `biome` job so lint failures fire locally in <1s instead of on
 # the PR 30s later. No-op in projects without Biome.
+#
+# ALWAYS `@biomejs/biome`, NEVER a bare `biome`, and always `--no-install`.
+# `npx biome` resolves to an UNRELATED package of that name on npm (an
+# environment-variable manager) which accepts `lint` as an unknown command and
+# EXITS 0 — so this gate reported success without linting anything. Without
+# `--no-install`, npx silently downloads whatever is latest, which is how a
+# project's pinned biome.json schema and the binary actually running it drift
+# apart with nothing to say so.
 if [ -f "biome.json" ] || [ -f "biome.jsonc" ]; then
     echo "gitflow: running biome lint..." >&2
-    if ! npx biome lint >/dev/null 2>&1; then
+    if ! npx --no-install @biomejs/biome --version >/dev/null 2>&1; then
+        echo "" >&2
+        echo "gitflow: biome.json is present but @biomejs/biome is not installed." >&2
+        echo "  A gate that cannot run must not report success, so this is a failure." >&2
+        echo "  Fix: npm i -D @biomejs/biome@<the version biome.json's \$schema names>" >&2
+        exit 4
+    fi
+    if ! npx --no-install @biomejs/biome lint >/dev/null 2>&1; then
         echo "" >&2
         echo "gitflow: Biome lint errors detected. Fix before committing." >&2
-        echo "  Run: npx biome lint" >&2
+        echo "  Run: npx --no-install @biomejs/biome lint" >&2
         exit 4
     fi
 fi

@@ -69,13 +69,30 @@ Read `project-documentation/temporary/handoff.md` and open the documents its ind
 
 No handoff file — say so in one line and move on. That is not a problem to solve: new projects and mid-body-of-work resumes hit that path constantly, and noise there is what makes the step get skipped.
 
+#### Trust, but verify — the handoff is a report, not the repository
+
+**It was written by hand at the end of a session, and only if someone remembered to run `/handoff` at all.** So it can be days stale, it can predate commits that have already landed, and its "done" and "still to do" lines can each be wrong in either direction. Read it for orientation, then check it.
+
+The cheap check, every time:
+
+```bash
+git log -8 --date=short --format='%h %ad %s'
+git status --short
+```
+
+The handoff's H1 carries the date it was written. **Commits dated after it mean work has landed that the handoff never saw** — say so in one line and treat the whole file as unverified, rather than discarding it. Uncommitted changes it does not mention are the same signal.
+
+**Never repeat a handoff claim to the human as fact.** A line saying an item is finished, or that one thing remains, is a claim about the tree — confirm it against the tree before it reaches the TLDR. Confirming is usually one `ls`, one `grep` or one `jq`, and it is cheap next to the cost of being wrong: the session goes off to build something that already exists, or skips something that was never finished, and the human only finds out later.
+
+Verify what you are about to act on, not the whole file. A claim you are not going to use this session needs no check.
+
 ### Step 6: Orient — one combined TLDR
 
 **Whatever the human pointed the session at leads.**
 
 - **`--issue`** — the issue leads: what it asks for, any ambiguity or missing context, and the proposed approach, before any code. The handoff then attaches to it. Related, fold it in — "the issue wants X; ABC from last session is half-done in the same file." Unrelated, a short trailing note marked as separate — "Also still open from last session: ABC, DEF. Neither touches this issue."
 - **Free text** — the prompt leads, same shape. §II still applies: a question gets answered, and no code until directed.
-- **Bare `/work`** — the handoff is the whole TLDR.
+- **Bare `/work`** — the handoff is the whole TLDR, with the claims you are reporting verified per Step 5.
 
 The handoff never displaces what the human pointed at, and it never silently disappears into it.
 
