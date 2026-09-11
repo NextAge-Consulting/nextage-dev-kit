@@ -95,6 +95,14 @@
       "severity": "required",
       "installedBy": "project"
     },
+    "better-auth": {
+      "version": "1.7.2",
+      "applies": "whenDeclared",
+      "severity": "required",
+      "installedBy": "project",
+      "blessedAt": "2026-09-10",
+      "why": "Better Auth holds the front door, and its breaking changes are invisible until a version boundary. 1.7 made `issuer` a REQUIRED field on the account model and made sign-in filter on it: a project whose authaccount table predates that column has the field read as undefined, the filter never matches, and EVERY sign-in fails as \"Invalid email or password\" with the user, the account and the password hash all verifiably correct. A caret range walks a project across that boundary on a fresh install with no commit to blame. Pin exactly; treat an upgrade as a change that needs the auth tables re-checked against @better-auth/core's own schema definitions."
+    },
     "@biomejs/biome": {
       "version": "2.5.1",
       "applies": {

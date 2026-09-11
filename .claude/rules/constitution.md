@@ -62,6 +62,34 @@ An empty state is not an error state. A failed lookup rendered as an empty list 
 
 When reviewing, check every `onError`, `catch`, `.catch()` and `except` for a path to the user.
 
+**The same rule governs ORDINARY screen copy, not just failures.** A label, hint,
+description or empty-state is read by whoever opens the screen, so it never names
+a table, column, class, environment variable, internal system or product the user
+does not otherwise see. "Making someone inactive removes their access to every
+application" — not the column that stores it, and not the names of the other
+applications.
+
+This is the one that slips through, because a helpful hint feels like
+documentation rather than output. It is output. A field hint reading
+`This is the legacy UserInfo.Status` hands a reader the schema, the fact that
+another system reads it, and that system's name — from a screen, permanently, to
+everyone who can open it. Explaining the mechanism is what the code comment and
+the project docs are for; the screen gets the effect.
+
+Say what the control DOES and what changes when you use it. If a sentence would
+only make sense to someone who has read the codebase, it belongs in the codebase.
+
+**And the test for a LABEL: could this drift as the system grows?** If yes, it is
+the wrong label. "Security" survives; "What this person may do in backoffice"
+names one application out of the many that will exist, and nobody ever comes back
+to correct a label that still technically renders. The same goes for anything
+describing how much is built yet — "applies as screens are converted" is a
+sentence with an expiry date on a screen that has no release process for prose.
+
+Name the thing, not the moment. A label that would need editing after the next
+piece of work lands is a maintenance task you just created and will not do.
+
+
 ## XI. Best Solution, Not Quick Solution (Zero Tolerance)
 
 Implement the canonical, officially-documented, future-proof approach. Research it against the official docs before choosing — the `research` skill carries the ladder — and pick a pattern for correctness rather than for how fast it is to type.
