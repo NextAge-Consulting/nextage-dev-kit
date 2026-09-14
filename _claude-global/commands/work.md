@@ -76,11 +76,12 @@ No handoff file — say so in one line and move on. That is not a problem to sol
 The cheap check, every time:
 
 ```bash
-git log -8 --date=short --format='%h %ad %s'
+# UTC, to compare like-for-like against the handoff's UTC stamp
+TZ=UTC git log -8 --date=format-local:'%F %H:%M' --format='%h %ad %s'
 git status --short
 ```
 
-The handoff's H1 carries the date it was written. **Commits dated after it mean work has landed that the handoff never saw** — say so in one line and treat the whole file as unverified, rather than discarding it. Uncommitted changes it does not mention are the same signal.
+The handoff's H1 carries the LOCAL date it was written; the italic line beneath it carries the same instant in UTC. **Compare against the UTC stamp, using the UTC-normalized log above** — comparing a local date against a log rendered in some other offset invents gaps and hides real ones, and the writer's timezone cannot be inferred from the project. **Commits dated after that UTC stamp mean work has landed that the handoff never saw** — say so in one line and treat the whole file as unverified, rather than discarding it. Uncommitted changes it does not mention are the same signal.
 
 **Never repeat a handoff claim to the human as fact.** A line saying an item is finished, or that one thing remains, is a claim about the tree — confirm it against the tree before it reaches the TLDR. Confirming is usually one `ls`, one `grep` or one `jq`, and it is cheap next to the cost of being wrong: the session goes off to build something that already exists, or skips something that was never finished, and the human only finds out later.
 

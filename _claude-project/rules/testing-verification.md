@@ -14,6 +14,62 @@ Your job ends at build and static verification — typecheck, lint, build. Then 
 
 In an autonomous session, verify your own work — drive agent-browser and the relevant e2e flows to completion. There is no one to defer to.
 
+## Which tier a test belongs in
+
+**The test is written in the same change as the code it covers**, unit and integration
+alike. Not afterwards, not in a follow-up.
+
+**A tier with no tests in it yet is not a reason to skip.** The first test in a project
+establishes the pattern; writing it is ordinary work, not a decision needing sign-off.
+"There is no precedent, so I won't invent one" is avoidance wearing the clothes of
+prudence — see `working-discipline.md`.
+
+### The bar
+
+**Would a mock have to invent the answer?**
+
+- **No — the answer is in the code.** Unit test. Formatting, parsing, validation, a
+  branch, a calculation, which of two paths a value takes.
+- **Yes — the answer comes from the database.** Integration test. Collation, column
+  types and widths, `NULL` against empty string, defaults, unique and foreign-key
+  constraints, generated ids, what a real join returns over real data shapes, what a
+  stored timezone does.
+
+**"It saved the row" and "it read back what I wrote" are the ORM working.** Neither is a
+test of your code, and asserting them costs a database round trip to learn nothing. If you
+cannot name what would be WRONG without the test, delete it.
+
+Worked examples of a test that earns its place, each a real defect it would have caught:
+
+- A lookup by one spelling finds a row the other application stored in another case —
+  because the column collates case-insensitively.
+- A missing setting returns its fallback **without writing a row** — because the system it
+  replaced wrote one, and that is how the table filled with rows nobody configured.
+- An empty date reaches the column as `NULL` rather than an epoch.
+- A value written into a legacy fixed-width column comes back trimmed.
+- A timestamp is stored in the zone every other row uses, not the server's.
+
+### It changes how the code is shaped
+
+**A data function takes its connection as a parameter.** The harness runs each test inside
+a transaction it always rolls back and hands that transaction in; a function that resolves
+its own connection cannot ride it, so it cannot be tested at all and nothing will say so
+until someone tries.
+
+```ts
+// Testable: the caller supplies the connection.
+export function readThing(db: Db, id: number) { … }
+
+// The request-bound wrapper. The auth boundary lives HERE, never in the query —
+// a boundary is about the request, and a query has no request.
+export async function getThing(id: number) {
+  await requireSession();
+  return readThing(connectionForRequest(), id);
+}
+```
+
+Discovering this at test-writing time means a refactor. Write it this way first.
+
 ## Running the suite
 
 These apply whenever you DO run tests, on either path above. They do not authorize a run.

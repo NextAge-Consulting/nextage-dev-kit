@@ -52,6 +52,8 @@ Three sections are mandatory — the date stamp, what happened, and the document
 ```markdown
 # Handoff — YYYY-MM-DD
 
+*Written YYYY-MM-DD HH:MM Area/City (ABBR, UTC±HHMM) · YYYY-MM-DD HH:MM UTC*
+
 ## What happened last session
 
 <Prose. What was done and where it landed. Not a commit list.>
@@ -79,7 +81,21 @@ Three sections are mandatory — the date stamp, what happened, and the document
 | `<path>` | `<the situation that sends you there>` |
 ```
 
-Substitute the date from `date +%F`.
+**Stamp both zones, and name the local one.** A handoff written in one timezone and
+compared against a git log in another reads as a gap that is not there. The local zone
+also cannot be inferred — not from the project's language, not from the client's country,
+not from the codebase. So the H1 carries the local date for reading, and the line beneath
+it carries the full local time with its IANA zone name alongside the same instant in UTC.
+A human compares against the local stamp; anything comparing against git, GitHub or CI
+compares against the UTC one.
+
+Generate the whole header rather than hand-typing any part of it:
+
+```bash
+TZNAME=$(readlink /etc/localtime 2>/dev/null | sed 's|.*/zoneinfo/||'); TZNAME=${TZNAME:-${TZ:-unknown}}
+printf '# Handoff — %s\n\n*Written %s %s (%s) · %s*\n' \
+  "$(date +%F)" "$(date +'%F %H:%M')" "$TZNAME" "$(date +'%Z, UTC%z')" "$(date -u +'%F %H:%M UTC')"
+```
 
 **Never manufacture content to fill a heading.** A session can finish its work with nothing outstanding, and that is a complete handoff: a date, a paragraph on what was done, and the index. If there are no blockers, the Blockers heading is absent — not present and empty. An invented next step is worse than a missing section, because the next session will act on it.
 
