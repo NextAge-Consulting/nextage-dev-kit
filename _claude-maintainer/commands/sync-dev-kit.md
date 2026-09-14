@@ -20,7 +20,7 @@ Run the scan mode of the sync script:
 ~/.claude/scripts/sync-dev-kit.sh --scan
 ```
 
-(If the project has not been synced before, the script is read from the kit location — confirm the config file at `~/.claude/dev-kit-config.json` exists, else instruct the user to follow the install-kit handbook steps.)
+(If the project has not been synced before, the script is read from the kit location — confirm the config file at `~/.claude/dev-kit-config.json` exists, else point the user at `handbook.md` §0.1.)
 
 Parse the JSON output. Top-level fields:
 
@@ -256,7 +256,7 @@ Summarize:
 - **Kit behind remote**: refuse to proceed; user must `git pull` in kit first (their baseline would diverge otherwise)
 - **Running from inside the kit repo**: script refuses with exit code 4; surface message
 - **Mid-feature sync**: expected and supported. Sync runs on whatever branch you are on, so a rule fixed mid-session is live in context for the rest of it. The applied changes ride the same commit as the rest of the body of work, which is the house model (rules/git.md), not something to avoid.
-- **Script missing (`~/.claude/dev-kit-config.json` not found)**: surface install-kit handbook steps
+- **Script missing (`~/.claude/dev-kit-config.json` not found)**: point at `handbook.md` §0.1
 
 ## What this command does NOT do
 

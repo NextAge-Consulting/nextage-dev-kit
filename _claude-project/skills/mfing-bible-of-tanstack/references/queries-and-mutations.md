@@ -62,8 +62,19 @@ wrong.
 
 ## Optimistic updates
 
-For anything that should feel instant — a star, a toggle, a reorder — write the
-cache immediately and roll back on failure:
+**`invalidateQueries` is the LAST answer, not the first.** Ask what the mutation
+does on success in this order: the server returned the saved row, so write it into
+the cache; the change is predictable, so apply it optimistically; only then, the
+server computes a value you cannot, so invalidate — and say in a comment which value
+that is.
+
+The framing matters. Written the other way round — "reach for optimism when
+something should feel instant" — it reads as a special case, and the default that
+fills in behind it is a refetch. On one project 17 of 24 mutations shipped that way,
+including five deletes, before anyone measured what it cost.
+
+For anything the client can predict — a removal, a star, a toggle, a reorder — write
+the cache immediately and roll back on failure:
 
 ```ts
 onMutate: async (key) => {

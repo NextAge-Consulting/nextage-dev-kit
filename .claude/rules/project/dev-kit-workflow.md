@@ -4,13 +4,13 @@
 
 The kit is a project like any other, with its own `.claude/` of rules, hooks, skills and kit-custom commands. What distinguishes it is that `_claude-project/` is the template source for every OTHER project's `.claude/`.
 
-## The three source surfaces
+## The two source surfaces
 
 **`_claude-project/`** is what syncs out to consumer `<project>/.claude/` via `/sync-dev-kit`: rules, hooks, skills, the gitflow commands, agents, `settings.json`, `templates/`. Changes here reach every consumer on their next sync.
 
-**`_claude-global/`** holds `commands/work.md`, installed to `~/.claude/` by `/install-kit`. Every dev gets this tier. `work` is the session-init command, launched from the "claude agents" view before the session is inside any repo, so it has to exist globally to exist at launch time. It is project-agnostic and hardcoded to none; its `work.sh` ships via `_claude-project` and resolves once the session is in the project. Every other kit command only makes sense inside a project, so they ship per-project.
+**`_claude-maintainer/`** holds `kit-maintainer.md`, `commands/sync-dev-kit.md`, `commands/review-stack.md` and their scripts, copied to `~/.claude/` by hand when setting up a maintainer machine (`handbook.md` §0). Only the maintainer's machine gets this tier. `sync-dev-kit` must run from any project directory, so it is global by necessity — and a consumer machine that could sync would clobber projects the maintainer syncs ahead of them. Withholding the script beats guarding it: absent tooling has nothing to bypass.
 
-**`_claude-maintainer/`** holds `kit-maintainer.md`, `commands/sync-dev-kit.md` and `scripts/sync-dev-kit.sh`, installed to `~/.claude/` by `/install-kit --maintainer`. Only the maintainer's machine gets this tier. `sync-dev-kit` must run from any project directory, so it is global by necessity — but it ships here rather than in `_claude-global/` because the maintainer syncs projects ahead of the other devs, and a consumer machine that could sync would clobber that work. Withholding the script beats guarding it: absent tooling has nothing to bypass.
+**There is no global tier for consumers.** Every kit command ships per-project via `_claude-project/commands/`, `/work` included. A command file in `~/.claude/commands/` outranks the project's copy of the same name, so a global command cannot be updated by `/sync-dev-kit` and silently shadows the project's copy forever — which is exactly what a retired global `/work` did. `work.sh` now refuses to run when it finds one, and that guard is the only reliable place to catch it: nothing else runs on every invocation.
 
 `kit-maintainer.md` is inert unless `~/.claude/CLAUDE.md` imports it (`@kit-maintainer.md`), and the separate `~/.claude/kitmaster` marker is what makes `block-kit-edit.sh` inert. Both are per-machine and deliberately unshipped; `--maintainer` warns when either is missing and never creates them.
 
@@ -20,7 +20,7 @@ The kit is a project like any other, with its own `.claude/` of rules, hooks, sk
 
 The kit repo's project-level config, loaded when working in the kit. It holds the part of `_claude-project/` the kit actually uses — gitflow commands, the shared rules, hooks and skills — which is everything the manifest below does not mark template-only. The manifest governs; a large slice is deliberately absent.
 
-It also holds kit-custom items that never propagate: the `install-kit`, `install-cpl` and `install-statusline` commands, and the kit-specific rules `dev-kit-workflow.md` and `sync-design-pre-read.md`. Edit those in place — they have no other home, and the "kit's own rule tweak" row below does not apply to them.
+It also holds kit-custom items that never propagate: the `install-cpl` and `install-statusline` commands, and the kit-specific rules `dev-kit-workflow.md` and `sync-design-pre-read.md`. Edit those in place — they have no other home, and the "kit's own rule tweak" row below does not apply to them.
 
 Those prove the extensibility pattern: any project can add commands in its own `.claude/commands/` that the kit knows nothing about.
 
@@ -29,7 +29,6 @@ Those prove the extensibility pattern: any project can add commands in its own `
 | Change to | Propagate to |
 |-----------|--------------|
 | `_claude-project/*` | Mirror into the kit's `.claude/` so the kit itself uses it — **unless the item is template-only** per the manifest below. Commit both surfaces when mirrored. |
-| `_claude-global/*` | Edit the kit source AND `~/.claude/` in the SAME pass; `diff` to prove byte-identical. |
 | `_claude-maintainer/*` | Edit the kit source AND `~/.claude/` in the SAME pass; `diff` to prove byte-identical. |
 | `_statusline/statusline.sh` | Edit the kit source AND `~/.claude/statusline.sh` in the SAME pass; `diff` to prove byte-identical. `/install-statusline` is bootstrap, not propagation. |
 | Kit-custom command or rule in `.claude/` | Lives only there — edit in place. Do not move to `_claude-project/`, do not install globally. |
@@ -37,7 +36,7 @@ Those prove the extensibility pattern: any project can add commands in its own `
 
 "Commit both surfaces" means one commit containing both, so the kit is never at a state where source and dogfood disagree.
 
-**`/install-kit` is the bootstrap for a NEW machine, never the propagation step** — the same distinction as `/sync-dev-kit`, which is how consumer machines pull and never how the maintainer pushes. Re-running the installer to deliver an edit leaves the change half-applied until someone remembers to run it.
+**Setting up a maintainer machine is a one-time manual copy, documented as prose in `handbook.md` §0 — never a command.** It happens twice in the kit's life (a new machine, or someone taking over a fork), and a dedicated command for that is a maintenance surface earning nothing. Propagation is editing both copies in the same pass, as the table above says; a setup procedure is not propagation, and reaching for one to deliver an edit leaves the change half-applied.
 
 ## Kit dogfood manifest (single source of truth)
 
@@ -68,7 +67,7 @@ The kit dogfoods only what it actually uses. Everything below ships to consumers
 | `templates/scripts/**` | Seeds for a consumer's `scripts/` — `check-dep-alignment.mjs`, `check-workspace-tiers.mjs`, `check-stack.mjs`, `db-branch.mjs`. The first three read a `package.json` / workspace graph the kit does not have; the fourth resolves a Neon branch, and the kit has no database. |
 | `rules/project/README.md` | Consumer scaffolding placeholder; the kit has its own `rules/project/` content. |
 
-Anything in `_claude-project/` not listed above IS dogfooded. Kit-custom items (`install-*`, `dev-kit-workflow.md`, `sync-design-pre-read.md`) live only in the kit's `.claude/` and are governed by the propagation table, not this one.
+Anything in `_claude-project/` not listed above IS dogfooded. Kit-custom items (`install-cpl`, `install-statusline`, `dev-kit-workflow.md`, `sync-design-pre-read.md`) live only in the kit's `.claude/` and are governed by the propagation table, not this one.
 
 ### Present but unwired: three guards the kit tests without running
 

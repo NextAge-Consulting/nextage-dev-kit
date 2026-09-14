@@ -8,34 +8,75 @@ This doc is the architectural anchor. When something in the kit, a hook, a comma
 
 ## 0. Kit source layout
 
-The kit is just another project — it has its own `.claude/` with project-custom commands that only make sense when working in the kit. Most content syncs to other projects via `_claude-project/`. A single file pair lives at the global level via `_claude-global/` so consumer projects can initiate a sync from any directory.
+The kit is just another project — it has its own `.claude/` with project-custom commands that only make sense when working in the kit. Everything a consumer receives syncs via `_claude-project/`. Nothing is installed globally for consumers at all.
 
 | Path | Destination | Purpose |
 |------|-------------|---------|
-| `_claude-project/` | consumer `<project>/.claude/` via `/sync-dev-kit` | Project-level config that should exist in every project: rules, hooks, skills, the gitflow commands, agents, `settings.json`, `templates/` |
+| `_claude-project/` | consumer `<project>/.claude/` via `/sync-dev-kit` | Project-level config that should exist in every project: rules, hooks, skills, the gitflow commands (`/work` included), agents, `settings.json`, `templates/` |
 | `_github-project/` | consumer `<project>/.github/` via `/sync-dev-kit` | GitHub Actions workflows + dependabot config |
 | `_gemini-project/` | consumer `<project>/.gemini/` via `/sync-dev-kit` | Gemini Code Assist config + styleguide (PR-time AI reviewer) |
-| `_claude-global/` | `~/.claude/` via `/install-kit` | The CONSUMER global bootstrap — every dev gets this: `commands/work.md`. `/work` must be invokable from the agents view before the session is inside any repo, so it cannot ship per-project. Nothing else belongs here. |
-| `_claude-maintainer/` | `~/.claude/` via `/install-kit --maintainer` | The MAINTAINER surface — only the person who syncs the kit into projects: `scripts/sync-dev-kit.sh`, `commands/sync-dev-kit.md`, `kit-maintainer.md`. A consumer machine never receives the sync machinery, so it cannot run a sync. |
+| `_claude-maintainer/` | `~/.claude/`, copied by hand (§0.1) | The MAINTAINER surface — only the person who syncs the kit into projects: `scripts/sync-dev-kit.sh`, `commands/sync-dev-kit.md`, `scripts/review-stack.sh`, `commands/review-stack.md`, `kit-maintainer.md`. A consumer machine never receives the sync machinery, so it cannot run a sync. |
 | `_statusline/statusline.sh` | `~/.claude/statusline.sh` via `/install-statusline` (one-time) | The kit's custom statusline asset; referenced by `install-statusline.md`. |
-| `.claude/` | This kit repo's own active config | Mirror of `_claude-project/` PLUS kit-custom commands and scripts that only make sense in this repo: `install-kit`, `install-cpl`, `install-statusline` (commands + their helper scripts). These never propagate anywhere. |
+| `.claude/` | This kit repo's own active config | Mirror of `_claude-project/` PLUS kit-custom commands and scripts that only make sense in this repo: `install-cpl`, `install-statusline` (commands + their helper scripts). These never propagate anywhere. |
 
-### Why `/work` is global, and why sync is maintainer-only
+### Why consumers get nothing globally
 
-`/work` is the session entry point: it is launched from the agents view before the session is inside any repo, so a per-project command would not exist yet at that moment. Every dev needs it, so it ships in `_claude-global/`.
+**A command file in `~/.claude/commands/` outranks a project's copy of the same name.** Claude Code resolves personal over project, so a global command silently wins — and `/sync-dev-kit` deliberately does not scan `~/.claude/`, so it can never be updated or removed by the normal pull. The result is a file that ships once and then diverges forever, invisibly.
 
-`/sync-dev-kit` is also global by necessity — it must run from any project directory — but it is installed ONLY by `/install-kit --maintainer`. The maintainer syncs projects ahead of the other devs; a consumer machine that could sync would clobber that work. Withholding the script is stronger than guarding it: there is nothing to bypass.
+`/work` used to ship globally, on the reasoning that it is launched from the agents view before the session is inside any repo. That reasoning is dead: `@projectname` is how you enter a client session now, and `/work` is never issued from the agents view. It ships per-project like every other kit command.
 
-Historically: `/sync-dev-kit` resolves the kit path from `~/.claude/dev-kit-config.json` and runs from any project directory.
+The one-way door that left behind is handled at the only reliable point — `work.sh` refuses to run, with removal instructions, when it finds a `~/.claude/commands/work.md`. It is the one thing that executes on every `/work`, whichever doc won, so it is the only place the stale file can be caught. Neither a sync nor an installer can be relied on to run.
 
-Every other kit-adjacent command (`/install-kit`, `/install-cpl`, `/install-statusline`) is meaningful only when you are inside the kit repo. No reason to pollute global command space with them — they live in the kit's own `.claude/commands/`.
+`/sync-dev-kit` remains global by necessity — it must run from any project directory — but it is installed only on a maintainer machine, by hand. The maintainer syncs projects ahead of the other devs; a consumer machine that could sync would clobber that work. Withholding the script is stronger than guarding it: there is nothing to bypass.
+
+### 0.1. Setting up a maintainer machine
+
+This happens twice in the kit's life — a new machine, or someone taking over a fork — so it is prose, not a command. A dedicated installer for a twice-ever operation is a maintenance surface that earns nothing, and one that is run so rarely it can never be trusted to deliver a change.
+
+Clone the kit, then from inside it:
+
+```bash
+KIT=$(pwd)
+
+# 1. The maintainer surface — commands and scripts.
+mkdir -p ~/.claude/commands ~/.claude/scripts
+cp _claude-maintainer/commands/*.md      ~/.claude/commands/
+cp _claude-maintainer/scripts/*.sh       ~/.claude/scripts/
+cp _claude-maintainer/kit-maintainer.md  ~/.claude/
+chmod +x ~/.claude/scripts/*.sh
+
+# 2. Where the kit lives. `sync-dev-kit.sh` reads this and cannot run without it.
+cat > ~/.claude/dev-kit-config.json <<EOF
+{
+  "devKitPath": "$KIT",
+  "lastConfigured": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
+
+# 3. The two per-machine markers. Deliberately unshipped — a consumer
+#    machine must not be able to self-promote.
+echo '@kit-maintainer.md' >> ~/.claude/CLAUDE.md   # makes the maintainer rule load
+touch ~/.claude/kitmaster                          # makes block-kit-edit.sh go inert
+```
+
+Both markers are required and they gate different things. The `@kit-maintainer.md` import is what makes the maintainer rules load; the `kitmaster` file is what makes `block-kit-edit.sh` stop blocking kit edits. A machine with one and not the other is misconfigured — the rule without the marker tells you that you may edit kit files while the hook refuses, and the marker without the rule yields the hook while nothing tells you the routing rules.
+
+Verify:
+
+```bash
+ls ~/.claude/scripts/sync-dev-kit.sh ~/.claude/kitmaster
+jq -r .devKitPath ~/.claude/dev-kit-config.json
+grep kit-maintainer ~/.claude/CLAUDE.md
+```
+
+**`~/.claude/` is a copy, never a symlink.** Symlinking it at the kit would make global tooling follow whatever branch or half-finished edit the kit working tree happens to be sitting on. And this copy is maintained the same way a consumer project is — by editing both the kit source and `~/.claude/` to byte-identical in one pass, proven with `diff`. Re-running a setup procedure is not how a change is delivered.
 
 ### Sync flow summary
 
 - **`_claude-project/` → consumer `.claude/`** via `/sync-dev-kit` (diff/review, lockfile at `<project>/.claude/.kit-sync.json`).
 - **`_github-project/` → consumer `.github/`** via `/sync-dev-kit` (same lockfile, same flow).
 - **`_gemini-project/` → consumer `.gemini/`** via `/sync-dev-kit` (same lockfile, same flow).
-- **`_claude-global/` → `~/.claude/`** via `/install-kit` (kit-local command; straight install).
+- **`_claude-maintainer/` → `~/.claude/`** by hand, in the same pass as the kit-source edit (§0.1).
 - **`_statusline/statusline.sh` → `~/.claude/statusline.sh`** via `/install-statusline` (kit-local command; one-time).
 
 The kit isn't enforcing 100% compliance. It's a baseline sync — consumer projects can consciously deviate (custom rules in `<project>/.claude/rules/project/`, project-specific skills, project-specific commands that never come from the kit). Divergence is expected, not a failure.
@@ -46,7 +87,7 @@ The kit isn't enforcing 100% compliance. It's a baseline sync — consumer proje
 
 The kit has two human roles:
 
-- **Maintainer** — kit author, master of every project. The only role that runs `/sync-dev-kit`, and the only one who installs the maintainer surface (`/install-kit --maintainer`). Maintains opinions centrally in `_claude-project/`.
+- **Maintainer** — kit author, master of every project. The only role that runs `/sync-dev-kit`, and the only one who installs the maintainer surface (§0.1). Maintains opinions centrally in `_claude-project/`.
 - **Consumer developer** — any other developer on a project. Never touches the kit directly. Clones projects, gets a working setup from the repo. See `developer-onboarding.md`.
 
 Anything else in this handbook is for Claude (local or cloud) to follow mechanically.
@@ -188,16 +229,20 @@ So the key is **independent of whether worktrees exist**. It sits in a `worktree
 Keep the block, keep its comment, and do not fold it into "worktree leftovers" in a future cleanup.
 
 
-### 3.3. Where `/work` lives (global vs project-level)
+### 3.3. Where `/work` lives
 
-`/work` is unique among gitflow commands in that it must be discoverable BEFORE a project is established (e.g. in an agents-view session that starts at `~/projects/` with no repo cwd yet). For that reason:
+`/work` ships per-project, exactly like every other gitflow command:
 
-- **`commands/work.md`** lives at **user-level** (`~/.claude/commands/work.md`, sourced from kit canonical `_claude-global/commands/work.md`). Always discoverable, no matter where the session is launched.
-- **`work.sh`** stays **project-level** (`<project>/.claude/skills/gitflow/scripts/work.sh`). It needs its siblings (`branch_helpers.sh`, `issue_helpers.sh`) and operates on the project's git context.
+- **`commands/work.md`** — `<project>/.claude/commands/work.md`, synced from `_claude-project/commands/work.md`.
+- **`work.sh`** — `<project>/.claude/skills/gitflow/scripts/work.sh`. It needs its siblings (`branch_helpers.sh`, `issue_helpers.sh`) and operates on the project's git context.
 
-The global `/work.md` invokes the project-local `work.sh` via a cwd-relative path. If cwd is not a git repo, `work.sh` fails with exit 3 ("not in a git repository") — clear error rather than silent fallback.
+It used to ship globally, so it would be discoverable in an agents-view session starting outside any repo. That is no longer how a client session is entered — `@projectname` is — and `/work` is never issued from the agents view, so the reason is gone.
 
-All other gitflow commands (`/commit`, `/checkpoint`, `/link`, `/open-pr`, `/merge`, `/deploy`) remain project-level. You're always inside a project by the time you invoke them — `/work` is the only one that bootstraps the project context.
+The reason it must NOT go back is stronger than the reason it left. A command file in `~/.claude/commands/` **outranks** the project's copy of the same name, and `/sync-dev-kit` does not scan `~/.claude/`. A global `/work` therefore wins silently and can never be updated or removed by the normal pull — it ships once and diverges forever.
+
+`work.sh` guards that one-way door: it refuses to run, with removal instructions, when it finds a `~/.claude/commands/work.md`. That guard is the only reliable catch, because `work.sh` is the one thing that executes on every `/work` regardless of which doc won, and neither a sync nor an installer can be relied on to run.
+
+If cwd is not a git repo, `work.sh` exits 3 ("not in a git repository") — a clear error rather than a silent fallback.
 
 ### 3.4. Same workflow, three surfaces
 
@@ -1816,8 +1861,8 @@ The developer didn't set `includeGitInstructions: false` in their `~/.claude/set
 
 - **Automated kit-update PRs.** Single-user kit. No need for GitHub Actions that PR kit updates to consumer projects. The maintainer runs `/sync-dev-kit` when ready.
 - **Kit versioning / releases.** The kit repo is public, but is not distributed as a versioned artifact — there is no package, tag, or release to depend on. Syncs point at kit HEAD commit SHA, not a version.
-- **Install commands as slash commands.** `/install-kit`, `/install-statusline`, `/install-cpl`, `/install-kit` became handbook sections (TBD — see issue log). They're one-time ops, docs are more durable than commands.
-- **Global sync.** Dropped. The only global artifacts are the dev-kit bootstrap and statusline, installed once per machine. No ongoing sync.
+- **A maintainer-setup command.** Setting up a maintainer machine is prose in §0.1, not a slash command. It happens twice in the kit's life, and a command run that rarely can never be trusted to deliver a change — the temptation to use it as a propagation step is exactly the failure. `/install-statusline` and `/install-cpl` remain commands because they build or fetch something rather than copying files.
+- **Global sync.** Dropped, and consumers now receive nothing globally at all. The only global artifacts are the maintainer surface and the statusline, both installed once per machine. A global command file outranks a project's copy and cannot be reached by `/sync-dev-kit`, so anything shipped there diverges silently — see §0.
 
 ---
 

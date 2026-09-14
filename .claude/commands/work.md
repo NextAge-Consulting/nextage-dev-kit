@@ -1,25 +1,33 @@
 # /work
 
-Start or resume a body of work on a branch in this checkout. Part of the gitflow subsystem. This is the session-init command — invoke it first in any session that will edit code. It also loads the previous session's handoff, so the context comes with the branch.
+Orient the session and resume any body of work already in flight. Part of the gitflow subsystem. This is the session-init command — invoke it first in any session that will edit code. It refreshes `main`, loads the previous session's handoff, and leaves the branch decision to the command that actually needs it.
 
 $ARGUMENTS
 
 ## The model
 
-One checkout, one branch at a time. `/work` puts you on the branch your work belongs on and gets out of the way.
+One checkout, one branch at a time. `/work` puts you where your work already is, and does not guess at where it might go.
 
-- **On `main`** — refresh `main` from origin, then create the body-of-work branch and switch to it. Any edits already sitting in the tree come along.
+- **On `main`** — refresh `main` from origin and stay on it. **No branch is cut.**
 - **On a feature or `wip/*` branch** — resume it. This is the re-entry path across consecutive sessions: same branch, same body of work, nothing recreated.
 
-The branch starts as `wip/<abbrev>-<timestamp>` when there is no issue to name it. First `/commit` renames it to a real feature name derived from the commit message (`feat/…`, `fix/…`). You never type the wip name — it is internal session state.
+**Bare `/work` does not create a branch, deliberately.** At session-init nobody knows yet whether this is a feature, a kit or infra change, or a question answered straight from the handoff. Cutting a branch here makes that choice before it can be made — and because `/ship-main` refuses to run anywhere but `main`, it actively blocks the infra path on every single infra session.
 
-**Local main is refreshed before a new branch is cut.** The script fast-forwards `main` from `origin/main` via the shared `fast_forward_local_main` helper, so the branch starts from current code. Two cases skip the refresh and say so plainly rather than blocking: a dirty tree (your edits carry onto the new branch, which is based on local `main`), and a failed fetch (offline, expired auth, missing gh scope). Neither loses anything — run `/catchup` when you want the latest. Resuming an existing branch refreshes nothing by design; you are mid-body-of-work.
+Nothing is lost by waiting, because the safety lives downstream and is better there:
+
+- `/commit` on `main` auto-creates a branch named from the **commit message** — a real name, no `wip/` placeholder and no rename step.
+- `/checkpoint` on `main` auto-creates a `wip/` branch.
+- `git-guard.sh` blocks raw `git commit` regardless.
+
+So the branch is cut at the moment the decision is genuinely made: the first commit. `/work <issue#>` is the exception, and cuts immediately — typing an issue number *is* the declaration that this is a feature heading for a PR.
+
+**Local main is refreshed when it can be.** The script fast-forwards `main` from `origin/main` via the shared `fast_forward_local_main` helper. Two cases skip the refresh and say so plainly rather than blocking: a dirty tree, and a failed fetch (offline, expired auth, missing gh scope). Neither loses anything — run `/catchup` when you want the latest. Resuming an existing branch refreshes nothing by design; you are mid-body-of-work.
 
 ## Supported invocations
 
 | Input | What happens |
 |-------|--------------|
-| `/work` | On `main`: refresh, cut a fresh `wip/<abbrev>-<timestamp>` branch, switch to it. On a feature branch: resume it. |
+| `/work` | On `main`: refresh `main` and stay on it — no branch cut. On a feature branch: resume it. |
 | `/work <free text>` | Same as bare `/work`, then handle the free text as the session's opening prompt. The command runs first; the text is the prompt, not a mode. |
 | `/work <issue#>` | On `main`: cut a branch derived from the issue title (e.g. `feat/add-email-to-users`). On a feature branch: behaves like `/link` — adds the issue to the branch you are on. Either way, transitions the issue to In Progress, assigns to the current user, dumps body + comments. |
 | `/work --retrieve <branch>` | Fetch `<branch>` from origin, fast-forward any local copy, and switch to it. Refuses on a dirty tree — `/checkpoint` first. Your own branch is untouched; `git switch` back when you are done. |
@@ -56,7 +64,7 @@ This is the whole point of linking issues at session-init time — Claude consum
 
 ### Step 4: Report
 
-- Branch: report the branch the session is now on, and whether it was created or resumed.
+- Branch: report the branch the session is now on, and whether it was created, resumed, or left on `main` with no branch cut.
 - Base freshness: if the script reported that `main` was not refreshed, say so and why.
 - Issue side-effects (if `--issue` mode): report which issues were moved to In Progress / assigned / skipped (project status is best-effort).
 - Script exited non-zero: surface the reason.
@@ -95,6 +103,10 @@ Verify what you are about to act on, not the whole file. A claim you are not goi
 - **Free text** — the prompt leads, same shape. §II still applies: a question gets answered, and no code until directed.
 - **Bare `/work`** — the handoff is the whole TLDR, with the claims you are reporting verified per Step 5.
 
+**Raise every item the handoff flagged as unmoved, and raise them HERE.** `/handoff` deliberately does not ask them — it flags them in the document and leaves them for this moment, because the end of a session is the worst time to ask someone a question and the start of one is the best. Put each to the human plainly, with what carrying it further would cost and what dropping it would cost, and a recommendation. An unmoved item that goes unmentioned at session start is one nobody will ever resolve.
+
+Ask them **after** the orientation, not instead of it, and do not block on the answers — note them and get on with the work the human came for.
+
 The handoff never displaces what the human pointed at, and it never silently disappears into it.
 
 ## Blocking conditions
@@ -116,13 +128,17 @@ The handoff never displaces what the human pointed at, and it never silently dis
 
 ## Branch creation timing
 
-**A branch is cut the moment you start a body of work, never deferred.**
+**A branch is cut when the path is chosen, not when the session starts.**
 
-- `/work` (no args) on `main` → `wip/<abbrev>-<timestamp>`. First `/commit` renames it to a real feature name.
+- `/work` (no args) on `main` → stays on `main`. No branch.
 - `/work <issue#>` on `main` → created directly on the issue-derived branch (`feat/…`). No rename needed at first commit.
 - `/work` on a feature branch → resume, no branch change.
 
-`/commit` and `/checkpoint` carry the same safety independently: invoked while on `main`, they auto-create a branch rather than committing to `main`. `/ship-main` is the deliberate, by-name exception for committing straight to `main`.
+The branch then arrives from whichever command declares the path:
+
+- `/commit` on `main` → auto-creates a branch named from the commit message.
+- `/checkpoint` on `main` → auto-creates a `wip/` branch.
+- `/ship-main` → stays on `main` on purpose. This is the path bare `/work` used to make unreachable.
 
 ## Related
 

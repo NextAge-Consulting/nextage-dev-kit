@@ -36,7 +36,7 @@ are the kit-specific tail of it.
 
 1. Install Claude Code (above).
 2. Clone the dev kit.
-3. Run `/install-kit` from inside the kit repo — this installs the global bootstrap (`~/.claude/commands/sync-dev-kit.md` + script) and writes `~/.claude/dev-kit-config.json` pointing at the kit path.
+3. Install the maintainer surface by hand, following `handbook.md` §0.1 — this copies `~/.claude/commands/sync-dev-kit.md` + its script and writes `~/.claude/dev-kit-config.json` pointing at the kit path.
 4. Optional: set `EXA_API_KEY` in your shell rc (see handbook Section 10) — research works without it.
 5. Optional: `/install-statusline` from the kit repo — installs the custom statusline to `~/.claude/statusline.sh`.
 6. Optional: `/install-cpl` from the kit repo — builds and installs CPL launcher.
@@ -201,13 +201,13 @@ Restart Claude Code after adding or modifying skills. Skills metadata is scanned
 
 ### Kit not syncing
 
-If `/sync-dev-kit` reports "kit path invalid" or similar, your `~/.claude/dev-kit-config.json` is wrong. Re-run `/install-kit` from inside the kit to refresh the config.
+If `/sync-dev-kit` reports "kit path invalid" or similar, your `~/.claude/dev-kit-config.json` is wrong. Rewrite it per `handbook.md` §0.1 — it is a two-key JSON file.
 
 ---
 
 ## What this doc does NOT cover
 
-- Kit architecture (`_claude-project/`, `_claude-global/`, `.claude/`) — see `handbook.md`
+- Kit architecture (`_claude-project/`, `_claude-maintainer/`, `.claude/`) — see `handbook.md`
 - Git workflow via gitflow — see `handbook.md` Sections 3-6
 - MCP server config (Ref, Exa) — see `handbook.md` Section 10
 - Second-dev onboarding path — see `developer-onboarding.md`

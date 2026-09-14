@@ -4,7 +4,7 @@
 
 ## Load these before touching the sync system
 
-Before proposing or executing any change to `_claude-project/**`, `_github-project/**`, `_claude-global/**`, `sync-substitutions.json`, any kit-shipped script, config, workflow or rule, `handbook.md` content documenting sync or placeholders or templates, or `gitflow-cheatsheet.md` — read the following. Paths are relative to the kit root. Items 1, 2 and 4 are read end to end; the handbook is read by the sections named:
+Before proposing or executing any change to `_claude-project/**`, `_github-project/**`, `_claude-maintainer/**`, `sync-substitutions.json`, any kit-shipped script, config, workflow or rule, `handbook.md` content documenting sync or placeholders or templates, or `gitflow-cheatsheet.md` — read the following. Paths are relative to the kit root. Items 1, 2 and 4 are read end to end; the handbook is read by the sections named:
 
 1. **`_claude-maintainer/scripts/sync-dev-kit.sh`** — the modes (`--scan` / `--apply-file` / `--apply-gitignore` / `--finalize`), the state classification, the substitution engine (`apply_substitutions`, `sha256_substituted`), the `dest_for_kit_path` mapping table, the `is_skipped` patterns, and the `SKIP_LIST`.
 2. **`_claude-maintainer/commands/sync-dev-kit.md`** — the Step 1.5 substitutions walkthrough, the per-state recommendation table, and the finalize semantics.

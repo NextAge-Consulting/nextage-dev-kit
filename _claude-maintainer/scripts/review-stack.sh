@@ -2,7 +2,7 @@
 # review-stack.sh — gathers the raw material for a TanStack version review.
 #
 # MAINTAINER-ONLY. Ships via _claude-maintainer/, installed to ~/.claude/scripts/
-# by `/install-kit --maintainer`. A consumer machine never receives it.
+# on a maintainer machine only (handbook.md §0.1). A consumer machine never receives it.
 #
 # THE QUESTION THIS SERVES: what has changed between the versions we pin and
 # what is published now, does any of it affect how WE use TanStack, and if we
@@ -20,7 +20,7 @@
 set -euo pipefail
 
 CONFIG="$HOME/.claude/dev-kit-config.json"
-[ -f "$CONFIG" ] || { echo "review-stack: $CONFIG not found — run /install-kit --maintainer" >&2; exit 4; }
+[ -f "$CONFIG" ] || { echo "review-stack: $CONFIG not found — see handbook.md §0.1" >&2; exit 4; }
 KIT_PATH=$(jq -r .devKitPath "$CONFIG")
 [ -d "$KIT_PATH" ] || { echo "review-stack: kit path '$KIT_PATH' does not exist" >&2; exit 4; }
 MANIFEST="$KIT_PATH/_claude-project/stack-manifest.json"

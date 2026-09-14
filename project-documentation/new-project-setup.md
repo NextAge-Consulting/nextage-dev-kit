@@ -17,7 +17,7 @@ The single walkthrough for taking a brand-new project from nothing to "kit insta
 ### One-time per machine (skip anything already done)
 
 - [ ] **P0** — Machine prerequisites installed: `git`, `gh` (authenticated, `repo`+`project` scopes), `jq`, `node`/`npm` (or `python3`), `shasum`, plus optional `shellcheck` / `agent-browser` `[you]`
-- [ ] **P1** — Kit installed globally: `/install-kit` `[claude]`
+- [ ] **P1** — (maintainer only) Maintainer surface installed: `handbook.md` §0.1 `[you]`
 - [ ] **P2** — (optional) Custom statusline: `/install-statusline` `[claude]`
 - [ ] **P3** — (optional) Claude Project Launcher: `/install-cpl` `[claude]`
 
@@ -80,22 +80,13 @@ agent-browser --version                              # only for /e2e flows
 
 Both `repo` and `project` scopes are required. If either is missing: `gh auth refresh -s repo,project`.
 
-### P1 — Install the kit globally `[claude]`
+### P1 — Maintainer surface (maintainer only) `[you]`
 
-From inside the **dev-kit repo**, run `/install-kit`. This copies `_claude-global/` into `~/.claude/` — the global `/work` bootstrap — and writes `~/.claude/dev-kit-config.json` with `devKitPath`. Idempotent.
+**A regular dev does nothing here.** Consumers receive nothing globally — every kit command, `/work` included, arrives per-project when the maintainer syncs the project. Skip to P2.
 
-> `/work` is global because it must be invokable from the agents view *before* the session is inside any repo. Everything else a project needs is per-project, delivered by sync.
+The kit maintainer copies `_claude-maintainer/` into `~/.claude/` and writes `~/.claude/dev-kit-config.json`, by hand, following `handbook.md` §0.1. There is no installer: it happens twice in the kit's life, and a command run that rarely cannot be trusted to deliver a change.
 
-**The kit maintainer runs `/install-kit --maintainer` instead.** That adds the maintainer surface — `sync-dev-kit.sh`, the `/sync-dev-kit` command, and `kit-maintainer.md`. Only the person who syncs projects into the kit needs it; every other dev gets the consumer install above and receives kit updates when the maintainer syncs their project. See `handbook.md` §0.
-
-**Verify (every dev):**
-
-```bash
-ls ~/.claude/commands/work.md                       # /work available
-jq -r .devKitPath ~/.claude/dev-kit-config.json  # points at your kit clone
-```
-
-**Verify (maintainer only):**
+**Verify:**
 
 ```bash
 test -x ~/.claude/scripts/sync-dev-kit.sh && echo "sync script installed + executable"

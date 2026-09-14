@@ -125,7 +125,7 @@ Work happens on a branch in the project checkout. On `main`, `/work` refreshes f
 - Invoke `.claude/skills/gitflow/scripts/work.sh` with appropriate flags.
 - For `--issue` mode: read the dumped issue body + comments and respond with understanding + plan before touching code.
 
-See `_claude-global/commands/work.md` (installed at `~/.claude/commands/work.md` so `/work` is discoverable from any cwd, including pre-project agents-view sessions). The script (project-local at `.claude/skills/gitflow/scripts/work.sh`) handles branch creation, branch derivation, and issue linking. It does not commit or push.
+See `.claude/commands/work.md` (synced per-project from `_claude-project/commands/work.md`; there is no global `/work`, and `work.sh` refuses to run if a retired one is still sitting in `~/.claude/commands/`). The script (project-local at `.claude/skills/gitflow/scripts/work.sh`) refreshes `main`, resumes an existing branch, and handles issue linking. Bare `/work` does NOT cut a branch — `/commit`, `/checkpoint` and `/work <issue#>` do that. It does not commit or push.
 
 ### /link
 

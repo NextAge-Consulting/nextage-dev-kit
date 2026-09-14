@@ -107,7 +107,12 @@ const tallyTiles = isE2e
   : data.stats || [];
 const statHtml = tallyTiles.map((s) => `<div class="stat"><b${s.color ? ` style="color:var(--${s.color})"` : ""}>${esc(s.value)}</b><span>${esc(s.label)}</span></div>`).join("");
 
-const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(data.title || "Report")}</title>
+// `lang` matters as much as charset does: without it a screen reader reads a Dutch
+// report in an English voice, and browser translation offers to translate it into the
+// language it is already in. Defaults to English; a report in another language sets
+// `"lang"` in its data.
+const lang = esc(data.lang || "en");
+const html = `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(data.title || "Report")}</title>
 <style>
 :root{--bg:#fff;--fg:#1a1a1a;--mut:#666;--line:#e2e2e2;--card:#f7f7f8;--pass:#0a7d33;--partial:#b8860b;--fail:#c0392b;--accent:#2563eb}
 @media(prefers-color-scheme:dark){:root{--bg:#151517;--fg:#e8e8e8;--mut:#9a9a9a;--line:#2c2c30;--card:#1e1e22;--pass:#4ade80;--partial:#eab308;--fail:#f87171;--accent:#60a5fa}}

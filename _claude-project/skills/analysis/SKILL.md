@@ -33,7 +33,7 @@ node "$CLAUDE_PROJECT_DIR"/.claude/lib/gen-report.mjs . <data>.json <out>.html
 Data shape (analysis mode):
 ```json
 {
-  "title": "…", "subtitle": "… · for review · date",
+  "title": "…", "subtitle": "… · for review · date", "lang": "en",
   "note": "<b>TL;DR</b> …",
   "stats": [ { "value": "3", "label": "findings" }, { "value": "1", "label": "blocker", "color": "fail" } ],
   "imageBase": ".",
@@ -48,6 +48,9 @@ Data shape (analysis mode):
 - `images` are embedded as base64 by the generator and open in a lightbox. No external
   `<img src>` — everything travels in the one file.
 - The generator's `<head>` always carries charset + viewport; you never touch it.
+- `lang` defaults to `en` — **set it for a report written in another language**, or a
+  screen reader reads Dutch in an English voice and the browser offers to translate it
+  into the language it is already in.
 
 ## Step 3: Hand it off
 

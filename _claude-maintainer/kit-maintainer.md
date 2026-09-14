@@ -48,36 +48,39 @@ without import means the hook yields but nothing tells you the routing rules.
 
 ## Setting up a maintainer machine
 
-`/install-kit` has two tiers, and the default is NOT yours:
+**The full procedure is `handbook.md` §0.1 — prose, not a command.** There is no
+installer. Setting up a maintainer machine happens twice in the kit's life (a new
+machine, or someone taking over a fork), and a command run that rarely cannot be
+trusted to deliver anything — the temptation to reach for it as a propagation step
+is precisely the failure it would cause.
 
-| Command | Installs into `~/.claude/` | For |
-|---|---|---|
-| `/install-kit` | `_claude-global/` → `commands/work.md` | every dev |
-| `/install-kit --maintainer` | the above **plus** `_claude-maintainer/` → `scripts/sync-dev-kit.sh`, `commands/sync-dev-kit.md`, `kit-maintainer.md` | you, only |
+What §0.1 covers, so you know what "set up" means: copy `_claude-maintainer/`
+commands and scripts into `~/.claude/`, write `~/.claude/dev-kit-config.json` with
+`devKitPath` (`sync-dev-kit.sh` reads it and cannot run without it), and create the
+two per-machine markers below.
 
-**Run `--maintainer`.** Plain `/install-kit` leaves you without
-`/sync-dev-kit` — it will not exist, silently. The split is deliberate: a
-consumer machine never receives the sync machinery, so it cannot sync and clobber
-projects you sync ahead of them. Defence by absence, not by a guard someone can
-bypass.
-
-Then, one-time — both per-machine, both deliberately unshipped:
+Both markers are deliberately unshipped, and a consumer machine must not be able to
+self-promote:
 
 ```bash
 echo '@kit-maintainer.md' >> ~/.claude/CLAUDE.md   # makes this rule load
 touch ~/.claude/kitmaster                          # makes block-kit-edit.sh inert
 ```
 
-`--maintainer` warns when either is missing but never creates them; a consumer
-machine must not be able to self-promote.
+**Consumers receive nothing globally at all** — every kit command, `/work`
+included, ships per-project via `_claude-project/commands/`. That is not tidiness:
+a command file in `~/.claude/commands/` outranks a project's copy of the same name,
+and `/sync-dev-kit` does not scan `~/.claude/`, so anything shipped there wins
+silently and can never be updated. The maintainer surface is the sole exception,
+and it is yours alone — a consumer machine that could sync would clobber projects
+you sync ahead of them. Defence by absence, not by a guard someone can bypass.
 
 **`~/.claude/` is a COPY, and you propagate to it the same way you propagate to a
-consumer project — by editing both to byte-identical, not by re-running the
-installer.** A change to `_claude-maintainer/` or `_claude-global/` lands in the
-kit source AND in `~/.claude/` in the same pass, proven with `diff`. `/install-kit`
-is the BOOTSTRAP for a new machine, not the propagation step — the same
-distinction as `/sync-dev-kit`, which is how consumer machines pull, never how
-you push.
+consumer project — by editing both to byte-identical.** A change to
+`_claude-maintainer/` lands in the kit source AND in `~/.claude/` in the same pass,
+proven with `diff`. A setup procedure is not a propagation step, the same
+distinction as `/sync-dev-kit`, which is how consumer machines pull, never how you
+push.
 
 Never symlink `~/.claude/` at the kit — global tooling would then follow whatever
 branch or half-finished edit the kit working tree happens to be sitting on.
@@ -168,18 +171,17 @@ time they run `/sync-dev-kit` there, which is the workflow — not a gap in it.
 
 The durable home for kit-shared changes is editing the kit source directly.
 
-**The other two surfaces work identically, with `~/.claude/` standing in for the
-consumer's copy.** A `_claude-maintainer/` or `_claude-global/` change is edited
-in the kit source and in `~/.claude/` in the same pass, `diff`ed to prove
-byte-identity. Never leave it half-applied and tell the human to run an installer
-— that is the same "I'll update the kit separately later" failure the step above
-forbids, and it leaves the machine running instructions the kit no longer holds.
+**The maintainer surface works identically, with `~/.claude/` standing in for the
+consumer's copy.** A `_claude-maintainer/` change is edited in the kit source and in
+`~/.claude/` in the same pass, `diff`ed to prove byte-identity. Never leave it
+half-applied and tell the human to run a setup procedure — that is the same "I'll
+update the kit separately later" failure the step above forbids, and it leaves the
+machine running instructions the kit no longer holds.
 
 | Surface | Copies to edit in one pass |
 |---|---|
 | `_claude-project/…` | kit source · kit dogfood (if dogfooded) · **this** consumer's `.claude/…` |
 | `_claude-maintainer/…` | kit source · `~/.claude/…` |
-| `_claude-global/…` | kit source · `~/.claude/…` |
 
 ## Discipline
 

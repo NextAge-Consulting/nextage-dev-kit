@@ -41,7 +41,19 @@ Three resolutions. There is no fourth, and silence is not one of them.
 | **Carried** | Nothing. This is the default. | The item, with any completed portion recorded and the remainder stated as what is left. |
 | **Dropped** | A stated reason — superseded by X, overtaken, no longer wanted. If you cannot justify it in a clause, you cannot drop it. | None. |
 
-**An item carried unchanged into a third consecutive handoff gets flagged**, in the document and in the TLDR: `open since <date>, unmoved — still relevant?` That is the trimming pressure, and it is aimed at the human, who is the one who can answer. Without it the document grows into a backlog nobody prunes.
+**An item carried unchanged into a third consecutive handoff gets flagged IN THE DOCUMENT**, as `open since <date>, unmoved across N handoffs`. `/work` reads it at the start of the next session and raises it there, when there is a session to spend on the answer.
+
+**Never put the question in the TLDR.** The human is shutting down — that is the worst moment to ask them anything, and an answer given while closing the laptop is a rushed one. The handoff's job is to carry the question to the START of the next session, not to interrogate at the end of this one.
+
+**First check the item is a question at all.** If the human could not answer it off the top of their head, it is misclassified, and re-asking will not fix it:
+
+| It is really… | Tell |
+|---|---|
+| A **settled default** | The item already says "default applied: X". That is a decision, not an open question. State it as settled and stop carrying it. |
+| **Unfinished investigation** | The answer is in the code, the schema or the legacy source — nobody's preference. It belongs under Next steps as work, not under Open questions. |
+| A **genuine question** | It needs a preference, a priority call, or an authorization. Only these are carried as questions. |
+
+Applying that test is the real trimming pressure. A backlog of questions nobody can answer is what makes the document stop being read.
 
 ### Step 4: Write the file
 
@@ -104,6 +116,8 @@ The index is the highest-value section. The handoff points at the durable docs r
 ### Step 5: TLDR to the human
 
 A few lines: what the document now says, what the sweep promoted and deleted, and any item flagged as unmoved. Not a recital of the file.
+
+**State, never ask.** `/handoff` is a shutdown command, so the TLDR ends the session — it does not open a conversation. An unmoved item is reported as a fact ("`packages/web` is unmoved across three handoffs; `/work` will raise it next session"), never as a question. If a question genuinely needed asking, the moment for it was during the work.
 
 ## Blocking conditions
 

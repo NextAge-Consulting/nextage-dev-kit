@@ -2,12 +2,12 @@
 # gitflow work: start or resume a body of work on a branch in this checkout.
 #
 # Usage:
-#   work.sh                              # start a wip branch off fresh main, or resume the current one
+#   work.sh                              # refresh main and stay put, or resume the current branch
 #   work.sh --issue <N>                  # ensure a branch, link issue #N, dump its context
 #   work.sh --retrieve <branch>          # fetch a teammate's branch and switch to it
 #
 # Responsibilities:
-#   - On main: refresh main from origin, then create the body-of-work branch.
+#   - On main: refresh main from origin and STAY THERE. No branch is cut.
 #   - On a feature/wip branch: resume it, untouched.
 #   - For --issue: validate, derive a branch slug from the issue title, create the
 #     branch, link the issue via git config, transition to In Progress, assign the
@@ -16,6 +16,26 @@
 #
 # One checkout, one branch at a time. Parallel bodies of work are not a thing
 # this shop does; `git switch` is how you move between them when it is.
+#
+# WHY BARE `work.sh` DOES NOT CUT A BRANCH
+# ----------------------------------------
+# It used to, and that was wrong in both directions.
+#
+# It removed a choice that had not been made yet. At session-init nobody knows
+# whether the session is a feature, a kit/infra change, or a question answered
+# from the handoff — and `/ship-main` REFUSES unless you are on main, so cutting
+# a branch here guaranteed the infra path was blocked before it began. The two
+# commands contradicted each other on every infra session.
+#
+# And it bought nothing, because the safety already exists downstream and is
+# strictly better there: `/commit` on main auto-creates a branch named from the
+# commit MESSAGE (no wip placeholder, no rename), `/checkpoint` on main
+# auto-creates a wip branch, and `git-guard.sh` blocks raw `git commit`.
+#
+# So the branch belongs to the moment the decision is actually made — the first
+# commit — not to session-init. `--issue N` still cuts immediately: typing an
+# issue number IS the declaration that this is a feature heading for a PR, and
+# the issue-derived name beats anything derivable from a message later.
 
 set -eo pipefail
 shopt -s inherit_errexit 2>/dev/null || true   # propagate errexit into $(…) subshells (bash 4.4+)
@@ -56,6 +76,41 @@ PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
 }
 cd "$PROJECT_ROOT"
 
+# ─── Guard: a retired global /work command shadows this project's copy ─────
+# Claude Code resolves command files personal-over-project: with `work.md` in
+# BOTH `~/.claude/commands/` and `<project>/.claude/commands/`, the personal one
+# wins and the project's copy never loads. The kit used to ship `work.md`
+# globally and no longer does — so a machine that installed it once keeps
+# running the retired doc forever, silently, while the kit's current copy sits
+# there inert.
+#
+# Nothing in the kit's own maintenance path can fix that: `/sync-dev-kit` does
+# not scan `~/.claude/` by design, and there is no installer to reconcile it.
+# This script is the only thing that runs on EVERY `/work` — and it runs whichever
+# doc won, because both invoke it. So this is the one place the stale file can be
+# caught. Fail loud rather than warn: a warning on a session-init command is read
+# past, and the whole point is that the failure is otherwise invisible.
+GLOBAL_WORK_CMD="$HOME/.claude/commands/work.md"
+if [ -f "$GLOBAL_WORK_CMD" ]; then
+    cat >&2 <<EOF
+work.sh: REFUSING — a retired global /work command is shadowing this project's copy.
+
+  Found:   $GLOBAL_WORK_CMD
+  Shadows: $PROJECT_ROOT/.claude/commands/work.md
+
+  Personal commands outrank project commands, so the file above is what /work
+  reads — and it is the OLD version, which cuts a wip branch at session-init and
+  blocks /ship-main. The kit no longer ships a global /work.
+
+  Fix it with one command, then re-run /work:
+
+      rm "$GLOBAL_WORK_CMD"
+
+  Nothing else is needed. The project's copy takes over immediately.
+EOF
+    exit 8
+fi
+
 # ─── Helper: is the working tree clean? ────────────────────────────────────
 # Untracked counts as dirty: an untracked file is usually the bulk of a
 # half-finished change, and treating it as "clean" is how work gets stranded.
@@ -69,12 +124,10 @@ tree_is_clean() {
 # fast_forward_local_main refuses on a dirty tree by design — it is also used
 # by /catchup, where a dirty tree means something is wrong. Here it does not:
 # starting work with edits already in the tree is ordinary (you noticed
-# something before you typed /work), and those edits ride onto the new branch
-# via `git checkout -b`.
+# something before you typed /work), and those edits stay exactly where they are.
 #
 # So: refresh when we can, say so loudly when we cannot, and never block.
-# Nothing is lost either way — the branch is simply based on the main you
-# already had.
+# Nothing is lost either way — main is simply left at the commit you already had.
 refresh_main_if_possible() {
     if tree_is_clean; then
         if ! fast_forward_local_main; then
@@ -83,13 +136,13 @@ refresh_main_if_possible() {
         fi
     else
         echo "work.sh: uncommitted changes present — NOT refreshing main from origin." >&2
-        echo "  Your changes carry onto the new branch. It is based on local main," >&2
-        echo "  which may be behind origin. /catchup when you want the latest." >&2
+        echo "  Your changes are untouched. Local main may be behind origin;" >&2
+        echo "  /catchup when you want the latest." >&2
     fi
 }
 
 # ─── Mode: default ─────────────────────────────────────────────────────────
-# On main  → refresh, create wip/<abbrev>-<timestamp>, carry any edits over.
+# On main  → refresh main and stay on it. No branch is cut; see the header for why.
 # Elsewhere → resume; this is the re-entry path across consecutive sessions.
 mode_default() {
     local branch
@@ -103,11 +156,11 @@ mode_default() {
 
     if is_protected_branch "$branch"; then
         refresh_main_if_possible
-        local wip
-        wip=$(resolve_collision "$(make_wip_branch_name)")
-        echo "work.sh: starting body of work on '$wip'." >&2
-        create_and_switch "$wip" >&2
-        echo "work.sh: on '$wip' — edits land here; /commit renames it from the message." >&2
+        echo "work.sh: on '$branch' — no branch cut; the session has not chosen a path yet." >&2
+        echo "  /commit branches from your message · /ship-main commits here · /work <issue#> branches now." >&2
+        if ! tree_is_clean; then
+            echo "work.sh: (uncommitted changes present — they follow you onto whichever path you take)" >&2
+        fi
     else
         echo "work.sh: resuming body of work on '$branch'." >&2
         if ! tree_is_clean; then

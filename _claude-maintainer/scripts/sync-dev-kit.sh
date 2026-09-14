@@ -45,7 +45,7 @@ fi
 # ---------------------------------------------------------------------------
 CONFIG_FILE="$HOME/.claude/dev-kit-config.json"
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "sync-dev-kit.sh: $CONFIG_FILE missing. Run install-kit handbook steps first." >&2
+    echo "sync-dev-kit.sh: $CONFIG_FILE missing. See handbook.md §0.1 (maintainer machine setup)." >&2
     exit 3
 fi
 
@@ -75,12 +75,13 @@ PROJECT_PATH="${PWD}"
 # Refuse to run from inside the kit itself
 if [ "$PROJECT_PATH" = "$KIT_PATH" ]; then
     echo "sync-dev-kit.sh: running from the kit repo itself is not supported." >&2
-    echo "  To update kit bootstrap in ~/.claude/, use /install-kit." >&2
+    echo "  To update the maintainer surface in ~/.claude/, edit it and the kit source together." >&2
     exit 4
 fi
 
 LOCKFILE="${PROJECT_PATH}/.claude/.kit-sync.json"
-# Global bootstrap files live in kit's `_claude-global/` — not scanned here.
+# The maintainer surface (`_claude-maintainer/` → ~/.claude/) is not scanned here;
+# it is hand-propagated. Consumers receive nothing globally at all.
 # Project-owned rules under `_claude-project/rules/project/` are matched by pattern
 # below (is_skipped function), not by explicit list.
 SKIP_LIST=(
@@ -93,8 +94,7 @@ SKIP_LIST=(
     # sync-substitutions.json is project-specific from the moment it's filled
     # in; every project's values differ, so kit's empty-template version
     # always conflicts after first sync. Skip unconditionally. First-time
-    # bootstrap (copying the template) is handled via /install-kit or
-    # manually per handbook instructions.
+    # bootstrap (copying the template) is handled below, on first sync.
     "_claude-project/sync-substitutions.json"
 )
 
@@ -140,7 +140,7 @@ load_substitutions() {
 
     # Bootstrap on first sync: the substitutions file is in SKIP_LIST (so
     # /sync-dev-kit never overwrites consumer values once populated),
-    # and /install-kit does not handle it either. Without bootstrap, every
+    # and nothing else populates it either. Without bootstrap, every
     # consumer project ends up missing the file entirely and kit templates
     # land with literal {{KEY}} markers. Copy the kit template on first
     # encounter; subsequent runs see the file exists and skip bootstrap.

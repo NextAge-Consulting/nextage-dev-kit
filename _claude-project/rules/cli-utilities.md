@@ -4,7 +4,33 @@ Discipline for command-line tools targeting a specific account, region or projec
 
 ## AWS CLI
 
+### `/deploy` needs NO personal AWS session — never pre-check one for it
+
+**`deploy.sh` authenticates itself.** Under `DEPLOY_BACKEND=codebuild` it reads
+`DEPLOY_AWS_ACCESS_KEY_ID` / `DEPLOY_AWS_SECRET_ACCESS_KEY` from `.env` and
+exports them, deliberately bypassing `AWS_PROFILE` and the hub-and-role chain.
+That key is scoped to `codebuild:StartBuild` and `BatchGetBuilds` on the named
+project ARNs and nothing else. It also validates itself as a state gate, before
+the bump, and exits 21 with instructions if it is missing or revoked.
+
+So running `aws sts get-caller-identity --profile <personal>` before `/deploy`
+checks a credential the deploy will never use. When that personal session
+happens to be expired — and on a hub-and-role setup it expires **hourly**, a
+hard AWS limit on chained roles that no setting can raise — the check stops a
+deploy that would have worked, and sends the human through a browser login for
+nothing. Every deploy. That is the failure this rule exists to prevent, so it
+is worth stating as its own carve-out rather than as a footnote to the rule
+below.
+
+**Check a personal session only for work that actually uses the personal
+profile** — Parameter Store, Secrets Manager, EC2, SSM, IAM, ad-hoc
+investigation. Not for `/deploy`, and not for any other command that carries
+its own credential.
+
 ### Check the session before the task, not when a command fails (Zero Tolerance)
+
+Applies to work using the PERSONAL profile. See the carve-out above first — a
+command with its own credential is not this case.
 
 The moment a task will touch AWS at all:
 
