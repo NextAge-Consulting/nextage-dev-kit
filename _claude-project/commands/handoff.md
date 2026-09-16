@@ -10,7 +10,13 @@ $ARGUMENTS
 
 One page, written for the next session's AI. It is **rewritten in full every time** — never appended to, never a running log, never a changelog. The human gets a TLDR in the conversation and can open the file if they want more.
 
-It carries no git state: no branch name, no file counts, no last commit. That information is stale the moment the next `/commit` runs, and `git log` / `git status` give it back for free.
+It carries no git state and no machine state.
+
+**No git state** — no branch name, no file counts, no last commit. That information is stale the moment the next `/commit` runs, and `git log` / `git status` give it back for free.
+
+**No machine state** — no port numbers, no process ids, no "the server is hung", no "nothing is listening on that port". A handoff is about the WORK, not about the machine the work was last run on. Servers get started, killed and restarted between sessions, so a handoff opening with a wedged process sends the next session chasing a condition that no longer exists — and the reader trusts it, because it is written in the same voice as the parts that are real.
+
+The test for both: **if the next session can get the answer by running one command, it does not go in the document.** Say what needs doing and what it needs in order to run; never what the machine happened to be doing when the last session stopped.
 
 ## Procedure
 

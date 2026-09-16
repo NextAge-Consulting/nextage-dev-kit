@@ -197,6 +197,88 @@ project's repository prefix, parameter read on the project's path, an SSM sessio
 the deploy target, its own log group, and use of the source connection. Scope it to the
 prefix and the path, never to `*`.
 
+**The policy, because the prose above is not enough to write it from.** Substitute
+`<project>`, `<region>` and `<account>`; every other value is literal.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Sid": "Logs", "Effect": "Allow",
+      "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+      "Resource": ["arn:aws:logs:<region>:<account>:log-group:/aws/codebuild/<project>-*",
+                   "arn:aws:logs:<region>:<account>:log-group:/aws/codebuild/<project>-*:*"] },
+
+    { "Sid": "EcrAuthTokenIsAccountWideByDesign", "Effect": "Allow",
+      "Action": "ecr:GetAuthorizationToken", "Resource": "*" },
+
+    { "Sid": "EcrPushScopedToProjectPrefix", "Effect": "Allow",
+      "Action": ["ecr:BatchCheckLayerAvailability", "ecr:CompleteLayerUpload",
+                 "ecr:InitiateLayerUpload", "ecr:PutImage", "ecr:UploadLayerPart",
+                 "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer",
+                 "ecr:DescribeRepositories", "ecr:GetLifecyclePolicy"],
+      "Resource": "arn:aws:ecr:<region>:<account>:repository/<project>-*" },
+
+    { "Sid": "RuntimeConfigRead", "Effect": "Allow",
+      "Action": ["ssm:GetParameter", "ssm:GetParameters", "ssm:GetParametersByPath"],
+      "Resource": "arn:aws:ssm:<region>:<account>:parameter/<project>/*" },
+
+    { "Sid": "DecryptSecureStringParameters", "Effect": "Allow",
+      "Action": "kms:Decrypt", "Resource": "*",
+      "Condition": { "StringEquals": { "kms:ViaService": "ssm.<region>.amazonaws.com" } } },
+
+    { "Sid": "FindTheDeployTargetByTag", "Effect": "Allow",
+      "Action": "ec2:DescribeInstances", "Resource": "*" },
+
+    { "Sid": "SsmStartSessionOnOurInstanceOnly", "Effect": "Allow",
+      "Action": "ssm:StartSession",
+      "Resource": "arn:aws:ec2:<region>:<account>:instance/*",
+      "Condition": { "StringEquals": { "ssm:resourceTag/Project": "<project>" } } },
+
+    { "Sid": "SsmStartSessionSshDocument", "Effect": "Allow",
+      "Action": "ssm:StartSession",
+      "Resource": "arn:aws:ssm:<region>::document/AWS-StartSSHSession" },
+
+    { "Sid": "EndOwnSsmSession", "Effect": "Allow",
+      "Action": ["ssm:TerminateSession", "ssm:ResumeSession"],
+      "Resource": "arn:aws:ssm:<region>:<account>:session/*" },
+
+    { "Sid": "UseTheSourceConnection", "Effect": "Allow",
+      "Action": ["codeconnections:GetConnectionToken", "codeconnections:GetConnection",
+                 "codeconnections:UseConnection"],
+      "Resource": "<the connection ARN>" }
+  ]
+}
+```
+
+Three of those are the ones that get written wrong, each costing a failed deploy:
+
+**`ssm:StartSession`, not `ssm:SendCommand`.** "An SSM session onto the deploy target"
+above means the SSH `ProxyCommand`, which is `StartSession`. `SendCommand` is the
+*other* thing — the no-plugin fallback for running one command and reading its output,
+and the natural choice when provisioning by hand. Grant only `SendCommand` and every
+`scp`/`ssh` in the deploy fails with a bare `exit status 255`, while ad-hoc verification
+keeps working perfectly.
+
+**The instance grant and the document grant are SEPARATE STATEMENTS.** A session needs
+both the instance and `AWS-StartSSHSession`. The instance is tag-conditioned so the role
+cannot open a session onto anything else in the account — but `AWS-StartSSHSession` is
+AWS-managed and carries no tags, so the same condition on it denies every session. Put
+them in one statement and the deploy still fails after the instance grant looks right.
+
+**The denial names the wrong resource.** With the document missing, the error reads
+`not authorized to perform: ssm:StartSession on resource: …:document/AWS-StartSSHSession`
+— which invites another look at the instance ARN. Read the resource in the message.
+
+**`ecr:GetLifecyclePolicy` is not implied by push.** The buildspec guard that asserts a
+lifecycle policy exists needs it explicitly, alongside `ecr:DescribeRepositories`.
+`ecr:PutLifecyclePolicy` is deliberately absent — the build verifies the policy, a human
+creates it.
+
+Tag the instance to match the condition (`Project=<project>`) at launch. An untagged
+instance denies the session with the same message, and nothing else in the estate will
+hint at why.
+
 **The scheduled backup is the exception and keeps its own roles.** It is a different
 principal on a different substrate, it is the only identity that may write to the backup
 prefix, and nothing else in the estate should hold that grant — see `db-backup-pattern.md`

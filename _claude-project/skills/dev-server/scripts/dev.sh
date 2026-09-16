@@ -1,9 +1,9 @@
 #!/bin/bash
-# dev-server skill: stage a dev server in a new iTerm tab.
+# dev-server skill: stage a dev server in a new terminal tab/window.
 #
 # Usage:
 #   dev.sh                       List available dev* scripts at the resolved project root
-#   dev.sh <app> [<app>...]      Stage dev server(s) in iTerm tabs at the project root
+#   dev.sh <app> [<app>...]      Stage dev server(s) in new tabs at the project root
 #   dev.sh --status              List listening processes on :3000-:3099 (pid, port, cwd, cmd)
 #
 # Behavior:
@@ -11,8 +11,9 @@
 #   - For each chosen app, detects the default port from apps/<app>/vite.config.ts
 #     (or root vite.config.ts for flat layouts). Falls back to 3000.
 #   - lsof check: if port free, uses it; if occupied, steps +10. Caps at 3 hops.
-#   - Opens a new iTerm tab via osascript, cd's into the target dir, runs the
-#     dev command. Tab title = "<app> @ <project-name> (:<port>)".
+#   - Opens a new tab/window, cd's into the target dir, runs the dev command.
+#     Title = "<app> @ <project-name> (:<port>)". Which backend opens it is
+#     decided in `stage_app` — see the ordering note there.
 #
 # Output:
 #   For each staged app, prints "launched: <title>" + path + cmd.
@@ -28,11 +29,14 @@ set -eo pipefail
 # `|| true` (intentional best-effort) or invoke functions that cannot fail in
 # a way that should abort. See `.claude/rules/bash-rules.md` §I, §III.
 
+# Session used when a tmux server is reachable but we are not inside one.
+TMUX_FALLBACK_SESSION="dev"
+
 usage() {
   cat <<EOF
 Usage:
   dev.sh                       List available dev scripts
-  dev.sh <app> [<app>...]      Stage dev server(s) in iTerm tabs at the project root
+  dev.sh <app> [<app>...]      Stage dev server(s) in new tabs at the project root
   dev.sh <app> --tunnel        Stage with Cloudflare tunnel (npm run dev:tunnel:<app>)
   dev.sh --status              List running dev servers (pid, port, cwd)
 EOF
@@ -159,6 +163,44 @@ cmd_status() {
   fi
 }
 
+tmux_launch() {
+  # $1 = target session name, or "" to use the session we are already inside.
+  local session="$1" dir="$2" title="$3" cmd="$4"
+  local win_id
+  local payload
+  # `exec $SHELL` leaves a live shell behind when the dev server exits, matching
+  # the iTerm tab — there `write text` runs the command in a shell that outlives
+  # it. Without this the tmux window would vanish the moment vite dies, taking
+  # the crash output with it.
+  payload="$cmd; exec ${SHELL:-/bin/sh}"
+
+  if [ -z "$session" ]; then
+    win_id="$(tmux new-window -c "$dir" -n "$title" -P -F '#{window_id}' "$payload" 2>/dev/null)" || return 1
+  elif tmux has-session -t "$session" 2>/dev/null; then
+    win_id="$(tmux new-window -t "$session" -c "$dir" -n "$title" -P -F '#{window_id}' "$payload" 2>/dev/null)" || return 1
+  else
+    win_id="$(tmux new-session -d -s "$session" -c "$dir" -n "$title" -P -F '#{window_id}' "$payload" 2>/dev/null)" || return 1
+  fi
+
+  [ -n "$win_id" ] || return 1
+  # A long-running dev server would otherwise relabel the window from its own
+  # process name, losing the "<app> @ <project> (:<port>)" title.
+  tmux set-option -w -t "$win_id" automatic-rename off >/dev/null 2>&1 || true
+  return 0
+}
+
+report_launched() {
+  echo "launched: $1"
+  echo "  path:  $2"
+  echo "  cmd:   $3"
+  echo "  where: $4"
+}
+
+report_intent() {
+  echo "intended command: $1" >&2
+  echo "intended path:    $2" >&2
+}
+
 stage_app() {
   local target_dir="$1" app="$2" port="$3" tunnel="$4" port_env="${5:-PORT}"
   local script_key="dev:$app"
@@ -213,16 +255,57 @@ end tell
 APPLESCRIPT
 )
 
-  if ! osascript -e "$applescript" >/dev/null 2>&1; then
-    echo "osascript failed — is iTerm2 running and frontmost?" >&2
-    echo "intended command: $cmd" >&2
-    echo "intended path:    $target_dir" >&2
+  # --- Which backend opens the window -----------------------------------
+  #
+  # The ORDER is load-bearing; see devserver-cheatsheet.md "Where the window
+  # lands". Reordering these silently changes which terminal a user's dev
+  # server appears in.
+  #
+  #   1. $TMUX set   — Claude is running INSIDE tmux, so a tmux window is the
+  #                    tab adjacent to the user. This is the only signal that
+  #                    tells us where they are actually sitting.
+  #   2. osascript   — iTerm2 over Apple Events. It reads no environment at
+  #                    all, which is exactly why it still works from an
+  #                    Agents-view session, where the launchd-spawned host
+  #                    drops TERM_PROGRAM / ITERM_SESSION_ID / LC_TERMINAL.
+  #   3. tmux server — last resort, and it MUST stay below osascript. "A tmux
+  #                    server exists on this machine" says nothing about which
+  #                    window the user is looking at — they may not be attached
+  #                    at all. Ranked above osascript, a macOS user with a
+  #                    stray tmux server would silently stop getting iTerm tabs.
+  #
+  # No `uname` branch: the platform is never the question. Linux simply never
+  # satisfies 2, and macOS reaches 3 only once iTerm2 has already failed.
+
+  if [ -n "${TMUX:-}" ]; then
+    if tmux_launch "" "$target_dir" "$title" "$cmd"; then
+      report_launched "$title" "$target_dir" "$cmd" "tmux window in this session (Ctrl-b n to switch)"
+      return 0
+    fi
+    # Inside tmux and tmux refused: falling through to another terminal would
+    # put the server somewhere the user is not looking.
+    echo "tmux new-window failed inside an active tmux session" >&2
+    report_intent "$cmd" "$target_dir"
     return 1
   fi
 
-  echo "launched: $title"
-  echo "  path: $target_dir"
-  echo "  cmd:  $cmd"
+  if osascript -e "$applescript" >/dev/null 2>&1; then
+    report_launched "$title" "$target_dir" "$cmd" "new iTerm2 tab"
+    return 0
+  fi
+
+  if command -v tmux >/dev/null 2>&1; then
+    if tmux_launch "$TMUX_FALLBACK_SESSION" "$target_dir" "$title" "$cmd"; then
+      report_launched "$title" "$target_dir" "$cmd" \
+        "tmux window in session '$TMUX_FALLBACK_SESSION' — attach with: tmux attach -t $TMUX_FALLBACK_SESSION"
+      return 0
+    fi
+  fi
+
+  echo "no terminal available to open a tab in." >&2
+  echo "start Claude inside tmux, or run it on macOS with iTerm2 installed." >&2
+  report_intent "$cmd" "$target_dir"
+  return 1
 }
 
 # === MAIN ===
