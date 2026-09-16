@@ -59,7 +59,9 @@ From inline comments: `id`, `node_id`, `body`, `path`, `line`, `commit_id`, `ori
 
 Exclude items the user explicitly marked resolved.
 
-Build an ordered list (by file, then line). Gemini severity labels are `Critical | High | Medium | Low | security-critical` (the security-critical tag is composable with other severities).
+**Keep the order the API returns them in — do NOT re-sort.** Gemini posts its inline comments most-severe first, and GitHub preserves posting order, so the API order already IS severity order and it is what the human sees on the PR web view. Re-sorting by file and line produces item numbers that match nothing on their screen, so every decision costs a round trip to work out which finding you mean.
+
+Gemini severity labels are `Critical | High | Medium | Low | security-critical` (the security-critical tag is composable with other severities). Read the label off each comment for display; do not derive the order from it — the API order is the authority, and a future Gemini that changes its posting order stays correct for free.
 
 ### Step 3: Present item 1
 
@@ -86,10 +88,16 @@ Recommendation: <fix | skip | discuss> — <one-line reason>
 
 The inline comment lands as part of the single end-of-triage commit (Hard Rule 1). It does NOT trigger a separate commit.
 
+**HARD RULE 3 — NEVER ASK THE USER TO APPROVE COMMENT WORDING.** Once a decision is made, the PR-thread reply and the inline source comment are yours to write and post. Do not draft them for review, do not ask "reply or silent skip?", do not paste the text back for sign-off. The user decides FIX or SKIP; everything downstream of that decision is execution.
+
+These comments are a historical record, not a deliverable. A round trip to approve a sentence nobody will read again costs the user more than a mis-phrased comment ever will, and asking at every item turns a five-item triage into ten exchanges. Write it, post it, move to the next item.
+
+A "silent skip" is not an option to offer. Hard Rule 2 requires the source comment unconditionally, and the thread reply is one API call on top of it — so every declined finding gets both, without being asked.
+
 | User says | Action |
 |---|---|
 | "yes" / "fix" / "do it" | Implement the fix. **Stage the change locally only — DO NOT commit.** Post a one-line threaded reply on the Gemini comment: `Fixed in upcoming commit.` via `gh api --method POST "repos/{owner}/{repo}/pulls/{pr}/comments/{comment_id}/replies" -f body='Fixed in upcoming commit.'` (uses the `id` captured in Step 2). The reply gives each finding a per-thread acknowledgment in the PR's paper trail. Move on to next item. |
-| "no" / "skip" | Ask: "reply to Gemini with a reason, or silent skip?" If reply, draft a 1-2 sentence reply and, after user confirms wording, post a **threaded** reply on the specific Gemini comment via `gh api --method POST "repos/{owner}/{repo}/pulls/{pr}/comments/{comment_id}/replies" -f body='...'`. Do NOT use `gh pr comment` — that posts at PR level and loses thread context. **THEN: land an inline source comment at the flagged line stating the carve-out reason** (Hard Rule 2 above). If silent, still land the inline source comment — silent-skip without a source-level record will resurface the finding on every push. |
+| "no" / "skip" | Post a 1-2 sentence **threaded** reply on the specific Gemini comment stating the reason, via `gh api --method POST "repos/{owner}/{repo}/pulls/{pr}/comments/{comment_id}/replies" -f body='...'`. Do NOT use `gh pr comment` — that posts at PR level and loses thread context. **THEN: land an inline source comment at the flagged line stating the carve-out reason** (Hard Rule 2 above). |
 | questions / "discuss" | Answer. Loop back to step 3 until a clear decision. |
 
 ### Step 5: Advance
@@ -101,8 +109,7 @@ After acting, present item 2 in the same format. Continue until every item is pr
 After the last item:
 
 - Items fixed: N (list each finding addressed)
-- Items replied-declined: N (links to posted replies)
-- Items silent-skipped: N
+- Items declined: N (each with its posted reply link and the source line the carve-out comment landed on)
 - Final PR state: link to `gh pr view --web`
 
 If any "fix" decisions were made, prompt the user: "Triage complete. N fixes staged. Ready to commit?" On user authorization, invoke `/commit` ONCE with a message bundling all fixes. The user (via the `/commit` prompt, or by passing `--review` / `--no-review` directly) decides whether the new HEAD triggers a fresh Gemini review. Per the no-auto-commit rule, do not invoke `/commit` without explicit user instruction.
@@ -110,9 +117,10 @@ If any "fix" decisions were made, prompt the user: "Triage complete. N fixes sta
 ## Constraints
 
 - **One at a time.** Even if the user says "they all look similar," still present each one.
-- **Never auto-act.** Every item requires an explicit user decision.
+- **Never auto-act.** Every item requires an explicit user decision — FIX or SKIP. That is the ONLY thing the user is asked for; comment wording is never put to them (Hard Rule 3).
 - **NEVER commit mid-triage.** Single end-of-triage commit only — see Step 4 Hard Rule 1. Multiple commits with `--review` would trigger multiple Gemini reviews.
 - **DECLINED FINDINGS MUST GET AN INLINE SOURCE COMMENT.** Step 4 Hard Rule 2. PR-thread replies alone don't survive the next Gemini cycle.
+- **Present items in the order the API returns them** (Step 2). That is Gemini's own severity order and the order the user sees on GitHub; re-sorting makes your item numbers disagree with their screen.
 - **Gemini only (MVP).** Human reviewer comments and other bots are future scope.
 - **Recommendation is a hint, not a filter.** Always present the item, even ones the recommendation would skip — the user decides.
 
