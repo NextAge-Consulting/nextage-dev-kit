@@ -6,9 +6,11 @@ The `/dev` skill (`_claude-project/skills/dev-server/`) and slash command (`_cla
 
 ---
 
-## One-time install: DevServer iTerm profile
+## One-time install: DevServer iTerm profile (macOS / iTerm2 only)
 
-`/dev` spawns each tab using a separate iTerm profile called **DevServer** that has `Allow Title Setting = true`. This is intentional — your regular profile (e.g. CPL) keeps `Allow Title Setting = false` so Claude Code's startup OSC-0 width-probe doesn't corrupt Claude's tab title. The DevServer profile is used ONLY by `/dev` tabs, where vite/etc. run and don't title-probe.
+Skip this if you drive `/dev` through tmux — it applies to the iTerm backend alone.
+
+On the iTerm path, `/dev` spawns each tab using a separate iTerm profile called **DevServer** that has `Allow Title Setting = true`. This is intentional — your regular profile (e.g. CPL) keeps `Allow Title Setting = false` so Claude Code's startup OSC-0 width-probe doesn't corrupt Claude's tab title. The DevServer profile is used ONLY by `/dev` tabs, where vite/etc. run and don't title-probe.
 
 Install once per dev machine:
 
@@ -50,13 +52,32 @@ What `/dev <app>` does, in order:
 3. **Pick a port:**
    - Free → use the default (e.g. `:3001` for shop, `:3010` for dealer).
    - Occupied → step by +10 (`:3001 → :3011 → :3021`, `:3010 → :3020 → :3030`). Cap at 3 hops; refuse beyond — "too many dev servers, stop one first."
-4. **Open a new iTerm tab via `osascript`:**
+4. **Open a new tab** (see "Where the window lands" below for which terminal):
    - `cwd` = detected project root.
    - Title = `<app> @ <project-name> (:<port>)` — glanceable.
-   - Staged command = `npm run dev:<app> -- --port <port>` (vite CLI `--port` overrides the config; no vite.config change required).
+   - Staged command = `<PORT_ENV>=<port> npm run dev:<app>`. An env var is used rather than `-- --port`, which npm's flag parser eats before it reaches vite. `<PORT_ENV>` is whatever the app's `vite.config.ts` reads, defaulting to `PORT`.
    - Server starts immediately. ctrl-C the tab when done.
 
 User-invocation is non-negotiable — Claude only runs `/dev` when the user explicitly types it (`.claude/rules/dev-server.md` rules 1–5).
+
+---
+
+## Where the window lands
+
+`/dev` tries three backends in a fixed order and tells you which one it used, on the `where:` line of its output.
+
+| Order | When | You get |
+|---|---|---|
+| 1 | You started Claude **inside tmux** | A tmux window in your current session. `Ctrl-b n` to switch, `Ctrl-b p` to come back. |
+| 2 | Otherwise, on macOS with iTerm2 | A new iTerm tab in the current window — the original behavior, unchanged. |
+| 3 | Otherwise, if tmux is installed | A window in a tmux session named `dev`. The script prints `tmux attach -t dev` to reach it. |
+| — | None of the above | A refusal, with the command and path printed so you can run them yourself. |
+
+**tmux is not a terminal.** It runs inside one — you still open iTerm (or any terminal), then run `tmux` in it, and tmux gives you its own tabs inside that single window, listed along the bottom. On macOS with iTerm this is redundant, which is why order 2 exists and why nothing about the Mac workflow changes. It earns its place on Linux, where terminals generally cannot be asked to open a tab from a script, and it is the only option that works headless or over ssh.
+
+**Order 3 sits below iTerm deliberately.** A running tmux server tells you a server exists somewhere on the machine — not which window you are looking at, or whether you are attached at all. If it outranked iTerm, anyone on macOS who left a tmux server running would quietly stop getting iTerm tabs.
+
+**Linux users: start Claude inside tmux** (`tmux`, then `claude`) to get order 1 and true tab parity with the macOS experience.
 
 ---
 
@@ -156,10 +177,10 @@ No per-project zshrc functions. No project-specific shell aliases. The kit is th
 
 ## What NOT to do
 
-- **Raw `npm run dev` in iTerm.** Silent port-bump = testing the wrong server. Use `/dev`.
+- **Raw `npm run dev` in a terminal.** Silent port-bump = testing the wrong server. Use `/dev`.
 - **Manually killing another session's dev server.** `dev-server.md` rule 4. If a port is occupied, the occupant is you or another session — either is fine. Use it (rule 2) or run via `--main` / port-override.
 - **Asking Claude to "start the dev server for me."** Claude doesn't initiate. You explicitly type `/dev <app>` — same explicit-user-intent model as `/commit`.
-- **Starting servers on alternate ports to sidestep a collision.** Use the structured `--port` override via the skill; don't pick a random port.
+- **Starting servers on alternate ports to sidestep a collision.** Use the structured port override via the skill; don't pick a random port.
 
 ---
 
@@ -169,7 +190,10 @@ No per-project zshrc functions. No project-specific shell aliases. The kit is th
 |---------|-----|
 | Tab title shows cwd instead of `<app> @ <project> (:<port>)` | The DevServer iTerm profile isn't installed — `/dev` falls back to the default profile which has `Allow Title Setting = false`. Run the one-time install at the top of this file. Verify with `ls "$HOME/Library/Application Support/iTerm2/DynamicProfiles/DevServer.json"`. iTerm hot-loads; no restart. |
 | `/dev` errors "couldn't find profile DevServer" | Same fix — install the DynamicProfile. |
-| New iTerm tab landed in `~/projects` not the project | Confirms the Agents-view-cwd gap. Use `/dev` — it osascripts the right path explicitly. Don't try to fix it in iTerm settings. |
+| New iTerm tab landed in `~/projects` not the project | Confirms the Agents-view-cwd gap. Use `/dev` — it passes the right path explicitly. Don't try to fix it in iTerm settings. |
+| Window opened in tmux when you expected an iTerm tab | You started Claude inside tmux, so tmux outranks iTerm — that window is the tab next to you (`Ctrl-b n`). Start Claude outside tmux for iTerm tabs. |
+| `/dev` says it opened a window but you can't see it | It landed in the `dev` tmux session. `tmux attach -t dev`. That path is only taken when iTerm2 was unreachable. |
+| `/dev` refuses with "no terminal available to open a tab in" | The session has no backend: not inside tmux, no iTerm2, no tmux installed. Install tmux and start Claude inside it, or run the printed command by hand. |
 | Browser test against `localhost:3001` is showing the wrong project | Almost certainly silent vite port-bump. `lsof -iTCP:3001 -sTCP:LISTEN` to see what's actually on :3001. Use `/dev --status` once the skill ships. |
 | `/dev` refuses — "too many dev servers (3 hops exhausted)" | You have 3+ servers fighting for slots in the same app's range. Stop one (`/dev --status` to identify, ctrl-C the tab you're done with). |
 | Need a server on a specific port for a one-off | `/dev shop --port 3099` (future flag — TBD if needed in practice). |

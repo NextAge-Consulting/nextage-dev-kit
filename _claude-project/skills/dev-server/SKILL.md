@@ -1,11 +1,11 @@
 ---
 name: dev-server
-description: This skill should be used when the user asks to "start dev", "run dev", "start dev server", "run the server", "start shop", "start dealer", "spin up <app>", "start with tunnel", "tunnel <app>", "expose to a teammate", "run on cloudflare", "what's running", "show dev servers", or any natural-language request to launch a dev server. The canonical and ONLY authorized path for starting dev servers in a kit-enabled project. Routes to the `/dev` slash command, which opens a new iTerm tab at the project root and runs the dev command, with the port auto-overridden on collision via `lsof` pre-check. `--tunnel` flag wraps the dev command with a Cloudflare named tunnel.
+description: This skill should be used when the user asks to "start dev", "run dev", "start dev server", "run the server", "start shop", "start dealer", "spin up <app>", "start with tunnel", "tunnel <app>", "expose to a teammate", "run on cloudflare", "what's running", "show dev servers", or any natural-language request to launch a dev server. The canonical and ONLY authorized path for starting dev servers in a kit-enabled project. Routes to the `/dev` slash command, which opens a new terminal tab at the project root and runs the dev command, with the port auto-overridden on collision via `lsof` pre-check. `--tunnel` flag wraps the dev command with a Cloudflare named tunnel.
 ---
 
 # dev-server
 
-Natural-language routing layer for launching dev servers via iTerm tabs. Companion to `gitflow` — same shape, different domain.
+Natural-language routing layer for launching dev servers in their own terminal tab. Companion to `gitflow` — same shape, different domain.
 
 ## Why this skill exists
 
@@ -31,16 +31,18 @@ Two problems the Agents-view workflow created that the old "cmd-t + cd + npm run
 1. **Detects project root** from cwd — walks up to the nearest `package.json` with `dev*` scripts.
 2. **Detects each app's default port** from `apps/<app>/vite.config.ts` (or root `vite.config.ts` for flat layouts). Falls back to `:3000` if not found.
 3. **`lsof` pre-check.** If port is free, use it. If occupied, step `+10` (3001 → 3011 → 3021). Cap at 3 hops; refuse beyond.
-4. **Opens a new iTerm tab via `osascript`.** `cd`'s into the project root, sets the tab title to `<app> @ <project-name> (:<port>)` via OSC 0 escape, runs `npm run dev:<app> -- --port <N>`.
+4. **Opens a new tab**, `cd`'s into the project root, titles it `<app> @ <project-name> (:<port>)`, and runs `<PORT_ENV>=<N> npm run dev:<app>`.
 
-The vite CLI `--port` flag overrides whatever's in `vite.config.ts`, so no config change is needed for the port-override to work.
+Three backends are tried in a fixed order — a tmux window in the current session when `$TMUX` is set, then an iTerm2 tab via `osascript`, then a window in a `dev` tmux session. `commands/dev.md` has the ordering and why it must not be rearranged.
+
+The port arrives as an env var rather than `-- --port <N>`, because npm's flag parser consumes `--port` before it reaches the inner npm and vite through monorepo script nesting. `<PORT_ENV>` is the variable the app's `vite.config.ts` reads, defaulting to `PORT`.
 
 ## What dev-server does NOT do
 
 - **Does not start servers without user invocation.** The user must explicitly invoke `/dev <app>` — Claude never starts a server on its own initiative.
 - **Does not kill servers.** Ever. `--status` surfaces only (pid, port, cwd). `dev-server.md` rule 4.
 - **Does not auto-restart on file changes.** That's the running vite server's job, untouched.
-- **Does not work in cloud / headless sessions.** No iTerm available. For cloud, run `npm run dev:<app>` manually in whatever shell the cloud environment provides.
+- **Does not work without a terminal backend.** It needs tmux, or macOS with iTerm2. A headless session with tmux works via the `dev` session; with neither, it refuses and prints the command to run by hand.
 - **Does not interfere with vitest.** `vitest` / `npm run test` aren't dev servers; no port binding; no overlap.
 - **Cloudflare tunnel**: `--tunnel` swaps the staged command to `npm run dev:tunnel:<app>` (cloudflared + vite in the same tab). Each `--tunnel` invocation spawns a cloudflared replica — acceptable, cheap. The tunnel ingress map (`~/.cloudflared/config.yml`) is shared across replicas.
 

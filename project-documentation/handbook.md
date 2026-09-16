@@ -1570,16 +1570,16 @@ The Agents-view workflow makes a naive "cmd-t → `cd` → `npm run dev`" flow u
 
 Solving #1 by adjusting iTerm settings is impossible — Agents view doesn't update the host shell's cwd. Solving #2 manually requires the user to know every project's port and check `lsof` before every `npm run dev`. Neither is scalable across multiple projects.
 
-`/dev` is the structural fix: explicit `osascript`-spawned iTerm tab with the correct `cd`, plus `lsof` pre-check with `+10` port-step on collision.
+`/dev` is the structural fix: a spawned tab with the correct `cd`, plus an `lsof` pre-check with a `+10` port-step on collision. Which terminal opens that tab is the backend ladder in §12.2.2.
 
 ### 12.2. Layout
 
 | Path | Purpose |
 |------|---------|
 | `_claude-project/skills/dev-server/SKILL.md` | Natural-language routing layer (same shape as gitflow skill). |
-| `_claude-project/skills/dev-server/scripts/dev.sh` | Implementation: project-root detection, port probing, osascript invocation. Supports `--tunnel` flag (§12.3.2). |
+| `_claude-project/skills/dev-server/scripts/dev.sh` | Implementation: project-root detection, port probing, and the tab-launch backend ladder (§12.2.2). Supports `--tunnel` flag (§12.3.2). |
 | `_claude-project/skills/dev-server/scripts/dev-with-tunnel.mjs` | Implementation for `--tunnel`: spawns `cloudflared tunnel run` + `npm run dev:<app>` in one tab. Hostname hardcoded as `<app>.thenextage.com` (shop standard). Byte-identical across consumer projects. See §12.3.2. |
-| `_claude-project/skills/dev-server/templates/DevServer.json` | iTerm DynamicProfile template. Installed once per dev machine to `~/Library/Application Support/iTerm2/DynamicProfiles/DevServer.json`. See §12.3.1. |
+| `_claude-project/skills/dev-server/templates/DevServer.json` | iTerm DynamicProfile template. Installed once per dev machine to `~/Library/Application Support/iTerm2/DynamicProfiles/DevServer.json`. Applies to the iTerm backend only. See §12.2.1. |
 | `_claude-project/commands/dev.md` | `/dev` slash command spec. |
 | `_claude-project/rules/dev-server.md` | The 5 lifecycle rules (check first, use occupied, never kill, leave running). Updated with `/dev` canonical-path declaration. |
 | `project-documentation/devserver-cheatsheet.md` | One-page user reference. Companion to `gitflow-cheatsheet.md`. |
@@ -1601,6 +1601,33 @@ cp <project>/.claude/skills/dev-server/templates/DevServer.json \
 ```
 
 iTerm hot-loads DynamicProfiles — no restart needed. `/dev` fails with a clear error if the profile is missing.
+
+### 12.2.2. Where the tab opens (backend ladder)
+
+`stage_app` tries three backends in a fixed order. **The order is load-bearing** — it decides which terminal a user's dev server appears in, and rearranging it silently changes that.
+
+| Order | Condition | Backend | Why here |
+|---|---|---|---|
+| 1 | `$TMUX` is set | `tmux new-window` in the current session | The only signal that says where the user is actually sitting. tmux sets it in every shell it spawns, so it is proof rather than inference. |
+| 2 | otherwise | `osascript` → iTerm2 tab | Reads no environment at all, which is why it survives the Agents-view gap below. |
+| 3 | `tmux` on PATH | `tmux new-window -t dev`, session created if absent | Last resort. "A tmux server exists on this machine" says nothing about which window the user is looking at, or whether they are attached at all. |
+| — | none of the above | refuse, printing the intended command and path | |
+
+**Why 3 must stay below 2.** Ranked above `osascript`, any macOS user who happens to have a tmux server running would silently stop getting iTerm tabs and start accumulating windows in a detached session they are not watching.
+
+**There is no `uname` branch.** The platform is never the question: Linux never satisfies 2, and macOS reaches 3 only once iTerm2 has already failed.
+
+Inside tmux, a `new-window` failure refuses rather than falling through — another terminal would put the server where the user is not looking.
+
+The tmux window is titled with the same `<app> @ <project-name> (:<port>)` string as the iTerm tab, and `automatic-rename` is pinned off on that window so a long-running dev server cannot relabel it from its own process name. The staged command is followed by `exec $SHELL`, so the window outlives a crashing server and keeps its output on screen — matching the iTerm tab, where `write text` runs the command in a shell that survives it.
+
+### 12.2.3. The Agents-view environment gap
+
+§12.1 names the cwd half of this: Agents view spawns its host shell from `~/projects` with no project context. The same gap drops terminal identity.
+
+An Agents-view session's host is spawned by launchd (`LAUNCHCTL_ENV_REEXEC`, `XPC_SERVICE_NAME` and `INVOCATION_ID` are present in its environment), so it does not inherit the interactive shell's. `TERM_PROGRAM`, `ITERM_SESSION_ID` and `LC_TERMINAL` are therefore absent. `ITERM_PROFILE` and `LC_TERMINAL_VERSION` survive, but only because a fresh login shell re-sources `~/.iterm2_shell_integration.zsh` — they are not evidence of inheritance.
+
+**So terminal identity must never be detected from the environment in this subsystem.** A gate on `TERM_PROGRAM` would make `/dev` refuse in exactly the sessions it was written for. `osascript` works there because it asks iTerm over Apple Events and consults no variable. `$TMUX` is trustworthy for the opposite reason: tmux sets it directly in the shell the script runs in, so when it is present it is true — and when Claude was started from Agents view it is simply absent, which correctly falls through to 2.
 
 ### 12.3. Invocations
 
@@ -1681,7 +1708,7 @@ No per-project zshrc helpers. No project-specific shell aliases. The kit is the 
 ### 12.7. Open work
 
 - Non-vite default-port detection (Next.js, Astro). Currently falls back to `3000`. Future: project-level `.claude/dev-server.json` map.
-- `osascript` is macOS / iTerm2 specific. Cloud sessions have no iTerm; the skill exits with a clear message and the user falls back to `npm run dev:<app>` manually in whatever shell the cloud environment provides.
+- A session with neither tmux nor iTerm2 has no backend (§12.2.2). The skill exits with a clear message and prints the intended command and path for the user to run by hand.
 
 ---
 

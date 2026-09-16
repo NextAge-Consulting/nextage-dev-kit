@@ -120,8 +120,16 @@ git --version && gh --version && node -v && npm -v && jq --version && shellcheck
 
 ## 6. iTerm2
 
-The terminal Claude Code runs in. The kit's `/dev` command opens a new iTerm tab per dev
-server and titles it, driven by `osascript` — this is not optional if you want `/dev` to work.
+The terminal Claude Code runs in, and the recommended option on macOS.
+
+`/dev` needs **either iTerm2 or tmux** to open each dev server in its own tab, and on a Mac
+iTerm2 is the better of the two rather than a matter of taste. It is the only backend that
+works from an Agents-view session: that host shell is spawned by launchd and carries no
+`$TMUX`, so the tmux path cannot see your session, while `osascript` reaches iTerm2 over
+Apple Events and needs no environment at all (handbook §12.2.3).
+
+Apple Terminal alone, with no tmux, leaves `/dev` with nowhere to put the server, and it
+refuses.
 
 ```bash
 brew install --cask iterm2

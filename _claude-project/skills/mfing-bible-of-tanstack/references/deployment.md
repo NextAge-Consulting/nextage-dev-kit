@@ -27,6 +27,50 @@ Nothing serves `dist/client` unless you write it. The failure looks like the app
 working in dev and returning 404s for every CSS and JS asset in production — the
 HTML renders, the page is unstyled, the console is full of missing chunks.
 
+## Pin Tailwind's scan root, or production ships unstyled
+
+**The Tailwind entry must name its own scan root:**
+
+```css
+@import "tailwindcss" source("./");
+```
+
+A bare `@import "tailwindcss"` leaves Tailwind v4 to find the root by walking the
+filesystem. The generated CSS then depends on what surrounds the source tree
+rather than on the source tree alone — so the same commit yields different CSS in
+a container than on a developer machine.
+
+**The damage is that the client and SSR passes each generate and hash their own
+stylesheet.** The client emits `styles-<a>.css`; the server bundle inlines
+`const styles = "/assets/styles-<b>.css"` from the `?url` import. Two hashes, one
+file on disk.
+
+Nothing fails. The build is green, both passes report success, SSR renders, every
+JS chunk loads with a 200. The page arrives **unstyled**, with a single 404 on the
+stylesheet.
+
+**It cannot be caught locally.** A local build resolves the root the same way
+twice, so the hashes agree and everything looks correct — including a container
+run on the developer's own machine if the image is built from that same tree. It
+appears the first time the image is built somewhere else, which is the deploy.
+
+The check that actually proves it, run against the built image rather than the
+working tree:
+
+```bash
+docker run --rm --entrypoint sh <image> -c \
+  'ls  dist/client/assets/ | grep css
+   grep -rhoE "styles-[A-Za-z0-9_-]+\.css" dist/server/ | sort -u'
+```
+
+Two different names is the bug. They must be one.
+
+Diagnosing this from the symptom is expensive, because the misleading answers are
+all plausible: a stale build cache, a `dist` leaking into the build context via a
+missing `.dockerignore` entry, plugin order, a missing `.git` changing what
+Tailwind ignores. Each can be disproved in turn and none is the cause. Check the
+CSS entry file first — it is one line.
+
 ## Bundle what npm layout would otherwise decide
 
 Vite inlines a dependency's own code into the SSR output but leaves its
