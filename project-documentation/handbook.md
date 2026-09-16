@@ -1604,20 +1604,27 @@ iTerm hot-loads DynamicProfiles — no restart needed. `/dev` fails with a clear
 
 ### 12.2.2. Where the tab opens (backend ladder)
 
-`stage_app` tries three backends in a fixed order. **The order is load-bearing** — it decides which terminal a user's dev server appears in, and rearranging it silently changes that.
+`stage_app` tries four backends in a fixed order. **The order is load-bearing** — it decides which terminal a user's dev server appears in, and rearranging it silently changes that.
 
 | Order | Condition | Backend | Why here |
 |---|---|---|---|
-| 1 | `$TMUX` is set | `tmux new-window` in the current session | The only signal that says where the user is actually sitting. tmux sets it in every shell it spawns, so it is proof rather than inference. |
-| 2 | otherwise | `osascript` → iTerm2 tab | Reads no environment at all, which is why it survives the Agents-view gap below. |
-| 3 | `tmux` on PATH | `tmux new-window -t dev`, session created if absent | Last resort. "A tmux server exists on this machine" says nothing about which window the user is looking at, or whether they are attached at all. |
+| 1 | `$TMUX` is set | `tmux new-window` in the current session | tmux sets it in every shell it spawns, so when it is present it is proof rather than inference. |
+| 2 | a tmux client is attached | `tmux new-window -t <that session>` | Same class of signal as 1 and it belongs at the same rank: an ATTACHED client is a person with their eyes on that session. Prefers the focused client; with several attached and none focused, the first is as good a guess as exists. |
+| 3 | otherwise | `osascript` → iTerm2 tab | Reads no environment at all, which is why it survives the Agents-view gap below. |
+| 4 | `tmux` on PATH, nobody attached | `tmux new-window -t dev`, session created if absent | Last resort. A detached tmux server says nothing about which window the user is looking at. |
 | — | none of the above | refuse, printing the intended command and path | |
 
-**Why 3 must stay below 2.** Ranked above `osascript`, any macOS user who happens to have a tmux server running would silently stop getting iTerm tabs and start accumulating windows in a detached session they are not watching.
+**Why 2 exists, and why it is not redundant with 1.** `$TMUX` is a *proxy* for "the user is in tmux", and the proxy leaks. A Claude Code session running inside tmux hands its Bash tool an environment with `$TMUX` stripped, so 1 misses the exact case it was written for; with no iTerm2 installed the run then falls all the way to 4 and the server lands in a detached `dev` session the user never sees. That was the observed failure: a tmux-only Mac user ran `/dev web`, the server started correctly, and it was invisible to them. Order 2 asks tmux which client is attached, which answers the same question without depending on inherited environment.
 
-**There is no `uname` branch.** The platform is never the question: Linux never satisfies 2, and macOS reaches 3 only once iTerm2 has already failed.
+**Why 4 must stay below 3.** Ranked above `osascript`, any macOS user who happens to have a detached tmux server running would silently stop getting iTerm tabs and start accumulating windows in a session they are not watching.
 
-Inside tmux, a `new-window` failure refuses rather than falling through — another terminal would put the server where the user is not looking.
+**There is no `uname` branch.** The platform is never the question: Linux never satisfies 3, and macOS reaches 4 only once iTerm2 has already failed.
+
+A `new-window` failure in 1 or 2 refuses rather than falling through — in both cases we know where the user is sitting, so another terminal would put the server where they are not looking.
+
+**Every `new-window` passes `-d`.** tmux otherwise makes the new window active, so staging a server yanks the user's view off whatever they were doing. When that thing is the Claude Code session they ran `/dev` from, Claude simply vanishes and there is no affordance telling them how to get back — the observed report was "it opened the server and I lost Claude". `-d` creates the window in the background; the `where:` line already tells the user `Ctrl-b n` reaches it. Staging a server is not a request to be looked at.
+
+The iTerm2 backend's `create tab` does also make its new tab active, and that is deliberately left alone: iTerm draws a labelled tab bar, so the user can see both where they landed and the tab they came from. tmux gives a window number in a status line a non-tmux user does not read, which is why the same behaviour is harmless in one and disorienting in the other.
 
 The tmux window is titled with the same `<app> @ <project-name> (:<port>)` string as the iTerm tab, and `automatic-rename` is pinned off on that window so a long-running dev server cannot relabel it from its own process name. The staged command is followed by `exec $SHELL`, so the window outlives a crashing server and keeps its output on screen — matching the iTerm tab, where `write text` runs the command in a shell that survives it.
 
@@ -1627,7 +1634,7 @@ The tmux window is titled with the same `<app> @ <project-name> (:<port>)` strin
 
 An Agents-view session's host is spawned by launchd (`LAUNCHCTL_ENV_REEXEC`, `XPC_SERVICE_NAME` and `INVOCATION_ID` are present in its environment), so it does not inherit the interactive shell's. `TERM_PROGRAM`, `ITERM_SESSION_ID` and `LC_TERMINAL` are therefore absent. `ITERM_PROFILE` and `LC_TERMINAL_VERSION` survive, but only because a fresh login shell re-sources `~/.iterm2_shell_integration.zsh` — they are not evidence of inheritance.
 
-**So terminal identity must never be detected from the environment in this subsystem.** A gate on `TERM_PROGRAM` would make `/dev` refuse in exactly the sessions it was written for. `osascript` works there because it asks iTerm over Apple Events and consults no variable. `$TMUX` is trustworthy for the opposite reason: tmux sets it directly in the shell the script runs in, so when it is present it is true — and when Claude was started from Agents view it is simply absent, which correctly falls through to 2.
+**So terminal identity must never be detected from the environment in this subsystem.** A gate on `TERM_PROGRAM` would make `/dev` refuse in exactly the sessions it was written for. `osascript` works there because it asks iTerm over Apple Events and consults no variable. `$TMUX` is trustworthy in one direction only: tmux sets it directly in the shell the script runs in, so when it is present it is true. **Its absence proves nothing**, which is the trap — Claude Code strips it from the Bash tool's environment even when the session is running inside tmux, so a missing `$TMUX` is not evidence that the user is outside tmux. That is why order 2 asks tmux directly rather than trusting the fall-through.
 
 ### 12.3. Invocations
 

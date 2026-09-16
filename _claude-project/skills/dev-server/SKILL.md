@@ -33,7 +33,7 @@ Two problems the Agents-view workflow created that the old "cmd-t + cd + npm run
 3. **`lsof` pre-check.** If port is free, use it. If occupied, step `+10` (3001 → 3011 → 3021). Cap at 3 hops; refuse beyond.
 4. **Opens a new tab**, `cd`'s into the project root, titles it `<app> @ <project-name> (:<port>)`, and runs `<PORT_ENV>=<N> npm run dev:<app>`.
 
-Three backends are tried in a fixed order — a tmux window in the current session when `$TMUX` is set, then an iTerm2 tab via `osascript`, then a window in a `dev` tmux session. `commands/dev.md` has the ordering and why it must not be rearranged.
+Four backends are tried in a fixed order — a tmux window in the current session when `$TMUX` is set, then a window in whichever session a tmux client is attached to, then an iTerm2 tab via `osascript`, then a window in a detached `dev` tmux session. `commands/dev.md` has the ordering and why it must not be rearranged.
 
 The port arrives as an env var rather than `-- --port <N>`, because npm's flag parser consumes `--port` before it reaches the inner npm and vite through monorepo script nesting. `<PORT_ENV>` is the variable the app's `vite.config.ts` reads, defaulting to `PORT`.
 
@@ -42,7 +42,7 @@ The port arrives as an env var rather than `-- --port <N>`, because npm's flag p
 - **Does not start servers without user invocation.** The user must explicitly invoke `/dev <app>` — Claude never starts a server on its own initiative.
 - **Does not kill servers.** Ever. `--status` surfaces only (pid, port, cwd). `dev-server.md` rule 4.
 - **Does not auto-restart on file changes.** That's the running vite server's job, untouched.
-- **Does not work without a terminal backend.** It needs tmux, or macOS with iTerm2. A headless session with tmux works via the `dev` session; with neither, it refuses and prints the command to run by hand.
+- **Does not work without a terminal backend.** It needs tmux, or macOS with iTerm2. A tmux session the user is attached to gets the window directly; an unattended one works via the detached `dev` session; with neither, it refuses and prints the command to run by hand.
 - **Does not interfere with vitest.** `vitest` / `npm run test` aren't dev servers; no port binding; no overlap.
 - **Cloudflare tunnel**: `--tunnel` swaps the staged command to `npm run dev:tunnel:<app>` (cloudflared + vite in the same tab). Each `--tunnel` invocation spawns a cloudflared replica — acceptable, cheap. The tunnel ingress map (`~/.cloudflared/config.yml`) is shared across replicas.
 

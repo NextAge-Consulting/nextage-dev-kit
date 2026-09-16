@@ -64,16 +64,19 @@ User-invocation is non-negotiable — Claude only runs `/dev` when the user expl
 
 ## Where the window lands
 
-`/dev` tries three backends in a fixed order and tells you which one it used, on the `where:` line of its output.
+`/dev` tries four backends in a fixed order and tells you which one it used, on the `where:` line of its output.
 
 | Order | When | You get |
 |---|---|---|
-| 1 | You started Claude **inside tmux** | A tmux window in your current session. `Ctrl-b n` to switch, `Ctrl-b p` to come back. |
-| 2 | Otherwise, on macOS with iTerm2 | A new iTerm tab in the current window — the original behavior, unchanged. |
-| 3 | Otherwise, if tmux is installed | A window in a tmux session named `dev`. The script prints `tmux attach -t dev` to reach it. |
+| 1 | `$TMUX` is set — Claude's own shell is **inside tmux** | A tmux window in your current session. `Ctrl-b n` to switch, `Ctrl-b p` to come back. |
+| 2 | A tmux client is **attached** to some session | A tmux window in that session, same as 1. Covers the common case where you are sitting in tmux but `$TMUX` did not survive into Claude's environment. |
+| 3 | Otherwise, on macOS with iTerm2 | A new iTerm tab in the current window — the original behavior, unchanged. |
+| 4 | Otherwise, if tmux is installed and **nobody is attached** | A window in a tmux session named `dev`. The script prints `tmux attach -t dev` to reach it. |
 | — | None of the above | A refusal, with the command and path printed so you can run them yourself. |
 
-**tmux is not a terminal.** It runs inside one — you still open iTerm (or any terminal), then run `tmux` in it, and tmux gives you its own tabs inside that single window, listed along the bottom. On macOS with iTerm this is redundant, which is why order 2 exists and why nothing about the Mac workflow changes. It earns its place on Linux, where terminals generally cannot be asked to open a tab from a script, and it is the only option that works headless or over ssh.
+**If the `where:` line names the `dev` session while you are sitting in tmux, that is now a bug**, not the expected path. Order 4 is only for an unattended tmux server.
+
+**tmux is not a terminal.** It runs inside one — you still open iTerm (or any terminal), then run `tmux` in it, and tmux gives you its own tabs inside that single window, listed along the bottom. On macOS with iTerm this is redundant, which is why order 3 exists and why nothing about the Mac workflow changes. It earns its place on Linux, where terminals generally cannot be asked to open a tab from a script, and it is the only option that works headless or over ssh.
 
 **Order 3 sits below iTerm deliberately.** A running tmux server tells you a server exists somewhere on the machine — not which window you are looking at, or whether you are attached at all. If it outranked iTerm, anyone on macOS who left a tmux server running would quietly stop getting iTerm tabs.
 

@@ -2,7 +2,7 @@
 
 ## The user starts dev servers, via `/dev`
 
-`/dev` opens a new terminal tab in the project root and runs the dev command. It detects port collisions with `lsof` and bumps by `+10` (3001 → 3011 → 3021, capped at 3 hops), titling the tab `<app> @ <project-name> (:<port>)`. The tab is a tmux window when Claude is running inside tmux, an iTerm2 tab otherwise; `.claude/commands/dev.md` has the full ordering.
+`/dev` opens a new terminal tab in the project root and runs the dev command. It detects port collisions with `lsof` and bumps by `+10` (3001 → 3011 → 3021, capped at 3 hops), titling the tab `<app> @ <project-name> (:<port>)`. The tab is a tmux window when a tmux session is in play, an iTerm2 tab otherwise; `.claude/commands/dev.md` has the full ordering.
 
 Do not start a dev server without the user invoking it. `.claude/skills/dev-server/SKILL.md` carries the natural-language routing, `.claude/commands/dev.md` the slash command, and the kit's `project-documentation/devserver-cheatsheet.md` the one-page reference.
 

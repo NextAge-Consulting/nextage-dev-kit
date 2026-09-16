@@ -55,13 +55,16 @@ For each chosen app:
 
 ## Where the tab opens
 
-Three backends, tried in this order. **The order is load-bearing** — it decides which terminal a user's dev server appears in.
+Four backends, tried in this order. **The order is load-bearing** — it decides which terminal a user's dev server appears in.
 
-1. **Inside tmux** (`$TMUX` is set) → `tmux new-window` in the current session. This is the only signal that says where the user is actually sitting, so it outranks everything. Switch to it with `Ctrl-b n`.
-2. **iTerm2 via `osascript`** → a tab in the current iTerm window. This reads no environment at all, which is why it still works from an Agents-view session, where the launchd-spawned host drops `TERM_PROGRAM`, `ITERM_SESSION_ID` and `LC_TERMINAL`.
-3. **A reachable tmux server** → a window in a `dev` session, created if absent, and the script prints `tmux attach -t dev`. Last resort: "a tmux server exists on this machine" says nothing about which window the user is looking at, or whether they are attached at all. Ranked above iTerm, a macOS user with a stray tmux server would silently stop getting iTerm tabs.
+1. **Inside tmux** (`$TMUX` is set) → `tmux new-window` in the current session. Switch to it with `Ctrl-b n`.
+2. **A tmux client is attached** → `tmux new-window` in that client's session, preferring the focused client. Same rank of signal as 1: an attached client is a person with their eyes on that session.
+3. **iTerm2 via `osascript`** → a tab in the current iTerm window. This reads no environment at all, which is why it still works from an Agents-view session, where the launchd-spawned host drops `TERM_PROGRAM`, `ITERM_SESSION_ID` and `LC_TERMINAL`.
+4. **A reachable tmux server with nobody attached** → a window in a `dev` session, created if absent, and the script prints `tmux attach -t dev`. Last resort: a detached server says nothing about which window the user is looking at. Ranked above iTerm, a macOS user with a stray detached server would silently stop getting iTerm tabs.
 
-There is no `uname` branch — the platform is never the question. Linux never satisfies 2, and macOS reaches 3 only once iTerm2 has already failed.
+**Why 2 exists, and why it is not redundant with 1.** `$TMUX` is a proxy for "the user is in tmux", and it leaks: a Claude Code session running inside tmux hands its Bash tool an environment with `$TMUX` stripped, so 1 misses the exact case it was written for and the run falls all the way to 4 — a detached `dev` session the user never sees. Asking tmux which client is attached answers the same question without depending on inherited environment.
+
+There is no `uname` branch — the platform is never the question. Linux never satisfies 3, and macOS reaches 4 only once iTerm2 has already failed.
 
 Whichever backend wins, the tab:
 

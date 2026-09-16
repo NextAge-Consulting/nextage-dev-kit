@@ -163,6 +163,28 @@ cmd_status() {
   fi
 }
 
+attached_tmux_session() {
+  # Which tmux session is the user actually LOOKING at? `$TMUX` answers that
+  # only when it survives into our environment, and it frequently does not —
+  # a Claude Code session running inside tmux hands its Bash tool an
+  # environment with `$TMUX` stripped, so the check below it silently fails
+  # and the server lands in a detached session nobody sees.
+  #
+  # An attached client answers the same question directly and does not depend
+  # on inherited environment. Prefer the focused client; with several attached
+  # and none focused, the first is as good a guess as exists.
+  command -v tmux >/dev/null 2>&1 || return 1
+  local name
+  name="$(tmux list-clients -F '#{client_flags}|#{client_session}' 2>/dev/null | awk -F'|' '
+    {
+      if (seen == 0) { first = $2; seen = 1 }
+      if ($1 ~ /focused/ && fseen == 0) { focused = $2; fseen = 1 }
+    }
+    END { if (fseen) print focused; else if (seen) print first }')"
+  [ -n "$name" ] || return 1
+  printf '%s\n' "$name"
+}
+
 tmux_launch() {
   # $1 = target session name, or "" to use the session we are already inside.
   local session="$1" dir="$2" title="$3" cmd="$4"
@@ -174,10 +196,16 @@ tmux_launch() {
   # the crash output with it.
   payload="$cmd; exec ${SHELL:-/bin/sh}"
 
+  # `-d` creates the window WITHOUT switching to it. Without it, tmux makes the
+  # new window active and the user's view is yanked off whatever they were
+  # doing — which, when Claude Code is the thing they were doing, means Claude
+  # vanishes mid-session and the only way back is a key they have to guess.
+  # `/dev` stages a server; it does not ask to be looked at. Every report line
+  # tells the user how to reach it (`Ctrl-b n`), which is the point.
   if [ -z "$session" ]; then
-    win_id="$(tmux new-window -c "$dir" -n "$title" -P -F '#{window_id}' "$payload" 2>/dev/null)" || return 1
+    win_id="$(tmux new-window -d -c "$dir" -n "$title" -P -F '#{window_id}' "$payload" 2>/dev/null)" || return 1
   elif tmux has-session -t "$session" 2>/dev/null; then
-    win_id="$(tmux new-window -t "$session" -c "$dir" -n "$title" -P -F '#{window_id}' "$payload" 2>/dev/null)" || return 1
+    win_id="$(tmux new-window -d -t "$session" -c "$dir" -n "$title" -P -F '#{window_id}' "$payload" 2>/dev/null)" || return 1
   else
     win_id="$(tmux new-session -d -s "$session" -c "$dir" -n "$title" -P -F '#{window_id}' "$payload" 2>/dev/null)" || return 1
   fi
@@ -262,17 +290,25 @@ APPLESCRIPT
   # server appears in.
   #
   #   1. $TMUX set   — Claude is running INSIDE tmux, so a tmux window is the
-  #                    tab adjacent to the user. This is the only signal that
-  #                    tells us where they are actually sitting.
+  #                    tab adjacent to the user.
+  #   1b. attached   — a tmux client is attached to some session. Same class of
+  #       client        signal as 1 and it belongs at the same rank: an ATTACHED
+  #                    client is a person with their eyes on that session. It
+  #                    exists because `$TMUX` is a proxy that leaks — Claude
+  #                    Code running inside tmux passes its Bash tool an
+  #                    environment without `$TMUX`, so 1 misses the very case
+  #                    it was written for, and the run falls all the way to 3.
   #   2. osascript   — iTerm2 over Apple Events. It reads no environment at
   #                    all, which is exactly why it still works from an
   #                    Agents-view session, where the launchd-spawned host
   #                    drops TERM_PROGRAM / ITERM_SESSION_ID / LC_TERMINAL.
-  #   3. tmux server — last resort, and it MUST stay below osascript. "A tmux
-  #                    server exists on this machine" says nothing about which
-  #                    window the user is looking at — they may not be attached
-  #                    at all. Ranked above osascript, a macOS user with a
-  #                    stray tmux server would silently stop getting iTerm tabs.
+  #   3. tmux server — last resort, and it MUST stay below osascript. Reaching
+  #                    here means a tmux server exists and NOBODY is attached
+  #                    to it, which says nothing about where the user is
+  #                    looking. Ranked above osascript, a macOS user with a
+  #                    stray detached server would silently stop getting iTerm
+  #                    tabs. This is the only case that creates the detached
+  #                    "dev" session the user then has to attach to by hand.
   #
   # No `uname` branch: the platform is never the question. Linux simply never
   # satisfies 2, and macOS reaches 3 only once iTerm2 has already failed.
@@ -285,6 +321,21 @@ APPLESCRIPT
     # Inside tmux and tmux refused: falling through to another terminal would
     # put the server somewhere the user is not looking.
     echo "tmux new-window failed inside an active tmux session" >&2
+    report_intent "$cmd" "$target_dir"
+    return 1
+  fi
+
+  local attached_session
+  attached_session="$(attached_tmux_session 2>/dev/null || true)"
+  if [ -n "$attached_session" ]; then
+    if tmux_launch "$attached_session" "$target_dir" "$title" "$cmd"; then
+      report_launched "$title" "$target_dir" "$cmd" \
+        "tmux window in attached session '$attached_session' (Ctrl-b n to switch)"
+      return 0
+    fi
+    # Same reasoning as the $TMUX branch: we know where the user is sitting, so
+    # opening the server anywhere else is worse than refusing.
+    echo "tmux new-window failed in attached session '$attached_session'" >&2
     report_intent "$cmd" "$target_dir"
     return 1
   fi
