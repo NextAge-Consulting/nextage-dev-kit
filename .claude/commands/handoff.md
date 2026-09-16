@@ -111,6 +111,13 @@ printf '# Handoff — %s\n\n*Written %s %s (%s) · %s*\n' \
 
 **Never manufacture content to fill a heading.** A session can finish its work with nothing outstanding, and that is a complete handoff: a date, a paragraph on what was done, and the index. If there are no blockers, the Blockers heading is absent — not present and empty. An invented next step is worse than a missing section, because the next session will act on it.
 
+**An open item is one the HUMAN acknowledged during the session. Nothing else qualifies.** Two things are not open items, and both keep reaching handoffs because they wear the clothes of diligence:
+
+- **A decision already settled.** Record it once, where the decision lives, and stop. Re-raising it as "may need revisiting" reopens it every session — the next `/work` hands the human back a question they already answered, and answering it again is the only way to make it go away.
+- **A guess about what the human did or did not verify.** You cannot observe their testing and nobody asked you to track it. "This has not been exercised" is speculation typed as a gap.
+
+A session with one real open item writes one. Padding to three spends the human's attention on invented work and costs the trust that any of the three is real.
+
 The index is the highest-value section. The handoff points at the durable docs rather than restating them; that is what keeps it from decaying into a history.
 
 ### Step 5: TLDR to the human

@@ -28,6 +28,24 @@ So every project maintains `rules/project/ui-inventory.md`, with the same `paths
 
 Generate it from the filesystem and update it in the same change that adds a component. An inventory that lags is worse than none, because it is read as complete.
 
+## Every UI change states what it was built from (Zero Tolerance)
+
+**End the reply that delivers UI with a `Built from:` line naming the existing file you matched.**
+
+```
+Built from: packages/ui/src/components/record-header.tsx
+Built from: src/components/ui/dialog.tsx (leveled up: added the divided regions)
+Built from: none — new pattern, researched and agreed first
+```
+
+**This is written HERE, in the auto-loaded rule, and not only in the `design-system` skill — on purpose.** The skill carries the same gate. A gate inside the skill is unreachable in exactly the case that matters: when the skill is the thing that got skipped. This rule is path-targeted to `.tsx`/`.jsx`, so the requirement is in front of you whether or not any skill was invoked.
+
+It works for the same reason the constitution's §XIV caller-scan attestation works — it is **falsifiable and cheap to check.** "Did you follow the design system?" is unanswerable and gets waved through. "Built from `record-header.tsx`" takes ten seconds to disprove: open the file and see whether the delivered thing resembles it.
+
+**No line means the grounding step did not happen, and the work is not done** — the same standard as an unscanned signature change.
+
+**The failure this exists to stop, observed:** a dialog shipped with ragged stat grids, hints dangling off uneven tiles, and a hand-rolled primary-variant dismiss button — where the dialog atom already exposed a prop rendering the correct outline one. Every rule that would have caught it was already loaded in context. The citation was the only missing artifact, and producing it is what surfaced all three defects within a minute.
+
 ## Name the pattern while agreeing the work
 
 **Name a screen's pattern in the plan document, in the sentence that agrees the screen** — not while it is being built.
@@ -35,6 +53,19 @@ Generate it from the filesystem and update it in the same change that adds a com
 This is the only check that fires at the moment the decision is actually made. Edit-time enforcement cannot work: by then the shape is already decided, and the rule reads as something you should have done already.
 
 **No pattern fits? Stop and discuss.** That is never a licence to invent one mid-build. A missing name is a visible hole; "did you follow the patterns?" is unfalsifiable and gets waved through.
+
+### A plan that names a screen and not its pattern is not an agreed plan
+
+**When a plan deliverable produces a screen, dialog, panel or report, the plan says which pattern it is.** A step reading "the screen, reporting what happened" has agreed that something gets built and nothing about what it is — so the shape is invented at build time by whoever types first, which is precisely what the section above forbids.
+
+Treat it as a defect in the PLAN, caught at planning time:
+
+- **Writing a plan** → name the pattern in the same sentence that agrees the screen.
+- **Reading a plan before executing it** → a screen step with no named pattern is **raised before that step starts**, not discovered in review afterwards.
+
+Both halves are needed. Only writing plans carefully leaves every inherited plan unchecked, and the reader is the last person who can catch it while it is still cheap.
+
+**Autonomous runs make this the only backstop.** There is no reviewer between build and done, so a pattern left unnamed in the plan is a pattern nobody ever agrees to — and the first time anyone sees the shape is after it shipped.
 
 ## Is it even a pattern?
 

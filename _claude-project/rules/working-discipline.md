@@ -43,6 +43,46 @@ answers it, that is the answer — cite it and move. If you believe the referenc
 is wrong, say so against what it actually claims, with evidence it does not
 already address. Disagreeing with a paraphrase of it is not disagreeing with it.
 
+### Quote the rule's own words when you invoke it
+
+**About to say a rule requires or forbids something? Paste its sentence.** Not
+for the reader — for you. Writing the words out is what makes you READ the rule
+instead of recalling it, and it puts the scope in front of both of you.
+
+> The inventory forbids action columns.
+
+slides past unchallenged. The same claim with the text attached does not:
+
+> "The row is **The control** — clicking it opens the record. **No action
+> column.**"
+
+The scoping clause is impossible to miss once it is sitting in the quote — the
+prohibition exists *because* the row click already does that job, so it says
+nothing about a row whose click opens nothing.
+
+**The rules most likely to be misquoted are the ones ALREADY IN CONTEXT.** A
+reference you have to go and open triggers the reflex above. A path-targeted rule
+that auto-loaded on the file you are editing never does: it is right there, it
+feels known, and familiarity quietly replaces reading. Every one of the
+misreadings this section was extended for came from an auto-loaded rule, and each
+took one `grep` to correct once somebody pushed back.
+
+The recurring shape, in all of them: a rule scoped by a clause gets remembered as
+a blanket ban, and the invented breadth then generates work — a "violation" to
+fix, a "gap" to fill, a question put to the human about a pattern that already
+had a written reference. **The cost is never the misreading; it is the task it
+manufactures.**
+
+The tells are the section's own, plus one:
+
+- You are about to write "the rule says", "X forbids", "per the convention" —
+  and the sentence is a paraphrase.
+- You are about to report a violation, a gap, or a pattern that needs naming.
+- You are reaching for a rule you have read several times this session.
+
+**Quoting is the cheap half of the check.** If the quote does not actually say
+what you were about to claim, you have just found the error for free.
+
 **Check the claim against reality before repeating it OR contradicting it.** A
 reference asserting "every project already does X" is a measurement that was
 true once. Verify it. This rule was written after a session spent re-deciding a
