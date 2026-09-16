@@ -162,6 +162,75 @@ read_branch_linked_issues() {
     git config --local --get "branch.${branch}.gitflow-issues" 2>/dev/null || echo ""
 }
 
+# clear_branch_linked_issues [branch_name] — drops the link list for a branch.
+# Called once the links have been consumed (carried onto a new branch, or
+# written into a commit that closes them), so the same issue cannot be
+# re-attached to unrelated later work.
+clear_branch_linked_issues() {
+    local branch="${1:-$(git branch --show-current)}"
+    git config --local --unset-all "branch.${branch}.gitflow-issues" 2>/dev/null || true
+}
+
+# migrate_branch_linked_issues <from_branch> <to_branch>
+# Carries issue links across a branch creation and clears the source.
+#
+# /work <issue#> no longer cuts a branch — it parks the link on whatever
+# branch the session is standing on, normally main. The branch is cut later
+# by whichever command declares the path, and that command calls this to
+# bring the links along. `git branch -m` moves the whole `[branch "x"]`
+# config section on its own, so a wip RENAME needs no migration; only a
+# freshly CREATED branch does.
+migrate_branch_linked_issues() {
+    local from="$1" to="$2"
+    [ "$from" = "$to" ] && return 0
+
+    local list
+    list=$(read_branch_linked_issues "$from")
+    [ -z "$list" ] && return 0
+
+    local num
+    for num in $list; do
+        link_issue_to_branch "$num" "$to"
+    done
+    clear_branch_linked_issues "$from"
+    echo "gitflow: carried issue link(s) $(format_issue_refs "$list") from $from onto $to." >&2
+}
+
+# format_issue_refs <space-separated nums> — "#1, #2, #3". Empty in, empty out.
+format_issue_refs() {
+    local out="" num
+    for num in $1; do
+        if [ -z "$out" ]; then out="#${num}"; else out="${out}, #${num}"; fi
+    done
+    echo "$out"
+}
+
+# report_parked_issue_links [branch_name]
+# Surfaces links sitting on a protected branch at session-init. A link parks
+# there when /work <issue#> runs and the session then ends without a commit;
+# left silent, the next unrelated /ship-main would close an issue nobody meant
+# to close. Reporting is the whole mitigation — the human decides.
+report_parked_issue_links() {
+    local branch="${1:-$(git branch --show-current)}"
+    local list
+    list=$(read_branch_linked_issues "$branch")
+    [ -z "$list" ] && return 0
+    echo "gitflow: issue(s) $(format_issue_refs "$list") are linked on '$branch' from an earlier session." >&2
+    echo "  They ride onto the next /commit branch, or /ship-main closes them here." >&2
+    echo "  Not yours? git config --local --unset branch.${branch}.gitflow-issues" >&2
+}
+
+# closes_line_for_issues <space-separated nums> — "Closes #1, #2". Empty in,
+# empty out. GitHub honours this keyword both in a PR body (closing on merge)
+# and in a commit pushed to the default branch (closing on push), which is
+# what lets /ship-main close an issue with no PR in the picture.
+closes_line_for_issues() {
+    local refs
+    refs=$(format_issue_refs "$1")
+    [ -z "$refs" ] && return 0
+    echo "Closes ${refs}"
+}
+
 # ─── Project status transition ─────────────────────────────────────────────
 # _move_issue_to_status <issue_num> <option_id_var_name> <label>
 # Internal helper. <option_id_var_name> is the NAME of the env var holding

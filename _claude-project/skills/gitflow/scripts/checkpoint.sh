@@ -14,6 +14,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./branch_helpers.sh
 source "$SCRIPT_DIR/branch_helpers.sh"
+# shellcheck source=./issue_helpers.sh
+source "$SCRIPT_DIR/issue_helpers.sh"
 
 TIMESTAMP=$("$SCRIPT_DIR/get_timestamp.sh")
 
@@ -28,8 +30,13 @@ CURRENT_BRANCH=$(git branch --show-current)
 if is_protected_branch "$CURRENT_BRANCH"; then
     WIP_NAME=$(resolve_collision "$(make_wip_branch_name)")
     echo "gitflow: on $CURRENT_BRANCH — auto-creating $WIP_NAME for checkpoint." >&2
+    PREVIOUS_BRANCH="$CURRENT_BRANCH"
     create_and_switch "$WIP_NAME"
     CURRENT_BRANCH="$WIP_NAME"
+    # Carry any /work <issue#> link parked on main onto the wip branch. A later
+    # /commit renames this branch, and `git branch -m` moves the config section
+    # with it, so no second migration is needed.
+    migrate_branch_linked_issues "$PREVIOUS_BRANCH" "$CURRENT_BRANCH"
 fi
 
 git add -A

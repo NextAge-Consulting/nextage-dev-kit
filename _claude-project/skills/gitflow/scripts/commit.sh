@@ -32,6 +32,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./branch_helpers.sh
 source "$SCRIPT_DIR/branch_helpers.sh"
+# shellcheck source=./issue_helpers.sh
+source "$SCRIPT_DIR/issue_helpers.sh"
 
 MESSAGE=""
 MODEL_NAME="Claude"
@@ -102,8 +104,12 @@ CURRENT_BRANCH=$(git branch --show-current)
 if is_protected_branch "$CURRENT_BRANCH"; then
     TARGET_NAME=$(resolve_collision "$(derive_branch_from_message "$MESSAGE")")
     echo "gitflow: on $CURRENT_BRANCH — auto-creating $TARGET_NAME for commit." >&2
+    PREVIOUS_BRANCH="$CURRENT_BRANCH"
     create_and_switch "$TARGET_NAME"
     CURRENT_BRANCH="$TARGET_NAME"
+    # /work <issue#> parks its link on main rather than cutting a branch, so the
+    # branch created HERE is the one the issue belongs to.
+    migrate_branch_linked_issues "$PREVIOUS_BRANCH" "$CURRENT_BRANCH"
 elif is_wip_branch "$CURRENT_BRANCH"; then
     if has_open_pr "$CURRENT_BRANCH"; then
         echo "gitflow: $CURRENT_BRANCH has an open PR — skipping auto-rename." >&2

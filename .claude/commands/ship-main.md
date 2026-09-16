@@ -43,6 +43,16 @@ The script:
 - Typecheck/biome failure: surface the command to run; offer `--skip-typecheck` only if the user explicitly accepts shipping unverified.
 - Rebase conflict: surface the conflict; the user resolves then `git push origin main`.
 
+## Closing issues without a PR
+
+`/work <issue#>` and `/link` park their issue links on the branch you are standing on and cut nothing, so on `main` those links are sitting right here. `ship-main.sh` reads them, appends a `Closes #N, #M` line to the commit body, and clears them once the push lands.
+
+GitHub honours that keyword on a commit pushed to the default branch, not only in a PR body — so an issue closes itself with no PR, no CI and no review anywhere in the picture. That is the whole point: an issue that turns out to be a docs or infra change should not have to round-trip through a PR to get closed.
+
+Project-board status is deliberately left alone, matching `/merge`, which also does not transition. Only `/deploy` marks Done.
+
+The link is cleared only after a successful push. If the push fails the link stays put, so a retry still closes the issue.
+
 ## What this does NOT do
 
 - Does NOT open a PR or run CI — `pull_request` workflows don't fire on a push to `main`, and that's the point.

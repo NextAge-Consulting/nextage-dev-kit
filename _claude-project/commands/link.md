@@ -56,9 +56,14 @@ The script prints issue bodies + comments to stdout. Claude MUST read that outpu
 - Linked issues: report each by number, with status-transition and assignment outcomes.
 - Script exited non-zero: surface the reason.
 
+## Linking while on `main`
+
+Allowed, and it cuts no branch. The link parks on `main`, rides onto whichever branch the first `/commit` creates, and `/ship-main` closes it in place with a `Closes #N` line instead. Linking says which issue the work is about; it does not decide whether that work goes through a PR.
+
+A link left parked by an abandoned session is surfaced by the next `/work`, which prints the `git config --unset` line to drop it.
+
 ## Blocking conditions
 
-- Current branch is `main` or `master` — can't link issues to the protected branch. Start a feature branch first with `/work <issue>`.
 - `--issues` missing or value has no valid issue numbers.
 - Any issue in the list is inaccessible — the script validates all issues up front and aborts the entire call before applying any side-effects (avoids half-linked state).
 
@@ -81,5 +86,5 @@ Downstream: `/open-pr` reads `branch.<current>.gitflow-issues` and prepends `Clo
 
 ## Related
 
-- `/work <issue#>` — start a new branch linked to the issue (same link side-effects, plus branch creation when on `main`).
+- `/work <issue#>` — same link side-effects at session-init. Neither command cuts a branch.
 - Project's built-in "Pull request merge - closes linked issues" workflow also fires on merge via the Development-panel link, giving belt-and-suspenders closure.

@@ -71,7 +71,7 @@ The script resolves the target branch before committing:
 
 | Current branch | Action |
 |----------------|--------|
-| `main` / `master` | Derive `<type>/<slug>` from the commit message, create and switch |
+| `main` / `master` | Derive `<type>/<slug>` from the commit message, create and switch. Any issue links parked on `main` by `/work <issue#>` or `/link` are carried onto the new branch and cleared from `main`. |
 | `wip/<timestamp>` with no open PR | Rename to `<type>/<slug>` from the commit message (local + remote) |
 | `wip/<timestamp>` with open PR | Commit in place (renaming would break the PR link) |
 | Any other branch | Commit in place |

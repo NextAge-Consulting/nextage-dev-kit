@@ -71,11 +71,7 @@ fi
 # with Closes, we don't double-prepend.
 LINKED_ISSUES=$(read_branch_linked_issues "$CURRENT_BRANCH")
 if [ -n "$LINKED_ISSUES" ]; then
-    CLOSES_LINE="Closes"
-    for num in $LINKED_ISSUES; do
-        CLOSES_LINE="${CLOSES_LINE} #${num},"
-    done
-    CLOSES_LINE="${CLOSES_LINE%,}"
+    CLOSES_LINE=$(closes_line_for_issues "$LINKED_ISSUES")
     if ! printf '%s' "$BODY" | head -n 1 | grep -qE '^Closes\s+#[0-9]'; then
         BODY="${CLOSES_LINE}
 

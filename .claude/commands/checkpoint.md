@@ -28,7 +28,7 @@ Pass the user's optional message suffix (from `$ARGUMENTS`) as positional argume
 
 ## Branch behavior
 
-If currently on `main` or `master`, the script auto-creates a `wip/<timestamp>` branch before committing. A later `/commit` on that branch renames it based on the real commit message.
+If currently on `main` or `master`, the script auto-creates a `wip/<timestamp>` branch before committing, and carries any issue links parked on `main` onto it. A later `/commit` on that branch renames it based on the real commit message; `git branch -m` moves the branch's config section, so the links follow the rename on their own.
 
 If already on any other branch, the checkpoint happens in place.
 

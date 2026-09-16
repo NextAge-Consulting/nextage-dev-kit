@@ -42,8 +42,12 @@ fi
 
 CURRENT_BRANCH=$(git branch --show-current)
 if is_protected_branch "$CURRENT_BRANCH"; then
-    echo "link.sh: refusing to link on '$CURRENT_BRANCH'. Start a branch first with /work <issue#>." >&2
-    exit 3
+    # Parking a link here is deliberate, and matches /work <issue#>. Linking
+    # says which issue the work is about; it does not decide whether the work
+    # goes through a PR. The first commit carries the link onto the branch it
+    # creates, and /ship-main consumes it as a `Closes #N` line instead.
+    echo "link.sh: on '$CURRENT_BRANCH' — linking here, no branch cut." >&2
+    echo "  /commit branches from your message and carries the link · /ship-main commits here and closes it." >&2
 fi
 
 # Validate all issues before applying any side-effects.

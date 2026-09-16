@@ -9,9 +9,9 @@
 # Responsibilities:
 #   - On main: refresh main from origin and STAY THERE. No branch is cut.
 #   - On a feature/wip branch: resume it, untouched.
-#   - For --issue: validate, derive a branch slug from the issue title, create the
-#     branch, link the issue via git config, transition to In Progress, assign the
-#     current user, dump issue context for the Claude session.
+#   - For --issue: validate, link the issue via git config on the CURRENT branch,
+#     transition to In Progress, assign the current user, dump issue context for
+#     the Claude session. No branch is cut — see below.
 #   - For --retrieve: fetch the remote branch, fast-forward any local copy, switch.
 #
 # One checkout, one branch at a time. Parallel bodies of work are not a thing
@@ -33,9 +33,17 @@
 # auto-creates a wip branch, and `git-guard.sh` blocks raw `git commit`.
 #
 # So the branch belongs to the moment the decision is actually made — the first
-# commit — not to session-init. `--issue N` still cuts immediately: typing an
-# issue number IS the declaration that this is a feature heading for a PR, and
-# the issue-derived name beats anything derivable from a message later.
+# commit — not to session-init. `--issue N` is NOT an exception to that. An
+# issue number says what the work is ABOUT, never which pipeline it belongs in:
+# an issue can be a docs or infra change that belongs straight on main, and in
+# a repo with no CI and no deploy the PR round-trip buys nothing at all. Cutting
+# a branch on the issue number made /ship-main unreachable for the whole session,
+# which is the same failure the paragraph above describes.
+#
+# --issue therefore parks the link on the current branch and lets the first
+# commit carry it across (migrate_branch_linked_issues). /ship-main consumes it
+# instead as a `Closes #N` line, which GitHub honours on a push to the default
+# branch — so an issue still closes itself with no PR anywhere in the picture.
 
 set -eo pipefail
 shopt -s inherit_errexit 2>/dev/null || true   # propagate errexit into $(…) subshells (bash 4.4+)
@@ -157,7 +165,8 @@ mode_default() {
     if is_protected_branch "$branch"; then
         refresh_main_if_possible
         echo "work.sh: on '$branch' — no branch cut; the session has not chosen a path yet." >&2
-        echo "  /commit branches from your message · /ship-main commits here · /work <issue#> branches now." >&2
+        echo "  /commit branches from your message · /ship-main commits here." >&2
+        report_parked_issue_links "$branch"
         if ! tree_is_clean; then
             echo "work.sh: (uncommitted changes present — they follow you onto whichever path you take)" >&2
         fi
@@ -192,12 +201,15 @@ mode_issue() {
     fi
 
     if is_protected_branch "$branch"; then
-        # Fresh start → branch named for the issue.
+        # No branch is cut here. An issue number says what the work is ABOUT,
+        # not which pipeline it belongs in: plenty of issues are a docs or
+        # infra change that should go straight to main, and cutting a branch
+        # now blocks /ship-main for the rest of the session. The link parks on
+        # this branch and the first commit carries it onto whatever branch it
+        # creates. See the header.
         refresh_main_if_possible
-        local target
-        target=$(resolve_collision "$(slug_from_issue "$num")")
-        echo "work.sh: starting issue #$num on '$target'." >&2
-        create_and_switch "$target" >&2
+        echo "work.sh: issue #$num linked on '$branch' — no branch cut." >&2
+        echo "  /commit branches from your message and carries the link · /ship-main commits here and closes it." >&2
     else
         # Already on a body of work → /link semantics, one more issue on it.
         echo "work.sh: on branch '$branch' — linking issue #$num to it." >&2

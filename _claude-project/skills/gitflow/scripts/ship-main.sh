@@ -30,6 +30,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./branch_helpers.sh
 source "$SCRIPT_DIR/branch_helpers.sh"
+# shellcheck source=./issue_helpers.sh
+source "$SCRIPT_DIR/issue_helpers.sh"
 
 MESSAGE=""
 MODEL_NAME="Claude"
@@ -112,6 +114,21 @@ if git diff --cached --quiet; then
     exit 5
 fi
 
+# --- Close any linked issues via the commit itself -------------------------
+# /work <issue#> parks its link here rather than cutting a branch, so ship-main
+# is the path that consumes it. GitHub honours a `Closes #N` keyword in a commit
+# pushed to the default branch, so the issue closes with no PR involved. Board
+# status is deliberately left alone, matching /merge, which also does not
+# transition — only /deploy marks Done.
+SHIP_LINKED_ISSUES=$(read_branch_linked_issues "$CURRENT_BRANCH")
+SHIP_CLOSES_LINE=$(closes_line_for_issues "$SHIP_LINKED_ISSUES")
+if [ -n "$SHIP_CLOSES_LINE" ]; then
+    MESSAGE="$MESSAGE
+
+$SHIP_CLOSES_LINE"
+    echo "gitflow: adding '$SHIP_CLOSES_LINE' from branch-linked issues." >&2
+fi
+
 echo "gitflow: ship-main — committing directly on $CURRENT_BRANCH: $MESSAGE" >&2
 git commit --no-verify -m "$MESSAGE
 
@@ -141,6 +158,16 @@ else
         echo "ship-main.sh: push to $CURRENT_BRANCH failed (see above)." >&2
         exit 6
     fi
+fi
+
+# Consumed: the Closes keyword now sits on a commit on the default branch, so
+# GitHub will close the issue. Clearing stops it re-attaching to unrelated later
+# work. Placed after BOTH push paths — every failing path above exits, so
+# reaching here means the push landed. Written as `if`, not `[ … ] && …`: under
+# `set -e` a false test as the last statement of the block aborts the script
+# (bash-rules.md §III).
+if [ -n "$SHIP_CLOSES_LINE" ]; then
+    clear_branch_linked_issues "$CURRENT_BRANCH"
 fi
 
 echo "gitflow: ship-main complete — live on $CURRENT_BRANCH. (No PR, no CI — it's an exception commit.)" >&2

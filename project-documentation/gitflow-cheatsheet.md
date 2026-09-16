@@ -9,30 +9,28 @@ One-page reference for day-to-day work in a kit-enabled project. For internals a
 Every coding session starts with `/work`. It puts you on the branch your work belongs on, in the project checkout.
 
 ```
-/work                              # on main: cut a fresh wip/<abbrev>-<timestamp> branch. On a branch: resume it.
-/work 23                           # on main: cut a branch derived from issue #23's title, and link the issue
+/work                              # on main: refresh main and stay there. On a branch: resume it.
+/work 23                           # link issue #23 to wherever you are standing. No branch is cut.
 /work --retrieve feat/teammate-fix # fetch a teammate's branch and switch to it (refuses if your tree is dirty)
 ```
 
-What happens automatically (issue mode, on `main`):
-- **Local main is fast-forwarded from `origin/main` first**, so the branch starts from current code.
-- A branch is cut from the issue title (e.g. `feat/add-email-to-users`).
-- Issue **linked to the branch** (stored in git config), **assigned to you**, **moved to "In Progress"** on the project board.
-- Claude **reads the issue body + comments** and proposes an approach before any code is written.
-
-What happens automatically (issue mode, already on a feature branch):
-- Behaves like `/link`: the issue is added to the branch you are on. No new branch.
+**`/work` never cuts a branch.** At session-init nobody knows yet whether this is a feature, an infra change, or a question answered from the handoff — and because `/ship-main` runs only on `main`, cutting a branch here would block the infra path before the session began. The branch arrives from the command that actually declares the path: `/commit` names it from your commit message, `/checkpoint` cuts a `wip/` one.
 
 What happens automatically (no issue, on `main`):
-- **Local main is fast-forwarded from `origin/main` first.**
-- A `wip/<abbrev>-<timestamp>` branch is cut off fresh `origin/main`.
-- The branch keeps its `wip/` name until your first `/commit`, which renames it to `<type>/<slug>` derived from the commit message (e.g. `wip/lg-2026-05-12-153000Z` → `feat/dealer-filter-fix`).
-- `<abbrev>` resolves from `PROJECT_ABBREV` in `.claude/sync-substitutions.json` (e.g. `lg`, `kit`, `ms`); falls back to the project's directory basename if unset. Run `/sync-dev-kit` to populate. Lets the Agents view distinguish concurrent wip/ branches across projects.
+- **Local main is fast-forwarded from `origin/main`**, unless the tree is dirty or the fetch fails — both say so plainly rather than blocking.
+- You stay on `main`. Any issue link parked by an earlier session is surfaced.
+
+What happens automatically (issue mode, anywhere):
+- Issue **linked to the branch you are on** (stored in git config), **assigned to you**, **moved to "In Progress"** on the project board.
+- Claude **reads the issue body + comments** and proposes an approach before any code is written.
+- On `main` the link parks there and rides onto whichever branch your first `/commit` creates; `/ship-main` closes it in place with a `Closes #N` line instead.
+
+Where `wip/<abbrev>-<timestamp>` comes from: `/checkpoint` on `main` cuts it. The branch keeps that name until your first `/commit`, which renames it to `<type>/<slug>` from the commit message (e.g. `wip/lg-2026-05-12-153000Z` → `feat/dealer-filter-fix`). `<abbrev>` resolves from `PROJECT_ABBREV` in `.claude/sync-substitutions.json` (e.g. `lg`, `kit`, `ms`), falling back to the project's directory basename if unset. Run `/sync-dev-kit` to populate. Lets the Agents view distinguish concurrent wip/ branches across projects.
 
 What happens automatically (no issue, already on a feature branch):
 - Resume it. Same body of work continues, nothing refreshed — use `/catchup` when you want the latest main.
 
-**Edits already in the tree come along.** If you started editing before typing `/work`, `git checkout -b` carries those changes onto the new branch. The one consequence is that `main` is not refreshed in that case (a fast-forward on a dirty tree would either fail or strand the edits) — `/work` says so, and `/catchup` closes the gap.
+**Edits already in the tree come along.** If you started editing before typing `/work`, those changes stay exactly where they are and follow you onto whichever branch the first `/commit` or `/checkpoint` creates. The one consequence is that `main` is not refreshed in that case (a fast-forward on a dirty tree would either fail or strand the edits) — `/work` says so, and `/catchup` closes the gap.
 
 **Distinguishing concurrent sessions in the Agents view.** The `wip/<abbrev>-<timestamp>` branch name does NOT surface as the session title in the Agents view or the Claude desktop/web view — those views show the session summary, not the branch. To label a session so concurrent work across projects is easy to tell apart, use the built-in `/rename <name>` slash command. The rename is reflected in both the Agents view and the Claude views.
 
@@ -59,7 +57,7 @@ Use `/checkpoint` freely for in-progress snapshots. Use `/commit` when a unit of
 /link #42,#43
 ```
 
-Adds the issue(s) to the current branch. Same side effects as `/work <issue>`: status transition, assignment, context dump. The eventual PR body auto-prepends `Closes #42, #43`.
+Adds the issue(s) to the current branch — including `main`, where the link parks until the first commit carries it onto a branch, or `/ship-main` closes it in place. Same side effects as `/work <issue>`: status transition, assignment, context dump. A PR body auto-prepends `Closes #42, #43`; a `/ship-main` commit gets the same line in its body.
 
 No new branch, no stash. Just link and keep working.
 
@@ -224,7 +222,7 @@ Picking up tomorrow on unfinished work: same launch, just `/work` (no args). You
 | `/e2e` — "no flows match this diff" | Expected for pure-docs / workflow-only PRs on the diff-scoped option. Reports clean, runs nothing. |
 | `/e2e` — dev server not reachable | Claude checks port first and starts if free. If that fails, the project's dev-server command may differ; check `.claude/rules/dev-server.md` for the project's convention. |
 | `/open-pr` — "no commits ahead of main" | You haven't committed yet. Run `/commit` or `/checkpoint` first. |
-| `/link` refuses on main | Correct — linking only makes sense on a feature branch. Use `/work <issue>` to start a feature branch first. |
+| Linked an issue while on main | Fine. The link parks on `main` and rides onto whichever branch your first `/commit` creates; `/ship-main` closes it in place instead. `/work` surfaces any link left parked by an abandoned session. |
 | Issue didn't move on the project board (In Progress / Staged / Done) | Board transitions are now **fail-loud**. If `GITFLOW_PROJECT_ID` is set and the transition didn't fire, the script exited non-zero with the cause. Most common cause is the gh token missing `project` scope (`gh auth refresh -s project`), then the issue not being on the configured project (enable the project's "Auto-add to project" workflow). Empty `GITFLOW_PROJECT_ID` = feature off, silent skip. |
 | `/work` says it could not refresh main | The pre-branch fast-forward failed (usually `gh` auth scope or network). `/work` does not block — it cuts the branch off local `main` and tells you. Fix `gh auth status`, then `/catchup` to pull the latest into your branch. |
 | `/catchup` aborts: "local main is AHEAD" or "DIVERGED" | Local main has commits not on origin/main. Anomalous under gitflow's model (primary is read-only). Inspect with `git log origin/main..HEAD`. Most likely cause is a `/ship-main` commit that has not been pushed, or a commit made outside gitflow. Inspect, push or resolve manually, then retry `/catchup`. |

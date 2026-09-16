@@ -19,7 +19,11 @@ Nothing is lost by waiting, because the safety lives downstream and is better th
 - `/checkpoint` on `main` auto-creates a `wip/` branch.
 - `git-guard.sh` blocks raw `git commit` regardless.
 
-So the branch is cut at the moment the decision is genuinely made: the first commit. `/work <issue#>` is the exception, and cuts immediately — typing an issue number *is* the declaration that this is a feature heading for a PR.
+So the branch is cut at the moment the decision is genuinely made: the first commit. **`/work <issue#>` is not an exception to that.**
+
+An issue number says what the work is *about*, never which pipeline it belongs in. An issue can be a docs fix, a config change, or infra work that belongs straight on `main`; and in a repo with no CI and no deploy target the whole PR round-trip buys nothing. Cutting a branch on the issue number made `/ship-main` unreachable for the rest of the session — the same failure the paragraph above describes, reintroduced by the exception.
+
+So `/work <issue#>` parks the issue link on the branch you are standing on and cuts nothing. The first commit carries the link onto whatever branch it creates, and `/ship-main` consumes it instead as a `Closes #N` line — which GitHub honours on a push to the default branch, so the issue still closes itself with no PR anywhere in the picture.
 
 **Local main is refreshed when it can be.** The script fast-forwards `main` from `origin/main` via the shared `fast_forward_local_main` helper. Two cases skip the refresh and say so plainly rather than blocking: a dirty tree, and a failed fetch (offline, expired auth, missing gh scope). Neither loses anything — run `/catchup` when you want the latest. Resuming an existing branch refreshes nothing by design; you are mid-body-of-work.
 
@@ -29,7 +33,7 @@ So the branch is cut at the moment the decision is genuinely made: the first com
 |-------|--------------|
 | `/work` | On `main`: refresh `main` and stay on it — no branch cut. On a feature branch: resume it. |
 | `/work <free text>` | Same as bare `/work`, then handle the free text as the session's opening prompt. The command runs first; the text is the prompt, not a mode. |
-| `/work <issue#>` | On `main`: cut a branch derived from the issue title (e.g. `feat/add-email-to-users`). On a feature branch: behaves like `/link` — adds the issue to the branch you are on. Either way, transitions the issue to In Progress, assigns to the current user, dumps body + comments. |
+| `/work <issue#>` | Links the issue to the branch you are on — **no branch is cut**, on `main` or anywhere else. On a feature branch this is exactly `/link`. Either way, transitions the issue to In Progress, assigns to the current user, dumps body + comments. |
 | `/work --retrieve <branch>` | Fetch `<branch>` from origin, fast-forward any local copy, and switch to it. Refuses on a dirty tree — `/checkpoint` first. Your own branch is untouched; `git switch` back when you are done. |
 
 ## Procedure
@@ -131,7 +135,7 @@ The handoff never displaces what the human pointed at, and it never silently dis
 **A branch is cut when the path is chosen, not when the session starts.**
 
 - `/work` (no args) on `main` → stays on `main`. No branch.
-- `/work <issue#>` on `main` → created directly on the issue-derived branch (`feat/…`). No rename needed at first commit.
+- `/work <issue#>` on `main` → stays on `main`. The issue link parks there and rides onto whichever branch the first commit creates.
 - `/work` on a feature branch → resume, no branch change.
 
 The branch then arrives from whichever command declares the path:
