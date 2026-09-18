@@ -67,6 +67,16 @@ Both halves are needed. Only writing plans carefully leaves every inherited plan
 
 **Autonomous runs make this the only backstop.** There is no reviewer between build and done, so a pattern left unnamed in the plan is a pattern nobody ever agrees to — and the first time anyone sees the shape is after it shipped.
 
+## A pattern names roles, never values
+
+A pattern describing a composite — a row, a card, a field block — names which
+token role each part uses and states no sizes. "A row carries a `row-title`, a
+`row-subtitle` and a `metadata` line", never "13.5px, semibold". A value written
+into prose cannot be changed and will not be found.
+
+A part no role names is a missing role: raise it with the design system rather
+than inventing a size in a pattern.
+
 ## Is it even a pattern?
 
 A reference settles a question that had more than one defensible answer. If another competent developer would plausibly have built it differently, and that difference would show as inconsistency to the user, it is a pattern. If there is one obvious way anyone would reach on their own, it is craft — build it and move on. The skill carries the test and the examples.

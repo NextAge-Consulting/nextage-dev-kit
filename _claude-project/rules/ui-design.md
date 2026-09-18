@@ -32,6 +32,33 @@ Add a new component to both, in the same change as the component itself.
 
 Where runtime and documented spec diverge, runtime wins: update `design.md` to match.
 
+## A token names what a thing IS
+
+**Name the role, never the size.** `field-caption`, `row-title` and `card-inset`
+are tokens; `label`, `microlabel`, `sm`, `xs` and `lg` are sizes in token
+clothing, and they leave the next screen with the same decision to make.
+
+**Every family, not just type** — spacing, radius, weight, elevation and sizing.
+Colour is usually the one already done right (a ramp plus semantic aliases,
+components referencing only the aliases); it is the shape the others need.
+
+A component picks a role. **A screen writes no raw value at all** — it uses a
+component, and the component names the role. That is what stops the same thing
+rendering at four sizes across four screens.
+
+Adding a role happens when a thing exists that none of the current roles names —
+not when an existing role looks slightly wrong on one screen. If two roles compete
+for one element, the naming is wrong and that is a conversation, not a new token.
+
+**Back it with a check that fails the build.** A raw `text-sm` or `px-[10px]` is
+valid Tailwind and valid TSX, so no ordinary linter objects; without a gate this
+rule is a preference.
+
+**The two tests for a name** — can someone point at the element and name it
+without hesitating, and does one name cover many values in the existing code —
+are in the `design-system` skill, with why the second one is the half that
+actually catches a wrong name.
+
 ## The client/server wall
 
 The design system's UI — tokens, atoms, `cn()`, display components — lives in a home with client dependencies only (react, radix, cva) and no server or DB imports. One front-end app puts it in that app's `src/components/ui/`; more than one puts it in a dedicated client-only workspace (`packages/ui`) they all consume.

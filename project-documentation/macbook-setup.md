@@ -276,8 +276,17 @@ comfortable on a 14" machine — raise the memory if the host has 32 GB or more.
 Turn it on. This mounts the guest's drives under `/Volumes` on the Mac, at a path of the form:
 
 ```
-/Volumes/[C] Windows 11.hidden/
+/Volumes/[C] <VM name>/
 ```
+
+**A volume whose name ends in `.hidden` is NOT that mount and must never be touched.** It is
+the corpse Parallels leaves behind when the VM suspends. Any filesystem call reaching it
+blocks in an uninterruptible kernel wait: no error, no output, and it cannot be killed —
+`timeout`, perl `alarm` and `kill -9` all fail, because the signal is not delivered until
+the syscall returns, which is never. Measured: a single `ls` on it ran past 30s, and `mount`
+— which only reads the mount table — hung on it too. This has hung whole sessions across
+several projects. Resolve the path with a script that filters `.hidden` out **by name**
+before anything stats it, and never glob with a trailing path component across `/Volumes`.
 
 **This is what makes legacy conversion work.** The WINDEV project on the Windows disk becomes
 a normal macOS path, so `grep`, `rg` and Claude's own file tools read the live source at full
@@ -290,10 +299,10 @@ under **Options → Sharing → Shared clipboard**, that clipboard sharing is on
 
 Working notes for conversion sessions:
 
-- **The mount exists only while the VM is running.** Stopping the VM suspends it and the
-  volume disappears. If the path does not resolve, run `ls /Volumes` first — Parallels names
-  the volume from the VM and disk, so one command settles what it is actually called. Quote
-  the path; it contains spaces and brackets.
+- **The mount exists only while the VM is running.** Stopping the VM suspends it and the live
+  volume disappears, leaving the `.hidden` corpse above. If the path does not resolve, the
+  answer is "start the VM" — do NOT investigate with `ls /Volumes`, `mount` or `prlctl`, which
+  are the commands that hang. Quote the path; it contains spaces and brackets.
 - **Read-only.** WINDEV owns those files' structure, including encoded property blobs. A
   plain-text edit corrupts the project. Report a legacy defect with `file:line` and stop.
 - **Reading while the IDE is open is safe.** Writing is not.

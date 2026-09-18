@@ -107,6 +107,76 @@ Built from: <path(s) to the existing component(s)/screen(s) you matched in Step 
 
 No citation means Step 2 didn't happen and the work is **incomplete** — the same standard as shipping a signature change without the caller scan. This gate exists because "ground in the real components" only sticks when it's *cited*, not merely encouraged: the constitution's caller-scan attestation (§XIV) works for exactly this reason. An uncited UI change is presumed to have been invented from prose, and prose produces off-brand output.
 
+## Semantic tokens, or it is a design system in name only
+
+**A token names WHAT A THING IS, never how big it is.** `field-caption`,
+`row-title`, `card-inset`, `state-message` are tokens. `label`, `microlabel`,
+`sm`, `xs`, `lg` are sizes wearing token syntax, and they buy nothing: whoever
+builds the next screen still has to decide which one, and deciding per screen is
+the definition of drift.
+
+**This applies to every family, not just type** — spacing, radius, weight,
+elevation and sizing each need the same treatment. A project that fixed its type
+scale and left `px-[10px]`, `py-[9px]` and `rounded-[6px]` scattered through its
+components has fixed a fifth of the problem.
+
+### Two tests for whether a name is right
+
+**Can someone point at the element and name it without hesitating?** That decides
+whether a name earns its place. Two names competing for one element means the
+naming is wrong. Convergent VALUES are irrelevant — two roles resolving to the
+same number today are still two roles if they answer different questions, because
+a component saying which one it is, is what lets them diverge later without
+hunting for every site.
+
+**Does one name cover many values?** Collect every instance of a name in the
+existing code and look at the spread. A flat spread across many values means the
+name is too coarse and several things are hiding in it — split it and re-test. A
+tight cluster with one or two outliers means the name is right and the outliers
+are drift — pick the cluster. This is the falsifiable half; the first test alone
+produces plausible names that do not survive contact with the code.
+
+### Two layers, and collapsing them is the common failure
+
+- **The ramp** — a short set of role names with variations, in `design.md` and the
+  token file. Every established system has one: Material's display / headline /
+  title / body / label, Carbon's productive set, Fluent's ramp.
+- **Component contracts** — "a column heading is `column-heading`". These live in
+  the COMPONENT, never in a document. No system's ramp names a column heading; the
+  component declares which ramp entry it uses.
+
+Naming a ramp entry after one component's use of it — a `label` token because a
+label used it first — is how the two layers collapse and the ramp stops meaning
+anything.
+
+**A screen never names a raw value.** It uses a component; the component names the
+role. That is the difference between a design system and a naming convention, and
+it is the only version that survives contact with the twentieth screen.
+
+### Colour is usually the family that is already right — copy it
+
+Most projects already have a colour ramp plus semantic aliases over it, with
+components referencing only the aliases. That is why dark mode works by redefining
+one layer and no component CSS changes. **It is the worked example of the shape
+every other family needs**, and pointing at it is the fastest way to explain what
+"done" looks like.
+
+### Converting a legacy app: do not derive values from it
+
+Measuring what the old app did most often canonises its drift with extra steps.
+Take the NAMES from what things are, take the VALUES from a scale with deliberate
+steps, and anchor that scale on one known-good value. Whole pixels — no shipped
+system uses half-pixels, and a 13.5 in a legacy stylesheet is a symptom, not a
+specification.
+
+### Enforce it or it decays
+
+A raw `text-sm` or `px-[10px]` is valid CSS and valid TSX, so no ordinary linter
+objects. A check that fails the build on any raw value outside the token layer is
+what makes the rule real; without one it is a preference. Vendored third-party
+components are a legitimate exemption — name them explicitly rather than leaving
+the check silent about them.
+
 ## What `design.md` covers vs what it doesn't
 
 `design.md` is scoped to **atoms and tokens**, per the google spec. It does NOT cover:

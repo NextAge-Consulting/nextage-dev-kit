@@ -34,6 +34,23 @@ Worked examples of the same screen splitting across both:
 | What a toolbar contains and in what order | **ui-patterns** | Composition |
 | Showing active filters as a count vs. as chips | **ui-patterns** | A UX decision with a rationale worth not re-litigating |
 
+## A pattern names the ROLES its parts play
+
+When a pattern describes a composite — a row, a card, a field block, a toolbar —
+it names which token role each part uses, and says nothing about sizes.
+
+> A row carries a `row-title`, a `row-subtitle` beneath it, and a `metadata` line.
+
+That is the second layer of the token system and this is where it lives when it
+spans components: the token file defines what a role IS, the pattern defines what
+a composite is MADE of, and the component wires the two together. A pattern that
+says "13.5px, semibold" has hardcoded a value into prose where it cannot be
+changed and will not be found.
+
+If the composite needs a part no role names, that is a missing role — raise it
+with the design system, do not invent a size here. See the `design-system`
+skill's token section for how a role gets named and tested.
+
 ## Leave it at the skills root
 
 Claude Code discovers skills at `.claude/skills/<name>/SKILL.md` only — the
