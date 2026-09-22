@@ -35,7 +35,7 @@ Run these through gitflow, never directly: `git commit`, `git add`, `git push`, 
 | "retrieve branch", "pull a teammate's branch" | `/work --retrieve <branch>` |
 | "commit", "commit this", "commit the changes" | `/commit` |
 | "checkpoint", "save progress", "wip commit" | `/checkpoint` |
-| "link issue", "also works on #N" | `/link` |
+| "link issue", "also works on #N", "add #N to this branch" | `/work <N>` |
 | "catch up with main", "pull main into my branch", "update my branch with main" | `/catchup` |
 | "continue the merge", "finish catching up" | `/catchup --continue` |
 | "abort the catchup", "bail on the merge" | `/catchup --abort` |

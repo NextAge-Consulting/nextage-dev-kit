@@ -199,7 +199,8 @@ keep it. No → it is backlog or a status update, and it goes somewhere else.
 
 ## Adding a reference
 
-One file per pattern in `references/`. Lead with a one-line summary of the rule,
+One file per pattern in this project's `references/`, which the kit ships empty
+and a sync never overwrites. Lead with a one-line summary of the rule,
 then the rules themselves — each present tense, each actionable. Record what is
 excluded as a prohibition with its cost. Cite the primary sources.
 

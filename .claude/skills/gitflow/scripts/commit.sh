@@ -178,6 +178,61 @@ if [ -f "biome.json" ] || [ -f "biome.jsonc" ]; then
     fi
 fi
 
+# Semgrep (mirrors the CI `semgrep` job), scoped to the files this commit touches.
+#
+# It is here because semgrep was the ONE CI gate with no local mirror, and that
+# gap has a shape: every other check fires in this script in about a second, so
+# a push is expected to reach CI green — which leaves semgrep as the only thing
+# that can surprise you, after the PR is already open and a review has been
+# triggered against a HEAD that is about to be replaced.
+#
+# Gated on CI actually declaring the job, so the local gate and the remote one
+# can never disagree about whether this repo is scanned at all.
+#
+# CHANGED FILES ONLY, and that limit is real: a rule that fires on a file this
+# commit does not touch still surfaces only in CI, which scans everything. This
+# catches what you are about to INTRODUCE — the case that costs the round trip —
+# and keeps the gate at seconds rather than the minute a full scan takes. It is
+# the same trade the biome gate above makes.
+if [ -f ".github/workflows/ci.yml" ] && grep -qE '^[[:space:]]*semgrep:[[:space:]]*$' .github/workflows/ci.yml 2>/dev/null; then
+    if ! command -v semgrep >/dev/null 2>&1; then
+        echo "" >&2
+        echo "gitflow: CI runs semgrep, but semgrep is not installed here." >&2
+        echo "  A gate that cannot run must not report success, so this is a failure." >&2
+        echo "  Fix: brew install semgrep   (or: pipx install semgrep)" >&2
+        exit 4
+    fi
+
+    # Tracked modifications plus untracked additions, minus deletions. `mapfile`
+    # is deliberately not used: macOS ships bash 3.2 as /bin/bash and does not
+    # have it, so this script would die on the shebang platform it most often
+    # runs on.
+    SEMGREP_FILES=()
+    while IFS= read -r semgrep_f; do
+        [ -n "$semgrep_f" ] && [ -f "$semgrep_f" ] && SEMGREP_FILES+=("$semgrep_f")
+    done < <(
+        {
+            git diff --name-only --diff-filter=d HEAD 2>/dev/null
+            git ls-files --others --exclude-standard 2>/dev/null
+        } | sort -u
+    )
+
+    if [ ${#SEMGREP_FILES[@]} -gt 0 ]; then
+        echo "gitflow: running semgrep on ${#SEMGREP_FILES[@]} changed file(s)..." >&2
+        # Output is captured and REPLAYED on failure rather than suppressed with
+        # a "run it yourself" hint. A semgrep scan is tens of seconds; telling
+        # the user to pay that twice to find out what was wrong is the kind of
+        # small tax that gets a gate disabled.
+        if ! SEMGREP_OUT=$(semgrep scan --config auto --error "${SEMGREP_FILES[@]}" 2>&1); then
+            echo "" >&2
+            echo "gitflow: Semgrep findings in the files this commit touches. Fix before committing." >&2
+            echo "" >&2
+            printf '%s\n' "$SEMGREP_OUT" >&2
+            exit 4
+        fi
+    fi
+fi
+
 # Stage all changes
 git add -A
 

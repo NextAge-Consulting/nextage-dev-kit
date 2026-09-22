@@ -3,7 +3,7 @@
 #
 # Usage:
 #   work.sh                              # refresh main and stay put, or resume the current branch
-#   work.sh --issue <N>                  # ensure a branch, link issue #N, dump its context
+#   work.sh --issue <N[,N…]>            # link issue(s) to the current branch, dump their context
 #   work.sh --retrieve <branch>          # fetch a teammate's branch and switch to it
 #
 # Responsibilities:
@@ -68,9 +68,19 @@ while [[ $# -gt 0 ]]; do
             [ -n "$MODE" ] && { echo "work.sh: --retrieve conflicts with --$MODE" >&2; exit 2; }
             MODE="retrieve"; ARG="$2"; shift 2 ;;
         *)
-            # Bare positional numeric → shorthand for --issue
-            if [ -z "$MODE" ] && [[ "$1" =~ ^[0-9]+$ ]]; then
-                MODE="issue"; ARG="$1"; shift 1
+            # Bare positional issue token(s) → shorthand for --issue. Accepts
+            # every shape --issue does ("27", "27,28", "#27,#28", "27, 28"), so
+            # the two spellings cannot disagree, and the pattern demands a
+            # leading digit or #, so a branch name never matches and still
+            # reaches the error below.
+            #
+            # Tokens ACCUMULATE rather than overwrite, which is what makes
+            # `work.sh 27 28` work. The shell splits that into two arguments
+            # before this loop ever sees it, so a version that only took the
+            # first rejected the second as an unknown option — the spelling a
+            # person is most likely to type by hand.
+            if [[ "$1" =~ ^[#0-9][#0-9,\ ]*$ ]] && { [ -z "$MODE" ] || [ "$MODE" = "issue" ]; }; then
+                MODE="issue"; ARG="${ARG:+$ARG,}$1"; shift 1
             else
                 echo "work.sh: unknown option: $1" >&2; exit 2
             fi
@@ -178,27 +188,40 @@ mode_default() {
     fi
 }
 
-# ─── Mode: --issue <N> ─────────────────────────────────────────────────────
+# ─── Mode: --issue <N[,N…]> ────────────────────────────────────────────────
+#
+# Linking the FIRST issue and linking a further issue mid-work are the same act,
+# so this is the only place either happens. Nothing here cares whether the branch
+# already carries links; `link_issue_to_branch` is idempotent and the git-config
+# list simply grows.
 mode_issue() {
-    local num="$ARG"
-    if [[ ! "$num" =~ ^[0-9]+$ ]]; then
-        echo "work.sh: --issue requires a numeric issue number, got '$num'" >&2
+    local nums
+    nums=$(parse_issue_csv "$ARG")
+    if [ -z "$nums" ]; then
+        echo "work.sh: --issue had no valid issue numbers: '$ARG'" >&2
+        echo "  Accepts: 27 · 27,28 · '#27 #28'" >&2
         exit 2
     fi
 
-    if ! validate_issue "$num" >/dev/null; then
-        echo "work.sh: issue #$num inaccessible" >&2
-        exit 4
-    fi
-
-    local branch
+    local branch num
     branch=$(git branch --show-current)
 
     if [ -z "$branch" ]; then
-        echo "work.sh: detached HEAD — refusing to link issue #$num." >&2
+        echo "work.sh: detached HEAD — refusing to link $(format_issue_refs "$nums")." >&2
         echo "  Inspect with 'git status', then switch to a branch." >&2
         exit 7
     fi
+
+    # EVERY issue is validated before ANY side-effect fires. Validating inside
+    # the apply loop would leave the first two issues linked, transitioned and
+    # assigned when the third turns out to be a typo — a half-applied state the
+    # user then has to find and unpick by hand.
+    for num in $nums; do
+        if ! validate_issue "$num" >/dev/null; then
+            echo "work.sh: issue #$num inaccessible; aborting without linking anything" >&2
+            exit 4
+        fi
+    done
 
     if is_protected_branch "$branch"; then
         # No branch is cut here. An issue number says what the work is ABOUT,
@@ -208,17 +231,24 @@ mode_issue() {
         # this branch and the first commit carries it onto whatever branch it
         # creates. See the header.
         refresh_main_if_possible
-        echo "work.sh: issue #$num linked on '$branch' — no branch cut." >&2
+        echo "work.sh: $(format_issue_refs "$nums") linked on '$branch' — no branch cut." >&2
         echo "  /commit branches from your message and carries the link · /ship-main commits here and closes it." >&2
     else
-        # Already on a body of work → /link semantics, one more issue on it.
-        echo "work.sh: on branch '$branch' — linking issue #$num to it." >&2
+        # Already on a body of work → one more issue on it.
+        echo "work.sh: on branch '$branch' — linking $(format_issue_refs "$nums") to it." >&2
     fi
 
-    link_issue_to_branch "$num"
-    move_issue_to_in_progress "$num"
-    assign_issue_to_current_user "$num"
-    dump_issue_context "$num"
+    for num in $nums; do
+        link_issue_to_branch "$num"
+        move_issue_to_in_progress "$num"
+        assign_issue_to_current_user "$num"
+    done
+
+    # Context last, and in its own loop: the linking chatter above is noise the
+    # reader scrolls past, and the issue bodies are the part actually read.
+    for num in $nums; do
+        dump_issue_context "$num"
+    done
 }
 
 # ─── Mode: --retrieve <branch> ─────────────────────────────────────────────

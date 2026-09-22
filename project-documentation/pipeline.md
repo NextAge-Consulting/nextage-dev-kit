@@ -53,7 +53,7 @@ Git operations route exclusively through gitflow — slash commands backed by sc
 | `/work [#issue]` | Start or resume the body-of-work branch; optionally link issues (status → In Progress, assign, dump context for Claude). |
 | `/checkpoint` | Fast WIP commit + push. |
 | `/commit` | Conventional commit (emoji + type), typecheck-gated, push. |
-| `/link #N` | Link additional issues mid-work. |
+
 | `/catchup` | Pull `main` into the feature branch. |
 | `/open-pr` | Write + commit changelog locally, push, open PR with `Closes #N`, trigger advisory review. |
 | `/merge` | Verify gate green, squash-merge, land on `main`. **Does not deploy.** |
@@ -148,7 +148,7 @@ Structured assertions are added by **accretion** — only when a specific failur
 | Phase | Capability |
 |-------|------------|
 | 1 | GitHub config (squash-only, auto-delete branches) + basic CI (type-check + Biome + Semgrep, parallel jobs, concurrency-cancel). |
-| 2 | gitflow subsystem (`/work` `/commit` `/checkpoint` `/open-pr` `/merge` `/catchup` `/link`), commitlint title gate, issue↔branch↔PR linking, raw-git hook guard. |
+| 2 | gitflow subsystem (`/work` `/commit` `/checkpoint` `/open-pr` `/merge` `/catchup`), commitlint title gate, issue↔branch↔PR linking, raw-git hook guard. |
 | 3 | Release automation via local `/deploy` (bump + changelog + tag + push + dispatch deploy), direct-push of the version bump to `main`, `workflow_dispatch:`-only deploy contract. |
 | 4 | Quality/security: Gemini advisory review, Dependabot (monthly + cooldown + grouping), Dependabot surfacing, Node LTS check, Semgrep + `.semgrepignore`. |
 | 5 | Test infrastructure: Vitest config (unit + integration projects), one-branch-per-run ephemeral Neon harness with transaction-per-test isolation, migration-during-PR, test dir structure + auth/util scaffolding, Vitest in CI. |

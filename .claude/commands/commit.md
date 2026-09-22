@@ -71,7 +71,7 @@ The script resolves the target branch before committing:
 
 | Current branch | Action |
 |----------------|--------|
-| `main` / `master` | Derive `<type>/<slug>` from the commit message, create and switch. Any issue links parked on `main` by `/work <issue#>` or `/link` are carried onto the new branch and cleared from `main`. |
+| `main` / `master` | Derive `<type>/<slug>` from the commit message, create and switch. Any issue links parked on `main` by `/work <issue#>` are carried onto the new branch and cleared from `main`. |
 | `wip/<timestamp>` with no open PR | Rename to `<type>/<slug>` from the commit message (local + remote) |
 | `wip/<timestamp>` with open PR | Commit in place (renaming would break the PR link) |
 | Any other branch | Commit in place |
@@ -90,6 +90,8 @@ Collisions on the target name are resolved by appending `-2`, `-3`, etc.
 The script will exit non-zero if:
 
 - TypeScript or Python typecheck fails
+- Biome lint reports an error, or `biome.json` is present and `@biomejs/biome` is not installed
+- Semgrep reports a finding in a file this commit touches, or CI declares a `semgrep` job and semgrep is not installed locally
 - Nothing is staged (empty diff)
 - `git commit` itself fails for any reason
 - `--review` and `--no-review` both passed (mutually exclusive — exit 2)

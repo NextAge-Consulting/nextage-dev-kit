@@ -236,6 +236,84 @@ An **EventBridge Scheduler** schedule with an `ECS RunTask` target, a
 consistent snapshot but still competes for the database. Derive the hour from the client's
 actual timezone.
 
+### 5. The task-state log
+
+**ECS discards a stopped task after about an hour, taking `stoppedReason` with it.** That
+is the one field naming why a task died before its container ever ran, and a nightly job
+is almost always investigated after that hour has passed. An EventBridge rule copying the
+task's STOPPED event into a log group keeps it.
+
+This is not a second monitor and it raises no alerts — the dead-man's switch is still the
+only thing that pages. It is a record, written once a night, so the next investigation
+starts from a fact instead of an inference.
+
+Match **every** STOPPED event for the family, not just failures. A pre-start failure
+carries `stopCode: TaskFailedToStart`, so a filter aimed at container exits is exactly the
+filter that drops the case this exists for. One event a night costs nothing.
+
+```bash
+LOG_GROUP=/aws/events/<project>-db-backup-task-state
+
+aws logs create-log-group --log-group-name "$LOG_GROUP" --profile <p> --region <r>
+aws logs put-retention-policy --log-group-name "$LOG_GROUP" \
+  --retention-in-days 90 --profile <p> --region <r>
+```
+
+EventBridge writes to a log group through a **resource policy on the log group**, not an
+IAM role — the console creates it silently, the CLI does not. Without it the rule matches,
+the delivery fails, and nothing anywhere says so:
+
+```bash
+aws logs put-resource-policy --policy-name EventBridgeToCWLogs --profile <p> --region <r> \
+  --policy-document '{
+    "Version": "2012-10-17",
+    "Statement": [{
+      "Sid": "EventBridgeToCWLogs",
+      "Effect": "Allow",
+      "Principal": { "Service": ["events.amazonaws.com", "delivery.logs.amazonaws.com"] },
+      "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+      "Resource": "arn:aws:logs:<region>:<account-id>:log-group:/aws/events/*:*",
+      "Condition": { "StringEquals": { "aws:SourceAccount": "<account-id>" } }
+    }]
+  }'
+```
+
+Both service principals are what AWS's own example carries, and the policy `Resource` takes
+a trailing `:*` because the actions operate on log streams. The policy is account-wide and
+an account gets ten of them, so one `/aws/events/*` statement covers every rule of this
+kind rather than one per job.
+
+Then the rule and its target:
+
+```bash
+aws events put-rule --name <project>-db-backup-task-state --state ENABLED \
+  --profile <p> --region <r> --event-pattern '{
+    "source": ["aws.ecs"],
+    "detail-type": ["ECS Task State Change"],
+    "detail": {
+      "clusterArn": ["arn:aws:ecs:<region>:<account-id>:cluster/<cluster>"],
+      "group": ["family:<project>-db-backup"],
+      "lastStatus": ["STOPPED"]
+    }
+  }'
+
+aws events put-targets --rule <project>-db-backup-task-state --profile <p> --region <r> \
+  --targets '[{"Id":"cwlogs","Arn":"arn:aws:logs:<region>:<account-id>:log-group:'"$LOG_GROUP"'"}]'
+```
+
+**No `RoleArn` on a CloudWatch Logs target** — AWS documents that explicitly, and the
+resource policy above is what authorises the write. The target ARN is the bare log-group
+ARN with no `:*`; that differs from the policy ARN, and AWS publishes no example of it, so
+treat a working delivery as the proof rather than the docs.
+
+Skip the InputTransformer. Left off, the whole event body becomes the log message, which
+is what you want — it carries `stopCode`, `stoppedReason`, per-container `exitCode`,
+`availabilityZone`, and `pullStartedAt`/`pullStoppedAt` for pinning an image-pull stall.
+
+**Verify by running the task once and reading the log group.** A misspelled ARN or a
+missing resource policy fails silently, so a rule that exists is not evidence that
+anything is being recorded.
+
 ---
 
 ## Project-specific knobs (the only things that change)
@@ -250,6 +328,7 @@ actual timezone.
 | Retention days | `7` | S3 lifecycle rule |
 | Schedule | `cron(37 10 * * ? *)` | EventBridge Scheduler |
 | Healthchecks ping | SSM `/<project>/HEALTHCHECKS_URL_BACKUP` | Task env + check |
+| Task-state log | `/aws/events/<project>-db-backup-task-state` | Log group + EventBridge rule |
 
 Everything else — the script, both role shapes, the validate-before-upload order — is
 identical across projects.
@@ -293,6 +372,7 @@ workload is not.
 | Backup runs clean | success ping in window | quiet |
 | A step fails (dump, creds, S3, Neon) | `/fail` ping | pages immediately |
 | Task never starts, or schedule never fires | no ping at all | pages after grace |
+| Task is launched but the container never runs | no ping at all | pages after grace |
 
 **A liveness signal is the point — not a failure signal.** An alarm wired to task failure
 cannot fire when the task never starts: no run, no metric, no alarm, and the backup is
@@ -307,6 +387,54 @@ that was sized for a scheduler you no longer use.
 it out of SSM was that a GitHub-hosted job could lose AWS auth and thereby silence its own
 `/fail`. A Fargate task cannot start at all without AWS working, so that case no longer
 exists.
+
+### When it pages and there are no logs
+
+The last row of that table is a distinct failure shape, and it is easy to misread as the
+row above it. The schedule fires, ECS accepts the task, and the container never starts. Nothing
+in the script runs — not the `/start` ping, not the first SSM read — so there is no
+`/fail` either, because the trap that sends it lives *inside* the container. The check
+goes down on silence, which is what it is for.
+
+**Read the task-state log group first** — `/aws/events/<project>-db-backup-task-state`,
+provisioned in step 5. It holds the STOPPED event for every run, and its `stoppedReason`
+and `stopCode` name the cause outright. On a task that never started, `stopCode` is
+`TaskFailedToStart` and `stoppedReason` carries the detail — typically a
+`ResourceInitializationError` or a `CannotPullContainerError`.
+
+That log group exists because **ECS itself keeps a stopped task for only about an hour**.
+After that `describe-tasks` returns `MISSING` and `stoppedReason` is gone, and a nightly
+job is almost always investigated later than that. If a project predates step 5 and has no
+such log group, the cause is not recoverable and the rest of this section is what is left.
+
+Establish the shape from what else outlives the task:
+
+| Question | Where to look | A clean run shows |
+|---|---|---|
+| Did the schedule fire? | CloudTrail `RunTask` in the hour around the schedule | one event, `"failures":[]`, a task id |
+| Did the container run? | the task's log group | a log stream named for that task id |
+| Did the script start? | CloudTrail `GetParameter` by the task role | the SSM reads the script makes |
+
+`RunTask` with no failures, no log stream, and no `GetParameter` places the failure
+between PROVISIONING and RUNNING. Rule out the standing causes before calling it
+transient: the image tag still resolves in ECR, the schedule is still ENABLED and points
+at a live task definition revision, and the subnet is one that has worked on other nights.
+Then re-run the task by hand. **If an unchanged task definition and image succeed
+minutes later, it was transient** — the backup is restored and there is nothing to fix.
+
+**Do not add retry machinery for this**, and do not treat one such night as a defect in
+the pattern. It fails the test at the top of this doc: the dead-man's switch detected it,
+loudly, and the primary backup was never at risk. A wrapper that retries the task buys one
+night of the *second* line of defence and costs a permanent new component in every project
+that runs this.
+
+Do not reach for the grace either. **Size it by when a human will actually act, not by
+how fast an alert can be produced.** If a failed nightly backup gets worked the next
+morning regardless — the usual case, since nothing is down — then a tighter window only
+moves the page into the middle of the night and buys no earlier action. And it never buys
+diagnosis: ECS's hour beats any grace worth setting, so the task is gone either way.
+Treat the grace as detection latency and set it against the response you will really
+give it.
 
 ---
 

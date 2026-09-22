@@ -32,7 +32,7 @@ Same rules as `/commit` — `<emoji> <type>(<scope>): <subject>`. **Conventional
 
 The script:
 - Refuses unless on `main`/`master` — a body of work in progress is on its own branch and cannot trip it.
-- Runs `check-types` + `biome lint` (the assist that stays). Pass `--skip-typecheck` ONLY for a true emergency where you knowingly accept the risk.
+- Runs `check-types`, `biome lint`, and `semgrep` over the files the commit touches — the same gates `/commit` runs, mirroring CI so a failure costs a second here rather than landing on `main`. **`--skip-typecheck` skips the TYPECHECK only.** Biome and semgrep sit outside that guard and always run; there is no flag that bypasses them, which is deliberate on the one path that writes straight to the default branch.
 - Stages all changes, commits directly on `main` with `--no-verify` (validation already ran).
 - Pushes straight to `main`. If `origin/main` advanced, it rebases the commit onto it and re-pushes; on conflict it stops and tells you to resolve + push.
 
@@ -40,12 +40,13 @@ The script:
 
 - Success: confirm the commit is live on `main` (SHA + subject). No PR URL — there is none by design.
 - Refused (not on main): tell the user they're on `<branch>`; use `/commit` for branch work.
-- Typecheck/biome failure: surface the command to run; offer `--skip-typecheck` only if the user explicitly accepts shipping unverified.
+- Typecheck failure: surface the command to run; offer `--skip-typecheck` only if the user explicitly accepts shipping unverified.
+- Biome or semgrep failure: surface the finding. `--skip-typecheck` does not apply — fix it, or ship the change through `/commit` and a PR instead.
 - Rebase conflict: surface the conflict; the user resolves then `git push origin main`.
 
 ## Closing issues without a PR
 
-`/work <issue#>` and `/link` park their issue links on the branch you are standing on and cut nothing, so on `main` those links are sitting right here. `ship-main.sh` reads them, appends a `Closes #N, #M` line to the commit body, and clears them once the push lands.
+`/work <issue#>` parks its issue links on the branch you are standing on and cuts nothing, so on `main` those links are sitting right here. `ship-main.sh` reads them, appends a `Closes #N, #M` line to the commit body, and clears them once the push lands.
 
 GitHub honours that keyword on a commit pushed to the default branch, not only in a PR body — so an issue closes itself with no PR, no CI and no review anywhere in the picture. That is the whole point: an issue that turns out to be a docs or infra change should not have to round-trip through a PR to get closed.
 

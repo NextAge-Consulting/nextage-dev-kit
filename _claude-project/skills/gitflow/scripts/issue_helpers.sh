@@ -1,9 +1,9 @@
 #!/bin/bash
-# gitflow issue helpers: shared functions for /work and /link to resolve
+# gitflow issue helpers: shared functions for /work to resolve
 # GitHub issues, link them to the current branch, transition project status,
 # assign the current user, and dump issue context for the Claude session.
 #
-# Sourced by work.sh and link.sh.
+# Sourced by work.sh.
 #
 # ─── Design notes ──────────────────────────────────────────────────────────
 # - Issue→branch linking is stored in git config (branch-scoped):
@@ -21,7 +21,7 @@
 #   * Issue not on configured project → ERROR + return 1.
 #   * GraphQL mutation fails (typically missing `project` scope) → ERROR + return 1.
 #   * Issue assignment failure → ERROR + return 1 (always — not gated on PROJECT_ID).
-#   Caller scripts (link.sh, work.sh) run under `set -e` so a non-zero return
+#   work.sh runs under `set -e` so a non-zero return
 #   propagates to script exit; the user retries after fixing the config /
 #   scope / project-membership cause. All GraphQL operations are idempotent.
 #

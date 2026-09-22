@@ -64,7 +64,7 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 
 # ─── Inject Closes #N from branch-scoped linked issues ────────────────────
-# Issues linked via /work <issue#> or /link are stored in git config
+# Issues linked via /work <issue#> are stored in git config
 # (branch.<name>.gitflow-issues). Prepend a `Closes #N, #M ...` line to the
 # PR body so GitHub's native auto-close fires on merge — without requiring
 # a human to remember the syntax. Idempotent: if the body already starts

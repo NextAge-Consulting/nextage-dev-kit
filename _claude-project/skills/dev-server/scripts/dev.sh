@@ -185,6 +185,22 @@ attached_tmux_session() {
   printf '%s\n' "$name"
 }
 
+# Set by tmux_launch on failure, read by report_tmux_error.
+#
+# shellcheck disable=SC2034  # written in tmux_launch's failure branches below and
+# read by report_tmux_error; shellcheck does not follow a write that happens inside
+# a `|| { … }` group after a command substitution.
+TMUX_LAUNCH_ERROR=""
+
+# Print what tmux actually said, if anything. A function rather than an inline
+# `[ -n "$X" ] && echo` at each of the three failure sites: one definition, one
+# wording, and no chance of the three drifting apart.
+report_tmux_error() {
+  if [ -n "$TMUX_LAUNCH_ERROR" ]; then
+    echo "  tmux said: $TMUX_LAUNCH_ERROR" >&2
+  fi
+}
+
 tmux_launch() {
   # $1 = target session name, or "" to use the session we are already inside.
   local session="$1" dir="$2" title="$3" cmd="$4"
@@ -202,15 +218,34 @@ tmux_launch() {
   # vanishes mid-session and the only way back is a key they have to guess.
   # `/dev` stages a server; it does not ask to be looked at. Every report line
   # tells the user how to reach it (`Ctrl-b n`), which is the point.
+  # **The trailing colon on the session target is load-bearing.** `new-window
+  # -t` takes a TARGET-WINDOW, so a bare `0` is read as "window index 0 in the
+  # current session", not "the session named 0" — and since window 0 always
+  # exists, creating it fails with `create window failed: index 0 in use`. A
+  # session named `0` is not exotic: it is what tmux calls the first session on
+  # a server, so this bit anyone who had not named theirs. `0:` forces
+  # session-only resolution. Reported as kit issue #3 and reproduced.
+  #
+  # `has-session -t` is NOT affected and deliberately left bare — its target is
+  # unambiguously a session, and both spellings resolve identically.
+  #
+  # tmux's stderr is CAPTURED, not discarded. `2>/dev/null` here cost the
+  # reporter of #3 a debugging session: the caller printed "tmux new-window
+  # failed", which names no cause, and the real message had to be found by
+  # running the command by hand. On success the capture is the window id, which
+  # is the only thing tmux writes to stdout.
   if [ -z "$session" ]; then
-    win_id="$(tmux new-window -d -c "$dir" -n "$title" -P -F '#{window_id}' "$payload" 2>/dev/null)" || return 1
+    win_id="$(tmux new-window -d -c "$dir" -n "$title" -P -F '#{window_id}' "$payload" 2>&1)" || { TMUX_LAUNCH_ERROR="$win_id"; return 1; }
   elif tmux has-session -t "$session" 2>/dev/null; then
-    win_id="$(tmux new-window -d -t "$session" -c "$dir" -n "$title" -P -F '#{window_id}' "$payload" 2>/dev/null)" || return 1
+    win_id="$(tmux new-window -d -t "$session:" -c "$dir" -n "$title" -P -F '#{window_id}' "$payload" 2>&1)" || { TMUX_LAUNCH_ERROR="$win_id"; return 1; }
   else
-    win_id="$(tmux new-session -d -s "$session" -c "$dir" -n "$title" -P -F '#{window_id}' "$payload" 2>/dev/null)" || return 1
+    win_id="$(tmux new-session -d -s "$session" -c "$dir" -n "$title" -P -F '#{window_id}' "$payload" 2>&1)" || { TMUX_LAUNCH_ERROR="$win_id"; return 1; }
   fi
 
-  [ -n "$win_id" ] || return 1
+  if [ -z "$win_id" ]; then
+    TMUX_LAUNCH_ERROR="tmux reported success but returned no window id"
+    return 1
+  fi
   # A long-running dev server would otherwise relabel the window from its own
   # process name, losing the "<app> @ <project> (:<port>)" title.
   tmux set-option -w -t "$win_id" automatic-rename off >/dev/null 2>&1 || true
@@ -321,6 +356,7 @@ APPLESCRIPT
     # Inside tmux and tmux refused: falling through to another terminal would
     # put the server somewhere the user is not looking.
     echo "tmux new-window failed inside an active tmux session" >&2
+    report_tmux_error
     report_intent "$cmd" "$target_dir"
     return 1
   fi
@@ -336,6 +372,7 @@ APPLESCRIPT
     # Same reasoning as the $TMUX branch: we know where the user is sitting, so
     # opening the server anywhere else is worse than refusing.
     echo "tmux new-window failed in attached session '$attached_session'" >&2
+    report_tmux_error
     report_intent "$cmd" "$target_dir"
     return 1
   fi
@@ -354,6 +391,7 @@ APPLESCRIPT
   fi
 
   echo "no terminal available to open a tab in." >&2
+  report_tmux_error
   echo "start Claude inside tmux, or run it on macOS with iTerm2 installed." >&2
   report_intent "$cmd" "$target_dir"
   return 1

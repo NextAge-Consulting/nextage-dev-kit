@@ -4,7 +4,7 @@ paths: "{**/*.tsx,**/*.jsx}"
 
 # UI Patterns Rule
 
-**Invoke the `ui-patterns` skill before building or changing how a surface is composed or how it behaves** — screen and toolbar layout, pagination, filtering, autosave, optimistic updates, loading / empty / error states, inline edit, multi-step flows. Then read the reference for the pattern you are using, from the skill's own `references/` directory, named for that pattern.
+**Invoke the `ui-patterns` skill before building or changing how a surface is composed or how it behaves** — screen and toolbar layout, pagination, filtering, autosave, optimistic updates, loading / empty / error states, inline edit, multi-step flows. Then read the reference for the pattern you are using, from `.claude/skills/ui-patterns/references/`, named for that pattern.
 
 ```
 Skill({skill: "ui-patterns"})
@@ -81,7 +81,9 @@ than inventing a size in a pattern.
 
 A reference settles a question that had more than one defensible answer. If another competent developer would plausibly have built it differently, and that difference would show as inconsistency to the user, it is a pattern. If there is one obvious way anyone would reach on their own, it is craft — build it and move on. The skill carries the test and the examples.
 
-**If it is a pattern and has no reference yet, do not improvise from training data.** Research primary design-system sources — the published guidelines of a major system such as Material, Apple's HIG, or the docs of the library you are building on, never a blog summary of them — agree the approach with the human, then implement it *and* capture it as a new file in the skill's `references/`.
+**If it is a pattern and has no reference yet, do not improvise from training data.** Research primary design-system sources — the published guidelines of a major system such as Material, Apple's HIG, or the docs of the library you are building on, never a blog summary of them — agree the approach with the human, then implement it *and* capture it as a new file in this project's `references/`.
+
+**Patterns are project-owned.** The kit ships this rule and the skill; `references/` arrives empty and a sync never writes into it. A pattern one project settled does not reach another — copy it across by hand, or re-decide it there.
 
 That prevents two things, both of which have happened here: a plausible-but-wrong first attempt surviving review because the result looks fine — autosave debounced on every keystroke is the canonical case — and the same question re-argued on a later screen, reaching a different answer, because the reasoning behind the first was never written down.
 

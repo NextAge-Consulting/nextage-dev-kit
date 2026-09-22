@@ -204,13 +204,13 @@ All Claude-driven editing happens on a branch in the project checkout. One check
 **Lifecycle (the only verb you type is `/work`):**
 
 - `/work` — on `main`, refresh from `origin/main` and cut a fresh `wip/<abbrev>-<timestamp>` branch. On a feature branch, resume it. Idempotent within a body of work.
-- `/work <issue#>` — links the issue to the branch you are standing on and cuts no branch, on `main` or anywhere else. On a feature branch this is exactly `/link`.
+- `/work <issue#[,issue#…]>` — links the issue(s) to the branch you are standing on and cuts no branch, on `main` or anywhere else. Re-run it on a branch that already carries links to add more.
 - `/work --retrieve <branch>` — fetch a teammate's branch, fast-forward any local copy, switch to it. Refuses on a dirty tree; `/checkpoint` first.
 
 Every shape of `/work` also reads `project-documentation/temporary/handoff.md` once per session and folds it into the opening orientation (§12c).
 - `/merge` — squash-merge the PR, land the checkout back on `main`, delete the merged local branch.
 
-**One session = one body of work = one branch = one PR.** All commits made during a session land on the same feature branch. Use `/link` to add more issues mid-stream. Use `/open-pr` once and `/merge` once.
+**One session = one body of work = one branch = one PR.** All commits made during a session land on the same feature branch. Re-run `/work <N>` to add more issues mid-stream. Use `/open-pr` once and `/merge` once.
 
 **End-of-day on unfinished work:** push via `/commit` or `/checkpoint`, close the session. Next session's `/work` sees you are already on the branch and resumes — same branch, same body of work, no new branch created.
 
@@ -254,7 +254,7 @@ The model above is identical across launch surfaces:
 | Agents view (background) | `@<repo>` in the launch prompt sets cwd | Include `/work` (or `/work <issue#>`) in the launch prompt |
 | Claude Cloud | Cloud session already inside the repo | Type `/work` after the session starts |
 
-The user-facing commands (`/work`, `/commit`, `/link`, `/open-pr`, `/merge`) behave identically across all three. The "is this a background session?" question is internal — `/work` behaves the same regardless of surface.
+The user-facing commands (`/work`, `/commit`, `/open-pr`, `/merge`) behave identically across all three. The "is this a background session?" question is internal — `/work` behaves the same regardless of surface.
 
 ---
 
@@ -279,7 +279,7 @@ Any of:
 6. The command calls `skills/gitflow/scripts/commit.sh` with the message
 7. Script stages all changes, commits with `--no-verify`, pushes to origin (if on non-main branch)
 8. `git-guard.sh` never fires on that commit — the script's `git commit` is a subprocess, not a top-level tool call (§3.1). No token is involved.
-9. Typecheck and commitlint run as CI gates on the resulting PR, not locally
+9. Before staging, the script runs the gates that MIRROR CI so a failure costs a second here rather than a round trip after the PR is open: typecheck, Biome lint, and Semgrep over the files this commit touches (gated on CI declaring a `semgrep` job, and scoped to changed files so it stays seconds — CI still scans everything). Each exits 4. commitlint is the one gate that remains CI-only, because it validates the PR title, which does not exist yet at commit time.
 
 ### 4.3. What the script does NOT do
 
@@ -591,7 +591,7 @@ See `commands/triage.md` for the full procedure and edge cases.
 
 **Never inferred.** Being on dirty `main` is often *accidental* — work started before `/work` — so a bare `/commit` on `main` still auto-branches — that's the safety. `/ship-main` is the opposite, on purpose, and only when invoked by name.
 
-- **Validation stays.** The script runs `check-types` + `biome lint` (the same assist as `/commit`). `--skip-typecheck` is a true-emergency override only.
+- **Validation stays.** The script runs `check-types`, `biome lint` and `semgrep` over the files the commit touches — the same three gates as `/commit`, and they matter more here: a finding that slips through does not sit on a branch awaiting review, it lands on the default branch and breaks CI for everyone. `--skip-typecheck` is a true-emergency override for the TYPECHECK alone; biome and semgrep sit outside that guard and have no bypass.
 - **Pushes straight to main.** If `origin/main` advanced, it rebases the commit onto it and re-pushes; conflict → stop and resolve.
 - **Feeds `/deploy` like any main commit.** `/ship-main` commits land on `main` and are read by the next `/deploy` (commit subjects since the last tag) to compute the bump level + changelog, exactly like a merged-PR squash commit. Conventional format is therefore required, not optional.
 - **Requires require-PR off** (the default — §6.5, pipeline.md §1.1). With require-PR set, GitHub rejects the direct push.
@@ -781,7 +781,7 @@ Current kit-referenced placeholders (authoritative list is in `_claude-project/s
 |-----|------------|-------------------|
 | `GITFLOW_PROJECT_ID` | `_claude-project/gitflow-project.conf` | GraphQL node ID of the Project the lifecycle transitions write to. Empty → board integration off (silent skip); any other GITFLOW_STATUS_* empty when this is set → fail-loud at the transition site. |
 | `GITFLOW_STATUS_FIELD_ID` | `_claude-project/gitflow-project.conf` | GraphQL field ID of the Status single-select on that project |
-| `GITFLOW_STATUS_IN_PROGRESS_ID` | `_claude-project/gitflow-project.conf` | GraphQL option ID for "In Progress" — set by `/work` and `/link` |
+| `GITFLOW_STATUS_IN_PROGRESS_ID` | `_claude-project/gitflow-project.conf` | GraphQL option ID for "In Progress" — set by `/work <N>` |
 | `GITFLOW_STATUS_STAGED_ID` | `_claude-project/gitflow-project.conf` | GraphQL option ID for "Staged" — set by `/open-pr` (code-complete, CI/review pipeline begins) |
 | `GITFLOW_STATUS_DONE_ID` | `_claude-project/gitflow-project.conf` | GraphQL option ID for "Done" — set by `/deploy` after tag push (shipped to production). `/merge` does NOT trigger this — Done is reserved for the deploy boundary. |
 | `GEMINI_NOT_INSTALLED` | gitflow scripts (runtime-read via `jq`) | Inverted-default toggle — DEFAULT (missing/empty) = Gemini is installed → trigger scripts (`/open-pr`, `/commit --review`) post `/gemini review` comments, and `wait-for-pr-ready.sh` honors triggered reviews. Set `"true"` only when Gemini is genuinely absent from the repo → trigger scripts skip posting and the wait treats Gemini as `skipped`. Naming captures a fact about the repo, not a config preference. Semantics deliberately INVERTED from `GITFLOW_*` (which use empty = disabled) because the name encodes a negation. See "Runtime-read placeholders" below |
@@ -1040,8 +1040,6 @@ Issue↔branch↔PR linking is first-class in the gitflow subsystem. Two command
 
 - **`/work <issue#>`** — links the issue to the current branch and cuts NO branch. An issue number says what the work is about, never which pipeline it belongs in: an issue can be a docs or infra change belonging straight on `main`, and in a repo with no CI and no deploy the PR round-trip buys nothing. Cutting a branch here would make `/ship-main` unreachable for the whole session. The link graph lives in git config (`branch.<name>.gitflow-issues`), so on `main` it simply parks under `branch.main.gitflow-issues`; `/commit` and `/checkpoint` carry it onto the branch they create (`migrate_branch_linked_issues`) and clear the source, while `/ship-main` consumes it as a `Closes #N` line. Issue numbers are NOT in any branch name — a branch may close several issues, so embedding one misleads. Moves the linked issue to `In Progress` on the configured project. Assigns to the current `gh`-authenticated user. Dumps issue body + comments to stdout so Claude reads them in-turn and responds with understanding + questions BEFORE any code is written.
 
-- **`/link #27[,#28]`** — mid-work linking. Same side-effects as `/work <issue#>`. Allowed on `main`/`master`, where the link parks exactly as `/work <issue#>`'s does. Validates all issues before any side-effects (no half-linked state).
-
 Board transition + assignment are **fail-loud when configured** — see the failure-semantics table in the gitflow-project-integration subsection below. `GITFLOW_PROJECT_ID` empty = feature off, silent skip. Any other broken state (missing scope, wrong option ID, issue not on the configured project) = script exits non-zero with the underlying cause.
 
 **Storage**: `git config --local branch.<name>.gitflow-issues = "23 25 26"` — git wipes on branch delete, no stray metadata files.
@@ -1055,7 +1053,7 @@ Board transition + assignment are **fail-loud when configured** — see the fail
 | State | Trigger | Mechanism |
 |-------|---------|-----------|
 | Todo | Board default — no gitflow command fires this | — |
-| In Progress | `/work <N>` or `/link <N>` | `move_issue_to_in_progress` in `issue_helpers.sh` |
+| In Progress | `/work <N[,N…]>` | `move_issue_to_in_progress` in `issue_helpers.sh` |
 | Staged | `/open-pr` (PR opens = code-complete; CI + review pipeline begins) | `move_issue_to_staged` after successful PR create |
 | Done | `/deploy` (after tag push — shipped to production) | `move_issue_to_done`, sourced from `git log "$LAST_TAG..HEAD"` parsed for `Closes #N` |
 

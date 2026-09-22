@@ -19,7 +19,7 @@ Invoke this skill when the user asks for any of:
 | "commit", "commit this", "commit the changes" | `/commit` |
 | "ship to main", "commit straight to main", "commit this directly to main", "infra commit", "emergency commit to main", "quick commit to main" | `/ship-main` |
 | "checkpoint", "save progress", "wip commit", "quick save" | `/checkpoint` |
-| "link issue", "link this issue", "also works on #N", "add #N to this branch" | `/link` |
+| "link issue", "link this issue", "also works on #N", "add #N to this branch" | `/work <N>` |
 | "catch up with main", "catch my branch up", "get latest main", "pull main into my branch", "update my branch with main" | `/catchup` |
 | "continue the merge", "finish catching up" | `/catchup --continue` |
 | "abort the catchup", "bail on the merge" | `/catchup --abort` |
@@ -30,19 +30,19 @@ Invoke this skill when the user asks for any of:
 
 ## Workflow philosophy: bundle freely, ship when the user says ship
 
-This shop bundles multiple unrelated issues into a single session, branch, and PR. **That is the intended workflow, not a violation of scope discipline.** A session may start with `/work <A>` and then add `/link <B>`, `/link <C>` for genuinely unrelated issues — the user is intentionally batching work to ship together when they decide.
+This shop bundles multiple unrelated issues into a single session, branch, and PR. **That is the intended workflow, not a violation of scope discipline.** A session may start with `/work <A>` and then add `/work <B>`, `/work <C>` for genuinely unrelated issues — the user is intentionally batching work to ship together when they decide.
 
 **Forbidden behaviors when the user is bundling (Zero Tolerance):**
 
 - Scolding or warning the user for "mixing unrelated issues" on one branch/PR.
 - Recommending they `/open-pr` + `/merge` the prior issue before starting the next.
-- Suggesting a separate branch to "keep things clean" when the user explicitly chose `/link`.
+- Suggesting a separate branch to "keep things clean" when the user explicitly linked a further issue onto the branch they are on.
 - Framing single-PR multi-issue work as a tradeoff (clean history vs. fewer cycles). It is not a tradeoff here — bundling is the default.
 - Asking "do you want to PR this first?" between linked issues. The user did not ask; do not offer.
 - Asking "should I update the handbook / docs separately?" or "split that into a follow-up PR?" Doc updates ride in the same PR as the change they document.
 - Committing infra/script work without self-reviewing the staged diff first.
 
-**Why:** in an AI-driven shop, every split PR multiplies review cycles, CI runs, Gemini re-reviews, version-bump churn, and merge coordination — without adding review value. The user controls the ship cadence. The act of invoking `/link` IS the user's explicit decision to bundle; treat it as a directive, not a question to re-open.
+**Why:** in an AI-driven shop, every split PR multiplies review cycles, CI runs, Gemini re-reviews, version-bump churn, and merge coordination — without adding review value. The user controls the ship cadence. Linking a further issue onto the branch IS the user's explicit decision to bundle; treat it as a directive, not a question to re-open.
 
 **The only exceptions** (and only the user can flag them):
 - The user explicitly asks to split ("PR just A, then start B fresh").
@@ -113,11 +113,11 @@ Auto-branch behavior: if on `main`, `/checkpoint` creates a `wip/<timestamp>` br
 
 Start or resume a body of work on a branch in this checkout. This is the session-init command — invoke first in any session that will edit code.
 
-Work happens on a branch in the project checkout. On `main`, `/work` refreshes from origin and cuts the branch; on a feature branch it resumes.
+Work happens on a branch in the project checkout. On `main`, `/work` refreshes from origin and STAYS there — no branch is cut; on a feature branch it resumes.
 
 **Modes:**
-- `/work` — enter `current/`, create on `main` if missing. Idempotent.
-- `/work <issue#>` — enter `current/`, ensure a feature branch (derived from issue title) is checked out, link the issue. Behaves like `/link` if `current/` is already on a feature branch.
+- `/work` — refresh `main` and stay on it, or resume the branch you are on. Idempotent, cuts nothing.
+- `/work <issue#[,issue#…]>` — link one or more issues to the branch you are on, transition each to In Progress, assign, and dump their context. Cuts no branch either. Every issue is validated before any is linked, so a typo aborts the call instead of half-applying it.
 - `/work --retrieve <branch>` — fetch a teammate's branch and switch to it (refuses on a dirty tree).
 
 **Procedure:**
@@ -126,18 +126,6 @@ Work happens on a branch in the project checkout. On `main`, `/work` refreshes f
 - For `--issue` mode: read the dumped issue body + comments and respond with understanding + plan before touching code.
 
 See `.claude/commands/work.md` (synced per-project from `_claude-project/commands/work.md`; there is no global `/work`, and `work.sh` refuses to run if a retired one is still sitting in `~/.claude/commands/`). The script (project-local at `.claude/skills/gitflow/scripts/work.sh`) refreshes `main`, resumes an existing branch, and handles issue linking. Bare `/work` does NOT cut a branch — `/commit`, `/checkpoint` and `/work <issue#>` do that. It does not commit or push.
-
-### /link
-
-Link one or more GitHub issues to the CURRENT feature branch mid-work. Use when additional issues are discovered after `/work` or when backfilling issue links on a `wip/*` branch.
-
-**Procedure:**
-- Parse `$ARGUMENTS` into an issue CSV
-- Invoke `.claude/skills/gitflow/scripts/link.sh --issues "<csv>"`
-- Same side-effects as `/work <issue#>` minus branch creation: status transition, assignment, git-config link store, issue context dump
-- Claude reads the dumped context and responds with understanding + impact assessment
-
-See `commands/link.md`. Refuses to run on `main`/`master`. Linked issues flow into PR body as `Closes #N` when `/open-pr` later fires.
 
 ### /open-pr
 
@@ -205,15 +193,14 @@ The commands invoke these scripts in `skills/gitflow/scripts/`:
 
 | Script | Purpose |
 |--------|---------|
-| `work.sh` | Start or resume the body-of-work branch; --issue to start an issue-linked branch; --retrieve to fetch and switch to someone else's branch |
+| `work.sh` | Refresh `main` or resume the current branch, cutting nothing; `--issue <N[,N…]>` to link one or more issues to the branch you are on; `--retrieve` to fetch and switch to someone else's branch |
 | `commit.sh` | Full conventional commit, stages all, pushes; auto-branches/renames as needed |
 | `checkpoint.sh` | WIP commit, stages all, pushes; auto-creates `wip/<timestamp>` on main |
-| `link.sh` | Links additional GitHub issues to the current branch mid-work |
 | `open-pr.sh` | Push branch, create PR via gh or GitHub API; prepends `Closes #N` from branch-linked issues |
 | `wait-for-pr-ready.sh` | Poll until CI green + (if a `/gemini review` comment was posted for the current HEAD) Gemini Code Assist has posted its review; fail-loud timeout. Trigger-aware: no trigger comment for HEAD → CI-only ready. `GEMINI_NOT_INSTALLED="true"` short-circuits the Gemini path entirely. Invoked by `/open-pr`, `/triage`, `/merge`. |
 | `merge.sh` | Wait for PR readiness, squash-merge via gh, land this checkout back on `main`, delete the merged local branch, reinstall deps if manifests changed |
 | `branch_helpers.sh` | Shared helpers sourced by work/commit/checkpoint scripts |
-| `issue_helpers.sh` | Shared helpers for `/work --issue` and `/link`: parse CSV, validate issues, link to branch (git config), project status transition, user assignment, issue context dump |
+| `issue_helpers.sh` | Shared helpers for `/work --issue`: parse CSV, validate issues, link to branch (git config), project status transition, user assignment, issue context dump |
 | `get_timestamp.sh` | Local-timezone timestamp utility |
 
 Scripts use `git commit --no-verify` because validation is the hook layer's responsibility (or the script's own first-step validation).

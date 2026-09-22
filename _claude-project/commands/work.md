@@ -33,7 +33,8 @@ So `/work <issue#>` parks the issue link on the branch you are standing on and c
 |-------|--------------|
 | `/work` | On `main`: refresh `main` and stay on it — no branch cut. On a feature branch: resume it. |
 | `/work <free text>` | Same as bare `/work`, then handle the free text as the session's opening prompt. The command runs first; the text is the prompt, not a mode. |
-| `/work <issue#>` | Links the issue to the branch you are on — **no branch is cut**, on `main` or anywhere else. On a feature branch this is exactly `/link`. Either way, transitions the issue to In Progress, assigns to the current user, dumps body + comments. |
+| `/work <issue#>` | Links the issue to the branch you are on — **no branch is cut**, on `main` or anywhere else. Transitions it to In Progress, assigns to the current user, dumps body + comments. |
+| `/work <#N,#N…>` | Several issues at once — `27,28`, `#27 #28`, spaces or commas, `#` optional. Every issue is validated BEFORE any is linked, so one bad number aborts the whole call rather than leaving a half-linked state. Linking a further issue mid-work is the same act as linking the first, so it is the same command — run it again on the branch you are already on. |
 | `/work --retrieve <branch>` | Fetch `<branch>` from origin, fast-forward any local copy, and switch to it. Refuses on a dirty tree — `/checkpoint` first. Your own branch is untouched; `git switch` back when you are done. |
 
 ## Procedure
@@ -44,7 +45,9 @@ So `/work <issue#>` parks the issue link on the branch you are standing on and c
 
 Identify the mode:
 - No tokens → default mode.
-- Single numeric token (`139` or `#139`) → `--issue 139`.
+- One or more numeric tokens (`139`, `#139`, `139,140`, `#139 #140`) → join them into one comma-separated
+  list and pass it as a single `--issue` value: `--issue "139,140"`. Never call the script once per issue —
+  each call would validate and link in isolation, which is the half-applied state the single call exists to avoid.
 - `--retrieve <branch>` → branch retrieval.
 - **Trailing free text matching no flag** (e.g. `/work what is the default retention for meter readings`) → default mode, AND the free text is captured as the session's **opening prompt**, handled in Step 6 *after* the branch action. Free text is never a mode and never suppresses execution.
 
@@ -146,7 +149,6 @@ The branch then arrives from whichever command declares the path:
 
 ## Related
 
-- `/link #N[,#N…]` — add additional issues to the current branch mid-work.
 - `/commit`, `/checkpoint` — commit your changes; rename `wip/*` branches to their feature name at first commit.
 - `/open-pr` — open a PR from the current branch. Closes-N's come from linked issues.
 - `/merge` — squash-merge the PR, land this checkout back on `main`, delete the merged branch.

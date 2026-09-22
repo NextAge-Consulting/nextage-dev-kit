@@ -219,14 +219,14 @@ If any verification fails, report to the maintainer with the specific failure.
 
 ## Section 8: Working with the gitflow subsystem
 
-The developer's day-to-day git interactions go through the gitflow subsystem. **See `project-documentation/gitflow-cheatsheet.md` for the one-page day-to-day reference** — it covers `/work`, `/link`, `/checkpoint`, `/commit`, `/open-pr`, `/merge` with examples.
+The developer's day-to-day git interactions go through the gitflow subsystem. **See `project-documentation/gitflow-cheatsheet.md` for the one-page day-to-day reference** — it covers `/work`, `/checkpoint`, `/commit`, `/open-pr`, `/merge` with examples.
 
 Short version:
 
 | The developer says | What happens |
 |--------------------|--------------|
 | "start work on #23" | `/work #23` — cuts the branch, links the issue, assigns it, moves it to In Progress |
-| "also works on #25" (mid-branch) | `/link #25` — links additional issue to current branch |
+| "also works on #25" (mid-branch) | `/work #25` — links an additional issue to the current branch |
 | "checkpoint" or "save progress" | `/checkpoint` — fast WIP commit + push |
 | "commit this" | `/commit` — full conventional commit with AI-generated message |
 | "open a pr" | `/open-pr` — push branch, create PR, auto-prepends `Closes #N` from linked issues |

@@ -44,17 +44,20 @@ What happens automatically (no issue, already on a feature branch):
 npm test         # run vitest (if the project has test scaffolding)
 npm run check-types  # tsc across all workspaces
 npm run lint     # biome lint across the repo
+semgrep scan --config auto --error <files>   # the CI security scan, on demand
 ```
 
-Use `/checkpoint` freely for in-progress snapshots. Use `/commit` when a unit of work is coherent. Tests + check-types + lint also run in the pre-commit hook and CI — these are the local equivalents.
+Use `/checkpoint` freely for in-progress snapshots. Use `/commit` when a unit of work is coherent.
+
+`/commit` runs check-types, biome and semgrep itself before staging, so the CI equivalents of all three fire locally first — semgrep scoped to the files the commit touches, where CI scans the whole repo. `/checkpoint` deliberately does not: it is the fast WIP save, and a scan on every snapshot is friction on the one path built to have none.
 
 ---
 
 ## Found another issue that belongs on this branch?
 
 ```
-/link #42
-/link #42,#43
+/work #42
+/work #42,#43
 ```
 
 Adds the issue(s) to the current branch — including `main`, where the link parks until the first commit carries it onto a branch, or `/ship-main` closes it in place. Same side effects as `/work <issue>`: status transition, assignment, context dump. A PR body auto-prepends `Closes #42, #43`; a `/ship-main` commit gets the same line in its body.
@@ -94,7 +97,7 @@ No new branch, no stash. Just link and keep working.
 | State | Trigger |
 |-------|---------|
 | Todo | board default |
-| In Progress | `/work <N>` or `/link <N>` |
+| In Progress | `/work <N[,N…]>` |
 | Staged | `/open-pr` |
 | Done | `/deploy` (NOT `/merge`) |
 
@@ -160,7 +163,7 @@ Faster than scrolling the PR page when there are more than ~3 actionable items. 
 
 - A new PR appears on the project board as its own card (PRs and issues share GitHub's number sequence — PR #117 ≠ issue #117 being created).
 - Linked issues (`Closes #N` auto-injected by `/open-pr`) close on **merge**, not on PR open. Their board card moves to **Done** at `/deploy`, not at `/merge`.
-- Board lifecycle: Todo → **In Progress** (`/work`/`/link`) → **Staged** (`/open-pr`) → **Done** (`/deploy`).
+- Board lifecycle: Todo → **In Progress** (`/work <N>`) → **Staged** (`/open-pr`) → **Done** (`/deploy`).
 - No issue is created automatically on merge — pass or fail.
 - Board transitions are **fail-loud** when board integration is configured (`GITFLOW_PROJECT_ID` set). Missing scope, wrong option ID, or issue not on the board → script exits non-zero with the cause.
 
@@ -189,7 +192,7 @@ Dev server lifecycle governed by `.claude/rules/dev-server.md` — Claude checks
 ... work ...
 /checkpoint          ← save progress (repeat as needed)
 ... more work ...
-/link 42             ← another issue joins this branch (board → In Progress for #42)
+/work 42             ← another issue joins this branch (board → In Progress for #42)
 ... finish ...
 /commit              ← coherent final commit
 /open-pr             ← submit for review (Closes #23, #42 auto-added; board → Staged for both)
