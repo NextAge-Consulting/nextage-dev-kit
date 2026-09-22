@@ -23,7 +23,7 @@ So the branch is cut at the moment the decision is genuinely made: the first com
 
 An issue number says what the work is *about*, never which pipeline it belongs in. An issue can be a docs fix, a config change, or infra work that belongs straight on `main`; and in a repo with no CI and no deploy target the whole PR round-trip buys nothing. Cutting a branch on the issue number made `/ship-main` unreachable for the rest of the session — the same failure the paragraph above describes, reintroduced by the exception.
 
-So `/work <issue#>` parks the issue link on the branch you are standing on and cuts nothing. The first commit carries the link onto whatever branch it creates, and `/ship-main` consumes it instead as a `Closes #N` line — which GitHub honours on a push to the default branch, so the issue still closes itself with no PR anywhere in the picture.
+So `/work <issue#>` parks the issue link on the branch you are standing on and cuts nothing. The first commit carries the link onto whatever branch it creates, and `/ship-main` consumes it instead as a `Closes #N` line once the issue is answered code complete — no PR anywhere in the picture. Whether that line closes the issue is GitHub configuration, not gitflow's.
 
 **Local main is refreshed when it can be.** The script fast-forwards `main` from `origin/main` via the shared `fast_forward_local_main` helper. Two cases skip the refresh and say so plainly rather than blocking: a dirty tree, and a failed fetch (offline, expired auth, missing gh scope). Neither loses anything — run `/catchup` when you want the latest. Resuming an existing branch refreshes nothing by design; you are mid-body-of-work.
 
@@ -73,7 +73,7 @@ This is the whole point of linking issues at session-init time — Claude consum
 
 - Branch: report the branch the session is now on, and whether it was created, resumed, or left on `main` with no branch cut.
 - Base freshness: if the script reported that `main` was not refreshed, say so and why.
-- Issue side-effects (if `--issue` mode): report which issues were moved to In Progress / assigned / skipped (project status is best-effort).
+- Issue side-effects (if `--issue` mode): report which issues were moved to In Progress and assigned. With a board configured, a failed transition exits non-zero — it is never skipped.
 - Script exited non-zero: surface the reason.
 
 ### Step 5: Read the handoff
@@ -145,7 +145,7 @@ The branch then arrives from whichever command declares the path:
 
 - `/commit` on `main` → auto-creates a branch named from the commit message.
 - `/checkpoint` on `main` → auto-creates a `wip/` branch.
-- `/ship-main` → stays on `main` on purpose. This is the path bare `/work` used to make unreachable.
+- `/ship-main` → stays on `main` on purpose. This is the path a branch cut at `/work` would make unreachable.
 
 ## Related
 

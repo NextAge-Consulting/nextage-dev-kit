@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Regression suite for the branch↔issue link storage in issue_helpers.sh.
 #
-# These functions decide whether a GitHub issue gets closed and by which commit,
+# These functions decide which issues a commit names as closed, which are code
+# complete, and which /open-pr refuses to open over,
 # so a silent regression here either strands an issue open or closes one nobody
 # meant to touch. Everything below runs against a real throwaway git repo rather
 # than a mock, because the storage IS git config — a mock would only assert that
@@ -55,17 +56,51 @@ t "" "$(read_branch_linked_issues feat/thing)" 'clear empties the list'
 clear_branch_linked_issues feat/thing
 t "" "$(read_branch_linked_issues feat/thing)" 'clearing twice is safe'
 
+echo "code complete:"
+link_issue_to_branch 3 feat/cc
+link_issue_to_branch 5 feat/cc
+link_issue_to_branch 8 feat/cc
+t "3 5 8" "$(read_branch_incomplete_issues feat/cc)" 'nothing marked: every linked issue is incomplete'
+mark_issue_complete 5 feat/cc
+t "5" "$(read_branch_complete_issues feat/cc)" 'marking records the issue'
+t "3 8" "$(read_branch_incomplete_issues feat/cc)" 'incomplete excludes it, in link order'
+mark_issue_complete 5 feat/cc
+t "5" "$(read_branch_complete_issues feat/cc)" 'marking twice is idempotent'
+if mark_issue_complete 99 feat/cc 2>/dev/null; then r=accepted; else r=refused; fi
+t refused "$r" 'an unlinked issue cannot be marked'
+t "5" "$(read_branch_complete_issues feat/cc)" 'a refused mark writes nothing'
+if validate_complete_issues "3 8" feat/cc; then r=ok; else r=bad; fi
+t ok "$r" 'linked numbers validate'
+if out=$(validate_complete_issues "3 42" feat/cc 2>&1); then r=accepted; else r=refused; fi
+t refused "$r" 'an unlinked number fails validation'
+case "$out" in *"#42"*) t ok ok 'validation names the offender';; *) t ok "no mention" 'validation names the offender';; esac
+
+echo "migration carries completeness:"
+migrate_branch_linked_issues feat/cc feat/cc2 2>/dev/null
+t "3 5 8" "$(read_branch_linked_issues feat/cc2)" 'links move'
+t "5" "$(read_branch_complete_issues feat/cc2)" 'complete marks move with them'
+t "" "$(read_branch_complete_issues feat/cc)" 'source complete list is cleared'
+
+echo "unlinking only what was consumed:"
+mark_issue_complete 8 feat/cc2
+unlink_issues_from_branch "5 8" feat/cc2
+t "3" "$(read_branch_linked_issues feat/cc2)" 'the closed issues leave, the incomplete one stays parked'
+t "" "$(read_branch_complete_issues feat/cc2)" 'their complete marks leave with them'
+unlink_issues_from_branch "3" feat/cc2
+t "" "$(read_branch_linked_issues feat/cc2)" 'unlinking the last issue empties the list'
+
 echo "set -e safety:"
 # ship-main.sh runs under `set -e`. A helper returning non-zero on the empty
 # path would abort the whole script mid-ship, after the commit and before the
 # push. Each of these must return 0 with nothing linked.
 # shellcheck source=./issue_helpers.sh
-( set -e; source "$S"; closes_line_for_issues "" >/dev/null; \
+if ( set -e; source "$S"; closes_line_for_issues "" >/dev/null; \
   format_issue_refs "" >/dev/null; clear_branch_linked_issues nothing-here; \
   migrate_branch_linked_issues nothing-here also-nothing >/dev/null 2>&1; \
-  report_parked_issue_links nothing-here 2>/dev/null ) \
-  && t ok ok 'every empty path returns 0 under set -e' \
-  || t ok "aborted" 'every empty path returns 0 under set -e'
+  read_branch_incomplete_issues nothing-here >/dev/null; \
+  unlink_issues_from_branch "" nothing-here; validate_complete_issues "" nothing-here; \
+  report_parked_issue_links nothing-here 2>/dev/null ); then r=ok; else r=aborted; fi
+t ok "$r" 'every empty path returns 0 under set -e'
 
 echo "parked-link reporting:"
 link_issue_to_branch 42 main

@@ -3,6 +3,7 @@
 # no PR, no CI. THE CONSCIOUS EXCEPTION for quick infra / emergency work.
 #
 # Usage: ship-main.sh --message "<conventional message>" [--model "<name>"] [--skip-typecheck]
+#                     [--complete "<N[,N…]>"]
 #
 # How it differs from /commit: default /commit on main AUTO-CREATES a feature
 # branch (the safety for accidental-on-main). /ship-main does the opposite ON
@@ -36,12 +37,20 @@ source "$SCRIPT_DIR/issue_helpers.sh"
 MESSAGE=""
 MODEL_NAME="Claude"
 SKIP_TYPECHECK=0
+COMPLETE_ISSUES=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --message)         MESSAGE="$2"; shift 2 ;;
         --model)           MODEL_NAME="$2"; shift 2 ;;
         --skip-typecheck)  SKIP_TYPECHECK=1; shift 1 ;;
+        --complete)
+            COMPLETE_ISSUES=$(parse_issue_csv "$2")
+            if [ -z "$COMPLETE_ISSUES" ]; then
+                echo "ship-main.sh: --complete needs issue numbers (got '$2')" >&2
+                exit 2
+            fi
+            shift 2 ;;
         *) echo "ship-main.sh: unknown option: $1" >&2; exit 2 ;;
     esac
 done
@@ -58,6 +67,12 @@ if ! is_protected_branch "$CURRENT_BRANCH"; then
     echo "  /ship-main is the deliberate direct-to-main exception for infra/emergency work." >&2
     echo "  For feature work on a branch, use /commit." >&2
     exit 3
+fi
+
+# A --complete number that is not linked here fails now, before anything is
+# committed or pushed.
+if [ -n "$COMPLETE_ISSUES" ] && ! validate_complete_issues "$COMPLETE_ISSUES" "$CURRENT_BRANCH"; then
+    exit 2
 fi
 
 # --- Validation (the assist that stays; --skip-typecheck for emergencies) --
@@ -162,19 +177,21 @@ if git diff --cached --quiet; then
     exit 5
 fi
 
-# --- Close any linked issues via the commit itself -------------------------
+# --- Name the complete issues in the commit itself -------------------------
 # /work <issue#> parks its link here rather than cutting a branch, so ship-main
-# is the path that consumes it. GitHub honours a `Closes #N` keyword in a commit
-# pushed to the default branch, so the issue closes with no PR involved. Board
-# status is deliberately left alone, matching /merge, which also does not
-# transition — only /deploy marks Done.
-SHIP_LINKED_ISSUES=$(read_branch_linked_issues "$CURRENT_BRANCH")
-SHIP_CLOSES_LINE=$(closes_line_for_issues "$SHIP_LINKED_ISSUES")
+# is the path that consumes it — but only for the issues that are code complete.
+# Shipping part of the work to main must not name an unfinished issue: the
+# `Closes` line is what /deploy reads to move an issue to the deploy status, and
+# on a repository with auto-close on, GitHub closes it on this push. Incomplete
+# issues stay parked on main for the work that finishes them.
+SHIP_CLOSE_ISSUES="$(read_branch_complete_issues "$CURRENT_BRANCH") $COMPLETE_ISSUES"
+SHIP_CLOSE_ISSUES=$(printf '%s' "$SHIP_CLOSE_ISSUES" | tr ' ' '\n' | awk 'NF && !seen[$0]++' | tr '\n' ' ' | sed -E 's/ +$//')
+SHIP_CLOSES_LINE=$(closes_line_for_issues "$SHIP_CLOSE_ISSUES")
 if [ -n "$SHIP_CLOSES_LINE" ]; then
     MESSAGE="$MESSAGE
 
 $SHIP_CLOSES_LINE"
-    echo "gitflow: adding '$SHIP_CLOSES_LINE' from branch-linked issues." >&2
+    echo "gitflow: adding '$SHIP_CLOSES_LINE' for the issues marked code complete." >&2
 fi
 
 echo "gitflow: ship-main — committing directly on $CURRENT_BRANCH: $MESSAGE" >&2
@@ -208,14 +225,24 @@ else
     fi
 fi
 
-# Consumed: the Closes keyword now sits on a commit on the default branch, so
-# GitHub will close the issue. Clearing stops it re-attaching to unrelated later
-# work. Placed after BOTH push paths — every failing path above exits, so
-# reaching here means the push landed. Written as `if`, not `[ … ] && …`: under
-# `set -e` a false test as the last statement of the block aborts the script
-# (bash-rules.md §III).
-if [ -n "$SHIP_CLOSES_LINE" ]; then
-    clear_branch_linked_issues "$CURRENT_BRANCH"
+# Consumed: the Closes line now sits on a commit on the default branch. Staged
+# first (marking needs the link), then unlink exactly those issues so they
+# cannot re-attach to unrelated later work; incomplete ones stay parked. Placed
+# after BOTH push paths — every failing path above exits, so reaching here
+# means the push landed. Unlinking happens even when the board update fails:
+# the commit already names the issue, and a second ship-main must not name it
+# again. Written as `if`, not `[ … ] && …`: under `set -e` a false test as the
+# last statement of the block aborts the script (bash-rules.md §III).
+if [ -n "$SHIP_CLOSE_ISSUES" ]; then
+    STAGE_RC=0
+    stage_complete_issues "$SHIP_CLOSE_ISSUES" "$CURRENT_BRANCH" || STAGE_RC=$?
+    unlink_issues_from_branch "$SHIP_CLOSE_ISSUES" "$CURRENT_BRANCH"
+    if [ "$STAGE_RC" -ne 0 ]; then
+        echo "ship-main.sh: the commit is live on $CURRENT_BRANCH; only the board update failed. Fix the cause —" >&2
+        echo "  the next /deploy still moves $(format_issue_refs "$SHIP_CLOSE_ISSUES") to the deploy status." >&2
+        exit 11
+    fi
+    echo "gitflow: code complete → Staged: $(format_issue_refs "$SHIP_CLOSE_ISSUES")." >&2
 fi
 
 echo "gitflow: ship-main complete — live on $CURRENT_BRANCH. (No PR, no CI — it's an exception commit.)" >&2

@@ -42,8 +42,8 @@
 #
 # --issue therefore parks the link on the current branch and lets the first
 # commit carry it across (migrate_branch_linked_issues). /ship-main consumes it
-# instead as a `Closes #N` line, which GitHub honours on a push to the default
-# branch — so an issue still closes itself with no PR anywhere in the picture.
+# instead, as a `Closes #N` line for each issue answered code complete — so an
+# issue still reaches the deploy status with no PR anywhere in the picture.
 
 set -eo pipefail
 shopt -s inherit_errexit 2>/dev/null || true   # propagate errexit into $(…) subshells (bash 4.4+)

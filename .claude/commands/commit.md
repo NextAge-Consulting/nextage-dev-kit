@@ -49,20 +49,41 @@ Resolve in this order:
 
 `GEMINI_NOT_INSTALLED="true"` in `.claude/sync-substitutions.json` makes `--review` a no-op (script skips the post and logs it). The prompt still appears — the slash command doesn't read the substitution file. That's intentional: the flag is the contract; the runtime decides whether the contract is satisfiable.
 
-### Step 6: Invoke the script
+### Step 6: Ask which linked issues are code complete
+
+Code complete means finished and waiting for deployment — not "some of it is committed".
+A complete issue moves to Staged on the project board; `/open-pr` later refuses to open
+while any linked issue is not complete.
+
+1. **User already said in `$ARGUMENTS`** — `/commit --complete 42,43`, or "commit, #42 is
+   done". Honor it and skip the question.
+2. **List the linked issues not yet complete:**
+   ```bash
+   bash -c 'source .claude/skills/gitflow/scripts/issue_helpers.sh && read_branch_incomplete_issues'
+   ```
+   Empty → no question, pass nothing.
+3. **Otherwise ask, in prose, and wait** — one question naming them all, e.g. "Are any of
+   #42, #43 code complete? Complete ones move to Staged." All, none, or a subset are all
+   valid answers. Ask it on its own, before the Step 5 review question when both apply —
+   one question at a time.
+
+Map the answer to `--complete "<N,N>"`, or pass nothing for none.
+
+### Step 7: Invoke the script
 
 ```bash
 .claude/skills/gitflow/scripts/commit.sh \
   --message "<full conventional message>" \
   --model "<model name>" \
-  <--review | --no-review | (nothing if no open PR)>
+  <--review | --no-review | (nothing if no open PR)> \
+  [--complete "<N,N>"]
 ```
 
 Pass `--skip-typecheck` ONLY if the user explicitly requested bypassing typecheck (rare).
 
-### Step 7: Report result
+### Step 8: Report result
 
-- Commit succeeded: report the commit hash and branch
+- Commit succeeded: report the commit hash and branch, and any issues moved to Staged
 - Script exited non-zero: surface the exit code and stderr. Do NOT retry without direction.
 
 ## Branch behavior
@@ -71,7 +92,7 @@ The script resolves the target branch before committing:
 
 | Current branch | Action |
 |----------------|--------|
-| `main` / `master` | Derive `<type>/<slug>` from the commit message, create and switch. Any issue links parked on `main` by `/work <issue#>` are carried onto the new branch and cleared from `main`. |
+| `main` / `master` | Derive `<type>/<slug>` from the commit message, create and switch. Any issue links parked on `main` by `/work <issue#>`, and which of them are complete, are carried onto the new branch and cleared from `main`. |
 | `wip/<timestamp>` with no open PR | Rename to `<type>/<slug>` from the commit message (local + remote) |
 | `wip/<timestamp>` with open PR | Commit in place (renaming would break the PR link) |
 | Any other branch | Commit in place |
@@ -96,6 +117,8 @@ The script will exit non-zero if:
 - `git commit` itself fails for any reason
 - `--review` and `--no-review` both passed (mutually exclusive — exit 2)
 - `--review` passed and the `/gemini review` comment failed to post (exit 10 — fail-loud so the user knows Gemini is NOT coming; downstream `wait-for-pr-ready.sh` would otherwise silently proceed CI-only)
+- `--complete` names an issue not linked on the branch (exit 2, before anything is committed)
+- The commit and push landed but the board update failed (exit 11 — the issues are marked complete locally; `/open-pr` sets every linked issue to Staged again)
 
 When the script blocks, surface the reason to the user. Fix underlying issues per constitution section XVI (own all errors). Do not bypass.
 

@@ -24,10 +24,24 @@ If there's any doubt it's a deliberate exception (it looks like feature work, or
 
 Same rules as `/commit` — `<emoji> <type>(<scope>): <subject>`. **Conventional format is required**, not optional: `/ship-main` commits land on `main` and are read by the next `/deploy` (commit subjects since the last tag) to compute the bump level + changelog, exactly like a merged-PR squash commit. A malformed subject mis-classifies the release.
 
-### Step 3: Invoke the script
+### Step 3: Ask which linked issues are code complete
+
+Same question as `/commit` Step 6, and it decides more here: only complete issues are
+named in this commit's `Closes` line. An incomplete one stays parked on `main` for the work
+that finishes it.
 
 ```bash
-.claude/skills/gitflow/scripts/ship-main.sh --message "<conventional message>" [--skip-typecheck]
+bash -c 'source .claude/skills/gitflow/scripts/issue_helpers.sh && read_branch_incomplete_issues'
+```
+
+Empty → no question. Otherwise ask in prose and wait — "Are any of #42, #43 code complete?
+Complete ones are named as closed by this commit and move to Staged." Map the answer to
+`--complete "<N,N>"`, or pass nothing.
+
+### Step 4: Invoke the script
+
+```bash
+.claude/skills/gitflow/scripts/ship-main.sh --message "<conventional message>" [--skip-typecheck] [--complete "<N,N>"]
 ```
 
 The script:
@@ -36,23 +50,23 @@ The script:
 - Stages all changes, commits directly on `main` with `--no-verify` (validation already ran).
 - Pushes straight to `main`. If `origin/main` advanced, it rebases the commit onto it and re-pushes; on conflict it stops and tells you to resolve + push.
 
-### Step 4: Report
+### Step 5: Report
 
-- Success: confirm the commit is live on `main` (SHA + subject). No PR URL — there is none by design.
+- Success: confirm the commit is live on `main` (SHA + subject), and which issues it named and moved to Staged. No PR URL — there is none by design.
+- `--complete` names an issue not linked on `main`: exit 2, nothing committed.
+- Board update failed after the push: exit 11. The commit is live; the next `/deploy` still moves the named issues to the deploy status.
 - Refused (not on main): tell the user they're on `<branch>`; use `/commit` for branch work.
 - Typecheck failure: surface the command to run; offer `--skip-typecheck` only if the user explicitly accepts shipping unverified.
 - Biome or semgrep failure: surface the finding. `--skip-typecheck` does not apply — fix it, or ship the change through `/commit` and a PR instead.
 - Rebase conflict: surface the conflict; the user resolves then `git push origin main`.
 
-## Closing issues without a PR
+## Naming issues without a PR
 
-`/work <issue#>` parks its issue links on the branch you are standing on and cuts nothing, so on `main` those links are sitting right here. `ship-main.sh` reads them, appends a `Closes #N, #M` line to the commit body, and clears them once the push lands.
+`/work <issue#>` parks its issue links on the branch you are standing on and cuts nothing, so on `main` those links are sitting right here. `ship-main.sh` writes a `Closes #N, #M` line for the issues marked code complete, moves them to Staged, and unlinks exactly those once the push lands. Incomplete issues stay linked on `main`.
 
-GitHub honours that keyword on a commit pushed to the default branch, not only in a PR body — so an issue closes itself with no PR, no CI and no review anywhere in the picture. That is the whole point: an issue that turns out to be a docs or infra change should not have to round-trip through a PR to get closed.
+The `Closes` line is how the next `/deploy` finds what shipped. Whether it closes the issue is GitHub configuration, not this command's: with the repository's "Auto-close issues with merged linked pull requests" setting on, GitHub closes the issue on this push; with it off, the issue stays open and the board decides (`github-project-board-setup.md`).
 
-Project-board status is deliberately left alone, matching `/merge`, which also does not transition. Only `/deploy` marks Done.
-
-The link is cleared only after a successful push. If the push fails the link stays put, so a retry still closes the issue.
+If the push fails the links stay put, so a retry names the same issues.
 
 ## What this does NOT do
 

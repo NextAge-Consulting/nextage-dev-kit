@@ -227,7 +227,7 @@ From the **project root** (not inside the kit), run `/sync-dev-kit`. First-run f
    - `ORG` — GitHub org login.
    - `PROJECT_ABBREV` — short label for `wip/<abbrev>-…` branch names (Claude pre-computes a default from the dir name; accept or shorten).
    - `GEMINI_NOT_INSTALLED` — leave empty for now if you're installing Gemini in step 5; set to `"true"` if this repo will not have Gemini.
-   - `GITFLOW_PROJECT_ID` + the `GITFLOW_STATUS_*` IDs — only if you use a GitHub Project board (Claude can run the `gh api graphql` discovery for you). Leave empty / `_intentionally_empty` to skip board integration.
+   - `GITFLOW_PROJECT_ID` + the four `GITFLOW_STATUS_*` IDs (field, In Progress, Staged, the deploy status) — only if you use a GitHub Project board (Claude can run the `gh api graphql` discovery for you). With a board, all five are required. Leave all five empty / `_intentionally_empty` to skip board integration. Either way, pick how issues close — `github-project-board-setup.md` §3.
    - `DEPLOY_BACKEND` + `DEPLOY_WORKFLOWS` + `CODEBUILD_PROJECT_PREFIX` — the deploy pipeline; see step 7. A repo that deploys by its own procedure sets `DEPLOY_BACKEND=custom` and leaves the other two empty; a repo that does not deploy at all sets `none`.
 
    > Three states per key (handbook §9.7): **missing** = undecided, marker survives, re-nags every sync; **empty string** = intentionally disabled; **populated** = normal value. `_intentionally_empty` distinguishes "informed disable" from "deferred."
@@ -590,7 +590,7 @@ Re-run each section's **Verify** block above, top to bottom, and read the output
 /work <issue#>     # or bare /work to start a feature branch with no issue
 ```
 
-`/work` fast-forwards local `main`, cuts a fresh feature branch, links the issue (board → In Progress if configured), and reads the issue so Claude can propose an approach. From here the normal loop is live: `/commit` → `/open-pr` → `/triage` → `/merge` → `/deploy`. See `gitflow-cheatsheet.md`.
+`/work` fast-forwards local `main`, links the issue to the branch you are on (board → In Progress if configured), and reads the issue so Claude can propose an approach. It cuts no branch; the first `/commit` does. From here the normal loop is live: `/commit` → `/open-pr` → `/triage` → `/merge` → `/deploy`. See `gitflow-cheatsheet.md`.
 
 ---
 

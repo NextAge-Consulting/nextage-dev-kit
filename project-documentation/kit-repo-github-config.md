@@ -39,9 +39,9 @@ The kit repo is a **degenerate case** for the gitflow subsystem — every option
 
 Net: `/commit` just stages all changes and commits with a conventional message.
 
-### `/open-pr` — runs unconditionally
+### `/open-pr` — no CI gate
 
-Pushes branch, creates PR, prepends `Closes #N` from any branch-linked issues. Nothing to gate.
+Pushes branch, creates PR, prepends `Closes #N` from any branch-linked issues. The only gate is the code-complete confirmation for linked issues, which holds on every repo.
 
 ### `/merge` — CI gate auto-skips
 

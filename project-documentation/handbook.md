@@ -779,11 +779,11 @@ Current kit-referenced placeholders (authoritative list is in `_claude-project/s
 
 | Key | Consumed by | What the value is |
 |-----|------------|-------------------|
-| `GITFLOW_PROJECT_ID` | `_claude-project/gitflow-project.conf` | GraphQL node ID of the Project the lifecycle transitions write to. Empty → board integration off (silent skip); any other GITFLOW_STATUS_* empty when this is set → fail-loud at the transition site. |
+| `GITFLOW_PROJECT_ID` | `_claude-project/gitflow-project.conf` | GraphQL node ID of the Project the lifecycle transitions write to. Empty → no board (silent skip). Set → the other four `GITFLOW_STATUS_*` keys are all required; an empty one fails the command that needs it. |
 | `GITFLOW_STATUS_FIELD_ID` | `_claude-project/gitflow-project.conf` | GraphQL field ID of the Status single-select on that project |
 | `GITFLOW_STATUS_IN_PROGRESS_ID` | `_claude-project/gitflow-project.conf` | GraphQL option ID for "In Progress" — set by `/work <N>` |
-| `GITFLOW_STATUS_STAGED_ID` | `_claude-project/gitflow-project.conf` | GraphQL option ID for "Staged" — set by `/open-pr` (code-complete, CI/review pipeline begins) |
-| `GITFLOW_STATUS_DONE_ID` | `_claude-project/gitflow-project.conf` | GraphQL option ID for "Done" — set by `/deploy` after tag push (shipped to production). `/merge` does NOT trigger this — Done is reserved for the deploy boundary. |
+| `GITFLOW_STATUS_STAGED_ID` | `_claude-project/gitflow-project.conf` | GraphQL option ID for "Staged" (code complete, waiting for deployment) — set by `/commit` and `/ship-main` for each issue answered code complete, and by `/open-pr` for every linked issue |
+| `GITFLOW_STATUS_DEPLOYED_ID` | `_claude-project/gitflow-project.conf` | GraphQL option ID for the deploy status — set by `/deploy` after tag push for every issue named by a closing keyword since the last tag. The column may be named anything (`Done`, `Deployed`, …). `/merge` does NOT trigger it. |
 | `GEMINI_NOT_INSTALLED` | gitflow scripts (runtime-read via `jq`) | Inverted-default toggle — DEFAULT (missing/empty) = Gemini is installed → trigger scripts (`/open-pr`, `/commit --review`) post `/gemini review` comments, and `wait-for-pr-ready.sh` honors triggered reviews. Set `"true"` only when Gemini is genuinely absent from the repo → trigger scripts skip posting and the wait treats Gemini as `skipped`. Naming captures a fact about the repo, not a config preference. Semantics deliberately INVERTED from `GITFLOW_*` (which use empty = disabled) because the name encodes a negation. See "Runtime-read placeholders" below |
 | `PROJECT_ABBREV` | `_claude-project/skills/gitflow/scripts/branch_helpers.sh` (runtime-read via `jq`) | Short project label embedded in `wip/<abbrev>-<timestamp>` branch names so the Agents view can distinguish concurrent sessions across projects. Empty/missing → `branch_helpers.sh` falls back to `basename <primary-repo-root>`. §9.8 walkthrough pre-computes that fallback and offers it as the prefill so the user can accept-with-enter or provide a shorter abbrev. See "Runtime-read placeholders" below |
 | `AWS_ACCOUNT_ID` | `_claude-project/rules/cli-utilities.md` (runtime-read via `jq`) | 12-digit AWS account ID this project's infra lives in. Confirm `aws sts get-caller-identity` matches it before any operation. Empty → project has no AWS. See "Runtime-read placeholders" below |
@@ -867,11 +867,13 @@ Both intentional-disable and not-yet-populated states sit as `""` in the JSON, s
 
 ```json
 {
-  "_intentionally_empty": ["GITFLOW_PROJECT_ID", "GITFLOW_STATUS_FIELD_ID", "GITFLOW_STATUS_IN_PROGRESS_ID"],
+  "_intentionally_empty": ["GITFLOW_PROJECT_ID", "GITFLOW_STATUS_FIELD_ID", "GITFLOW_STATUS_IN_PROGRESS_ID", "GITFLOW_STATUS_STAGED_ID", "GITFLOW_STATUS_DEPLOYED_ID"],
   "_comment": "...",
   "GITFLOW_PROJECT_ID": "",
   "GITFLOW_STATUS_FIELD_ID": "",
-  "GITFLOW_STATUS_IN_PROGRESS_ID": ""
+  "GITFLOW_STATUS_IN_PROGRESS_ID": "",
+  "GITFLOW_STATUS_STAGED_ID": "",
+  "GITFLOW_STATUS_DEPLOYED_ID": ""
 }
 ```
 
@@ -880,7 +882,8 @@ Keys listed in `_intentionally_empty` are skipped by the walkthrough (the user h
 **On every subsequent sync**
 
 The walkthrough re-runs against the current state of the consumer file:
-- Newly-added kit keys land with empty values via the `kit-only` diff on `sync-substitutions.json` itself; the walkthrough surfaces them.
+- Newly-added kit keys are merged into the consumer file with empty values by the scan's additive key merge (`load_substitutions` in `sync-dev-kit.sh`); the walkthrough surfaces them.
+- Keys the kit no longer ships are never removed — the merge only adds. Delete a retired key from the consumer file by hand.
 - Keys the user previously populated stay populated; not surfaced.
 - Keys in `_intentionally_empty` stay skipped.
 - Keys that were "deferred" last time (still empty, not in `_intentionally_empty`) get re-surfaced.
@@ -1038,13 +1041,15 @@ See `commands/open-pr.md`, `commands/deploy.md`, and `skills/gitflow/references/
 
 Issue↔branch↔PR linking is first-class in the gitflow subsystem. Two commands drive it:
 
-- **`/work <issue#>`** — links the issue to the current branch and cuts NO branch. An issue number says what the work is about, never which pipeline it belongs in: an issue can be a docs or infra change belonging straight on `main`, and in a repo with no CI and no deploy the PR round-trip buys nothing. Cutting a branch here would make `/ship-main` unreachable for the whole session. The link graph lives in git config (`branch.<name>.gitflow-issues`), so on `main` it simply parks under `branch.main.gitflow-issues`; `/commit` and `/checkpoint` carry it onto the branch they create (`migrate_branch_linked_issues`) and clear the source, while `/ship-main` consumes it as a `Closes #N` line. Issue numbers are NOT in any branch name — a branch may close several issues, so embedding one misleads. Moves the linked issue to `In Progress` on the configured project. Assigns to the current `gh`-authenticated user. Dumps issue body + comments to stdout so Claude reads them in-turn and responds with understanding + questions BEFORE any code is written.
+- **`/work <issue#>`** — links the issue to the current branch and cuts NO branch. An issue number says what the work is about, never which pipeline it belongs in: an issue can be a docs or infra change belonging straight on `main`, and in a repo with no CI and no deploy the PR round-trip buys nothing. Cutting a branch here would make `/ship-main` unreachable for the whole session. The link graph lives in git config (`branch.<name>.gitflow-issues`), so on `main` it simply parks under `branch.main.gitflow-issues`; `/commit` and `/checkpoint` carry it, and its code-complete marks, onto the branch they create (`migrate_branch_linked_issues`) and clear the source, while `/ship-main` consumes the complete ones as a `Closes #N` line. Issue numbers are NOT in any branch name — a branch may close several issues, so embedding one misleads. Moves the linked issue to `In Progress` on the configured project. Assigns to the current `gh`-authenticated user. Dumps issue body + comments to stdout so Claude reads them in-turn and responds with understanding + questions BEFORE any code is written.
 
 Board transition + assignment are **fail-loud when configured** — see the failure-semantics table in the gitflow-project-integration subsection below. `GITFLOW_PROJECT_ID` empty = feature off, silent skip. Any other broken state (missing scope, wrong option ID, issue not on the configured project) = script exits non-zero with the underlying cause.
 
-**Storage**: `git config --local branch.<name>.gitflow-issues = "23 25 26"` — git wipes on branch delete, no stray metadata files.
+**Storage**: `git config --local branch.<name>.gitflow-issues = "23 25 26"` — git wipes on branch delete, no stray metadata files. Code-complete marks sit beside it in `branch.<name>.gitflow-complete = "23 25"`.
 
-**PR body injection**: `/open-pr` reads the git-config list and prepends `Closes #23, #25, #26` to the PR body. Fires GitHub's native auto-close on merge. The project's built-in "Pull request merge — closes linked issues" workflow is belt-and-suspenders; the `Closes` keyword handles the core closure regardless of project state.
+**Code complete** means finished and waiting for deployment. `/commit` and `/ship-main` ask, for each linked issue not yet marked, whether it is code complete (`--complete "<N,N>"`); each yes is marked on the branch and moved to Staged once the push lands. `--complete` naming an issue not linked on the branch exits 2 before anything happens. `/checkpoint` asks nothing — it is partway by definition — and carries links and marks onto its `wip/` branch unchanged. `/ship-main` names only the complete issues in its `Closes` line, moves them to Staged and unlinks exactly those after the push; incomplete ones stay parked on `main`. `/open-pr` is a gate: every linked issue must be complete, any unmarked one is confirmed first ("Opening this PR marks #42 as Staged. Proceed?"), and an unconfirmed one makes `open-pr.sh` exit 12 before pushing.
+
+**PR body injection**: `/open-pr` reads the git-config list and prepends `Closes #23, #25, #26` to the PR body. gitflow always writes the closing keyword — it is the history, and it is how `/deploy` finds what shipped — and never closes an issue itself. Whether one closes is GitHub configuration: the repository's "Auto-close issues with merged linked pull requests" setting and the board's "Auto-close issue" workflow. `github-project-board-setup.md` §3 has both settings and the three ways of working they combine into.
 
 **PR titles do NOT include issue #s** — same rationale as branch names. A multi-issue PR with one number in the title misrepresents itself. Linkage lives in the body's `Closes #N` line, which is sufficient. Rule codified in `.claude/commands/open-pr.md` Step 3.
 
@@ -1054,10 +1059,10 @@ Board transition + assignment are **fail-loud when configured** — see the fail
 |-------|---------|-----------|
 | Todo | Board default — no gitflow command fires this | — |
 | In Progress | `/work <N[,N…]>` | `move_issue_to_in_progress` in `issue_helpers.sh` |
-| Staged | `/open-pr` (PR opens = code-complete; CI + review pipeline begins) | `move_issue_to_staged` after successful PR create |
-| Done | `/deploy` (after tag push — shipped to production) | `move_issue_to_done`, sourced from `git log "$LAST_TAG..HEAD"` parsed for `Closes #N` |
+| Staged | `/commit` or `/ship-main`, for each issue answered code complete; `/open-pr`, for every linked issue | `move_issue_to_staged` after the push lands / after successful PR create |
+| Deploy status (`Done`, `Deployed`, …) | `/deploy` (after tag push — shipped to production) | `move_issue_to_deployed`, sourced from `git log "$LAST_TAG..HEAD"` parsed for `Closes`/`Fixes`/`Resolves #N` |
 
-`/merge` intentionally does NOT transition. Merge → deploy is seconds in this shop; "Staged" spans the entire PR/CI/review/merge window and "Done" is reserved for the deploy boundary. If a consumer's flow legitimately decouples merge from deploy (long-lived release branches, multi-stage rollouts), the conventions still hold — Done lands when `/deploy` fires, not before.
+`/merge` intentionally does NOT transition. "Staged" spans everything from code complete through PR, CI, review and merge; the deploy status is reserved for the deploy boundary. If a consumer's flow decouples merge from deploy (long-lived release branches, multi-stage rollouts), the conventions still hold — the deploy status lands when `/deploy` fires, not before.
 
 **Config surface** — `.claude/gitflow-project.conf` (substituted from `sync-substitutions.json` at sync time):
 
@@ -1065,7 +1070,9 @@ Board transition + assignment are **fail-loud when configured** — see the fail
 - `GITFLOW_STATUS_FIELD_ID` — Status single-select field ID on that project.
 - `GITFLOW_STATUS_IN_PROGRESS_ID` — option ID for In Progress.
 - `GITFLOW_STATUS_STAGED_ID` — option ID for Staged.
-- `GITFLOW_STATUS_DONE_ID` — option ID for Done.
+- `GITFLOW_STATUS_DEPLOYED_ID` — option ID for the deploy status, whatever the column is named.
+
+With `GITFLOW_PROJECT_ID` set, all four are required.
 
 **Failure semantics (Zero Tolerance — fail-loud-when-configured):**
 
@@ -1073,11 +1080,13 @@ Board transition + assignment are **fail-loud when configured** — see the fail
 |-----------|----------|
 | `GITFLOW_PROJECT_ID` empty | Silent skip — feature disabled, kit default |
 | `GITFLOW_PROJECT_ID` set + `GITFLOW_STATUS_FIELD_ID` empty | ERROR + return 1 (config gap) |
-| `GITFLOW_PROJECT_ID` set + a specific status option ID empty | ERROR + return 1 — populate the key or add it to `_intentionally_empty` in `sync-substitutions.json` if the consumer's board legitimately lacks that column |
+| `GITFLOW_PROJECT_ID` set + a specific status option ID empty | ERROR + return 1 — populate the key; every status is required once a board is configured |
 | Issue not on the configured project | ERROR + return 1 (auto-add workflow off, or wrong PROJECT_ID) |
 | GraphQL mutation fails | ERROR + return 1 — almost always missing `project` scope on gh auth (`gh auth refresh -s project`) |
 
 Caller scripts run under `set -e`; a non-zero return from any helper propagates to script exit. All transitions are idempotent — retry after fixing the cause.
+
+A board failure after the push has landed exits 11, so the caller can tell "nothing happened" from "the git side is done": `commit.sh` (commit and push landed; `/open-pr` sets every linked issue to Staged again), `ship-main.sh` (commit live; the next `/deploy` still moves the named issues), `open-pr.sh` (PR open; set the status on the board once the cause is fixed).
 
 **How to populate the IDs** (bash, with `gh` authenticated and `project` scope):
 
@@ -1091,12 +1100,12 @@ gh api graphql -f query='{ node(id:"<PROJECT_ID>") { ... on ProjectV2 { fields(f
 # Copy: Status field's id → GITFLOW_STATUS_FIELD_ID
 #       "In Progress" option's id → GITFLOW_STATUS_IN_PROGRESS_ID
 #       "Staged" option's id → GITFLOW_STATUS_STAGED_ID
-#       "Done" option's id → GITFLOW_STATUS_DONE_ID
+#       the deploy column's option id → GITFLOW_STATUS_DEPLOYED_ID
 ```
 
 Then populate the five `GITFLOW_*` keys in `.claude/sync-substitutions.json` (via the `/sync-dev-kit` walkthrough, which offers to run the discovery commands above and parse the output for you). Re-run sync to substitute into `gitflow-project.conf` on disk.
 
-Kit ships a placeholder template at `_claude-project/gitflow-project.conf` with empty values. Each consumer project fills in their own IDs once (committed to the repo). To opt out of a specific transition (e.g. consumer's board has no Staged column): leave that `GITFLOW_STATUS_*_ID` empty AND list the key in `_intentionally_empty` in `sync-substitutions.json` — the walkthrough stops re-prompting and the helper silently skips that transition.
+Kit ships a placeholder template at `_claude-project/gitflow-project.conf` with empty values. Each consumer project fills in their own IDs once (committed to the repo). There is no per-transition opt-out: a board gitflow drives has all four statuses. A project with no board leaves all five keys empty and lists them in `_intentionally_empty`.
 
 ### 11.8. `.semgrepignore` (MANDATORY when adopting Semgrep)
 

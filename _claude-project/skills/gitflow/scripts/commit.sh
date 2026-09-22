@@ -1,6 +1,7 @@
 #!/bin/bash
 # gitflow commit: full conventional commit with AI-generated message.
 # Usage: commit.sh --message "<full conventional message>" [--model "Claude Opus 4.7"] [--skip-typecheck]
+#                  [--complete "<N[,N…]>"]
 #        commit.sh --push-only
 #
 # Modes:
@@ -16,6 +17,9 @@
 #   - Stage all changes
 #   - Commit with --no-verify (validation is done by this script)
 #   - Push to origin via safe_push (sets upstream correctly on first push)
+#   - Mark the --complete issues code complete and move them to Staged. The
+#     slash command asks which linked issues are complete; this script only
+#     acts on the answer, and only after the push has landed.
 #
 # Branch behavior:
 #   - On main/master: derive <type>/<slug> from message, create branch, commit on it.
@@ -41,6 +45,7 @@ SKIP_TYPECHECK=0
 PUSH_ONLY=0
 REVIEW=0
 NO_REVIEW=0
+COMPLETE_ISSUES=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -50,6 +55,13 @@ while [[ $# -gt 0 ]]; do
         --push-only)       PUSH_ONLY=1; shift 1 ;;
         --review)          REVIEW=1; shift 1 ;;
         --no-review)       NO_REVIEW=1; shift 1 ;;
+        --complete)
+            COMPLETE_ISSUES=$(parse_issue_csv "$2")
+            if [ -z "$COMPLETE_ISSUES" ]; then
+                echo "commit.sh: --complete needs issue numbers (got '$2')" >&2
+                exit 2
+            fi
+            shift 2 ;;
         *) echo "commit.sh: unknown option: $1" >&2; exit 2 ;;
     esac
 done
@@ -66,8 +78,8 @@ fi
 # refs/heads/main, then plain `git push` fails under push.default=simple).
 # safe_push corrects the upstream and pushes.
 if [ "$PUSH_ONLY" -eq 1 ]; then
-    if [ -n "$MESSAGE" ] || [ "$SKIP_TYPECHECK" -eq 1 ]; then
-        echo "commit.sh: --push-only is exclusive with --message / --skip-typecheck" >&2
+    if [ -n "$MESSAGE" ] || [ "$SKIP_TYPECHECK" -eq 1 ] || [ -n "$COMPLETE_ISSUES" ]; then
+        echo "commit.sh: --push-only is exclusive with --message / --skip-typecheck / --complete" >&2
         exit 2
     fi
     CURRENT_BRANCH=$(git branch --show-current)
@@ -88,6 +100,7 @@ if [ "$PUSH_ONLY" -eq 1 ]; then
         exit 5
     fi
     echo "gitflow: --push-only — pushing $CURRENT_BRANCH via safe_push." >&2
+    # shellcheck disable=SC2119 # safe_push takes no args by design (reads current branch + upstream from git state)
     safe_push
     echo "gitflow: push complete on $CURRENT_BRANCH." >&2
     exit 0
@@ -99,6 +112,12 @@ if [ -z "$MESSAGE" ]; then
 fi
 
 CURRENT_BRANCH=$(git branch --show-current)
+
+# A --complete number that is not linked here fails now, before anything is
+# committed. The links are still on this branch — migration below carries them.
+if [ -n "$COMPLETE_ISSUES" ] && ! validate_complete_issues "$COMPLETE_ISSUES" "$CURRENT_BRANCH"; then
+    exit 2
+fi
 
 # Branch resolution
 if is_protected_branch "$CURRENT_BRANCH"; then
@@ -250,7 +269,18 @@ Co-Authored-By: $MODEL_NAME <noreply@anthropic.com>"
 
 # Push via safe_push — handles missing-upstream AND wrong-upstream (e.g.
 # origin/main inherited from the branch's start-point).
+# shellcheck disable=SC2119 # safe_push takes no args by design (reads current branch + upstream from git state)
 safe_push
+
+# Code complete → Staged, now that the commit is on origin.
+if [ -n "$COMPLETE_ISSUES" ]; then
+    if ! stage_complete_issues "$COMPLETE_ISSUES" "$CURRENT_BRANCH"; then
+        echo "commit.sh: the commit and push landed; only the board update failed. Fix the cause —" >&2
+        echo "  /open-pr sets every linked issue to Staged again." >&2
+        exit 11
+    fi
+    echo "gitflow: code complete → Staged: $(format_issue_refs "$COMPLETE_ISSUES")." >&2
+fi
 
 # Trigger Gemini re-review on the new HEAD ONLY when --review was passed.
 # Gemini Code Assist's auto-review on PR open is disabled in the kit's

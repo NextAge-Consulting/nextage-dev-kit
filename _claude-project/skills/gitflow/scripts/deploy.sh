@@ -620,17 +620,21 @@ if ! git push origin "v${NEW}"; then
 fi
 echo "deploy.sh: tagged v${NEW} at ${NEW_SHA:0:8}" >&2
 
-# --- Transition closed issues to Done on the project board --------------
+# --- Move shipped issues to the deploy status on the project board ------
 # Tag is pushed = point of no return for this release. Enumerate every
-# issue auto-closed by merges in this release window (commits between
-# the prior tag and this one) and move them to Done on the board.
-# Source: squash-merge commit bodies preserve PR bodies, which carry the
-# `Closes #N` lines /open-pr injects from branch-linked issues.
+# issue named by a closing keyword in this release window (commits between
+# the prior tag and this one) and move it to GITFLOW_STATUS_DEPLOYED_ID —
+# whatever the project calls that column. Source: squash-merge commit bodies
+# preserve PR bodies, which carry the `Closes #N` lines /open-pr writes, and
+# /ship-main writes the same line for the issues it marked complete. Whether
+# the issue is CLOSED is GitHub configuration, not this script's: the
+# repository's auto-close setting and the board's "Auto-close issue"
+# workflow (github-project-board-setup.md).
 #
 # Recognize the full set of GitHub closure keywords (close[sd]?, fix(es|ed)?,
 # resolve[sd]?) so consumer PRs that use any of them are caught.
 #
-# Helper is fail-loud: if PROJECT_ID is set but DONE_ID is empty or the
+# Helper is fail-loud: if PROJECT_ID is set but DEPLOYED_ID is empty or the
 # board misconfigured or scope missing, the script exits non-zero AFTER
 # tag push — release artifact is already tagged, recovery is to fix the
 # cause and re-invoke /deploy (which exits at the "no commits since tag"
@@ -660,14 +664,14 @@ CLOSED_ISSUES=$(git log "$LOG_RANGE" --pretty=%B \
 
 if [ -n "$CLOSED_ISSUES" ]; then
     # Check whether board integration is on before announcing — if PROJECT_ID
-    # is empty, move_issue_to_done silently no-ops, and announcing the
+    # is empty, move_issue_to_deployed silently no-ops, and announcing the
     # transition would look like a hang. load_gitflow_project_config sourced
     # via issue_helpers.sh.
     load_gitflow_project_config
     if [ -n "${GITFLOW_PROJECT_ID:-}" ]; then
-        echo "deploy.sh: transitioning issues to Done on the project board: $(echo "$CLOSED_ISSUES" | tr '\n' ' ')" >&2
+        echo "deploy.sh: moving shipped issues to the deploy status on the project board: $(echo "$CLOSED_ISSUES" | tr '\n' ' ')" >&2
         for num in $CLOSED_ISSUES; do
-            move_issue_to_done "$num"
+            move_issue_to_deployed "$num"
         done
     fi
 fi

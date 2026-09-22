@@ -225,11 +225,11 @@ Short version:
 
 | The developer says | What happens |
 |--------------------|--------------|
-| "start work on #23" | `/work #23` — cuts the branch, links the issue, assigns it, moves it to In Progress |
+| "start work on #23" | `/work #23` — links the issue to the branch you are on, assigns it, moves it to In Progress |
 | "also works on #25" (mid-branch) | `/work #25` — links an additional issue to the current branch |
 | "checkpoint" or "save progress" | `/checkpoint` — fast WIP commit + push |
-| "commit this" | `/commit` — full conventional commit with AI-generated message |
-| "open a pr" | `/open-pr` — push branch, create PR, auto-prepends `Closes #N` from linked issues |
+| "commit this" | `/commit` — full conventional commit with AI-generated message; asks which linked issues are code complete and moves those to Staged |
+| "open a pr" | `/open-pr` — confirms every linked issue is code complete, pushes the branch, creates the PR, auto-prepends `Closes #N` from linked issues, moves them to Staged |
 | "merge to main" | `/merge` — verify CI passed, squash-merge, pull main |
 
 The developer never runs raw `git commit`, `git push`, `git merge`, `git checkout <file>`, `git reset`, `git revert`, `git clean`, `git restore`. Those are blocked by the project's `git-guard.sh` hook. If the developer needs one legitimately, use the `SKIP_GIT_GUARD=1` prefix with explicit reason.

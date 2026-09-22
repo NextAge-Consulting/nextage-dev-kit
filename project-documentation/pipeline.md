@@ -52,10 +52,10 @@ Git operations route exclusively through gitflow — slash commands backed by sc
 |---------|------|
 | `/work [#issue]` | Start or resume the body-of-work branch; optionally link issues (status → In Progress, assign, dump context for Claude). |
 | `/checkpoint` | Fast WIP commit + push. |
-| `/commit` | Conventional commit (emoji + type), typecheck-gated, push. |
+| `/commit` | Conventional commit (emoji + type), typecheck-gated, push. Asks which linked issues are code complete (status → Staged). |
 
 | `/catchup` | Pull `main` into the feature branch. |
-| `/open-pr` | Write + commit changelog locally, push, open PR with `Closes #N`, trigger advisory review. |
+| `/open-pr` | Gate: every linked issue must be code complete. Write + commit changelog locally, push, open PR with `Closes #N` (status → Staged), trigger advisory review. |
 | `/merge` | Verify gate green, squash-merge, land on `main`. **Does not deploy.** |
 | `/deploy` | The release boundary — see §1.3. |
 

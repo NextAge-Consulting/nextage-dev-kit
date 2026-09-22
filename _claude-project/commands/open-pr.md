@@ -28,7 +28,7 @@ If branch is identical to main, stop and report.
 
 Conventional format: `<emoji> <type>: <description>`. Must match commitlint rules — the CI `commitlint.yml` check will block merge if malformed. Subject <72 chars, imperative mood.
 
-**Do NOT include issue numbers in the title** (no `#123`, no `(#123)`, no `123:` prefix). A PR may close multiple issues; embedding one number is misleading. Issue linkage lives in the `Closes #N` line auto-prepended to the PR body — that's what GitHub auto-closes on merge.
+**Do NOT include issue numbers in the title** (no `#123`, no `(#123)`, no `123:` prefix). A PR may name multiple issues; embedding one number is misleading. Issue linkage lives in the `Closes #N` line auto-prepended to the PR body — the record `/deploy` reads to find what shipped. Whether merging closes the issue is the repository's auto-close setting, not this command's.
 
 ### Step 4: Generate PR body
 
@@ -89,19 +89,34 @@ If either surfaces a renamed/removed identifier, grep it repo-wide (INCLUDING `.
 
 Constitution §XIV is the rule; this section is its enforcement surface.
 
-### Step 5: Invoke the script
+### Step 5: Confirm every linked issue is code complete
+
+Opening the PR moves every linked issue to Staged, so it is a gate. List the ones not yet
+marked complete:
+
+```bash
+bash -c 'source .claude/skills/gitflow/scripts/issue_helpers.sh && read_branch_incomplete_issues'
+```
+
+Empty → pass nothing. Otherwise ask in prose and wait: "Opening this PR marks #42 as Staged
+(code complete). Proceed?" Yes → pass `--complete "42"`. **No → stop; no PR is opened.** The
+work continues, and a later `/commit` marks the issue when it is done. Without the flag the
+script refuses anyway (exit 12), before anything is pushed.
+
+### Step 6: Invoke the script
 
 `/open-pr` does NOT touch `changelog.md`. The changelog is owned exclusively by `/deploy`, which composes the consolidated release entry from commit subjects since the last tag at version-bump time. Earlier versions of this command wrote a per-PR entry here too, which produced duplicate bullets in main's changelog after `/deploy` ran (one from the feature-branch insertion, one from the release-branch insertion). Single-writer fixes the duplication structurally — there is no flag to opt back into per-PR changelog inserts.
 
 ```bash
 .claude/skills/gitflow/scripts/open-pr.sh \
   --title "<conventional title>" \
-  --body "<PR body markdown>"
+  --body "<PR body markdown>" \
+  [--complete "<N,N>"]
 ```
 
 Optional: `--draft` to open as draft PR, `--base <branch>` if targeting something other than main.
 
-### Step 6: Wait for PR readiness
+### Step 7: Wait for PR readiness
 
 `open-pr.sh` has already posted an explicit `/gemini review` comment on the PR (Gemini's auto-review on PR open is disabled in `.gemini/config.yaml: pull_request_opened.code_review: false`; reviews are comment-driven). If the post failed, the script exited 9 — surface the failure; do not proceed to wait.
 
@@ -119,7 +134,7 @@ Exit handling:
 - `3` → timeout (default 15min). Surface the diagnostic message the script printed (likely Gemini queued/rate-limited, or CI legitimately slow). The user decides: re-invoke with `--timeout-min <larger>`, or — only if Gemini is genuinely absent — set `GEMINI_NOT_INSTALLED="true"` in `.claude/sync-substitutions.json` to opt out.
 - `5` → user pressed Ctrl-C. Stop cleanly, no further steps.
 
-### Step 7: Hand off based on Gemini findings count
+### Step 8: Hand off based on Gemini findings count
 
 The wait script's ready message includes a `findings=N` count whenever Gemini posted a review. Surface that count to the user and tailor the handoff prompt to it:
 
@@ -134,14 +149,14 @@ Do NOT auto-invoke `/triage` and do NOT auto-invoke `/merge`. The user decides p
 
 If the user runs `/triage` and lands a fix commit via `/commit --review`, that push posts a fresh `/gemini review` comment which arms a new review cycle. The next `/merge` will re-run `wait-for-pr-ready.sh` (called from `merge.sh`) and gate on the new cycle automatically. If the fix commit went out via `/commit --no-review`, no trigger is posted and `/merge` proceeds on CI alone.
 
-### Step 8: Report
+### Step 9: Report
 
 - PR created: surface the PR URL
-- Script failure modes (Step 5 — open-pr.sh):
+- Script failure modes (Step 6 — open-pr.sh):
   - No gh CLI and no $GITHUB_TOKEN: user setup issue
   - Branch not pushed / push rejected: git state issue
   - API error: surface GitHub's response
-- Wait failure modes (Step 6 — wait-for-pr-ready.sh): see exit handling above
+- Wait failure modes (Step 7 — wait-for-pr-ready.sh): see exit handling above
 
 ## What happens after
 
@@ -159,3 +174,5 @@ Post-merge, **nothing fires automatically**. To ship to production, run `/deploy
 - Current branch is `main`: cannot open a PR against itself
 - No remote configured: add `origin` remote
 - Neither `gh` nor `$GITHUB_TOKEN` available: auth setup needed
+- A linked issue is not code complete and was not confirmed: exit 12, nothing pushed
+- The PR opened but the board update failed: exit 11 — set the status on the board once the cause is fixed

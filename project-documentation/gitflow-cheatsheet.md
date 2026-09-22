@@ -23,7 +23,7 @@ What happens automatically (no issue, on `main`):
 What happens automatically (issue mode, anywhere):
 - Issue **linked to the branch you are on** (stored in git config), **assigned to you**, **moved to "In Progress"** on the project board.
 - Claude **reads the issue body + comments** and proposes an approach before any code is written.
-- On `main` the link parks there and rides onto whichever branch your first `/commit` creates; `/ship-main` closes it in place with a `Closes #N` line instead.
+- On `main` the link parks there and rides onto whichever branch your first `/commit` creates; `/ship-main` instead names it in a `Closes #N` line once you answer that it is code complete.
 
 Where `wip/<abbrev>-<timestamp>` comes from: `/checkpoint` on `main` cuts it. The branch keeps that name until your first `/commit`, which renames it to `<type>/<slug>` from the commit message (e.g. `wip/lg-2026-05-12-153000Z` → `feat/dealer-filter-fix`). `<abbrev>` resolves from `PROJECT_ABBREV` in `.claude/sync-substitutions.json` (e.g. `lg`, `kit`, `ms`), falling back to the project's directory basename if unset. Run `/sync-dev-kit` to populate. Lets the Agents view distinguish concurrent wip/ branches across projects.
 
@@ -49,6 +49,8 @@ semgrep scan --config auto --error <files>   # the CI security scan, on demand
 
 Use `/checkpoint` freely for in-progress snapshots. Use `/commit` when a unit of work is coherent.
 
+**`/commit` asks which linked issues are code complete** — finished, waiting for deployment. Each yes is marked on the branch and moves to Staged once the push lands. Answer in prose, or pass `/commit --complete 42,43`. `/checkpoint` never asks: a checkpoint is partway by definition.
+
 `/commit` runs check-types, biome and semgrep itself before staging, so the CI equivalents of all three fire locally first — semgrep scoped to the files the commit touches, where CI scans the whole repo. `/checkpoint` deliberately does not: it is the fast WIP save, and a scan on every snapshot is friction on the one path built to have none.
 
 ---
@@ -60,7 +62,7 @@ Use `/checkpoint` freely for in-progress snapshots. Use `/commit` when a unit of
 /work #42,#43
 ```
 
-Adds the issue(s) to the current branch — including `main`, where the link parks until the first commit carries it onto a branch, or `/ship-main` closes it in place. Same side effects as `/work <issue>`: status transition, assignment, context dump. A PR body auto-prepends `Closes #42, #43`; a `/ship-main` commit gets the same line in its body.
+Adds the issue(s) to the current branch — including `main`, where the link parks until the first commit carries it onto a branch, or a `/ship-main` names it as code complete. Same side effects as `/work <issue>`: status transition, assignment, context dump. A PR body auto-prepends `Closes #42, #43`; a `/ship-main` commit gets the same line in its body for the issues marked code complete.
 
 No new branch, no stash. Just link and keep working.
 
@@ -70,6 +72,8 @@ No new branch, no stash. Just link and keep working.
 
 ```
 /open-pr      # push branch, create PR, auto-prepends `Closes #N` from linked issues
+                # a gate: every linked issue must be code complete — any not yet marked is
+                #   confirmed first ("Opening this PR marks #42 as Staged. Proceed?"); no → no PR
                 # transitions every linked issue → "Staged" on the project board
                 # does NOT touch changelog.md — single-writer model, /deploy owns it (handbook §6.4)
 /catchup      # on main: fast-forward local main from origin/main (just want latest code)
@@ -81,13 +85,15 @@ No new branch, no stash. Just link and keep working.
                 # post-merge: if landing on main changed package*.json, merge.sh runs `npm ci`
                 #   so node_modules isn't left stale (bites the next /merge build gate)
 /deploy       # bump version, tag, push, dispatch the deploy build(s)
-                # transitions every closed issue in the release → "Done" on the project board
+                # moves every issue named by `Closes #N` in the release → the deploy status
 
 /ship-main    # THE EXCEPTION: conventional commit straight onto main — no branch, no PR, no CI
                 # for quick infra / config / emergency work you accept shipping unreviewed
                 # fires only on its own triggers ("ship to main", "infra commit"); a bare
                 #   "commit" always routes to /commit, which auto-branches instead
                 # the message still must be conventional — the next /deploy reads it
+                # asks which linked issues are code complete; only those get `Closes #N`,
+                #   move to Staged and are unlinked — the rest stay parked on main
 ```
 
 `/catchup` is the single "refresh from origin" command — behavior depends on the branch you're on. On main, it fast-forwards local main (use this when starting a session after someone else has merged + deployed and you want your local code current). On a feature branch, it merges `origin/main` INTO the branch via `--no-ff` (use when `gh pr view <N>` reports `mergeable: CONFLICTING`). On conflicts: edit the affected files, then `/catchup --continue` — or `/catchup --abort` to back the merge out entirely. See handbook §4.6.
@@ -98,13 +104,13 @@ No new branch, no stash. Just link and keep working.
 |-------|---------|
 | Todo | board default |
 | In Progress | `/work <N[,N…]>` |
-| Staged | `/open-pr` |
-| Done | `/deploy` (NOT `/merge`) |
+| Staged | `/commit` / `/ship-main` (issues answered code complete), `/open-pr` (every linked issue) |
+| the deploy status (`Done`, `Deployed`, …) | `/deploy` (NOT `/merge`) |
 
 Watch for:
 - GitHub notification emails
 - Repo → **Actions** tab for CI runs
-- Linked issues **auto-close on merge** (via `Closes #N` in PR body); their board card moves to Done at `/deploy`
+- Whether a linked issue closes, and when, is GitHub configuration, not gitflow — see `github-project-board-setup.md` §3
 
 ---
 
@@ -162,8 +168,8 @@ Faster than scrolling the PR page when there are more than ~3 actionable items. 
 ### Project board / issue behavior
 
 - A new PR appears on the project board as its own card (PRs and issues share GitHub's number sequence — PR #117 ≠ issue #117 being created).
-- Linked issues (`Closes #N` auto-injected by `/open-pr`) close on **merge**, not on PR open. Their board card moves to **Done** at `/deploy`, not at `/merge`.
-- Board lifecycle: Todo → **In Progress** (`/work <N>`) → **Staged** (`/open-pr`) → **Done** (`/deploy`).
+- `Closes #N` is auto-injected by `/open-pr`. gitflow never closes an issue: with no board, GitHub closes it on merge; with a board, the board's "Auto-close issue" workflow closes it when it reaches the column you chose (`github-project-board-setup.md` §3). The board card moves to the deploy status at `/deploy`, not at `/merge`.
+- Board lifecycle: Todo → **In Progress** (`/work <N>`) → **Staged** (code complete: `/commit`, `/ship-main`, `/open-pr`) → **deploy status** (`/deploy`).
 - No issue is created automatically on merge — pass or fail.
 - Board transitions are **fail-loud** when board integration is configured (`GITFLOW_PROJECT_ID` set). Missing scope, wrong option ID, or issue not on the board → script exits non-zero with the cause.
 
@@ -188,19 +194,19 @@ Dev server lifecycle governed by `.claude/rules/dev-server.md` — Claude checks
 ## The whole flow at a glance
 
 ```
-/work 23             ← start session (local main fast-forwarded; branch cut, issue linked, board → In Progress)
+/work 23             ← start session (local main fast-forwarded; issue linked, board → In Progress)
 ... work ...
 /checkpoint          ← save progress (repeat as needed)
 ... more work ...
 /work 42             ← another issue joins this branch (board → In Progress for #42)
 ... finish ...
-/commit              ← coherent final commit
-/open-pr             ← submit for review (Closes #23, #42 auto-added; board → Staged for both)
+/commit              ← coherent final commit; answer "#23, #42 code complete? → yes" (board → Staged for both)
+/open-pr             ← submit for review (Closes #23, #42 auto-added; both already complete, so no question)
 ... CI runs, Gemini reviews ...
 /triage              ← walk Gemini items one at a time (fix or skip, your call)
 /e2e                 ← optional manual verification
 /merge               ← ship after CI green; current/ removed (NOT auto-recreated); primary syncs to new main. Board state unchanged (still Staged). Next /work creates a fresh current/.
-/deploy              ← release: bump version, tag, dispatch the deploy build(s). Board → Done for every issue closed by this release.
+/deploy              ← release: bump version, tag, dispatch the deploy build(s). Board → the deploy status for every issue this release names in `Closes #N`.
 ```
 
 Picking up tomorrow on unfinished work: same launch, just `/work` (no args). You are still on yesterday's branch; `/work` sees that and resumes exactly where you left off.
@@ -225,8 +231,12 @@ Picking up tomorrow on unfinished work: same launch, just `/work` (no args). You
 | `/e2e` — "no flows match this diff" | Expected for pure-docs / workflow-only PRs on the diff-scoped option. Reports clean, runs nothing. |
 | `/e2e` — dev server not reachable | Claude checks port first and starts if free. If that fails, the project's dev-server command may differ; check `.claude/rules/dev-server.md` for the project's convention. |
 | `/open-pr` — "no commits ahead of main" | You haven't committed yet. Run `/commit` or `/checkpoint` first. |
-| Linked an issue while on main | Fine. The link parks on `main` and rides onto whichever branch your first `/commit` creates; `/ship-main` closes it in place instead. `/work` surfaces any link left parked by an abandoned session. |
-| Issue didn't move on the project board (In Progress / Staged / Done) | Board transitions are now **fail-loud**. If `GITFLOW_PROJECT_ID` is set and the transition didn't fire, the script exited non-zero with the cause. Most common cause is the gh token missing `project` scope (`gh auth refresh -s project`), then the issue not being on the configured project (enable the project's "Auto-add to project" workflow). Empty `GITFLOW_PROJECT_ID` = feature off, silent skip. |
+| Linked an issue while on main | Fine. The link parks on `main` and rides onto whichever branch your first `/commit` creates; `/ship-main` names it in `Closes #N` once you answer it is code complete, and an incomplete one stays parked. `/work` surfaces any link left parked by an abandoned session. |
+| Issue didn't move on the project board (In Progress / Staged / deploy status) | Board transitions are **fail-loud**. If `GITFLOW_PROJECT_ID` is set and the transition didn't fire, the script exited non-zero with the cause. Most common cause is the gh token missing `project` scope (`gh auth refresh -s project`), then the issue not being on the configured project (enable the project's "Auto-add to project" workflow), then an empty `GITFLOW_STATUS_*` key — all four are required once a board is configured. Empty `GITFLOW_PROJECT_ID` = feature off, silent skip. |
+| Exit 11 from `/commit`, `/ship-main` or `/open-pr` | The git side landed; only the board update failed. After `/commit`, `/open-pr` sets every linked issue to Staged again; after `/ship-main`, the next `/deploy` still moves the named issues; after `/open-pr`, set the status on the board once the cause is fixed. |
+| `/open-pr` exits 12 | A linked issue is not code complete and was not confirmed. Nothing was pushed. Confirm it, or keep working and `/commit` when it is done. |
+| `--complete` exits 2 | It named an issue not linked on this branch. Nothing happened — link it with `/work <N>` first, or fix the number. |
+| Issue closed too early, or never closed | GitHub configuration, not gitflow: the repository's auto-close setting and the board's "Auto-close issue" workflow. See `github-project-board-setup.md` §3. |
 | `/work` says it could not refresh main | The pre-branch fast-forward failed (usually `gh` auth scope or network). `/work` does not block — it cuts the branch off local `main` and tells you. Fix `gh auth status`, then `/catchup` to pull the latest into your branch. |
 | `/catchup` aborts: "local main is AHEAD" or "DIVERGED" | Local main has commits not on origin/main. Anomalous under gitflow's model (primary is read-only). Inspect with `git log origin/main..HEAD`. Most likely cause is a `/ship-main` commit that has not been pushed, or a commit made outside gitflow. Inspect, push or resolve manually, then retry `/catchup`. |
 | `current/` doesn't exist yet | Run `/work` (no args). It creates `current/` on a fresh `wip/<abbrev>-<timestamp>` branch and enters it. |

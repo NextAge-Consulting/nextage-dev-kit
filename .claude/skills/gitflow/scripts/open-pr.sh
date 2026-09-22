@@ -1,7 +1,13 @@
 #!/bin/bash
 # gitflow open-pr: push current branch, create a PR.
 # Usage: open-pr.sh --title "<PR title>" --body "<PR body>" \
-#                   [--base main] [--draft]
+#                   [--base main] [--draft] [--complete "<N[,N…]>"]
+#
+# Code-complete gate: every issue linked on the branch must be code complete
+# before a PR opens, because opening one sets them all to Staged. An issue not
+# yet marked (by /commit) must be named in --complete — the slash command asks
+# "this will mark #N as Staged" first, and a no means no PR. Anything left
+# unconfirmed exits 12 before the push.
 #
 # Changelog: NOT touched here. Single-writer model — `/deploy` is the sole
 # author of changelog.md (deploy.sh inserts the consolidated release entry
@@ -31,6 +37,7 @@ TITLE=""
 BODY=""
 BASE="main"
 DRAFT=""
+COMPLETE_ISSUES=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -38,6 +45,13 @@ while [[ $# -gt 0 ]]; do
         --body)             BODY="$2"; shift 2 ;;
         --base)             BASE="$2"; shift 2 ;;
         --draft)            DRAFT="--draft"; shift 1 ;;
+        --complete)
+            COMPLETE_ISSUES=$(parse_issue_csv "$2")
+            if [ -z "$COMPLETE_ISSUES" ]; then
+                echo "open-pr.sh: --complete needs issue numbers (got '$2')" >&2
+                exit 2
+            fi
+            shift 2 ;;
         *) echo "open-pr.sh: unknown option: $1" >&2; exit 2 ;;
     esac
 done
@@ -63,11 +77,30 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
     exit 3
 fi
 
+# ─── Code-complete gate ────────────────────────────────────────────────────
+# Before the push, so a refusal leaves nothing half-done.
+if [ -n "$COMPLETE_ISSUES" ] && ! validate_complete_issues "$COMPLETE_ISSUES" "$CURRENT_BRANCH"; then
+    exit 2
+fi
+UNCONFIRMED=""
+for num in $(read_branch_incomplete_issues "$CURRENT_BRANCH"); do
+    confirmed=0
+    for c in $COMPLETE_ISSUES; do [ "$c" = "$num" ] && confirmed=1; done
+    if [ "$confirmed" -eq 0 ]; then UNCONFIRMED="${UNCONFIRMED:+$UNCONFIRMED }$num"; fi
+done
+if [ -n "$UNCONFIRMED" ]; then
+    echo "open-pr.sh: not code complete: $(format_issue_refs "$UNCONFIRMED")." >&2
+    echo "  Opening the PR marks every linked issue Staged. Confirm with --complete \"${UNCONFIRMED// /,}\"," >&2
+    echo "  or keep working and /commit when they are done." >&2
+    exit 12
+fi
+
 # ─── Inject Closes #N from branch-scoped linked issues ────────────────────
 # Issues linked via /work <issue#> are stored in git config
 # (branch.<name>.gitflow-issues). Prepend a `Closes #N, #M ...` line to the
-# PR body so GitHub's native auto-close fires on merge — without requiring
-# a human to remember the syntax. Idempotent: if the body already starts
+# PR body: the squash commit carries it onto main, where /deploy reads it to
+# find what shipped. Whether merging also closes the issue is the repository's
+# auto-close setting, not this script's. Idempotent: if the body already starts
 # with Closes, we don't double-prepend.
 LINKED_ISSUES=$(read_branch_linked_issues "$CURRENT_BRANCH")
 if [ -n "$LINKED_ISSUES" ]; then
@@ -194,17 +227,16 @@ if [ -n "$PR_NUMBER" ] && [ -z "$DRAFT" ]; then
     fi
 fi
 
-# ─── Transition linked issues to Staged on the project board ──────────────
-# PR open = code-complete signal, entering CI/review pipeline. Reuses the
-# branch-linked issue list already injected as Closes #N above. Helper
-# fail-loud propagates: if PROJECT_ID is set but STAGED_ID is empty or the
-# board misconfigured or scope missing, the script exits non-zero. The PR
-# is already open at this point — re-run after fixing the cause; the
-# transition is idempotent so re-running won't double-write.
+# ─── Every linked issue → Staged on the project board ─────────────────────
+# The gate above guaranteed each one is complete or confirmed. All of them are
+# set, not only the newly confirmed: that is what repairs a board update that
+# failed at /commit. The PR is already open at this point — on failure, fix the
+# cause and set the status on the board; the transition is idempotent.
 if [ -n "$LINKED_ISSUES" ]; then
-    for num in $LINKED_ISSUES; do
-        move_issue_to_staged "$num"
-    done
+    if ! stage_complete_issues "$LINKED_ISSUES" "$CURRENT_BRANCH"; then
+        echo "open-pr.sh: the PR is open; only the board update failed. Fix the cause and set the status on the board." >&2
+        exit 11
+    fi
 fi
 
 echo "gitflow: PR open complete." >&2

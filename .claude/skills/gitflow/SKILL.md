@@ -78,6 +78,7 @@ Full conventional commit with AI-generated message.
 - Categorize changes by feature/purpose
 - Load `references/commit-types.md` for emoji/type mapping
 - Build commit message: `<emoji> <type>: <description>` for single feature, or multi-line format for multiple features
+- Ask which linked issues are code complete (finished, waiting for deployment); each yes becomes `--complete "<N,N>"`, is marked on the branch and moves to Staged after the push
 - Invoke `/commit` passing the message
 
 Auto-branch behavior: if on `main`, `/commit` derives a `<type>/<slug>` branch from the commit message and creates it before committing. If on a `wip/<timestamp>` branch (from a prior `/checkpoint`), it renames the branch to `<type>/<slug>` — unless there is an open PR for the branch, in which case it commits in place to preserve the PR link.
@@ -91,6 +92,7 @@ Direct conventional commit straight to `main` — no branch, no PR, no CI. The *
 **Procedure:**
 - Confirm this is genuinely a deliberate direct-to-main change — if it looks like feature work or the user said "commit" (not "ship to main"), use `/commit` instead.
 - Build a conventional message exactly as for `/commit` (required — the next `/deploy` reads it for bump-level + changelog).
+- Ask the same code-complete question as `/commit`. Only complete issues get a `Closes #N` line, move to Staged and are unlinked; incomplete ones stay parked on `main`.
 - Invoke `/ship-main` passing the message.
 
 **Critical distinction:** `/ship-main` is the OPPOSITE of `/commit`'s auto-branch. Bare "commit" on `main` auto-branches (the safety); `/ship-main` commits ON `main` and pushes directly. Route here ONLY on the explicit triggers ("ship to main", "infra commit", "emergency to main") — NEVER from a bare "commit", and NEVER inferred from the user being on `main`. The script refuses unless actually on `main`.
@@ -105,7 +107,7 @@ Fast WIP commit without deep analysis.
 - Optional: take a short message from the user
 - Invoke `/checkpoint`
 
-See `commands/checkpoint.md`. The command auto-formats the message as `🔖 wip: <timestamp or user message>`.
+See `commands/checkpoint.md`. The command auto-formats the message as `🔖 wip: <timestamp or user message>`. It asks no code-complete question — a checkpoint is partway by definition — and carries issue links and complete marks onto its branch.
 
 Auto-branch behavior: if on `main`, `/checkpoint` creates a `wip/<timestamp>` branch before committing. A later `/commit` on that `wip/*` branch renames it based on the commit message.
 
@@ -125,7 +127,7 @@ Work happens on a branch in the project checkout. On `main`, `/work` refreshes f
 - Invoke `.claude/skills/gitflow/scripts/work.sh` with appropriate flags.
 - For `--issue` mode: read the dumped issue body + comments and respond with understanding + plan before touching code.
 
-See `.claude/commands/work.md` (synced per-project from `_claude-project/commands/work.md`; there is no global `/work`, and `work.sh` refuses to run if a retired one is still sitting in `~/.claude/commands/`). The script (project-local at `.claude/skills/gitflow/scripts/work.sh`) refreshes `main`, resumes an existing branch, and handles issue linking. Bare `/work` does NOT cut a branch — `/commit`, `/checkpoint` and `/work <issue#>` do that. It does not commit or push.
+See `.claude/commands/work.md` (synced per-project from `_claude-project/commands/work.md`; there is no global `/work`, and `work.sh` refuses to run if a retired one is still sitting in `~/.claude/commands/`). The script (project-local at `.claude/skills/gitflow/scripts/work.sh`) refreshes `main`, resumes an existing branch, and handles issue linking. `/work` never cuts a branch, with or without an issue — `/commit` and `/checkpoint` do that. It does not commit or push.
 
 ### /open-pr
 
@@ -135,6 +137,7 @@ Push current branch and create a PR via gh (local) or GitHub API (cloud).
 - Analyze branch diff against main: `git diff --stat main..HEAD` and `git log --oneline main..HEAD`
 - Generate conventional PR title (emoji + type + description)
 - Generate PR body describing the changes
+- Confirm every linked issue not yet marked code complete ("Opening this PR marks #42 as Staged. Proceed?"). No → stop; no PR is opened. Yes → `--complete "<N,N>"`
 - Invoke `/open-pr` passing title and body
 
 See `commands/open-pr.md`. The command pushes the branch, creates the PR, posts an explicit `/gemini review` comment (Gemini's auto-review on PR open is disabled in `.gemini/config.yaml`), then invokes `wait-for-pr-ready.sh` to block until CI passes and Gemini has reviewed HEAD (the wait is trigger-aware: it reads PR comments to confirm a `/gemini review` was posted for the current HEAD). On exit 0, prompts the user to run `/triage` or `/merge` — explicit handoff, never auto-invokes.
@@ -196,11 +199,11 @@ The commands invoke these scripts in `skills/gitflow/scripts/`:
 | `work.sh` | Refresh `main` or resume the current branch, cutting nothing; `--issue <N[,N…]>` to link one or more issues to the branch you are on; `--retrieve` to fetch and switch to someone else's branch |
 | `commit.sh` | Full conventional commit, stages all, pushes; auto-branches/renames as needed |
 | `checkpoint.sh` | WIP commit, stages all, pushes; auto-creates `wip/<timestamp>` on main |
-| `open-pr.sh` | Push branch, create PR via gh or GitHub API; prepends `Closes #N` from branch-linked issues |
+| `open-pr.sh` | Refuse (exit 12) while a linked issue is not code complete; push branch, create PR via gh or GitHub API; prepends `Closes #N` from branch-linked issues and moves them to Staged |
 | `wait-for-pr-ready.sh` | Poll until CI green + (if a `/gemini review` comment was posted for the current HEAD) Gemini Code Assist has posted its review; fail-loud timeout. Trigger-aware: no trigger comment for HEAD → CI-only ready. `GEMINI_NOT_INSTALLED="true"` short-circuits the Gemini path entirely. Invoked by `/open-pr`, `/triage`, `/merge`. |
 | `merge.sh` | Wait for PR readiness, squash-merge via gh, land this checkout back on `main`, delete the merged local branch, reinstall deps if manifests changed |
 | `branch_helpers.sh` | Shared helpers sourced by work/commit/checkpoint scripts |
-| `issue_helpers.sh` | Shared helpers for `/work --issue`: parse CSV, validate issues, link to branch (git config), project status transition, user assignment, issue context dump |
+| `issue_helpers.sh` | Shared issue helpers: parse CSV, validate issues, link to branch and mark code complete (git config), project status transitions (In Progress, Staged, the deploy status), user assignment, issue context dump |
 | `get_timestamp.sh` | Local-timezone timestamp utility |
 
 Scripts use `git commit --no-verify` because validation is the hook layer's responsibility (or the script's own first-step validation).

@@ -3,7 +3,8 @@
 # GitHub issues, link them to the current branch, transition project status,
 # assign the current user, and dump issue context for the Claude session.
 #
-# Sourced by work.sh.
+# Sourced by work.sh, commit.sh, checkpoint.sh, ship-main.sh, open-pr.sh and
+# deploy.sh.
 #
 # ─── Design notes ──────────────────────────────────────────────────────────
 # - Issue→branch linking is stored in git config (branch-scoped):
@@ -11,9 +12,17 @@
 #   Git auto-removes branch config on `git branch -D`, so stale state doesn't
 #   accumulate after merges.
 #
-# - `/open-pr` reads this config and prepends `Closes #<N>` lines to the PR
-#   body, which fires GitHub's native auto-close on merge (no Project
-#   workflow dependency for the core closure behavior).
+# - An issue is marked CODE COMPLETE per branch, in a second list beside the
+#   links: branch.<name>.gitflow-complete = "23 25". /commit and /ship-main ask
+#   which linked issues are complete; /open-pr refuses to open while any linked
+#   issue is not. Complete is what moves an issue to Staged.
+#
+# - `/open-pr` and `/ship-main` write `Closes #<N>` for complete issues. That
+#   line is the history and it is how /deploy finds what shipped. Whether it
+#   actually closes anything is GitHub configuration, not gitflow's: the
+#   repository's "Auto-close issues with merged linked pull requests" setting,
+#   and the board's "Auto-close issue" workflow
+#   (project-documentation/github-project-board-setup.md).
 #
 # - Failure semantics (zero-tolerance fail-loud-when-configured):
 #   * GITFLOW_PROJECT_ID empty → feature off, silent skip (kit default).
@@ -162,17 +171,104 @@ read_branch_linked_issues() {
     git config --local --get "branch.${branch}.gitflow-issues" 2>/dev/null || echo ""
 }
 
-# clear_branch_linked_issues [branch_name] — drops the link list for a branch.
-# Called once the links have been consumed (carried onto a new branch, or
-# written into a commit that closes them), so the same issue cannot be
-# re-attached to unrelated later work.
+# clear_branch_linked_issues [branch_name] — drops the link list AND the
+# complete list for a branch. Called once the links have been consumed (carried
+# onto a new branch), so the same issue cannot be re-attached to unrelated
+# later work.
 clear_branch_linked_issues() {
     local branch="${1:-$(git branch --show-current)}"
     git config --local --unset-all "branch.${branch}.gitflow-issues" 2>/dev/null || true
+    git config --local --unset-all "branch.${branch}.gitflow-complete" 2>/dev/null || true
+}
+
+# ─── Code-complete state (git config) ──────────────────────────────────────
+# read_branch_complete_issues [branch_name] — echoes the issues marked complete.
+read_branch_complete_issues() {
+    local branch="${1:-$(git branch --show-current)}"
+    git config --local --get "branch.${branch}.gitflow-complete" 2>/dev/null || echo ""
+}
+
+# read_branch_incomplete_issues [branch_name] — linked issues NOT yet marked
+# complete, in link order. This is what /commit and /ship-main ask about and
+# what /open-pr gates on.
+read_branch_incomplete_issues() {
+    local branch="${1:-$(git branch --show-current)}"
+    local linked complete out="" num c hit
+    linked=$(read_branch_linked_issues "$branch")
+    complete=$(read_branch_complete_issues "$branch")
+    for num in $linked; do
+        hit=0
+        for c in $complete; do [ "$c" = "$num" ] && hit=1; done
+        if [ "$hit" -eq 0 ]; then out="${out:+$out }$num"; fi
+    done
+    echo "$out"
+}
+
+# mark_issue_complete <issue_num> [branch_name] — idempotent. Refuses (return 1)
+# an issue that is not linked on the branch: "complete" means complete work on
+# THIS body of work, and a typo'd number must not reach the board.
+mark_issue_complete() {
+    local num="$1"
+    local branch="${2:-$(git branch --show-current)}"
+    local linked hit=0 n
+    linked=$(read_branch_linked_issues "$branch")
+    for n in $linked; do [ "$n" = "$num" ] && hit=1; done
+    if [ "$hit" -eq 0 ]; then
+        echo "issue_helpers: #$num is not linked on '$branch' — link it with /work $num first." >&2
+        return 1
+    fi
+    local key="branch.${branch}.gitflow-complete" current
+    current=$(read_branch_complete_issues "$branch")
+    for n in $current; do [ "$n" = "$num" ] && return 0; done
+    git config --local "$key" "${current:+$current }$num"
+}
+
+# validate_complete_issues "<space-separated nums>" [branch_name] — return 1,
+# naming each offender, when any number is not linked on the branch. Scripts
+# call this BEFORE they commit or push, so a bad --complete fails with nothing
+# half-done.
+validate_complete_issues() {
+    local nums="$1"
+    local branch="${2:-$(git branch --show-current)}"
+    local linked bad="" num n hit
+    linked=$(read_branch_linked_issues "$branch")
+    for num in $nums; do
+        hit=0
+        for n in $linked; do [ "$n" = "$num" ] && hit=1; done
+        if [ "$hit" -eq 0 ]; then bad="${bad:+$bad }$num"; fi
+    done
+    if [ -n "$bad" ]; then
+        echo "issue_helpers: not linked on '$branch': $(format_issue_refs "$bad"). Linked: $(format_issue_refs "$linked")" >&2
+        return 1
+    fi
+}
+
+# unlink_issues_from_branch "<space-separated nums>" [branch_name] — removes
+# those issues from both lists and leaves the rest. /ship-main consumes only the
+# issues it closed; an incomplete issue stays parked for later work.
+unlink_issues_from_branch() {
+    local nums="$1"
+    local branch="${2:-$(git branch --show-current)}"
+    local kind list keep num n drop
+    for kind in gitflow-issues gitflow-complete; do
+        list=$(git config --local --get "branch.${branch}.${kind}" 2>/dev/null || echo "")
+        keep=""
+        for n in $list; do
+            drop=0
+            for num in $nums; do [ "$n" = "$num" ] && drop=1; done
+            if [ "$drop" -eq 0 ]; then keep="${keep:+$keep }$n"; fi
+        done
+        if [ -n "$keep" ]; then
+            git config --local "branch.${branch}.${kind}" "$keep"
+        else
+            git config --local --unset-all "branch.${branch}.${kind}" 2>/dev/null || true
+        fi
+    done
 }
 
 # migrate_branch_linked_issues <from_branch> <to_branch>
-# Carries issue links across a branch creation and clears the source.
+# Carries issue links, and which of them are complete, across a branch creation
+# and clears the source.
 #
 # /work <issue#> no longer cuts a branch — it parks the link on whatever
 # branch the session is standing on, normally main. The branch is cut later
@@ -184,16 +280,42 @@ migrate_branch_linked_issues() {
     local from="$1" to="$2"
     [ "$from" = "$to" ] && return 0
 
-    local list
+    local list complete
     list=$(read_branch_linked_issues "$from")
     [ -z "$list" ] && return 0
+    complete=$(read_branch_complete_issues "$from")
 
     local num
     for num in $list; do
         link_issue_to_branch "$num" "$to"
     done
+    for num in $complete; do
+        mark_issue_complete "$num" "$to"
+    done
     clear_branch_linked_issues "$from"
     echo "gitflow: carried issue link(s) $(format_issue_refs "$list") from $from onto $to." >&2
+}
+
+# stage_complete_issues "<space-separated nums>" [branch_name]
+# Marks each issue complete on the branch, then moves each to Staged on the
+# board. Called only AFTER the commit or PR it belongs to has landed, so a
+# failure here never strands half a commit. The local mark is written first:
+# a board failure (almost always the `project` scope) leaves the issue complete
+# locally, and /open-pr sets every linked issue to Staged again, so the board
+# catches up at the latest there.
+stage_complete_issues() {
+    local nums="$1"
+    local branch="${2:-$(git branch --show-current)}"
+    local num
+    for num in $nums; do
+        mark_issue_complete "$num" "$branch" || return 1
+    done
+    for num in $nums; do
+        if ! move_issue_to_staged "$num"; then
+            echo "issue_helpers: #$num is marked code complete, but its board status was not updated (see above)." >&2
+            return 1
+        fi
+    done
 }
 
 # format_issue_refs <space-separated nums> — "#1, #2, #3". Empty in, empty out.
@@ -216,14 +338,16 @@ report_parked_issue_links() {
     list=$(read_branch_linked_issues "$branch")
     [ -z "$list" ] && return 0
     echo "gitflow: issue(s) $(format_issue_refs "$list") are linked on '$branch' from an earlier session." >&2
-    echo "  They ride onto the next /commit branch, or /ship-main closes them here." >&2
+    echo "  They ride onto the next /commit branch, or /ship-main closes the ones you mark complete." >&2
     echo "  Not yours? git config --local --unset branch.${branch}.gitflow-issues" >&2
 }
 
 # closes_line_for_issues <space-separated nums> — "Closes #1, #2". Empty in,
-# empty out. GitHub honours this keyword both in a PR body (closing on merge)
-# and in a commit pushed to the default branch (closing on push), which is
-# what lets /ship-main close an issue with no PR in the picture.
+# empty out. GitHub reads this keyword in a PR body (on merge) and in a commit
+# pushed to the default branch (on push), and closes the issue unless the
+# repository's "Auto-close issues with merged linked pull requests" setting is
+# off — which covers both paths. /deploy reads the same line to find what
+# shipped, so it is written whether or not anything closes.
 closes_line_for_issues() {
     local refs
     refs=$(format_issue_refs "$1")
@@ -338,7 +462,7 @@ _move_issue_to_status() {
 # Public wrappers. Signature stays single-arg so call sites don't drift.
 move_issue_to_in_progress() { _move_issue_to_status "$1" GITFLOW_STATUS_IN_PROGRESS_ID "In Progress"; }
 move_issue_to_staged()      { _move_issue_to_status "$1" GITFLOW_STATUS_STAGED_ID      "Staged"; }
-move_issue_to_done()        { _move_issue_to_status "$1" GITFLOW_STATUS_DONE_ID        "Done"; }
+move_issue_to_deployed()    { _move_issue_to_status "$1" GITFLOW_STATUS_DEPLOYED_ID    "the deploy status"; }
 
 # ─── Assign current user ───────────────────────────────────────────────────
 # assign_issue_to_current_user <issue_num>
