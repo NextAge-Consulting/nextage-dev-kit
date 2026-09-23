@@ -226,6 +226,14 @@ imported from the project's component tree and fail anything outside the placeme
 allowlist, and fail a raw `<input>` or `<textarea>` that paints the field look
 itself instead of rendering the atom.
 
+**Exempt headless primitives and glyphs by name.** A Radix trigger, anchor or
+collapsible part renders an unstyled element with no look of its own, so the
+composite styling it is BUILDING a look, not repainting one — flagging it makes
+every composite a false positive and teaches people to ignore the check. A
+spinner or icon paints in `currentColor`, so its caller naming the colour is the
+design. List both sets explicitly in the check, the same way the vendored-atom
+exemption is named.
+
 ## What `design.md` covers vs what it doesn't
 
 `design.md` is scoped to **atoms and tokens**, per the google spec. It does NOT cover:
