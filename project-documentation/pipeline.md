@@ -40,7 +40,7 @@ The pipeline does not rely on GitHub branch protection. The merge gate lives in 
 
 ### `/ship-main` — the deliberate direct-to-main exception
 
-For quick infra / emergency / "get it in and back to clean" work, a full branch→PR→CI→merge cycle is theater. `/ship-main` commits a conventional message **directly on `main`** in the primary repo and pushes — no branch, no PR, no CI (a push to `main` triggers no workflows; CI is `pull_request`-only, deploys are `workflow_dispatch`-only). It runs the same local typecheck + lint as `/commit` (the assist that stays). Works as long as `main` does not require a PR (§1.1) — the default.
+For quick infra / emergency / "get it in and back to clean" work, a full branch→PR→CI→merge cycle is theater. `/ship-main` commits a conventional message **directly on `main`** and pushes — no branch, no PR, no CI (a push to `main` triggers nothing; CI is `pull_request`-only, and deploys start only when `/deploy` dispatches them). It runs the same local typecheck + lint as `/commit` (the assist that stays). Works as long as `main` does not require a PR (§1.1) — the default.
 
 **The gate is explicit invocation, never inference.** A bare `/commit` on `main` still auto-branches (the safety for accidental-on-main); `/ship-main` is the opposite, on purpose, and only when asked for by name. Its commits land on `main` and feed the next `/deploy`'s bump + changelog exactly like a merged-PR squash commit. See handbook / `commands/ship-main.md`.
 
@@ -121,7 +121,7 @@ The migrate workflow body is project-owned and MUST exit 0 on a no-op and non-ze
 |------|---------|------|------|
 | Unit | Vitest | Pure functions with complex, predictable output (pricing math, packing algorithms, financial totals). Synthetic fixtures, in-memory. | CI hard gate |
 | Integration | Vitest (`integration` project) | Real server functions against a **real ephemeral Postgres branch** — one branch per run, forked copy-on-write from production, deleted after. Each test runs in an always-rolled-back transaction (`dbTest`), so tests run in parallel MVCC-isolated on the shared branch. Catches wrong queries, missing columns, constraint violations, broken joins. | CI hard gate |
-| Migration-during-PR | drizzle-kit in `globalSetup.ts` | A PR's pending migration runs once against the prod-schema branch before tests — migration validated in the same CI pass, same runner as prod deploy. | CI hard gate |
+| Migration-during-PR | drizzle-kit in `globalSetup.ts` | A PR's pending migration runs once against the prod-schema branch before tests — the same drizzle-kit migrate that the deploy's migration build runs against production, validated in the same CI pass. | CI hard gate |
 | E2E | Claude + `agent-browser` | Standalone `/e2e` **manual verification** — see below. | NOT a hard gate |
 
 **Why real DB branches over mocks:** mocks drift from real database behavior — the exact failure the model is meant to catch. A branch is a copy-on-write clone of prod schema + data; tests insert/update/delete freely, prod is never touched. External services follow the same "real not mock" rule: Stripe Test Mode (real Stripe, no money — not a mock) and Mailpit (real SMTP capture) rather than network interception that drifts.
@@ -149,7 +149,7 @@ Structured assertions are added by **accretion** — only when a specific failur
 |-------|------------|
 | 1 | GitHub config (squash-only, auto-delete branches) + basic CI (type-check + Biome + Semgrep, parallel jobs, concurrency-cancel). |
 | 2 | gitflow subsystem (`/work` `/commit` `/checkpoint` `/open-pr` `/merge` `/catchup`), commitlint title gate, issue↔branch↔PR linking, raw-git hook guard. |
-| 3 | Release automation via local `/deploy` (bump + changelog + tag + push + dispatch deploy), direct-push of the version bump to `main`, `workflow_dispatch:`-only deploy contract. |
+| 3 | Release automation via local `/deploy` (bump + changelog + tag + push + dispatch deploy), direct-push of the version bump to `main`, deploys dispatched only by `/deploy` (CodeBuild by default). |
 | 4 | Quality/security: Gemini advisory review, Dependabot (monthly + cooldown + grouping), Dependabot surfacing, Node LTS check, Semgrep + `.semgrepignore`. |
 | 5 | Test infrastructure: Vitest config (unit + integration projects), one-branch-per-run ephemeral Neon harness with transaction-per-test isolation, migration-during-PR, test dir structure + auth/util scaffolding, Vitest in CI. |
 | 6 | Unit + foundational integration tests for the complex-logic functions (pricing, packing, totals); all green in CI as a required check. |

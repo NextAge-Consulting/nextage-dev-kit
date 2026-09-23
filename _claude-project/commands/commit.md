@@ -69,6 +69,19 @@ while any linked issue is not complete.
 
 Map the answer to `--complete "<N,N>"`, or pass nothing for none.
 
+**Then write the Staged comment for each of them that has not had one** — the issue's
+author reviews against it. List the ones still needing it:
+
+```bash
+bash -c 'source .claude/skills/gitflow/scripts/issue_helpers.sh && issues_needing_notes "<N N>"'
+```
+
+Read `.claude/skills/gitflow/references/staged-comment.md` and the issue itself
+(`gh issue view <N>`), then write one file per issue, `<notes_dir>/<N>.md`, in a scratch
+directory outside the repo (`mktemp -d`). Pass it as `--notes <notes_dir>`. Write it and
+move on — never put the wording to the human for approval. The script refuses before
+committing (exit 2) when one is missing, and posts each once the board has moved.
+
 ### Step 7: Invoke the script
 
 ```bash
@@ -76,7 +89,7 @@ Map the answer to `--complete "<N,N>"`, or pass nothing for none.
   --message "<full conventional message>" \
   --model "<model name>" \
   <--review | --no-review | (nothing if no open PR)> \
-  [--complete "<N,N>"]
+  [--complete "<N,N>" --notes <notes_dir>]
 ```
 
 Pass `--skip-typecheck` ONLY if the user explicitly requested bypassing typecheck (rare).
@@ -119,6 +132,8 @@ The script will exit non-zero if:
 - `--review` passed and the `/gemini review` comment failed to post (exit 10 — fail-loud so the user knows Gemini is NOT coming; downstream `wait-for-pr-ready.sh` would otherwise silently proceed CI-only)
 - `--complete` names an issue not linked on the branch (exit 2, before anything is committed)
 - The commit and push landed but the board update failed (exit 11 — the issues are marked complete locally; `/open-pr` sets every linked issue to Staged again)
+- An issue reaching Staged has no comment in `--notes` (exit 2, before anything is committed)
+- The commit, push and board update landed but a Staged comment did not post (exit 13 — the script prints the exact `gh issue comment` to run)
 
 When the script blocks, surface the reason to the user. Fix underlying issues per constitution section XVI (own all errors). Do not bypass.
 

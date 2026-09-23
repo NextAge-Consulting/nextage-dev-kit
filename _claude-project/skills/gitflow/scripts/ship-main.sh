@@ -3,7 +3,7 @@
 # no PR, no CI. THE CONSCIOUS EXCEPTION for quick infra / emergency work.
 #
 # Usage: ship-main.sh --message "<conventional message>" [--model "<name>"] [--skip-typecheck]
-#                     [--complete "<N[,N…]>"]
+#                     [--complete "<N[,N…]>" --notes <dir>]
 #
 # How it differs from /commit: default /commit on main AUTO-CREATES a feature
 # branch (the safety for accidental-on-main). /ship-main does the opposite ON
@@ -38,12 +38,14 @@ MESSAGE=""
 MODEL_NAME="Claude"
 SKIP_TYPECHECK=0
 COMPLETE_ISSUES=""
+NOTES_DIR=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --message)         MESSAGE="$2"; shift 2 ;;
         --model)           MODEL_NAME="$2"; shift 2 ;;
         --skip-typecheck)  SKIP_TYPECHECK=1; shift 1 ;;
+        --notes) NOTES_DIR="$2"; shift 2 ;;
         --complete)
             COMPLETE_ISSUES=$(parse_issue_csv "$2")
             if [ -z "$COMPLETE_ISSUES" ]; then
@@ -187,6 +189,11 @@ fi
 SHIP_CLOSE_ISSUES="$(read_branch_complete_issues "$CURRENT_BRANCH") $COMPLETE_ISSUES"
 SHIP_CLOSE_ISSUES=$(printf '%s' "$SHIP_CLOSE_ISSUES" | tr ' ' '\n' | awk 'NF && !seen[$0]++' | tr '\n' ' ' | sed -E 's/ +$//')
 SHIP_CLOSES_LINE=$(closes_line_for_issues "$SHIP_CLOSE_ISSUES")
+# Each of them reaches Staged below, so each needs its comment written now,
+# before the commit.
+if [ -n "$SHIP_CLOSE_ISSUES" ] && ! require_staged_notes "$SHIP_CLOSE_ISSUES" "$NOTES_DIR" "$CURRENT_BRANCH"; then
+    exit 2
+fi
 if [ -n "$SHIP_CLOSES_LINE" ]; then
     MESSAGE="$MESSAGE
 
@@ -236,6 +243,10 @@ fi
 if [ -n "$SHIP_CLOSE_ISSUES" ]; then
     STAGE_RC=0
     stage_complete_issues "$SHIP_CLOSE_ISSUES" "$CURRENT_BRANCH" || STAGE_RC=$?
+    NOTES_RC=0
+    if [ "$STAGE_RC" -eq 0 ]; then
+        post_staged_notes "$SHIP_CLOSE_ISSUES" "$NOTES_DIR" "$CURRENT_BRANCH" || NOTES_RC=$?
+    fi
     unlink_issues_from_branch "$SHIP_CLOSE_ISSUES" "$CURRENT_BRANCH"
     if [ "$STAGE_RC" -ne 0 ]; then
         echo "ship-main.sh: the commit is live on $CURRENT_BRANCH; only the board update failed. Fix the cause —" >&2
@@ -243,6 +254,10 @@ if [ -n "$SHIP_CLOSE_ISSUES" ]; then
         exit 11
     fi
     echo "gitflow: code complete → Staged: $(format_issue_refs "$SHIP_CLOSE_ISSUES")." >&2
+    if [ "$NOTES_RC" -ne 0 ]; then
+        echo "ship-main.sh: the commit is live and the board updated; only a Staged comment failed (see above)." >&2
+        exit 13
+    fi
 fi
 
 echo "gitflow: ship-main complete — live on $CURRENT_BRANCH. (No PR, no CI — it's an exception commit.)" >&2

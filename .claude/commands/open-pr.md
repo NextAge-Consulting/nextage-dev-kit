@@ -103,6 +103,22 @@ Empty → pass nothing. Otherwise ask in prose and wait: "Opening this PR marks 
 work continues, and a later `/commit` marks the issue when it is done. Without the flag the
 script refuses anyway (exit 12), before anything is pushed.
 
+Every linked issue reaches Staged when the PR opens, so every one of them is in scope for
+the comment below — pass the whole linked list.
+
+**Then write the Staged comment for each of them that has not had one** — the issue's
+author reviews against it. List the ones still needing it:
+
+```bash
+bash -c 'source .claude/skills/gitflow/scripts/issue_helpers.sh && issues_needing_notes "<N N>"'
+```
+
+Read `.claude/skills/gitflow/references/staged-comment.md` and the issue itself
+(`gh issue view <N>`), then write one file per issue, `<notes_dir>/<N>.md`, in a scratch
+directory outside the repo (`mktemp -d`). Pass it as `--notes <notes_dir>`. Write it and
+move on — never put the wording to the human for approval. The script refuses before
+committing (exit 2) when one is missing, and posts each once the board has moved.
+
 ### Step 6: Invoke the script
 
 `/open-pr` does NOT touch `changelog.md`. The changelog is owned exclusively by `/deploy`, which composes the consolidated release entry from commit subjects since the last tag at version-bump time. Earlier versions of this command wrote a per-PR entry here too, which produced duplicate bullets in main's changelog after `/deploy` ran (one from the feature-branch insertion, one from the release-branch insertion). Single-writer fixes the duplication structurally — there is no flag to opt back into per-PR changelog inserts.
@@ -111,7 +127,7 @@ script refuses anyway (exit 12), before anything is pushed.
 .claude/skills/gitflow/scripts/open-pr.sh \
   --title "<conventional title>" \
   --body "<PR body markdown>" \
-  [--complete "<N,N>"]
+  [--complete "<N,N>"] [--notes <notes_dir>]
 ```
 
 Optional: `--draft` to open as draft PR, `--base <branch>` if targeting something other than main.
@@ -166,7 +182,7 @@ On PR open:
 
 `changelog.md` is **not** modified on the feature branch. It receives one consolidated release entry at `/deploy` time, covering every commit since the last `v*.*.*` tag — see handbook §6.5.
 
-Post-merge, **nothing fires automatically**. To ship to production, run `/deploy` — it bumps version, writes the consolidated changelog entry, tags, pushes, and triggers `deploy.yml` (which MUST be configured with `workflow_dispatch:` only — see handbook §11.4).
+Post-merge, **nothing fires automatically**. To ship to production, run `/deploy` — it bumps version, writes the consolidated changelog entry, tags, pushes, and dispatches the deploy (CodeBuild projects by default), which nothing else may start — see handbook §11.4.
 
 ## Blocking conditions
 
@@ -176,3 +192,5 @@ Post-merge, **nothing fires automatically**. To ship to production, run `/deploy
 - Neither `gh` nor `$GITHUB_TOKEN` available: auth setup needed
 - A linked issue is not code complete and was not confirmed: exit 12, nothing pushed
 - The PR opened but the board update failed: exit 11 — set the status on the board once the cause is fixed
+- A linked issue has no Staged comment in `--notes`: exit 2, nothing pushed
+- The PR opened and the board updated but a Staged comment did not post: exit 13 — the script prints the exact `gh issue comment` to run

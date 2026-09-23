@@ -85,22 +85,22 @@
 #   5. Tag v<NEW> at that commit, push tag (tags aren't behind branch
 #      protection on `branches/*` rules; tag-protection rules are separate).
 #  10. If MIGRATE_WORKFLOW is set: unless MIGRATE_PATHS shows no migration files
-#      changed since the last deploy (in which case the workflow is skipped
-#      entirely), trigger it via `gh workflow run` and watch it to completion
-#      FIRST. A real migration failure aborts here (exit 19) before any app
-#      deploy. No-op migrations are the project workflow's job to report as
-#      success.
-#  11. Trigger each workflow in DEPLOY_WORKFLOWS via `gh workflow run`,
-#      optionally watch each (split-deploy consumers ship one per app).
-#      Migrate-only repos (no DEPLOY_WORKFLOWS) stop after step 10.
+#      changed since the last deploy (in which case the migration is skipped
+#      entirely), dispatch it — `aws codebuild start-build` under codebuild,
+#      `gh workflow run` under github — and watch it to completion FIRST. A real
+#      migration failure aborts here (exit 19) before any app deploy. No-op
+#      migrations are the project migration's job to report as success.
+#  11. Dispatch each service in DEPLOY_WORKFLOWS the same way and, unless
+#      --no-watch, watch them (see the backend section below). Migrate-only
+#      repos (no DEPLOY_WORKFLOWS) stop after step 10.
 #
 # ─── Dispatch backend (DEPLOY_BACKEND) ───────────────────────────────────
 # Four values, and the only question the key answers is what else must be set.
 # `codebuild` (the default) starts AWS CodeBuild projects: everything that
 # touches AWS runs on AWS compute, so no workflow holds an AWS credential and
-# the only remaining GitHub dependency is the git clone. `github` is the flow
-# described above, and is correct for a repo that deploys somewhere with no
-# AWS account behind it. `custom` means the project DOES deploy, by a procedure
+# the only remaining GitHub dependency is the git clone. `github` fires GitHub
+# Actions workflows instead, and is correct for a repo that deploys somewhere
+# with no AWS account behind it. `custom` means the project DOES deploy, by a procedure
 # this script does not dispatch — /deploy stops before any bump and the
 # project's own rule under rules/project/ carries the steps. `none` means the
 # project does not deploy at all.
@@ -151,9 +151,14 @@
 # push fails, nothing landed remotely; the local bump commit sits one ahead of
 # origin/main — pull --ff-only (or undo the local commit yourself) and re-run
 # /deploy. If the push SUCCEEDED but the TAG push failed (exit 17), the release
-# commit is already on main — just tag + trigger deploys manually:
+# commit is already on main — just tag + dispatch deploys manually:
 #   git tag v<NEW> $(git rev-parse origin/main) && git push origin v<NEW>
-#   gh workflow run <deploy-wf> --ref main   # each workflow in DEPLOY_WORKFLOWS
+#   codebuild: aws codebuild start-build --project-name <prefix><service>
+#   github:    gh workflow run <deploy-wf> --ref main
+# (one per service in DEPLOY_WORKFLOWS; the migration first, if it has not run).
+# A build that failed for a reason outside the code — a registry rate limit, a
+# transient network error — is recovered the same way: re-dispatch it, with no
+# new bump and no second migration.
 
 set -e
 
@@ -624,8 +629,9 @@ echo "deploy.sh: tagged v${NEW} at ${NEW_SHA:0:8}" >&2
 # Tag is pushed = point of no return for this release. Enumerate every
 # issue named by a closing keyword in this release window (commits between
 # the prior tag and this one) and move it to GITFLOW_STATUS_DEPLOYED_ID —
-# whatever the project calls that column. Source: squash-merge commit bodies
-# preserve PR bodies, which carry the `Closes #N` lines /open-pr writes, and
+# whatever the project calls that column. Source: squash-merge commit bodies,
+# which merge.sh sets to the PR body whatever the repository's squash setting —
+# and the PR body carries the `Closes #N` line /open-pr writes — and
 # /ship-main writes the same line for the issues it marked complete. Whether
 # the issue is CLOSED is GitHub configuration, not this script's: the
 # repository's auto-close setting and the board's "Auto-close issue"

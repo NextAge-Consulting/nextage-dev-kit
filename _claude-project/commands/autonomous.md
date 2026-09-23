@@ -42,6 +42,8 @@ State the deliverable list back in one pass, then work it to completion. No chec
 
 A blocker stops that deliverable, not the turn: record it in the plan document, move to the next item that does not depend on it.
 
+Run `/checkpoint` as each deliverable finishes. The mode authorizes that and no other git operation — no commit, PR, merge, ship or deploy.
+
 ### Step 5: Finish
 
 Delete the stamp line from the plan document.

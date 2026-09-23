@@ -276,11 +276,13 @@ commit linting stay on GitHub Actions (`infrastructure.md`). **Start a new proje
 standing the deploy up on Actions intending to move it later is the expensive path.
 
 The pipeline is **project-specific** — the kit ships no buildspec (different targets,
-registries, hosts). Per deployable service, author a buildspec in the repo and provision a
-CodeBuild project named `<CODEBUILD_PROJECT_PREFIX><service>`, plus one for the migration if
-the project has a database. All of them share the one `<project>-codebuild-deploy` service
-role (`infrastructure.md`). See handbook §11.9 for the per-app `detect` pattern when a
-monorepo splits deploys.
+registries, hosts). Author ONE deploy buildspec in the repo (`infra/codebuild/buildspec.yml`)
+and provision a CodeBuild project per deployable service, named
+`<CODEBUILD_PROJECT_PREFIX><service>`, each pointing at that buildspec and setting its own
+service-specific environment variables (service name, image name, Dockerfile, SSM path). A
+change to the build shape is then made once while each service still fails in isolation.
+Add a second buildspec and project for the migration if the project has a database. All of
+them share the one `<project>-codebuild-deploy` service role (`infrastructure.md`).
 
 Set in `.claude/sync-substitutions.json`:
 

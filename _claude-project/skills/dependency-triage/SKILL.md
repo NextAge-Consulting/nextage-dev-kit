@@ -94,8 +94,12 @@ run them every pass rather than making anyone remember a separate cadence:
 ```bash
 curl -s https://nodejs.org/download/release/index.json | \
   jq -r '[.[] | select(.lts != false)][0].version'
-grep -h '^FROM node:' Dockerfile.* 2>/dev/null | sed -E 's/^FROM node:([0-9]+).*/\1/' | sort -u
+grep -hE '^FROM (public\.ecr\.aws/docker/library/)?node:' Dockerfile.* 2>/dev/null | \
+  sed -E 's#^FROM (public\.ecr\.aws/docker/library/)?node:([0-9]+).*#\2#' | sort -u
 ```
+
+Empty output while `Dockerfile.*` exist means a `FROM` the pattern does not cover — read
+the Dockerfiles for the Node major rather than concluding there is none.
 
 Almost every week this matches and there is nothing to do. When it doesn't, that is
 planned work — a tracked task, not a merge. Bump the Dockerfile `FROM` and the `node-version:` in

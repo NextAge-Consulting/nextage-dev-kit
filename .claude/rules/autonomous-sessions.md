@@ -38,6 +38,8 @@ Deliver the whole agreed body of work, handed back ready for testing. `working-d
 
 Blocked means work cannot proceed under any assumption: a missing credential, an access you cannot grant, a decision where guessing wrong would be unsafe or waste the work. Where a reasonable default exists, take it, write down the assumption, and keep working.
 
+**Checkpoint as you go.** Entering the mode authorizes `/checkpoint` for the length of the turn. Run it as each deliverable finishes, so a night's work is never one uncommitted change. It is the only git operation the mode authorizes — `/commit`, `/open-pr`, `/merge`, `/ship-main` and `/deploy` still wait for the human's own instruction. On `main`, the first checkpoint cuts a `wip/` branch, which is the intent.
+
 **Verify your own work.** Drive the browser, run the flows, run the suite, and work through the failures. "Ready for testing" means you tested it and it works.
 
 **Finish clean.** No half-finished states, no `TODO` left in place of work that was in scope, no servers still running, no scratch files in the tree.

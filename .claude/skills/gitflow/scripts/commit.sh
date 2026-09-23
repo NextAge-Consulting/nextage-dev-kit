@@ -1,7 +1,7 @@
 #!/bin/bash
 # gitflow commit: full conventional commit with AI-generated message.
 # Usage: commit.sh --message "<full conventional message>" [--model "Claude Opus 4.7"] [--skip-typecheck]
-#                  [--complete "<N[,N…]>"]
+#                  [--complete "<N[,N…]>" --notes <dir>]
 #        commit.sh --push-only
 #
 # Modes:
@@ -20,6 +20,8 @@
 #   - Mark the --complete issues code complete and move them to Staged. The
 #     slash command asks which linked issues are complete; this script only
 #     acts on the answer, and only after the push has landed.
+#   - Post each newly staged issue's comment from <notes_dir>/<N>.md. Refuses to
+#     run at all, before committing, when one is missing.
 #
 # Branch behavior:
 #   - On main/master: derive <type>/<slug> from message, create branch, commit on it.
@@ -46,6 +48,7 @@ PUSH_ONLY=0
 REVIEW=0
 NO_REVIEW=0
 COMPLETE_ISSUES=""
+NOTES_DIR=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -55,6 +58,7 @@ while [[ $# -gt 0 ]]; do
         --push-only)       PUSH_ONLY=1; shift 1 ;;
         --review)          REVIEW=1; shift 1 ;;
         --no-review)       NO_REVIEW=1; shift 1 ;;
+        --notes)           NOTES_DIR="$2"; shift 2 ;;
         --complete)
             COMPLETE_ISSUES=$(parse_issue_csv "$2")
             if [ -z "$COMPLETE_ISSUES" ]; then
@@ -116,6 +120,10 @@ CURRENT_BRANCH=$(git branch --show-current)
 # A --complete number that is not linked here fails now, before anything is
 # committed. The links are still on this branch — migration below carries them.
 if [ -n "$COMPLETE_ISSUES" ] && ! validate_complete_issues "$COMPLETE_ISSUES" "$CURRENT_BRANCH"; then
+    exit 2
+fi
+# Every issue about to reach Staged needs its comment written first.
+if [ -n "$COMPLETE_ISSUES" ] && ! require_staged_notes "$COMPLETE_ISSUES" "$NOTES_DIR" "$CURRENT_BRANCH"; then
     exit 2
 fi
 
@@ -280,6 +288,10 @@ if [ -n "$COMPLETE_ISSUES" ]; then
         exit 11
     fi
     echo "gitflow: code complete → Staged: $(format_issue_refs "$COMPLETE_ISSUES")." >&2
+    if ! post_staged_notes "$COMPLETE_ISSUES" "$NOTES_DIR" "$CURRENT_BRANCH"; then
+        echo "commit.sh: the commit, push and board update landed; only a Staged comment failed (see above)." >&2
+        exit 13
+    fi
 fi
 
 # Trigger Gemini re-review on the new HEAD ONLY when --review was passed.

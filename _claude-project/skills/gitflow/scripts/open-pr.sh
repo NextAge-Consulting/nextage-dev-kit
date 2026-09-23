@@ -38,6 +38,7 @@ BODY=""
 BASE="main"
 DRAFT=""
 COMPLETE_ISSUES=""
+NOTES_DIR=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -45,6 +46,7 @@ while [[ $# -gt 0 ]]; do
         --body)             BODY="$2"; shift 2 ;;
         --base)             BASE="$2"; shift 2 ;;
         --draft)            DRAFT="--draft"; shift 1 ;;
+        --notes)            NOTES_DIR="$2"; shift 2 ;;
         --complete)
             COMPLETE_ISSUES=$(parse_issue_csv "$2")
             if [ -z "$COMPLETE_ISSUES" ]; then
@@ -93,6 +95,11 @@ if [ -n "$UNCONFIRMED" ]; then
     echo "  Opening the PR marks every linked issue Staged. Confirm with --complete \"${UNCONFIRMED// /,}\"," >&2
     echo "  or keep working and /commit when they are done." >&2
     exit 12
+fi
+# Every linked issue reaches Staged below, so every one still without its
+# comment needs it written now — before the push.
+if ! require_staged_notes "$(read_branch_linked_issues "$CURRENT_BRANCH")" "$NOTES_DIR" "$CURRENT_BRANCH"; then
+    exit 2
 fi
 
 # ─── Inject Closes #N from branch-scoped linked issues ────────────────────
@@ -236,6 +243,10 @@ if [ -n "$LINKED_ISSUES" ]; then
     if ! stage_complete_issues "$LINKED_ISSUES" "$CURRENT_BRANCH"; then
         echo "open-pr.sh: the PR is open; only the board update failed. Fix the cause and set the status on the board." >&2
         exit 11
+    fi
+    if ! post_staged_notes "$LINKED_ISSUES" "$NOTES_DIR" "$CURRENT_BRANCH"; then
+        echo "open-pr.sh: the PR is open and the board updated; only a Staged comment failed (see above)." >&2
+        exit 13
     fi
 fi
 

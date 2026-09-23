@@ -9,6 +9,7 @@
 //
 // Invoke (subprocess, not import — the supported cross-skill sharing mechanism):
 //   node <this> <repoRoot> <dataJsonPath> [outHtmlPath]
+//   E2E output defaults to logs/e2e/<project>-e2e-<YYYYMMDD>.html (local date).
 //
 // Two input shapes are accepted:
 //
@@ -24,7 +25,7 @@
 //                     `html` is arbitrary self-contained HTML (prose, tables,
 //                     inline SVG). `images` are embedded + lightboxed by this tool.
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { resolve, dirname, basename } from "node:path";
 
 const root = resolve(process.argv[2] || ".");
 const dataPath = resolve(process.argv[3] || resolve(root, "logs/e2e/results.json"));
@@ -161,7 +162,14 @@ ${isE2e ? flowHtml : sectionHtml}
 ${data.footer ? `<p class="foot">${data.footer}</p>` : ""}
 </div></body></html>`;
 
-const out = resolve(process.argv[4] || resolve(root, isE2e ? "logs/e2e/report.html" : "report.html"));
+// An E2E report is named for the project and the day it ran —
+// `logs/e2e/<project>-e2e-<YYYYMMDD>.html`, the project being the repo directory
+// lower-cased — so a report shared outside the repo still says what it is, and a
+// new day's run does not overwrite the one already sent.
+const today = new Date();
+const stamp = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
+const e2eName = `logs/e2e/${basename(root).toLowerCase()}-e2e-${stamp}.html`;
+const out = resolve(process.argv[4] || resolve(root, isE2e ? e2eName : "report.html"));
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, html);
 console.log("wrote " + out + " (" + Math.round(html.length / 1024) + " KB, " + N + " images)");

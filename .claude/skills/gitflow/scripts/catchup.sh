@@ -2,7 +2,7 @@
 # gitflow catchup: refresh local code from origin. Two execution paths
 # depending on which branch is checked out at invocation time:
 #
-#   1. On main/master (no current/ in flight, OR user just wants latest code
+#   1. On main/master (between bodies of work, OR user just wants latest code
 #      for review) — fetches origin/<base> and fast-forwards local main.
 #      Refuses if local main has diverged (has local-only commits).
 #
@@ -20,10 +20,10 @@
 #     inserted entries under the same changelog anchor — observed 2026-05-12
 #     on PRs #147/#148). Code touched by the upstream change diverges from
 #     the branch's assumptions, surfacing as runtime breakage post-merge.
-#   - Local main goes stale between sessions. a dev starts /work two days
-#     after another dev's merges + deploys; without an explicit refresh, /work
-#     creates the new current/ off a stale view of main. Today the create
-#     path silently fetches; this primitive makes the refresh explicit and
+#   - Local main goes stale between sessions. A dev starts /work two days
+#     after another dev's merges + deploys; /work fast-forwards main when it
+#     can but skips on a dirty tree or a failed fetch, and the next branch is
+#     then cut off a stale main. This primitive makes the refresh explicit and
 #     fail-loud.
 #
 # Before this primitive existed, the only paths were (a) `git merge origin/main`

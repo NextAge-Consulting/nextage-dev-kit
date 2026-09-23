@@ -38,10 +38,24 @@ Empty → no question. Otherwise ask in prose and wait — "Are any of #42, #43 
 Complete ones are named as closed by this commit and move to Staged." Map the answer to
 `--complete "<N,N>"`, or pass nothing.
 
+**Then write the Staged comment for each issue reaching Staged** — those already complete
+plus the ones just confirmed — that has not had one; the issue's author reviews against it.
+List them:
+
+```bash
+bash -c 'source .claude/skills/gitflow/scripts/issue_helpers.sh && issues_needing_notes "$(read_branch_complete_issues) <N N>"'
+```
+
+Read `.claude/skills/gitflow/references/staged-comment.md` and the issue itself
+(`gh issue view <N>`), then write one file per issue, `<notes_dir>/<N>.md`, in a scratch
+directory outside the repo (`mktemp -d`). Pass it as `--notes <notes_dir>`. Write it and
+move on — never put the wording to the human for approval. The script refuses before
+committing (exit 2) when one is missing, and posts each once the board has moved.
+
 ### Step 4: Invoke the script
 
 ```bash
-.claude/skills/gitflow/scripts/ship-main.sh --message "<conventional message>" [--skip-typecheck] [--complete "<N,N>"]
+.claude/skills/gitflow/scripts/ship-main.sh --message "<conventional message>" [--skip-typecheck] [--complete "<N,N>" --notes <notes_dir>]
 ```
 
 The script:
@@ -55,6 +69,8 @@ The script:
 - Success: confirm the commit is live on `main` (SHA + subject), and which issues it named and moved to Staged. No PR URL — there is none by design.
 - `--complete` names an issue not linked on `main`: exit 2, nothing committed.
 - Board update failed after the push: exit 11. The commit is live; the next `/deploy` still moves the named issues to the deploy status.
+- An issue reaching Staged has no comment in `--notes`: exit 2, nothing committed.
+- A Staged comment did not post after the push: exit 13. The commit is live and the board updated; the script prints the exact `gh issue comment` to run.
 - Refused (not on main): tell the user they're on `<branch>`; use `/commit` for branch work.
 - Typecheck failure: surface the command to run; offer `--skip-typecheck` only if the user explicitly accepts shipping unverified.
 - Biome or semgrep failure: surface the finding. `--skip-typecheck` does not apply — fix it, or ship the change through `/commit` and a PR instead.
@@ -71,7 +87,7 @@ If the push fails the links stay put, so a retry names the same issues.
 ## What this does NOT do
 
 - Does NOT open a PR or run CI — `pull_request` workflows don't fire on a push to `main`, and that's the point.
-- Does NOT deploy — deploy workflows are `workflow_dispatch:`-only; a main push triggers nothing. Run `/deploy` to ship.
+- Does NOT deploy — a deploy starts only when `/deploy` dispatches it; a main push triggers nothing. Run `/deploy` to ship.
 - Does NOT bump version or write changelog — `/deploy` owns that; your ship-main commits get folded into the next release automatically.
 - Does NOT auto-branch — that's `/commit`'s job and the whole reason `/ship-main` is separate.
 

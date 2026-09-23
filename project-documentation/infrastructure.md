@@ -4,7 +4,7 @@ How the box under a kit-pipeline app is normally built. **This is how we do it, 
 the only way to do it** — a project is free to diverge with a reason.
 
 A reference, read when relevant. Not a rule, not enforced, not synced into consumer
-projects. The kit ships no `deploy.yml` because deploy targets vary (handbook §11.9);
+projects. The kit ships no buildspec because deploy targets vary (handbook §11.9);
 what does not vary in practice is the shape below, and re-deriving it per project is
 how pieces get silently skipped.
 
@@ -53,9 +53,10 @@ Check what is actually attached before believing any of this is true of a given 
 
 ## What the pipeline assumes about the box
 
-The per-project workflows — `deploy-<app>.yml`, `migrate.yml`, `db-backup.yml` — are
-project-specific precisely because they encode these assumptions. The kit templates none
-of them, but the shape below is what they all expect to find.
+The per-project pipeline files — the deploy buildspec, the migrate buildspec and the
+backup image with its script and task definition — are project-specific precisely because
+they encode these assumptions. The kit templates none of them, but the shape below is what
+they all expect to find.
 
 **They stay project-owned; this is settled, not pending.** Their differences are real
 rather than drift: backup cadence and retention follow a client's own risk-versus-cost
@@ -89,16 +90,25 @@ real rollback depth is the current release plus one prior. Untagged layers still
 by a live `buildcache` manifest list are never expired; ECR refuses to break a manifest list,
 so a repository legitimately retains untagged images beyond the count.
 
-**The deploy workflow asserts both and fails when either is missing.** That assertion, not
-this document, is what prevents recurrence. No `deploy.yml` is templated, so the requirement
-has to travel with the file people actually copy: a service is added to an existing project
-by copying a neighbouring workflow, never by re-reading a setup doc. The check itself, the
+**The deploy buildspec asserts both in `pre_build` and fails when either is missing.** That
+assertion, not this document, is what prevents recurrence. No buildspec is templated, so the
+requirement has to travel with the file people actually use: a service is added to an
+existing project by pointing a new CodeBuild project at the same shared buildspec, never by
+re-reading a setup doc. The check itself, the
 read-only `ecr:GetLifecyclePolicy` grant it needs, and why it must distinguish a missing
 policy from a missing permission are in `new-project-setup.md` §7a.
 
 **Sweep established projects and every new account.** A missing policy never fails a build,
 so nothing surfaces it retroactively, and an account nobody has audited is where it hides.
 §7a's verify block loops every repository in a region and is the entire audit.
+
+**Base images come from the ECR Public mirror, never `docker.io`.** Write
+`FROM public.ecr.aws/docker/library/<image>:<tag>` — the same official image, served from
+inside AWS. Build compute pulls anonymously from shared addresses, so every service in a
+fleet deploy draws on one Docker Hub rate limit; the fleet races it and builds fail with
+`429 Too Many Requests` on a change that was fine. It surfaces as a failed deploy after
+the migration has already run, which is the worst point for it. Comment the `FROM` with
+why, so the next Dockerfile copied from it keeps the mirror.
 
 **Runtime configuration lives in SSM Parameter Store**, fetched by path at deploy time.
 Not baked into the image, not a `.env` sitting on the box. Rotating a value is a parameter
@@ -324,7 +334,7 @@ necessary and not sufficient; with no agent installed the role changes nothing a
 instance simply never appears in `describe-instance-information`, which reads like an IAM
 problem and is not one. Check the AMI before concluding anything about permissions.
 
-**Backups ping a dead-man's-switch.** The dump is pushed to S3 and the workflow pings a
+**Backups ping a dead-man's-switch.** The dump is pushed to S3 and the backup task pings a
 healthcheck URL on success. A backup job that silently stops running looks exactly like a
 backup job that is working, and the ping is the only thing that distinguishes them.
 
@@ -430,7 +440,7 @@ ones. An established project is where these hide, because nothing ever surfaced 
 | Check | Command | Wrong answer looks like |
 |---|---|---|
 | A WAF is actually attached | `aws wafv2 list-web-acls --scope REGIONAL` then `list-resources-for-web-acl` | An empty list. A project ran for months with an ALB and no WAF, and nothing anywhere reported it |
-| The public IP is Elastic, not auto-assigned | `aws ec2 describe-instances --query 'Reservations[].Instances[].NetworkInterfaces[].Association.IpOwnerId'` | `amazon` — the IP **moves on stop/start**, silently breaking `EC2_HOST` secrets and any A record pointing at it |
+| The public IP is Elastic, not auto-assigned | `aws ec2 describe-instances --query 'Reservations[].Instances[].NetworkInterfaces[].Association.IpOwnerId'` | `amazon` — the IP **moves on stop/start**, breaking anything that addresses the box by IP rather than by instance ID or through the load balancer |
 | The instance group is not world-open | `aws ec2 describe-security-groups` | Any `0.0.0.0/0` on the *instance* group. `:80` there bypasses the WAF entirely; `:22` there is a standing invitation |
 | Containers can reach the instance role | `aws ec2 describe-instances --query 'Reservations[].Instances[].MetadataOptions.HttpPutResponseHopLimit'` | A `1`. The host gets credentials and every container is refused them, reported as `Could not load credentials from any providers` |
 | SSH is closed and SSM works | `aws ssm describe-instance-information` | Agent absent while `:22` is open — the port cannot be closed until the agent is proven |

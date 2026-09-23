@@ -97,9 +97,9 @@ Produce a **self-contained HTML report** so the user can fire off a run, come ba
 
 **Use the shared generator — do NOT hand-roll the HTML/CSS each run.** The template, theme, and lightbox live in `.claude/lib/gen-report.mjs` (a shared kit tool — the analysis skill uses it too; learned once, not re-derived). You supply only the data: write the run to `logs/e2e/results.json`, then run it:
 ```bash
-node "$CLAUDE_PROJECT_DIR"/.claude/lib/gen-report.mjs . logs/e2e/results.json   # → logs/e2e/report.html
+node "$CLAUDE_PROJECT_DIR"/.claude/lib/gen-report.mjs . logs/e2e/results.json   # → logs/e2e/<project>-e2e-<YYYYMMDD>.html
 ```
-The `results.json` shape (title, subtitle, note, extraStats, flows[] with steps + shots) is documented in the script header. `shots` paths are relative to `logs/e2e/`. Then hand `logs/e2e/report.html` to the user with SendUserFile. The generator guarantees everything below — this list is the contract it fulfils, not a manual checklist:
+The `results.json` shape (title, subtitle, note, extraStats, flows[] with steps + shots) is documented in the script header. `shots` paths are relative to `logs/e2e/`. The report is named `<project>-e2e-<YYYYMMDD>.html` — the repo directory lower-cased and the run's local date — and the script prints the path it wrote. Hand that file to the user with SendUserFile; never rename it or pass an output path of your own. The generator guarantees everything below — this list is the contract it fulfils, not a manual checklist:
 
 - **One file, fully self-contained.** Inline every screenshot as a base64 `data:` URI — no external links to break when the file is opened later.
 - **Screenshots open in a true lightbox.** Click a thumbnail to view full-size; the overlay has a visible **✕ close** (top-right), **‹ ›** prev/next arrows that walk every screenshot in the report (wrap-around), and an **"N / total" counter**; the dark backdrop also closes. Pure CSS `:target` only (no JS — it must render in the side panel), one `<img>` per shot (no data duplication). Wire prev/next by giving each shot a global index and pointing the arrows at the neighbouring shot's id (`#shot{i±1}`, modulo the count).

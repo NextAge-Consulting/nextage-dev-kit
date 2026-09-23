@@ -326,7 +326,7 @@ The script reads `git branch --show-current` against cwd's git context, so it op
 
 `/catchup` is the single command for "refresh the branch I'm on from origin." Behavior depends on which branch is checked out at invocation:
 
-- **On main (primary repo, no current/ active OR just reviewing):** fetch `origin/main`, fast-forward local main. Fail-loud on dirty main or local-only commits (anomalous under gitflow). This is what you run when starting a session after someone else has merged + deployed and you want your local repo current before doing anything else.
+- **On main (between bodies of work, or just reviewing):** fetch `origin/main`, fast-forward local main. Fail-loud on dirty main or local-only commits (anomalous under gitflow). This is what you run when starting a session after someone else has merged + deployed and you want your local repo current before doing anything else.
 - **On a feature branch:** merge `origin/<base>` (default `main`) INTO the feature branch via `--no-ff`. Push via `safe_push`.
 
 One mental model: "catchup brings the branch I'm on up to date with origin."
@@ -401,7 +401,7 @@ Checkpoints are meant to be fast. Skip analysis. No changelog. No version.
 | Verify CI + Gemini ready on HEAD, squash-merge PR | Claude (via `/merge`) | Local or cloud |
 | Bump version + write changelog + tag + push + trigger deploy | Claude (via `/deploy`) | Local |
 
-Dev actions per PR: `/open-pr` to start, `/triage` if Gemini has items, `/merge` to land on main. **`/merge` does NOT ship.** Multiple merged PRs accumulate on main; when ready to release, run `/deploy` to bump version, generate the consolidated changelog entry, tag, push, and fire `deploy.yml`. The readiness wait inside `/open-pr` / `/triage` / `/merge` is the same poll loop — the user sits at the keyboard while CI/Gemini run, the script blocks until ready or fails loud on timeout.
+Dev actions per PR: `/open-pr` to start, `/triage` if Gemini has items, `/merge` to land on main. **`/merge` does NOT ship.** Multiple merged PRs accumulate on main; when ready to release, run `/deploy` to bump version, generate the consolidated changelog entry, tag, push, and dispatch the deploy (CodeBuild projects by default). The readiness wait inside `/open-pr` / `/triage` / `/merge` is the same poll loop — the user sits at the keyboard while CI/Gemini run, the script blocks until ready or fails loud on timeout.
 
 ### 6.2. `/open-pr` procedure
 
@@ -430,7 +430,7 @@ Note: `/open-pr` does NOT touch `changelog.md`; `/deploy` is the single changelo
 3. Command calls `skills/gitflow/scripts/merge.sh`:
    - **Local production build gate** — `npm run build --workspaces --if-present`, run before the readiness wait and before the squash (exit 15 on failure, nothing merged). CI type-checks, lints and tests but never builds, so a build-only break (bundler / Tailwind / an import alias a package's own tsconfig doesn't map) is invisible to every earlier gate. `/merge` is the last moment the PR is still OPEN — a failure here is fixed on the branch that caused it, inside the PR already under review, instead of needing a second PR to repair the first. Not in CI on purpose: CI fires on every push, so building there would tax every commit, `/open-pr` and triage fix; once per merge is the right frequency. `--workspaces` is added only when `package.json` actually declares a `workspaces` key (jq-tested — it errors on a single-package repo); a repo with no `package.json` skips the gate entirely. `--force-unchecked` bypasses it along with the CI gate.
    - Invokes `wait-for-pr-ready.sh` (same poll as `/open-pr` step 5) — trigger-aware: catches the post-`/triage` case where the user invoked `/commit --review` and a fresh Gemini review is expected on the new HEAD. `/commit --no-review` posts no trigger and the wait proceeds CI-only. Bypassable via `--force-unchecked` for emergency hotfixes only (skips CI too).
-   - On wait exit 0: `gh pr merge --squash --delete-branch`
+   - On wait exit 0: `gh pr merge --squash` with the PR's own title and body as the commit message — explicit, because GitHub's default squash message depends on a per-repository setting, and its "commit messages" option drops the PR body and with it the `Closes #N` line `/deploy` reads (exit 22 if the title or body cannot be read, nothing merged). The remote branch is deleted afterwards as a separate, best-effort step.
    - **Post-merge cleanup**: switch this checkout to `main`, fast-forward it to the merged tip, delete the now-merged local branch, and reinstall dependencies if landing on the new `main` changed a package manifest.
 4. **No further action needed from Claude.** The checkout is standing on the merged `main`; the next `/work` cuts a fresh branch from there.
 5. **No automated post-merge action.** No version bump, no tag, no deploy. The squash commit sits on main until `/deploy` is invoked. Multiple merges may accumulate between deploys.
@@ -452,7 +452,7 @@ Note: `/open-pr` does NOT touch `changelog.md`; `/deploy` is the single changelo
 
 > **`/deploy` pushes the version bump DIRECTLY to `main`** — no release branch, no PR, no admin-merge. It reuses the same direct-to-main mechanism as `/ship-main` (§6.8). The bump commit + tag ARE the release record. This works because the pipeline uses no branch protection and `main` does not require a PR (pipeline.md §1.1, new-project-setup.md step 3). No command admin-merges: `/deploy` direct-pushes the bump, and `/sync-dev-kit` does no git at all (it stamps the lockfile and leaves the synced files for the user to land via `/ship-main`). So `enforce_admins: false` is not required by anything.
 
-`/deploy` is the **human-serialized release boundary**: bump and deploy fire in one invocation, in order, so the source-of-truth version and the deployed artifact match by construction — no skew. The bump commit lands on `main` moments before `gh workflow run deploy.yml` fires; the deploy reads the just-bumped source. (See §11.2 for why auto-bump-on-merge is forbidden.)
+`/deploy` is the **human-serialized release boundary**: bump and deploy fire in one invocation, in order, so the source-of-truth version and the deployed artifact match by construction — no skew. The bump commit lands on `main` moments before the deploy is dispatched; the deploy reads the just-bumped source. (See §11.2 for why auto-bump-on-merge is forbidden.)
 
 File: `.claude/skills/gitflow/scripts/deploy.sh` (per project, kit-synced). Slash command spec: `_claude-project/commands/deploy.md`.
 
@@ -481,14 +481,14 @@ File: `.claude/skills/gitflow/scripts/deploy.sh` (per project, kit-synced). Slas
    - Commit bump + changelog ON `main` as `🚀 release: v<NEW>` (`--no-verify`; validation already ran)
    - **Push `main` directly** to origin. If `origin/main` advanced, rebase the bump commit onto it and re-push; on conflict, stop and surface for resolution. The bump commit + tag are the release record — no release branch, no PR, no admin-merge.
    - `git tag v<NEW> <bump-sha>` and `git push origin v<NEW>` (tags aren't gated by `branches/*` protection rules; tag-protection rules are separate and only need configuration if cross-account tag pollution is a concern)
-   - **Migration phase (if `MIGRATE_WORKFLOW` is set):** `gh workflow run <migrate-wf> --ref main`, then watch it to completion **gated** — a real migration failure aborts the deploy here (exit 18 trigger / 19 run) BEFORE any app workflow fires. Always watched, even under `--no-watch` (that flag only governs the app-deploy watch). Deploying app images against a failed/half-applied schema is the failure mode this gate exists to prevent. **Skipped entirely** when `MIGRATE_PATHS` is set and `git diff --name-only <last-tag>..HEAD -- <MIGRATE_PATHS>` is empty (no migration files changed since the last deploy) — no runner is spun up. See the **Migration phase** subsection below.
-   - For each workflow in `DEPLOY_WORKFLOWS` (resolved via the per-project `.claude/sync-substitutions.json`; falls back to `deploy.yml` if unset AND no `MIGRATE_WORKFLOW`), run `gh workflow run <wf> --ref main` — fires the deploy against post-bump HEAD. Split-deploy consumers (e.g. `deploy-web.yml deploy-worker.yml`) trigger every listed workflow; single-app consumers see no behavior change. A migrate-only repo (`MIGRATE_WORKFLOW` set, `DEPLOY_WORKFLOWS` empty) stops after the migration phase — no `deploy.yml` fallback.
-   - `gh run watch` per workflow (unless `--no-watch`) until each finishes; surfaces failure URL on the first failure.
+   - **Migration phase (if `MIGRATE_WORKFLOW` is set):** dispatch the migration — `aws codebuild start-build` on the migrate project under the default `codebuild` backend, `gh workflow run <migrate-wf> --ref main` under `github` — then watch it to completion **gated**: a real migration failure aborts the deploy here (exit 18 trigger / 19 run) BEFORE any app deploy is dispatched. Always watched, even under `--no-watch` (that flag only governs the app-deploy watch). Deploying app images against a failed/half-applied schema is the failure mode this gate exists to prevent. **Skipped entirely** when `MIGRATE_PATHS` is set and `git diff --name-only <last-tag>..HEAD -- <MIGRATE_PATHS>` is empty (no migration files changed since the last deploy) — no build is started. See the **Migration phase** subsection below.
+   - For each service in `DEPLOY_WORKFLOWS` (resolved via the per-project `.claude/sync-substitutions.json`; falls back to `deploy.yml` if unset AND no `MIGRATE_WORKFLOW`), dispatch its deploy against post-bump HEAD — `aws codebuild start-build` on `<CODEBUILD_PROJECT_PREFIX><service>` under `codebuild`, `gh workflow run <wf> --ref main` under `github`. A migrate-only repo (`MIGRATE_WORKFLOW` set, `DEPLOY_WORKFLOWS` empty) stops after the migration phase — no `deploy.yml` fallback.
+   - Watch the deploys (unless `--no-watch`): under `codebuild` the fleet is polled together and every build's status is reported before a failure exits; under `github` each run is watched in turn with `gh run watch`.
 
-5. **Reporting**: success → report `v<NEW>` + workflow run URL. Failure modes (state gates, bump, push, tag push, workflow trigger, deploy run, migration trigger/run) all exit non-zero with specific codes — Claude surfaces the code + stderr and stops. Exits 18 (migration trigger failed) / 19 (migration run failed or run-id unresolved) abort before any app deploy.
+5. **Reporting**: success → report `v<NEW>` + the build (or workflow run) URL. Failure modes (state gates, bump, push, tag push, deploy dispatch, deploy build, migration trigger/run) all exit non-zero with specific codes — Claude surfaces the code + stderr and stops. Exits 18 (migration trigger failed) / 19 (migration run failed or run-id unresolved) abort before any app deploy.
 
 **What `/deploy` does NOT do:**
-- Does NOT run a separate CI / lint / typecheck pass for code — those gates already fired on the merged feature PRs (the local build gate in step 2 is the one exception, catching build-only breaks before the cloud workflows rebuild images).
+- Does NOT run a CI, lint, typecheck or build pass — those gates already fired on the merged feature PRs, and `/merge` owns the production build gate while the PR is still open. A `/ship-main` commit reaches `/deploy` with no gate by design.
 - Does NOT open a release PR or admin-merge anything — the bump commit pushes straight to `main` (require-PR off, the default). `/deploy` no longer needs `enforce_admins: false`.
 - Does NOT auto-bump on every feature-PR merge (the bot-PR pattern caused version-skew; see §11.2).
 - Does NOT infer the changelog from PR descriptions — uses commit subjects since last tag.
@@ -498,22 +498,22 @@ File: `.claude/skills/gitflow/scripts/deploy.sh` (per project, kit-synced). Slas
 **Migration audit when adopting direct-push deploy:** `/sync-dev-kit` brings `deploy.sh` (direct-push, no release branch / PR / admin-merge) + `commands/deploy.md`. Consumer-side checks:
 1. Confirm `main` does not require a PR (the default — pipeline.md §1.1). With require-PR on, the direct push to main is rejected.
 2. Confirm `.commitlintrc.json` includes `"release"` in `type-enum` (the `🚀 release:` subject still flows through the bump-level scan).
-3. Confirm every workflow named in `DEPLOY_WORKFLOWS` is `workflow_dispatch:` ONLY (§11.4) — push-to-main and tag-push triggers will double-fire. Single-app consumers can leave `DEPLOY_WORKFLOWS` empty (defaults to `deploy.yml`); split-deploy consumers populate the substitution with a space-separated workflow list.
+3. Confirm every name in `DEPLOY_WORKFLOWS` has a dispatch target: under `codebuild`, a CodeBuild project named `<CODEBUILD_PROJECT_PREFIX><service>`; under `github`, a workflow whose ONLY trigger is `workflow_dispatch:` (§11.4) — push-to-main and tag-push triggers would double-fire.
 
 **Split-deploy consumers (`DEPLOY_WORKFLOWS` substitution).** The substitution lives in `.claude/sync-substitutions.json` (runtime-read by `deploy.sh` via `jq`, NOT placeholder-substituted into any kit template). Format: space-separated workflow filenames, e.g. `"deploy-shop.yml deploy-dealer.yml"`. Behavior:
 - Empty / missing → `deploy.sh` falls back to `deploy.yml`.
-- Populated → `deploy.sh` triggers each workflow in turn and (unless `--no-watch`) watches each run sequentially.
-- The `--workflow <name>` CLI flag (repeatable) overrides the substitution for one-off invocations — useful for re-firing a single split-deploy after a partial failure.
+- Populated → `deploy.sh` dispatches every listed service: concurrently under `codebuild`, one watched run at a time under `github`.
+- Bare service names on the command line (`/deploy worker`) or the repeatable `--workflow <name>` flag override the substitution for one invocation — useful for re-firing a single service after a partial failure.
 
-**Migration phase (`MIGRATE_WORKFLOW` substitution).** A single workflow that `/deploy` runs as **step 1** — once, before any app deploy, watched to completion and gated. Solves two problems: (a) in a split-deploy monorepo, the schema migration was duplicated inside all N app deploy workflows (no-op in the trailing N−1, but present "in case one runs alone"); pulling it to a single gated pre-step runs it exactly once; (b) a DB-only repo (no UI / no app artifact — e.g. a service that maintains a database for a legacy app) can `/deploy` to migrate with zero app workflows.
+**Migration phase (`MIGRATE_WORKFLOW` substitution).** A single workflow that `/deploy` runs as **step 1** — once, before any app deploy, watched to completion and gated. Solves two problems: (a) in a split-deploy monorepo, the schema migration was duplicated inside all N app deploy workflows (no-op in the trailing N−1, but present "in case one runs alone"); pulling it to a single gated pre-step runs it exactly once; (b) a DB-only repo (no UI / no app artifact — e.g. a service that maintains a database for a legacy app) can `/deploy` to migrate with zero app deploys.
 
-- Substitution lives in `.claude/sync-substitutions.json` (runtime-read by `deploy.sh` via `jq`, NOT placeholder-substituted). Single workflow filename. `--migrate-workflow <file>` CLI flag overrides it.
+- Substitution lives in `.claude/sync-substitutions.json` (runtime-read by `deploy.sh` via `jq`, NOT placeholder-substituted). A single `migrate.yml`-shaped name: under `codebuild` it maps to the migrate project by prefix (or `CODEBUILD_MIGRATE_PROJECT`), under `github` it is the workflow filename. `--migrate-workflow <file>` CLI flag overrides it.
 - Empty / missing → no migration phase (prior behavior; any migration stays inline in the app deploy workflows).
-- Set → `deploy.sh` triggers it, resolves its run id, and `gh run watch --exit-status`. Real failure → exit 19, deploy aborts before any app workflow.
+- Set → `deploy.sh` dispatches it and waits for it to finish. Real failure → exit 19, deploy aborts before any app deploy.
 - `MIGRATE_WORKFLOW` set + `DEPLOY_WORKFLOWS` empty → **migration-only deploy** (no `deploy.yml` fallback). This is the DB-maintenance-repo shape.
-- Migration is **never invoked on its own** — there is no `/migrate` command. It exists only as deploy's first phase (you would never migrate without deploying). The `workflow_dispatch:` trigger on the migrate workflow is purely the mechanical hook `deploy.sh` uses to fire it.
+- Migration is **never invoked on its own** — there is no `/migrate` command. It exists only as deploy's first phase (you would never migrate without deploying). The migrate project (or, under `github`, the migrate workflow's `workflow_dispatch:` trigger) is purely the mechanical hook `deploy.sh` uses to fire it.
 
-**Migration-skip (`MIGRATE_PATHS` substitution).** The migration *step* is already idempotent (drizzle-kit skips applied migrations), but firing the workflow at all costs ~2 min — runner boot + `npm ci` just to reach a no-op. `MIGRATE_PATHS` lets `deploy.sh` decide *locally, before spinning any runner* whether the workflow is worth firing.
+**Migration-skip (`MIGRATE_PATHS` substitution).** The migration *step* is already idempotent (drizzle-kit skips applied migrations), but dispatching it at all costs ~2 min — build boot + `npm ci` just to reach a no-op. `MIGRATE_PATHS` lets `deploy.sh` decide *locally, before starting any build* whether the migration is worth dispatching.
 
 - Space-separated git pathspec(s) naming where migration files live (drizzle: `apps/shared/src/db/migrations`; Prisma: `prisma/migrations`; Alembic: `alembic/versions`). **Multiple paths supported** — a repo with several databases lists every migration dir; the workflow fires if *any* changed. Runtime-read from `.claude/sync-substitutions.json`; `--migrate-paths <path>...` overrides.
 - Before firing `MIGRATE_WORKFLOW`, `deploy.sh` runs `git diff --name-only "$LAST_TAG"..HEAD -- $MIGRATE_PATHS`. **Empty → skip the workflow entirely** (nothing to apply). Non-empty → fire as normal.
@@ -534,24 +534,26 @@ The key answers exactly one question — what else must be set — and nothing m
 - **The migrate gate is identical on both dispatching backends:** watched to completion, a real failure aborts (exit 18 trigger / 19 run) before any app ships.
 - `codebuild` requires the `aws` CLI (exit 8 without it) and `CODEBUILD_PROJECT_PREFIX` (exit 2 without it). Any other value for the key fails loud with exit 2 — before any bump, tag or push.
 
-**The migrate-workflow body contract (project-owned).** The kit owns the *orchestration*; the migrate workflow's *body* is project-specific (the kit ships no migrate workflow — deploys aren't generalizable). The body MUST:
+**The migrate-build body contract (project-owned).** The kit owns the *orchestration*; the migration's *body* — the migrate buildspec under `codebuild` — is project-specific (the kit ships none — deploys aren't generalizable). The body MUST:
 
-1. Run the project's migration command against the **production** database (e.g. `drizzle-kit migrate` with the prod `DATABASE_URL` read from Parameter Store by the CodeBuild service role). In a container-coupled deploy (SSH to EC2, `db:migrate` run inside the app container) the migrate workflow instead runs the migration standalone — `drizzle-kit migrate` needs only the DB URL and the `drizzle/` migration files, not a running app container.
-2. **Exit 0 on a no-op** (no pending migrations) and **non-zero only on a genuine failure.** `drizzle-kit migrate` is idempotent and on the documented happy path exits 0 when there's nothing to apply — but verify your `drizzle-kit` version's actual no-op exit behavior, because the orchestrator gates purely on the run conclusion: a spurious non-zero will (correctly, per the contract) abort the deploy. If your command false-fails on no-op, trap it in the step rather than letting the workflow report failure:
+1. Run the project's migration command against the **production** database (e.g. `drizzle-kit migrate` with the prod `DATABASE_URL` read from Parameter Store by the CodeBuild service role). Run it standalone — `drizzle-kit migrate` needs only the DB URL and the migration files, not a running app container. On Neon, read the **direct** (non-pooled) endpoint: the pooler runs in transaction mode and does not hold the session-level advisory lock drizzle-kit takes, so a pooled URL can half-apply a migration instead of failing cleanly. Validate the value's shape before using it, and never echo it.
+2. **Exit 0 on a no-op** (no pending migrations) and **non-zero only on a genuine failure.** `drizzle-kit migrate` is idempotent and on the documented happy path exits 0 when there's nothing to apply — but verify your `drizzle-kit` version's actual no-op exit behavior, because the orchestrator gates purely on the build's conclusion: a spurious non-zero will (correctly, per the contract) abort the deploy. If your command false-fails on no-op, trap it in the command rather than letting the build report failure:
 
    ```yaml
-   # reference pattern — adapt the no-op signal to YOUR command/version (verify first)
-   - name: migrate (no-op tolerant)
-     run: |
-       set -o pipefail
-       out=$(npm run db:migrate 2>&1) || {
-         # only swallow the verified no-op signal; re-raise everything else
-         if printf '%s' "$out" | grep -qiE 'no (pending )?migrations|nothing to (migrate|apply)'; then
-           printf '%s\n' "$out"; echo "no pending migrations — treating as success"; exit 0
+   # buildspec reference pattern — adapt the no-op signal to YOUR command/version (verify first)
+   build:
+     commands:
+       - |
+         if ! out=$(npm run db:migrate 2>&1); then
+           # only swallow the verified no-op signal; re-raise everything else
+           if printf '%s' "$out" | grep -qiE 'no (pending )?migrations|nothing to (migrate|apply)|already applied|up to date'; then
+             printf '%s\n' "$out"; echo "no pending migrations — treating as success"
+           else
+             printf '%s\n' "$out" >&2; exit 1
+           fi
+         else
+           printf '%s\n' "$out"
          fi
-         printf '%s\n' "$out" >&2; exit 1
-       }
-       printf '%s\n' "$out"
    ```
 
    Do NOT blanket `|| true` the migration — that swallows real failures and defeats the gate. The trap must match a *specific* no-op signal and re-raise anything else.
@@ -581,7 +583,7 @@ See `commands/triage.md` for the full procedure and edge cases.
 
 ### 6.8. `/ship-main` — the deliberate direct-to-main exception
 
-`/ship-main` commits a conventional message **directly on `main`** in the primary repo and pushes — no branch, no PR, no CI. It is the conscious exception for quick infra / config / emergency / "get it in and back to clean" work where a full branch → PR → CI → merge cycle is theater.
+`/ship-main` commits a conventional message **directly on `main`** and pushes — no branch, no PR, no CI. It is the conscious exception for quick infra / config / emergency / "get it in and back to clean" work where a full branch → PR → CI → merge cycle is theater.
 
 | Use `/ship-main` | Use `/commit` (the default) |
 |---|---|
@@ -658,7 +660,7 @@ Setting up a new project to use this kit:
    ```
 3. Commit the new `.claude/` and `.mcp.json`
 4. No branch protection to apply — the pipeline uses none (`/merge` self-gates; see `pipeline.md` §1.1). Just confirm `main` does not require a PR (the default), so the direct-push paths work.
-5. Copy `commitlint.yml` and `ci.yml` templates (below) into `.github/workflows/`. Author project-specific `deploy.yml` with `workflow_dispatch:` ONLY trigger (§11.4).
+5. Copy `commitlint.yml` and `ci.yml` templates (below) into `.github/workflows/`. If the project deploys, stand up its CodeBuild pipeline (`new-project-setup.md` step 7, §11.9) — dispatched only by `/deploy` (§11.4).
 7. Optional, per dev: set `EXA_API_KEY` in their shell rc (research tier 3; the built-in tools need no key)
 
 ---
@@ -949,43 +951,44 @@ Version bump + tag live in the local `/deploy` command (§6.5), never in a CI wo
 
 ### 11.4. Deploy trigger contract (MANDATORY)
 
-**Consumer-project `deploy.yml` MUST use `workflow_dispatch:` as its ONLY trigger:**
+**A deploy starts only when `/deploy` dispatches it.** Nothing about a push, a tag, a merge or a schedule may start one.
+
+- **`codebuild` (the default):** every deploy and migrate CodeBuild project has **no source webhook and no schedule**. `deploy.sh` starts it with `aws codebuild start-build` against post-bump `main`.
+- **`github`:** every deploy and migrate workflow's ONLY trigger is `workflow_dispatch:`. `deploy.sh` fires it with `gh workflow run <wf> --ref main`.
 
 ```yaml
 on:
   workflow_dispatch:
 ```
 
-No `on: push: branches:`. No `on: push: tags:`. No cron, no schedule, no `workflow_run`. The deploy fires only when explicitly invoked — by `/deploy` (which calls `gh workflow run deploy.yml --ref main`) or via the GitHub Actions UI manual button.
+**Why dispatch ONLY:**
 
-**Why workflow_dispatch ONLY:**
+A trigger on tag push double-fires: `/deploy` creates the tag AND dispatches the deploy, so a tag-triggered build runs twice.
 
-Do NOT add `on: push: tags: ['v*.*.*']`. `/deploy` creates the tag locally AND fires the workflow directly via `gh workflow run`, so a tag-push trigger double-fires (once from the tag push, once from `gh workflow run`).
-
-Do NOT add `on: push: branches: [main]`. It reintroduces the pre-bump race (the deploy reads `package.json` before the bump) and makes *every* `/merge` ship, not just the merges the user intends as a release. `/merge` is not `/deploy` (§6.5).
+A trigger on push to `main` reintroduces the pre-bump race (the deploy reads `package.json` before the bump) and makes *every* `/merge` ship, not just the merges the user intends as a release. `/merge` is not `/deploy` (§6.5).
 
 **The contract:**
 
 ```
-/merge       → squash commit lands on main          → NOTHING fires
-/merge       → squash commit lands on main          → NOTHING fires
-/deploy      → bump + tag + push + gh workflow run  → deploy.yml fires once
-                                                       against post-bump HEAD
-                                                       with correct version
+/merge       → squash commit lands on main           → NOTHING fires
+/merge       → squash commit lands on main           → NOTHING fires
+/deploy      → bump + tag + push + dispatch          → each deploy fires once
+                                                        against post-bump HEAD
+                                                        with correct version
 ```
 
 Multiple merges between deploys are normal. The deploy ships everything since the last release tag in one bump.
 
-**What goes inside `deploy.yml` is unchanged.** Build steps, ECR push, EC2 SSH, db migrations, verification — all still consumer-specific. The kit does NOT ship a `deploy.yml` template because deploys are platform-specific (AWS / GCP / Vercel / Fly / Render / etc.). The kit ships only the trigger contract. Build out the body per platform docs.
+**What goes inside the deploy is consumer-specific** — build, ECR push, host rollout, verification. The kit ships no buildspec or `deploy.yml`, only this contract and the body pattern in §11.9.
 
-**Migration audit when adopting `/deploy`:** grep `deploy.yml` for any of these and remove:
+**Audit when adopting `/deploy`:** a CodeBuild project with a webhook or an EventBridge schedule attached, or a workflow with any of these, must lose it:
 
 - `on: push:` (any branches or tags)
 - `on: schedule:`
 - `on: workflow_run:`
-- `if: !contains(github.event.head_commit.message, 'chore: bump version')` — dead code under `workflow_dispatch` only; remove it
+- `if: !contains(github.event.head_commit.message, 'chore: bump version')` — dead code under dispatch-only; remove it
 
-If `deploy.yml` does anything that needs a "fire automatically on X" hook, that work belongs in a separate workflow, not in the deploy.
+If the deploy does anything that needs a "fire automatically on X" hook, that work belongs somewhere else, not in the deploy.
 
 ### 11.5. Changelog generation (not a workflow)
 
@@ -1045,9 +1048,11 @@ Issue↔branch↔PR linking is first-class in the gitflow subsystem. Two command
 
 Board transition + assignment are **fail-loud when configured** — see the failure-semantics table in the gitflow-project-integration subsection below. `GITFLOW_PROJECT_ID` empty = feature off, silent skip. Any other broken state (missing scope, wrong option ID, issue not on the configured project) = script exits non-zero with the underlying cause.
 
-**Storage**: `git config --local branch.<name>.gitflow-issues = "23 25 26"` — git wipes on branch delete, no stray metadata files. Code-complete marks sit beside it in `branch.<name>.gitflow-complete = "23 25"`.
+**Storage**: `git config --local branch.<name>.gitflow-issues = "23 25 26"` — git wipes on branch delete, no stray metadata files. Code-complete marks sit beside it in `branch.<name>.gitflow-complete = "23 25"`, and the issues whose Staged comment has been posted in `branch.<name>.gitflow-noted`.
 
 **Code complete** means finished and waiting for deployment. `/commit` and `/ship-main` ask, for each linked issue not yet marked, whether it is code complete (`--complete "<N,N>"`); each yes is marked on the branch and moved to Staged once the push lands. `--complete` naming an issue not linked on the branch exits 2 before anything happens. `/checkpoint` asks nothing — it is partway by definition — and carries links and marks onto its `wip/` branch unchanged. `/ship-main` names only the complete issues in its `Closes` line, moves them to Staged and unlinks exactly those after the push; incomplete ones stay parked on `main`. `/open-pr` is a gate: every linked issue must be complete, any unmarked one is confirmed first ("Opening this PR marks #42 as Staged. Proceed?"), and an unconfirmed one makes `open-pr.sh` exit 12 before pushing.
+
+**Every issue reaching Staged gets one comment for its author** — what was built, what they will see, and where it differs from what they asked (`skills/gitflow/references/staged-comment.md`). Claude writes it as `<notes_dir>/<N>.md` and passes `--notes <notes_dir>`; `commit.sh`, `open-pr.sh` and `ship-main.sh` refuse (exit 2, before committing or pushing) when an issue about to be staged has none, and post it once the board has moved. The comment is posted once per issue: `/open-pr` re-staging an issue `/commit` already staged posts nothing.
 
 **PR body injection**: `/open-pr` reads the git-config list and prepends `Closes #23, #25, #26` to the PR body. gitflow always writes the closing keyword — it is the history, and it is how `/deploy` finds what shipped — and never closes an issue itself. Whether one closes is GitHub configuration: the repository's "Auto-close issues with merged linked pull requests" setting and the board's "Auto-close issue" workflow. `github-project-board-setup.md` §3 has both settings and the three ways of working they combine into.
 
@@ -1086,7 +1091,7 @@ With `GITFLOW_PROJECT_ID` set, all four are required.
 
 Caller scripts run under `set -e`; a non-zero return from any helper propagates to script exit. All transitions are idempotent — retry after fixing the cause.
 
-A board failure after the push has landed exits 11, so the caller can tell "nothing happened" from "the git side is done": `commit.sh` (commit and push landed; `/open-pr` sets every linked issue to Staged again), `ship-main.sh` (commit live; the next `/deploy` still moves the named issues), `open-pr.sh` (PR open; set the status on the board once the cause is fixed).
+A board failure after the push has landed exits 11, so the caller can tell "nothing happened" from "the git side is done": `commit.sh` (commit and push landed; `/open-pr` sets every linked issue to Staged again), `ship-main.sh` (commit live; the next `/deploy` still moves the named issues), `open-pr.sh` (PR open; set the status on the board once the cause is fixed). A Staged comment that fails to post after the board has moved exits 13, and the script prints the exact `gh issue comment` that posts it.
 
 **How to populate the IDs** (bash, with `gh` authenticated and `project` scope):
 
@@ -1115,16 +1120,20 @@ Kit template at `_claude-project/templates/.semgrepignore` syncs to consumer's `
 
 Ship this as part of Semgrep adoption. Do NOT wait for a timeout-warning incident to discover the need.
 
-### 11.9. `deploy.yml` body pattern (build → push → deploy)
+### 11.9. Deploy buildspec body pattern (build → push → roll out)
 
-The kit ships no `deploy.yml` — deploy targets vary per project (EC2 / Fly / Cloud Run / Render), so each consumer authors its own. The trigger contract is fixed: `workflow_dispatch:` ONLY, fired by `/deploy` (§11.4, §6.5). A push to `main` triggers no deploy.
+The kit ships no buildspec — deploy targets vary per project — so each consumer authors its own, dispatched only by `/deploy` (§11.4, §6.5).
 
-Body shape (per app; mirror across apps):
+**One deploy buildspec per project, one CodeBuild project per service.** Every service's project points at the same `infra/codebuild/buildspec.yml` and sets its own environment variables (service, image name, Dockerfile, SSM path, health port). A change to the build shape is made once; each service still fails in isolation.
 
-- **`build-and-push`** — checkout, registry auth (e.g. ECR), `docker build` + push tagged `:<git-sha>` and `:latest`.
-- **`deploy`** (`needs: build-and-push`) — SSH to the deploy host, pull the image, `docker compose up`. Put every per-app deploy workflow in a shared concurrency group (`group: ec2-deploy`, `cancel-in-progress: false`) so SSH to the host is serialized and parallel `docker compose` runs can't collide.
+Body shape:
 
-Selective per-app deploy (rebuild only apps whose files changed) is NOT part of the model — `/deploy` ships everything since the last tag in one intentional release. A consumer with genuinely expensive builds can diff the previous tag against HEAD inside its own `deploy.yml`, but that is project-specific, not kit-standard.
+- **`install`** — the session-manager-plugin (the rollout reaches the host through SSM), and a `docker buildx` builder.
+- **`pre_build`** — assert the ECR repository and its lifecycle policy exist (§11.9.2, `new-project-setup.md` §7a), verify the client build-time variables (`infrastructure.md`), log in to ECR.
+- **`build`** — `docker buildx build --target production`, pushed tagged `latest`, the short sha and a timestamp, with a registry build cache. Base images come from the ECR Public mirror (`infrastructure.md`).
+- **`post_build`** — reach the host by **instance id** over SSH with an `aws ssm start-session` `ProxyCommand` (no inbound `:22`), take a host-side `flock` so concurrent service rollouts serialize, `docker compose pull <service>` then `docker compose up -d --force-recreate --no-deps <service>`, and poll the service's `/health` until it answers, dumping its logs if it never does.
+
+Selective per-app deploy (rebuild only apps whose files changed) is NOT part of the model — `/deploy` ships everything since the last tag in one intentional release; `/deploy <service>` is the explicit way to ship less.
 
 ### 11.9.2. New-container provisioning checklist (ECR)
 
@@ -1133,39 +1142,30 @@ prerequisites that fail with the same opaque error when missed — a `403 Forbid
 on a blob/manifest HEAD during push or pull (ECR returns 403, not 404, for both
 missing repos and unauthorized ones):
 
-1. **Create the ECR repository (one-time, manual — the CI user intentionally lacks
-   `ecr:CreateRepository`):**
+1. **Create the ECR repository together with its lifecycle policy (one-time, manual — the
+   CodeBuild service role intentionally lacks `ecr:CreateRepository` and
+   `ecr:PutLifecyclePolicy`):**
 
    ```bash
    aws ecr create-repository --repository-name <prefix>-<service> --region <region>
    ```
 
-2. **IAM policies must be PREFIX-scoped, never enumerated.** Both the CI push
-   user's policy AND the host's pull role must use
+2. **IAM policies must be PREFIX-scoped, never enumerated.** Both the CodeBuild
+   service role's push policy AND the host's pull role must use
    `arn:aws:ecr:<region>:<acct>:repository/<prefix>-*` as the resource — an
    enumerated ARN list means every new container needs TWO policy edits that
    nobody remembers — producing a push 403 from the enumerated push policy and a
    pull 403 from the enumerated EC2 pull role.
    Include `ecr:DescribeRepositories` in both so the guard step below works.
 
-3. **Every deploy workflow carries a fail-fast guard** (after the
-   configure-aws-credentials step, before ECR login) so a missing repo surfaces
-   as an actionable error instead of the 403:
+3. **The deploy buildspec asserts both in `pre_build`**, before ECR login, so a
+   missing repository or policy surfaces as an actionable error instead of the 403.
+   The guard, the read-only grants it needs and why it must tell a missing policy
+   from a missing permission are in `new-project-setup.md` §7a.
 
-   ```yaml
-   - name: Verify ECR repository exists
-     run: |
-       aws ecr describe-repositories --repository-names "${{ env.IMAGE_NAME }}" \
-         --region ${{ secrets.AWS_REGION }} >/dev/null 2>&1 || {
-         echo "::error::ECR repository '${{ env.IMAGE_NAME }}' does not exist (or the push policy doesn't cover it). One-time fix: aws ecr create-repository --repository-name ${{ env.IMAGE_NAME }} --region ${{ secrets.AWS_REGION }}"
-         exit 1
-       }
-   ```
-
-The kit ships no `deploy.yml` template (§11.4 — platform-specific), so this is
-adoption guidance: audit existing consumers' push/pull policies for enumerated
-ARNs once, and include the guard step in every new deploy workflow. Checklist
-row: E67.
+The kit ships no buildspec (§11.4), so this is adoption guidance: audit existing
+consumers' push/pull policies for enumerated ARNs once, and keep the guard in every
+deploy buildspec. Checklist row: E67.
 
 
 ### 11.10. `dependabot.yml` (monthly + cooldown + grouping)
@@ -1885,12 +1885,19 @@ Kit added new files since your last sync. The lockfile's `lastSyncedCommit` is b
 - `5`: out of sync with origin → `git pull` or push pending work
 - `6`: HEAD has failed CI check-runs on GitHub → fix CI on main first
 - `7`: no commits since last `v*.*.*` tag → nothing to deploy
+- `8`: a required CLI is missing — `gh`, or `aws` under the default `codebuild` backend
+- `9`: `npm` / `python3` missing
 - `10`: `npm version` / manifest-mutation failed
 - `11`: push rejected → is require-PR off for this repo? (require-PR on `main` rejects direct pushes; the pipeline expects it off — pipeline.md §1.1)
-- `12`: `gh workflow run deploy.yml` failed → does `deploy.yml` exist on the default branch with `workflow_dispatch:` enabled?
-- `13`: deploy run watched failed → check the Actions tab for the run URL printed by the script
+- `12`: dispatching a deploy failed → under `codebuild`, does the CodeBuild project `<CODEBUILD_PROJECT_PREFIX><service>` exist and may the deploy-trigger credential start it? Under `github`, does the workflow exist on the default branch with `workflow_dispatch:`?
+- `13`: a deploy build failed → open the build URL the script printed (CodeBuild console, or the Actions run under `github`) and read its log
+- `17`: tag push failed → check tag-protection rules
+- `18`: the migration could not be dispatched → same checks as `12`, for the migrate project
+- `19`: the migration failed → nothing app-side shipped; fix the migration, then re-dispatch the migration and the deploys by hand (`commands/deploy.md` Recovery) — never deploy apps against a failed migration
+- `20`: the `MIGRATE_PATHS` diff failed → the skip check errored, so nothing was skipped silently
+- `21`: the deploy-trigger AWS credential in `.env` is missing or invalid → fix it (`new-project-setup.md` §7c); caught before anything mutated
 
-If `/deploy` succeeded but the deploy workflow itself failed, see the run URL in the script output and inspect Actions tab.
+A deploy build that fails after the migration ran leaves the new schema under the old code. Read the build log first: a failure outside the code — a registry rate limit, a transient network error — is fixed by re-dispatching the same builds, with no new bump and no second migration.
 
 ### 12.6. A consumer developer's Claude session keeps falling back to raw git
 

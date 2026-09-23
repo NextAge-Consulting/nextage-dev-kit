@@ -104,7 +104,7 @@ image, and scales with the database instead of hitting a wall.
 
 ## Is this a kit template or custom-per-project?
 
-**Custom-per-project, kit-documented — same model as `deploy-*.yml` / `migrate.yml`.**
+**Custom-per-project, kit-documented — same model as the deploy and migrate buildspecs.**
 
 The pieces vary exactly where the deploy ones do: bucket, SSM path, PG major, database
 name, region, schedule, retention, single vs multi-DB. Generate project-specific
@@ -146,9 +146,12 @@ ENTRYPOINT ["/usr/local/bin/backup.sh"]
 
 The script's shape, in order — **the ordering is the design, not incidental**:
 
-1. Ping `${HEALTHCHECKS_URL}/start` **first**, before any AWS call, so a failure in the
-   AWS path still produces a `/fail` rather than silence.
-2. `set -euo pipefail`, and trap failure to ping `${HEALTHCHECKS_URL}/fail`.
+1. Read the ping URL from SSM **first and alone**, and exit non-zero if it is missing or
+   not a URL. With no URL there is nothing to ping, so this one failure is reported by
+   the dead-man's switch when the grace window closes, not by `/fail`.
+2. `set -euo pipefail`, trap failure to ping `${HEALTHCHECKS_URL}/fail`, then ping
+   `${HEALTHCHECKS_URL}/start` — before any other AWS call, so every later failure
+   pings `/fail` at once.
 3. Read each database URL from SSM with `--with-decryption`. **Never echo a URL.**
 4. `pg_dump -Fc -d "$url" -f "$dump_file"` — **to a local file, never piped straight to
    S3.** A pipe can upload a truncated object and still exit 0 if `pg_dump` dies
@@ -371,6 +374,7 @@ workload is not.
 |---|---|---|
 | Backup runs clean | success ping in window | quiet |
 | A step fails (dump, creds, S3, Neon) | `/fail` ping | pages immediately |
+| The ping URL itself cannot be read | no ping at all | pages after grace |
 | Task never starts, or schedule never fires | no ping at all | pages after grace |
 | Task is launched but the container never runs | no ping at all | pages after grace |
 

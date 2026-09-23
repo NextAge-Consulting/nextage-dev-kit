@@ -192,6 +192,19 @@ if ! REMOTE_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner); then
     echo "merge.sh: 'gh repo view' failed — cannot resolve owner/repo slug for the squash-merge call." >&2
     exit 17
 fi
+# The squash commit carries the PR's own title and body, passed explicitly.
+# GitHub's default squash message depends on a per-repository setting, and its
+# "commit messages" option lists the branch's commits and DROPS the PR body —
+# the `Closes #N` line /open-pr writes and /deploy reads to move shipped issues
+# to the deploy status. Passing both makes that independent of the setting.
+if ! PR_TITLE=$(gh -R "$REMOTE_REPO" pr view "$PR_NUMBER" --json title -q .title); then
+    echo "merge.sh: could not read PR #$PR_NUMBER's title — nothing merged." >&2
+    exit 22
+fi
+if ! PR_BODY=$(gh -R "$REMOTE_REPO" pr view "$PR_NUMBER" --json body -q .body); then
+    echo "merge.sh: could not read PR #$PR_NUMBER's body — nothing merged." >&2
+    exit 22
+fi
 echo "gitflow: squash-merging PR #$PR_NUMBER (invoking gh from /tmp so it does no local git)..." >&2
 # Pre-check /tmp accessibility BEFORE the subshell so a 'cd' failure
 # does not get mis-blamed on 'gh pr merge'. Under any sane POSIX-ish
@@ -208,7 +221,8 @@ fi
 # `if !` is for diagnostic clarity, not error propagation.
 if ! (
     cd /tmp
-    gh -R "$REMOTE_REPO" pr merge "$PR_NUMBER" --squash
+    gh -R "$REMOTE_REPO" pr merge "$PR_NUMBER" --squash \
+        --subject "$PR_TITLE (#$PR_NUMBER)" --body "$PR_BODY"
 ); then
     echo "merge.sh: 'gh pr merge --squash' failed for PR #$PR_NUMBER. Inspect on github.com or via 'gh pr view $PR_NUMBER'." >&2
     exit 20

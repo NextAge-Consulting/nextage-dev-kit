@@ -99,8 +99,40 @@ if ( set -e; source "$S"; closes_line_for_issues "" >/dev/null; \
   migrate_branch_linked_issues nothing-here also-nothing >/dev/null 2>&1; \
   read_branch_incomplete_issues nothing-here >/dev/null; \
   unlink_issues_from_branch "" nothing-here; validate_complete_issues "" nothing-here; \
-  report_parked_issue_links nothing-here 2>/dev/null ); then r=ok; else r=aborted; fi
+  report_parked_issue_links nothing-here 2>/dev/null; \
+  issues_needing_notes "" nothing-here >/dev/null; require_staged_notes "" "" nothing-here; \
+  post_staged_notes "" "" nothing-here ); then r=ok; else r=aborted; fi
 t ok "$r" 'every empty path returns 0 under set -e'
+
+echo "the Staged comment:"
+# Every issue reaching Staged gets exactly one comment for its author. These pin
+# which issues still need one, the refusal when its file is missing, and that the
+# record follows the issue across a branch creation and leaves with it on unlink.
+link_issue_to_branch 11 feat/notes
+link_issue_to_branch 12 feat/notes
+t "11 12" "$(issues_needing_notes "11 12" feat/notes)" 'nothing posted: both need a comment'
+mark_issue_noted 11 feat/notes
+t "12" "$(issues_needing_notes "11 12" feat/notes)" 'a posted issue needs no second comment'
+mark_issue_noted 11 feat/notes
+t "11" "$(read_branch_noted_issues feat/notes)" 'recording twice is idempotent'
+notes="$tmp/notes"; mkdir -p "$notes"
+if require_staged_notes "11 12" "$notes" feat/notes 2>/dev/null; then r=accepted; else r=refused; fi
+t refused "$r" 'refuses when an issue still needing its comment has no file'
+: > "$notes/12.md"
+if require_staged_notes "11 12" "$notes" feat/notes 2>/dev/null; then r=accepted; else r=refused; fi
+t refused "$r" 'an empty file is not a comment'
+echo "Built." > "$notes/12.md"
+if require_staged_notes "11 12" "$notes" feat/notes 2>/dev/null; then r=accepted; else r=refused; fi
+t accepted "$r" 'accepts once every issue needing one has its file'
+if require_staged_notes "11" "" feat/notes 2>/dev/null; then r=accepted; else r=refused; fi
+t accepted "$r" 'no --notes is fine when nothing still needs a comment'
+if require_staged_notes "12" "" feat/notes 2>/dev/null; then r=accepted; else r=refused; fi
+t refused "$r" 'no --notes is refused when an issue still needs one'
+migrate_branch_linked_issues feat/notes feat/notes2 2>/dev/null
+t "11" "$(read_branch_noted_issues feat/notes2)" 'the record follows a branch creation'
+t "" "$(read_branch_noted_issues feat/notes)" 'and is cleared from the source'
+unlink_issues_from_branch "11" feat/notes2
+t "" "$(read_branch_noted_issues feat/notes2)" 'unlinking an issue drops its record'
 
 echo "parked-link reporting:"
 link_issue_to_branch 42 main

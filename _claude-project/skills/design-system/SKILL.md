@@ -153,6 +153,49 @@ anything.
 role. That is the difference between a design system and a naming convention, and
 it is the only version that survives contact with the twentieth screen.
 
+### Components carry variants; a call site only places them
+
+Tokens stop drift in VALUES. They do nothing about drift in COMBINATIONS.
+`<Button variant="ghost" className="size-7 p-0">` uses only real tokens and is
+still a close button nobody named — and the next surface builds its own a
+different way. A shared component that takes style overrides at the call site
+turns every use into a one-off styling decision, which is the size-named-token
+failure one level up.
+
+- **A variant is complete.** It carries every visual property — padding, size,
+  colour, type, radius, border — and every state: hover, disabled, selected,
+  read-only. It never expects a caller to finish it.
+- **A call site's `className` places the component and nothing else**: margin,
+  width and height, its share of a flex or grid row, position, text alignment.
+  Padding, a fixed size, colour, type, border or radius at a call site is a variant
+  that does not exist yet. Add it to the component, named for what the thing is.
+- **Several overrides at one site is the signal.** Check the inventory first — as
+  often as not the right component or variant already exists and the wrong one was
+  picked. Otherwise it is a new variant.
+- **State belongs to the variant.** A selected cell, a filled filter box, a
+  read-only field: key it off an attribute or pseudo-class inside the variant
+  (`data-selected:`, `read-only:`, `not-placeholder-shown:`), so no caller can paint
+  it differently.
+- **A look shared by an atom and a composite is exported once.** When a composite
+  draws the same look around something else — a field shell holding an input and a
+  picker trigger — export the variant function (`fieldVariants()`, alongside
+  shadcn's own `buttonVariants()`) and build from it. Hand-copies of a look each
+  pick up their own focus and disabled treatment, and nothing notices.
+- **Restyle a vendored primitive once, at the source.** A shadcn atom left on its
+  registry defaults gets repainted by every caller. Restyle the vendored file to
+  `design.md` so callers never have to.
+- **A prop names meaning, never style.** `cols={2}`, `size="detail"`,
+  `inset="list"` — a small closed set the component interprets. Never
+  `radius="xl"` or `padding="…"`: an override prop does not track the variant, so
+  the day the variant changes, every call site using it silently falls out of step.
+- **Glyphs are the exception.** An icon paints in `currentColor`; its caller naming
+  the colour IS the design.
+- **A rule about a KIND of region is one named utility.** "Scroll areas hide their
+  bar" written as three classes per site is applied where someone remembered and
+  missing everywhere else — the first modal body to scroll shows it. Define it once
+  (a Tailwind `@utility` named for what the region is), use it in place of the
+  bare `overflow-y-auto`, and fail the bare one in the check.
+
 ### Colour is usually the family that is already right — copy it
 
 Most projects already have a colour ramp plus semantic aliases over it, with
@@ -175,7 +218,13 @@ A raw `text-sm` or `px-[10px]` is valid CSS and valid TSX, so no ordinary linter
 objects. A check that fails the build on any raw value outside the token layer is
 what makes the rule real; without one it is a preference. Vendored third-party
 components are a legitimate exemption — name them explicitly rather than leaving
-the check silent about them.
+the check silent about them. The exemption covers the vendored file's insides,
+never a call site passing it a `className`.
+
+The same check enforces the variant rule: read the `className` on every element
+imported from the project's component tree and fail anything outside the placement
+allowlist, and fail a raw `<input>` or `<textarea>` that paints the field look
+itself instead of rendering the atom.
 
 ## What `design.md` covers vs what it doesn't
 

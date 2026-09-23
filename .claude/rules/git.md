@@ -8,6 +8,8 @@ Explicit means they said commit / checkpoint / push / open pr / merge / ship it,
 
 The human owns the timeline, and each operation needs its own fresh instruction.
 
+The one standing exception: an autonomous turn authorizes `/checkpoint`, and nothing else, for its own length (`autonomous-sessions.md`).
+
 ## Change `.gitignore` only when asked
 
 Gitignoring a file changes what the repo tracks and shares with the team. Propose the change and the reason; the human decides.

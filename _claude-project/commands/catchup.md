@@ -2,7 +2,7 @@
 
 Refresh local code from origin. **Behavior depends on which branch is checked out** at invocation:
 
-- **On main (no current/ in flight, or just reviewing):** fetch + fast-forward local `main` from `origin/main`. Fail-loud on dirty / diverged main.
+- **On main (between bodies of work, or just reviewing):** fetch + fast-forward local `main` from `origin/main`. Fail-loud on dirty / diverged main.
 - **On a feature branch:** merge `origin/main` (or `--base <other>`) INTO the feature branch via an explicit merge commit (`--no-ff`).
 
 One command, one mental model: "catch the branch I'm on up to date with origin." If that branch is main, fast-forward it. If it's a feature branch, merge main into it.
@@ -40,7 +40,7 @@ Do NOT invoke when:
 
 ### Step 1: Pre-flight
 
-Confirm no merge is already in progress (`--continue` / `--abort` cover that case). On feature branches the tree must be clean; on main the tree must be clean (and shouldn't ever be dirty under gitflow's model — primary repo is reserved for git substrate).
+Confirm no merge is already in progress (`--continue` / `--abort` cover that case). On feature branches the tree must be clean; on main the tree must be clean too — a fast-forward over uncommitted edits would fail or strand them; `/checkpoint` first.
 
 ### Step 2: Invoke the script
 

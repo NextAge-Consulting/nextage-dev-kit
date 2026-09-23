@@ -179,6 +179,7 @@ clear_branch_linked_issues() {
     local branch="${1:-$(git branch --show-current)}"
     git config --local --unset-all "branch.${branch}.gitflow-issues" 2>/dev/null || true
     git config --local --unset-all "branch.${branch}.gitflow-complete" 2>/dev/null || true
+    git config --local --unset-all "branch.${branch}.gitflow-noted" 2>/dev/null || true
 }
 
 # ─── Code-complete state (git config) ──────────────────────────────────────
@@ -250,7 +251,7 @@ unlink_issues_from_branch() {
     local nums="$1"
     local branch="${2:-$(git branch --show-current)}"
     local kind list keep num n drop
-    for kind in gitflow-issues gitflow-complete; do
+    for kind in gitflow-issues gitflow-complete gitflow-noted; do
         list=$(git config --local --get "branch.${branch}.${kind}" 2>/dev/null || echo "")
         keep=""
         for n in $list; do
@@ -280,10 +281,11 @@ migrate_branch_linked_issues() {
     local from="$1" to="$2"
     [ "$from" = "$to" ] && return 0
 
-    local list complete
+    local list complete noted
     list=$(read_branch_linked_issues "$from")
     [ -z "$list" ] && return 0
     complete=$(read_branch_complete_issues "$from")
+    noted=$(read_branch_noted_issues "$from")
 
     local num
     for num in $list; do
@@ -291,6 +293,9 @@ migrate_branch_linked_issues() {
     done
     for num in $complete; do
         mark_issue_complete "$num" "$to"
+    done
+    for num in $noted; do
+        mark_issue_noted "$num" "$to"
     done
     clear_branch_linked_issues "$from"
     echo "gitflow: carried issue link(s) $(format_issue_refs "$list") from $from onto $to." >&2
@@ -316,6 +321,87 @@ stage_complete_issues() {
             return 1
         fi
     done
+}
+
+# ─── The Staged comment (git config + the issue itself) ─────────────────────
+# When an issue reaches Staged it gets ONE comment for its author: what was
+# built, what they will see, and where it differs from what they asked
+# (references/staged-comment.md). Claude writes it; the scripts refuse to stage
+# an issue without it and post it once the board has moved. `gitflow-noted`
+# records which issues have had theirs, so /open-pr re-staging an issue /commit
+# already staged never posts a second one.
+
+# read_branch_noted_issues [branch_name] — issues whose comment has been posted.
+read_branch_noted_issues() {
+    local branch="${1:-$(git branch --show-current)}"
+    git config --local --get "branch.${branch}.gitflow-noted" 2>/dev/null || echo ""
+}
+
+# mark_issue_noted <issue_num> [branch_name] — idempotent.
+mark_issue_noted() {
+    local num="$1"
+    local branch="${2:-$(git branch --show-current)}"
+    local current n
+    current=$(read_branch_noted_issues "$branch")
+    for n in $current; do [ "$n" = "$num" ] && return 0; done
+    git config --local "branch.${branch}.gitflow-noted" "${current:+$current }$num"
+}
+
+# issues_needing_notes "<space-separated nums>" [branch_name] — those not yet
+# commented on, in the order given.
+issues_needing_notes() {
+    local nums="$1"
+    local branch="${2:-$(git branch --show-current)}"
+    local noted out="" num n hit
+    noted=$(read_branch_noted_issues "$branch")
+    for num in $nums; do
+        hit=0
+        for n in $noted; do [ "$n" = "$num" ] && hit=1; done
+        if [ "$hit" -eq 0 ]; then out="${out:+$out }$num"; fi
+    done
+    echo "$out"
+}
+
+# require_staged_notes "<space-separated nums>" <notes_dir> [branch_name] —
+# return 1, naming each missing file, unless every issue still needing its
+# comment has a non-empty <notes_dir>/<N>.md. Scripts call this BEFORE they
+# commit or push, so a refusal leaves nothing half-done.
+require_staged_notes() {
+    local nums="$1" dir="$2"
+    local branch="${3:-$(git branch --show-current)}"
+    local need missing="" num
+    need=$(issues_needing_notes "$nums" "$branch")
+    [ -z "$need" ] && return 0
+    for num in $need; do
+        if [ -z "$dir" ] || [ ! -s "$dir/$num.md" ]; then missing="${missing:+$missing }$num"; fi
+    done
+    if [ -n "$missing" ]; then
+        echo "issue_helpers: no Staged comment for $(format_issue_refs "$missing")." >&2
+        echo "  Write <notes_dir>/<N>.md per references/staged-comment.md and pass --notes <notes_dir>." >&2
+        return 1
+    fi
+}
+
+# post_staged_notes "<space-separated nums>" <notes_dir> [branch_name] — posts
+# each issue's comment and records it. Called only AFTER the board has moved;
+# returns 1 at the first failure, leaving the rest unposted and unrecorded so a
+# retry posts exactly what is missing.
+post_staged_notes() {
+    local nums="$1" dir="$2"
+    local branch="${3:-$(git branch --show-current)}"
+    local need num slug
+    need=$(issues_needing_notes "$nums" "$branch")
+    [ -z "$need" ] && return 0
+    slug=$(gitflow_repo_slug)
+    for num in $need; do
+        if ! gh issue comment "$num" -R "$slug" --body-file "$dir/$num.md" >/dev/null; then
+            echo "issue_helpers: the Staged comment on #$num did not post (see above)." >&2
+            echo "  Post it with: gh issue comment $num -R $slug --body-file $dir/$num.md" >&2
+            return 1
+        fi
+        mark_issue_noted "$num" "$branch"
+    done
+    echo "gitflow: Staged comment posted on $(format_issue_refs "$need")." >&2
 }
 
 # format_issue_refs <space-separated nums> — "#1, #2, #3". Empty in, empty out.

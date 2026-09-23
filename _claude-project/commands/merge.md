@@ -25,7 +25,7 @@ The script:
   than in a follow-up PR repairing the first. Not in CI on purpose: CI fires on every
   push, and building there would tax every commit, `/open-pr` and triage fix.
 - Invokes `wait-for-pr-ready.sh` which is **trigger-aware**: blocks until CI required checks pass AND — if a `/gemini review` comment was posted for the current HEAD — Gemini Code Assist has posted its review. If no trigger comment exists for the current HEAD (e.g. last `/commit` was `--no-review`), proceeds on CI-only. `GEMINI_NOT_INSTALLED="true"` in `.claude/sync-substitutions.json` short-circuits the entire Gemini path. Polls every 30s, times out fail-loud after 15min.
-- Squash-merges via `gh pr merge --squash`, then deletes the remote branch as a separate best-effort step
+- Squash-merges via `gh pr merge --squash` with the PR's own title and body as the commit message, whatever the repository's squash setting — the body carries the `Closes #N` line `/deploy` reads to move shipped issues — then deletes the remote branch as a separate best-effort step
 - Switches this checkout to `main` and fast-forwards it to the merged tip
 - Deletes the now-merged local branch
 - Reinstalls dependencies if landing on the new `main` changed a package manifest
@@ -58,6 +58,7 @@ After `/merge` completes, the squash commit is on main and this checkout is stan
 - No open PR for current branch: run `/open-pr` first
 - CI has failing required checks: fix and push before merging
 - `gh` CLI not available: squash-merge-via-API is not implemented in `merge.sh`; install gh or run the merge manually via GitHub web UI
+- The PR's title or body cannot be read: exit 22, nothing merged
 
 ## Emergency bypass
 
