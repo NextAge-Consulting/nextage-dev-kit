@@ -122,6 +122,10 @@ fi
 
 # ─── Push and create PR ────────────────────────────────────────────────────
 
+# Before the review is requested: a branch behind its base gets reviewed, triaged
+# and fixed on code that may not merge. Reported, not blocked.
+main_drift_report "$BASE" open-pr.sh || true
+
 # Push branch via safe_push — handles missing-upstream AND wrong-upstream
 # (e.g. origin/main inherited from the branch's start-point).
 # shellcheck disable=SC2119 # safe_push takes no args by design (reads current branch + upstream from git state)

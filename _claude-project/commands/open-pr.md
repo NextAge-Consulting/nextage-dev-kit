@@ -132,6 +132,10 @@ committing (exit 2) when one is missing, and posts each once the board has moved
 
 Optional: `--draft` to open as draft PR, `--base <branch>` if targeting something other than main.
 
+If the script reports `main has moved`, relay the commits behind and the files changed on
+both sides. Where files overlap, recommend `/catchup` before triaging: the review ran on code
+that may not merge, and `/merge` refuses a real conflict (exit 23).
+
 ### Step 7: Wait for PR readiness
 
 `open-pr.sh` has already posted an explicit `/gemini review` comment on the PR (Gemini's auto-review on PR open is disabled in `.gemini/config.yaml: pull_request_opened.code_review: false`; reviews are comment-driven). If the post failed, the script exited 9 — surface the failure; do not proceed to wait.

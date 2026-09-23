@@ -154,6 +154,14 @@ jobs:
       # devDependency, which is the correct outcome: a gate that cannot run must
       # not pass.
       - run: npx --no-install @biomejs/biome lint
+      # Every design token family is set by a role (the design-system skill).
+      # Biome cannot see this: a raw `text-sm` or `rounded-[6px]` is valid
+      # Tailwind and valid TSX, and it is exactly how one thing ends up at four
+      # sizes. A project that enforces its tokens declares the check as
+      # `lint:tokens`, and `lint:design` validates design.md against its spec.
+      # `--if-present` skips a project that has not declared one.
+      - run: npm run lint:tokens --if-present
+      - run: npm run lint:design --if-present
 
   vitest:
     name: vitest

@@ -27,6 +27,11 @@ So `/work <issue#>` parks the issue link on the branch you are standing on and c
 
 **Local main is refreshed when it can be.** The script fast-forwards `main` from `origin/main` via the shared `fast_forward_local_main` helper. Two cases skip the refresh and say so plainly rather than blocking: a dirty tree, and a failed fetch (offline, expired auth, missing gh scope). Neither loses anything — run `/catchup` when you want the latest. Resuming an existing branch refreshes nothing by design; you are mid-body-of-work.
 
+**A moved `main` is always reported.** Resuming a branch, or skipping the refresh over a
+dirty tree, runs `main_drift_report`: how many commits behind, which ones, and which files
+changed on both sides. Relay it and recommend `/catchup` when files overlap — the earliest
+point the drift can be caught.
+
 ## Supported invocations
 
 | Input | What happens |

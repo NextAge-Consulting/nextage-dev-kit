@@ -154,8 +154,8 @@ refresh_main_if_possible() {
         fi
     else
         echo "work.sh: uncommitted changes present — NOT refreshing main from origin." >&2
-        echo "  Your changes are untouched. Local main may be behind origin;" >&2
-        echo "  /catchup when you want the latest." >&2
+        echo "  Your changes are untouched." >&2
+        main_drift_report main work.sh || true
     fi
 }
 
@@ -182,6 +182,9 @@ mode_default() {
         fi
     else
         echo "work.sh: resuming body of work on '$branch'." >&2
+        # Resuming refreshes nothing — but a main that moved while this branch sat
+        # is exactly what the rest of the body of work would otherwise trip over.
+        main_drift_report main work.sh || true
         if ! tree_is_clean; then
             echo "work.sh: (uncommitted changes present — picking up where you left off)" >&2
         fi

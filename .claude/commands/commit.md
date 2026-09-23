@@ -97,6 +97,10 @@ Pass `--skip-typecheck` ONLY if the user explicitly requested bypassing typechec
 ### Step 8: Report result
 
 - Commit succeeded: report the commit hash and branch, and any issues moved to Staged
+- `main has moved` in the output: relay the commits behind and the files changed on both
+  sides, and recommend `/catchup` — before any further work when files overlap. It is a
+  warning; the commit still landed. On `main` it fires BEFORE the branch is cut, so the new
+  branch starts from a copy of `main` the user now knows is stale.
 - Script exited non-zero: surface the exit code and stderr. Do NOT retry without direction.
 
 ## Branch behavior

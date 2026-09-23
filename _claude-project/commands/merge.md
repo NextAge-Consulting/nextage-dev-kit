@@ -18,6 +18,9 @@ If `$ARGUMENTS` contains a PR number (e.g., `/merge 42`), use that. Otherwise le
 
 The script:
 - Finds the open PR for the current branch (or uses --pr)
+- Checks the PR against its base FIRST (exit 23): when `origin/main` has moved, a trial
+  merge (`git merge-tree`) decides — a conflict refuses before any build or wait, and drift
+  that merges cleanly is reported and the merge goes ahead.
 - Runs a **local production build gate** — `npm run build --workspaces --if-present` —
   before the readiness wait and before the squash. CI does not build (it type-checks,
   lints and tests), so a build-only break is invisible until here. This is the last
@@ -34,6 +37,8 @@ The script:
 
 - Merge succeeded: report the PR number and the commit SHA on main
 - Multiple PRs on branch: script lists them and exits; ask user which one (then re-invoke with `--pr <number>`)
+- Conflicts with its base (exit 23): the conflicting files are listed and nothing merged —
+  run `/catchup`, resolve, then `/merge` again
 - Production build failed (exit 15): surface the build error; nothing merged and the PR
   is still open, so the fix goes on this branch and into this PR
 - CI checks failing: surface which check failed, link to PR checks page
@@ -59,6 +64,7 @@ After `/merge` completes, the squash commit is on main and this checkout is stan
 - CI has failing required checks: fix and push before merging
 - `gh` CLI not available: squash-merge-via-API is not implemented in `merge.sh`; install gh or run the merge manually via GitHub web UI
 - The PR's title or body cannot be read: exit 22, nothing merged
+- The branch conflicts with its base: exit 23, nothing merged — `/catchup` first
 
 ## Emergency bypass
 

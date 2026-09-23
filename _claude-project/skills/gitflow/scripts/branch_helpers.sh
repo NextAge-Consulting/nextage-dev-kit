@@ -1,6 +1,6 @@
 #!/bin/bash
 # gitflow branch helpers: shared functions for branch creation and rename.
-# Sourced by branch.sh, checkpoint.sh, commit.sh.
+# Sourced by the gitflow command scripts. Every function is safe under `set -e`.
 
 # is_protected_branch <name> — returns 0 if branch is main or master.
 is_protected_branch() {
@@ -313,4 +313,79 @@ fast_forward_local_main() {
     echo "  Remote SHA: $remote_sha" >&2
     echo "  Inspect with: git log --oneline --all --graph origin/$branch HEAD" >&2
     return 7
+}
+
+# main_drift_report [base] [who] — say how far the current branch has fallen
+# behind origin/<base>, and which files both sides touched. Silent when it has not.
+#
+# A branch cut from a stale local main, or left open while another PR merges,
+# otherwise goes unnoticed until the final squash fails — after the review, the
+# triage and the build have all run on code that cannot merge. So every command
+# that starts or advances a body of work calls this and reports early, while the
+# conflict is still small and the tree is still yours.
+#
+# "Ours" counts uncommitted and untracked changes too: on main, before /commit
+# cuts a branch, the whole body of work is still in the working tree.
+#
+# Returns 0 when HEAD already contains origin/<base>, and also when the fetch
+# failed (reported — being offline never blocks work). Returns 10 when HEAD is
+# behind. Callers WARN on 10; only /merge refuses, and only on a real conflict
+# (main_merge_conflicts).
+main_drift_report() {
+    local base="${1:-main}" who="${2:-gitflow}" target mb n theirs ours overlap
+    target="origin/$base"
+    if ! git fetch -q origin "$base" 2>/dev/null; then
+        echo "$who: could not fetch $target — whether $base has moved is unknown." >&2
+        return 0
+    fi
+    if git merge-base --is-ancestor "$target" HEAD 2>/dev/null; then
+        return 0
+    fi
+    if ! mb=$(git merge-base HEAD "$target" 2>/dev/null); then
+        return 0
+    fi
+    n=$(git rev-list --count "HEAD..$target")
+    echo "$who: $base has moved — this checkout is $n commit(s) behind $target:" >&2
+    git log -n 10 --format='    %h %s' "HEAD..$target" >&2
+    if [ "$n" -gt 10 ]; then
+        echo "    … and $((n - 10)) more" >&2
+    fi
+    theirs=$(git diff --name-only "$mb" "$target" | sort -u)
+    ours=$( { git diff --name-only "$mb" HEAD; git diff --name-only HEAD; \
+              git ls-files --others --exclude-standard; } | sort -u)
+    overlap=$(comm -12 <(printf '%s\n' "$theirs") <(printf '%s\n' "$ours") | grep -v '^$' || true)
+    if [ -n "$overlap" ]; then
+        echo "  Changed on both sides — catch up now, while the conflict is small:" >&2
+        printf '%s\n' "$overlap" | sed -n '1,20s/^/    /p' >&2
+    fi
+    if is_protected_branch "$(git branch --show-current)"; then
+        echo "  Run /catchup to fast-forward $base (commit or checkpoint uncommitted edits first)." >&2
+    else
+        echo "  Run /catchup to merge $base into this branch." >&2
+    fi
+    return 10
+}
+
+# main_merge_conflicts [base] — would merging origin/<base> into HEAD conflict?
+#
+# A trial merge with `git merge-tree`: nothing in the working tree, the index or
+# any ref is touched. Deterministic and local, unlike the host's own "mergeable"
+# flag, which is recomputed asynchronously and reads UNKNOWN for seconds after
+# every push. Needs git 2.38+.
+#
+# Returns 0 when it merges cleanly, 1 on a conflict (conflicted paths printed),
+# 2 when it cannot tell (old git, missing ref) — callers treat 2 as unknown.
+main_merge_conflicts() {
+    local base="${1:-main}" out rc
+    # `&& rc=0 || rc=$?`, never a bare assignment: under a caller's `set -e` a
+    # conflict (exit 1) would otherwise end the caller instead of reporting.
+    out=$(git merge-tree --write-tree --name-only --no-messages HEAD "origin/$base" 2>/dev/null) && rc=0 || rc=$?
+    if [ "$rc" -eq 0 ]; then
+        return 0
+    fi
+    if [ "$rc" -eq 1 ]; then
+        printf '%s\n' "$out" | sed -n '2,$ { /^$/d; s/^/    /; p; }' >&2
+        return 1
+    fi
+    return 2
 }

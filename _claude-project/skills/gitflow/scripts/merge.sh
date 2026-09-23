@@ -32,6 +32,10 @@
 set -eo pipefail
 shopt -s inherit_errexit 2>/dev/null || true   # propagate errexit into $(…) subshells (bash 4.4+)
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=_claude-project/skills/gitflow/scripts/branch_helpers.sh
+source "$SCRIPT_DIR/branch_helpers.sh"
+
 PR_NUMBER=""
 BASE="main"
 FORCE_UNCHECKED=0
@@ -106,6 +110,22 @@ fi
 echo "gitflow: target PR #$PR_NUMBER" >&2
 echo "gitflow: merging '$CURRENT_BRANCH' in $REPO_ROOT" >&2
 
+# ─── Base drift gate (exit 23) ─────────────────────────────────────────────
+# Before the build and the readiness wait: a PR that conflicts with its base
+# cannot squash, and finding that out after several minutes of building and
+# polling is the failure this exists to prevent. A trial merge is local and
+# exact; drift that merges cleanly is reported and the merge goes ahead.
+if [ "$FORCE_UNCHECKED" -eq 0 ] && ! main_drift_report "$BASE" merge.sh; then
+    main_merge_conflicts "$BASE" && CONFLICT=0 || CONFLICT=$?
+    case "$CONFLICT" in
+        0) echo "gitflow: $BASE moved, but it merges cleanly — continuing." >&2 ;;
+        1) echo "merge.sh: PR #$PR_NUMBER conflicts with origin/$BASE in the files above." >&2
+           echo "  Run /catchup, resolve, and /merge again. Nothing was merged." >&2
+           exit 23 ;;
+        *) echo "gitflow: could not trial-merge origin/$BASE (git 2.38+ needed) — continuing." >&2 ;;
+    esac
+fi
+
 # ─── Production build gate ─────────────────────────────────────────────────
 # Runs BEFORE the readiness wait: a build break should fail in seconds, not after
 # several minutes of polling CI and Gemini for a merge that is not going to happen.
@@ -138,7 +158,6 @@ fi
 
 # Verify CI passed AND Gemini Code Assist has reviewed current HEAD (unless bypass).
 if [ "$FORCE_UNCHECKED" -eq 0 ]; then
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     WAIT_SCRIPT="$SCRIPT_DIR/wait-for-pr-ready.sh"
     if [ ! -x "$WAIT_SCRIPT" ]; then
         echo "merge.sh: $WAIT_SCRIPT missing or not executable." >&2

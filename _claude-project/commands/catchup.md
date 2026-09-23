@@ -16,6 +16,8 @@ $ARGUMENTS
 - Reviewing someone else's just-merged work without touching any feature branch.
 
 **On a feature branch:**
+- `/work`, `/commit` or `/open-pr` reported `main has moved` with files changed on both sides.
+- `/merge` refused with exit 23.
 - `gh pr view <N>` reports `mergeStateStatus: DIRTY` / `mergeable: CONFLICTING` after another PR merged.
 - You know `main` has changed in a way that affects your branch (changelog overlap, file touched by both PRs, schema migration).
 - Before opening a PR on a long-lived branch that has lagged main by more than a couple of merges.

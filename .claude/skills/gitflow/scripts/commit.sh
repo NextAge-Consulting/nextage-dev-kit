@@ -127,6 +127,11 @@ if [ -n "$COMPLETE_ISSUES" ] && ! require_staged_notes "$COMPLETE_ISSUES" "$NOTE
     exit 2
 fi
 
+# A main that moved since this work began is reported now — on main that means
+# BEFORE a branch is cut from a stale copy. A warning, never a block: most drift
+# merges cleanly, and /merge refuses the drift that does not.
+main_drift_report main commit.sh || true
+
 # Branch resolution
 if is_protected_branch "$CURRENT_BRANCH"; then
     TARGET_NAME=$(resolve_collision "$(derive_branch_from_message "$MESSAGE")")
