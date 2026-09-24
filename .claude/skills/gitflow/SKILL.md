@@ -16,6 +16,7 @@ Invoke this skill when the user asks for any of:
 | "work on this", "open the project", "pick up where I left off", "start work" | `/work` |
 | "start work on #N", "work issue N" | `/work <N>` |
 | "retrieve branch", "pull a teammate's branch", "check out their branch" | `/work --retrieve <branch>` |
+| "the discussion is done", "pull the discussion in", "pull back <slug or artifact URL>" | `/work --discussion <slug or URL>` |
 | "commit", "commit this", "commit the changes" | `/commit` |
 | "ship to main", "commit straight to main", "commit this directly to main", "infra commit", "emergency commit to main", "quick commit to main" | `/ship-main` |
 | "checkpoint", "save progress", "wip commit", "quick save" | `/checkpoint` |
@@ -121,6 +122,7 @@ Work happens on a branch in the project checkout. On `main`, `/work` refreshes f
 - `/work` — refresh `main` and stay on it, or resume the branch you are on. Idempotent, cuts nothing.
 - `/work <issue#[,issue#…]>` — link one or more issues to the branch you are on, transition each to In Progress, assign, and dump their context. Cuts no branch either. Every issue is validated before any is linked, so a typo aborts the call instead of half-applying it.
 - `/work --retrieve <branch>` — fetch a teammate's branch and switch to it (refuses on a dirty tree).
+- `/work --discussion <slug or artifact URL>` — pull a finished discussion back into an action plan (`commands/work.md` Step 3b).
 
 **Procedure:**
 - Parse `$ARGUMENTS` to determine mode (default / issue / retrieve).
@@ -196,7 +198,7 @@ The commands invoke these scripts in `skills/gitflow/scripts/`:
 
 | Script | Purpose |
 |--------|---------|
-| `work.sh` | Refresh `main` or resume the current branch, cutting nothing; `--issue <N[,N…]>` to link one or more issues to the branch you are on; `--retrieve` to fetch and switch to someone else's branch |
+| `work.sh` | Refresh `main` or resume the current branch, cutting nothing; `--issue <N[,N…]>` to link one or more issues to the branch you are on; `--retrieve` to fetch and switch to someone else's branch; `--discussion <slug\|URL>` to locate a discussion folder and print its pointer |
 | `commit.sh` | Full conventional commit, stages all, pushes; auto-branches/renames as needed |
 | `checkpoint.sh` | WIP commit, stages all, pushes; auto-creates `wip/<timestamp>` on main |
 | `open-pr.sh` | Refuse (exit 12) while a linked issue is not code complete; push branch, create PR via gh or GitHub API; prepends `Closes #N` from branch-linked issues and moves them to Staged |

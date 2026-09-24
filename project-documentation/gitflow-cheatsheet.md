@@ -12,6 +12,7 @@ Every coding session starts with `/work`. It puts you on the branch your work be
 /work                              # on main: refresh main and stay there. On a branch: resume it.
 /work 23                           # link issue #23 to wherever you are standing. No branch is cut.
 /work --retrieve feat/teammate-fix # fetch a teammate's branch and switch to it (refuses if your tree is dirty)
+/work --discussion session-timeout # pull a finished discussion (slug or artifact URL) into an action plan
 ```
 
 **`/work` never cuts a branch.** At session-init nobody knows yet whether this is a feature, an infra change, or a question answered from the handoff — and because `/ship-main` runs only on `main`, cutting a branch here would block the infra path before the session began. The branch arrives from the command that actually declares the path: `/commit` names it from your commit message, `/checkpoint` cuts a `wip/` one.

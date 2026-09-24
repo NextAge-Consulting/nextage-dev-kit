@@ -60,7 +60,7 @@ parse_issue_csv() {
         | tr -s ' ' \
         | sed -E 's/#//g' \
         | tr ' ' '\n' \
-        | grep -E '^[0-9]+$' \
+        | sed -n -E '/^[0-9]+$/p' \
         | tr '\n' ' ' \
         | sed -E 's/ +$//'
 }

@@ -27,6 +27,15 @@ source "$S"
 t(){ # t <want> <got> <label>
   if [ "$1" = "$2" ]; then echo "  ✓ $3"; else echo "  ✗ FAIL (got '$2', want '$1') — $3"; fail=1; fi; }
 
+echo "parse_issue_csv:"
+t "27 28" "$(parse_issue_csv '#27, #28')" 'commas, spaces and # all accepted'
+# No numbers at all must come back empty and SUCCEED: work.sh captures this under
+# set -e, and a failing parse ended the script before it could explain the bad value.
+out=$(set -e; parse_issue_csv 'abc'; echo rc=$?)
+t "rc=0" "$out" 'no numbers: empty and exit 0'
+out=$(set -e; parse_issue_csv ''; echo rc=$?)
+t "rc=0" "$out" 'empty value: empty and exit 0'
+
 echo "link storage:"
 link_issue_to_branch 7 main
 link_issue_to_branch 9 main

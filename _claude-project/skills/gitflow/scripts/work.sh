@@ -5,6 +5,7 @@
 #   work.sh                              # refresh main and stay put, or resume the current branch
 #   work.sh --issue <N[,N…]>            # link issue(s) to the current branch, dump their context
 #   work.sh --retrieve <branch>          # fetch a teammate's branch and switch to it
+#   work.sh --discussion <slug|url>      # default mode, then print a finished discussion's folder
 #
 # Responsibilities:
 #   - On main: refresh main from origin and STAY THERE. No branch is cut.
@@ -13,6 +14,10 @@
 #     transition to In Progress, assign the current user, dump issue context for
 #     the Claude session. No branch is cut — see below.
 #   - For --retrieve: fetch the remote branch, fast-forward any local copy, switch.
+#   - For --discussion: find the discussion folder the analysis skill wrote (by its
+#     slug or by the artifact URL recorded in its pointer), run the default mode,
+#     then print the pointer and the folder's files. Reading the published page and
+#     its comments needs Claude's own tools, so the pull-back itself is work.md's.
 #
 # One checkout, one branch at a time. Parallel bodies of work are not a thing
 # this shop does; `git switch` is how you move between them when it is.
@@ -56,17 +61,23 @@ source "$SCRIPT_DIR/issue_helpers.sh"
 
 # ─── Arg parsing ───────────────────────────────────────────────────────────
 
-MODE=""        # "", "issue", "retrieve"
-ARG=""         # the value for the mode (issue#, branch)
+MODE=""        # "", "issue", "retrieve", "discussion"
+ARG=""         # the value for the mode (issue#, branch, discussion slug or URL)
 
+# A value flag given last with no value leaves one argument to shift, not two;
+# `shift 2` would then fail and end the script before the mode could say what
+# was missing. Each mode reports its own empty value.
 while [[ $# -gt 0 ]]; do
     case $1 in
         --issue)
             [ -n "$MODE" ] && { echo "work.sh: --issue conflicts with --$MODE" >&2; exit 2; }
-            MODE="issue"; ARG="$2"; shift 2 ;;
+            MODE="issue"; ARG="${2:-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
         --retrieve)
             [ -n "$MODE" ] && { echo "work.sh: --retrieve conflicts with --$MODE" >&2; exit 2; }
-            MODE="retrieve"; ARG="$2"; shift 2 ;;
+            MODE="retrieve"; ARG="${2:-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
+        --discussion)
+            [ -n "$MODE" ] && { echo "work.sh: --discussion conflicts with --$MODE" >&2; exit 2; }
+            MODE="discussion"; ARG="${2:-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
         *)
             # Bare positional issue token(s) → shorthand for --issue. Accepts
             # every shape --issue does ("27", "27,28", "#27,#28", "27, 28"), so
@@ -289,6 +300,81 @@ mode_retrieve() {
     echo "work.sh: on '$branch'. Your own branch is untouched — 'git switch <yours>' when you are done here." >&2
 }
 
+# ─── Mode: --discussion <slug|url> ─────────────────────────────────────────
+# A discussion lives in project-documentation/temporary/discussion-<slug>/, with a
+# pointer <slug>-discussion.md whose front matter records the artifact URL. The human
+# copies whichever is to hand — the slug from the folder, or the URL from the browser
+# tab the discussion happened in — so both resolve.
+#
+# Resolved BEFORE the default mode runs: a typo fails with nothing refreshed.
+DISCUSSION_ROOT="project-documentation/temporary"
+
+# The artifact id is the URL's last path segment; the query, fragment and a
+# trailing slash are noise a copied link may carry.
+artifact_id_of() {
+    local u="$1"
+    u="${u%%[?#]*}"
+    u="${u%/}"
+    printf '%s\n' "${u##*/}"
+}
+
+pointer_artifact() {
+    awk '/^artifact:/ { sub(/^artifact:[ \t]*/, ""); print; exit }' "$1"
+}
+
+list_open_discussions() {
+    local p d found=""
+    for p in "$DISCUSSION_ROOT"/discussion-*/*-discussion.md; do
+        [ -f "$p" ] || continue
+        found=1
+        d="${p%/*}"
+        echo "  ${d##*/discussion-}  $(pointer_artifact "$p")" >&2
+    done
+    [ -n "$found" ] || echo "  (none — no discussion-*/ folder under $DISCUSSION_ROOT/)" >&2
+}
+
+resolve_discussion() {
+    local want="$1" p slug id
+    if [[ "$want" == *"://"* ]]; then
+        id=$(artifact_id_of "$want")
+        for p in "$DISCUSSION_ROOT"/discussion-*/*-discussion.md; do
+            [ -f "$p" ] || continue
+            [ "$(artifact_id_of "$(pointer_artifact "$p")")" = "$id" ] && { dirname "$p"; return 0; }
+        done
+        return 1
+    fi
+    slug="${want#discussion-}"
+    slug="${slug%/}"
+    [ -f "$DISCUSSION_ROOT/discussion-$slug/$slug-discussion.md" ] || return 1
+    echo "$DISCUSSION_ROOT/discussion-$slug"
+}
+
+mode_discussion() {
+    if [ -z "$ARG" ]; then
+        echo "work.sh: --discussion requires a slug or the artifact URL" >&2
+        exit 2
+    fi
+
+    local dir
+    if ! dir=$(resolve_discussion "$ARG"); then
+        echo "work.sh: no discussion matches '$ARG'. Open discussions:" >&2
+        list_open_discussions
+        exit 4
+    fi
+
+    mode_default
+
+    local slug f
+    slug="${dir##*/discussion-}"
+    echo "work.sh: discussion '$slug' — $dir/" >&2
+    echo "=== DISCUSSION FOLDER: $dir/ ==="
+    for f in "$dir"/*; do
+        [ -e "$f" ] && echo "  ${f##*/}"
+    done
+    echo "=== POINTER: $dir/$slug-discussion.md ==="
+    cat "$dir/$slug-discussion.md"
+}
+
 # Fast-forward a local branch to origin when it is strictly behind.
 #
 # Without this, --retrieve fetches origin/<branch> and then checks out the LOCAL
@@ -331,6 +417,7 @@ case "$MODE" in
     "")         mode_default ;;
     "issue")    mode_issue ;;
     "retrieve") mode_retrieve ;;
+    "discussion") mode_discussion ;;
     *)
         echo "work.sh: internal error — unknown mode '$MODE'" >&2
         exit 99

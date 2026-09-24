@@ -234,6 +234,35 @@ spinner or icon paints in `currentColor`, so its caller naming the colour is the
 design. List both sets explicitly in the check, the same way the vendored-atom
 exemption is named.
 
+### Tokens must survive the trip to Claude Design
+
+The token file is also the source a design system is published from, and the
+design tool reads a narrower language than a browser. Write every token so a
+producer can translate it without losing anything.
+
+**Every value resolves to a plain colour or length.** Use a literal (`oklch()`,
+`oklab()`, `rgb()`, hex, a length), a `var()` reference to another token, or
+`color-mix(in oklab, …)` of `oklch()` / `oklab()` colours, token references or
+`transparent` —
+`color-mix(in oklab, var(--input) 30%, transparent)` is exactly `input` at 30%
+opacity, and a producer writes it that way. Keep the reference in the source:
+it is what makes a change to a light token carry into dark without anyone
+remembering which tokens were derived from it. Anything else needs the producer
+taught first. The producer must fail the sync on a construct it does not know,
+because the design tool never does: it drops what it cannot read, and a colour
+missing from the dark theme silently inherits the light one.
+
+**Every token carries a comment saying what it is for.** One line, above or
+beside the declaration: "the border of a field", "a hover fill inside a card".
+The sync copies it as the token's usage note, so it is what the design agent
+reads when it picks a colour. It is also the context any reader gets at the
+point of use, where a separate design doc is one file too far away. A token with
+no comment reaches the design tool with no meaning attached.
+
+**Say in words what the format has no field for.** A type role that changes size
+at a breakpoint carries one size, so its comment names the other. Tabular
+figures, or any font feature, go in the role's comment the same way.
+
 ## What `design.md` covers vs what it doesn't
 
 `design.md` is scoped to **atoms and tokens**, per the google spec. It does NOT cover:

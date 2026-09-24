@@ -203,9 +203,10 @@ All Claude-driven editing happens on a branch in the project checkout. One check
 
 **Lifecycle (the only verb you type is `/work`):**
 
-- `/work` — on `main`, refresh from `origin/main` and cut a fresh `wip/<abbrev>-<timestamp>` branch. On a feature branch, resume it. Idempotent within a body of work.
+- `/work` — on `main`, refresh from `origin/main` and stay there; no branch is cut until the first `/commit` or `/checkpoint`. On a feature branch, resume it. Idempotent within a body of work.
 - `/work <issue#[,issue#…]>` — links the issue(s) to the branch you are standing on and cuts no branch, on `main` or anywhere else. Re-run it on a branch that already carries links to add more.
 - `/work --retrieve <branch>` — fetch a teammate's branch, fast-forward any local copy, switch to it. Refuses on a dirty tree; `/checkpoint` first.
+- `/work --discussion <slug or artifact URL>` — pull a finished discussion back: the `analysis` skill's published page, its comment threads and any feedback that arrived outside it become `project-documentation/temporary/<slug>-plan.md`, and the discussion folder is removed.
 
 Every shape of `/work` also reads `project-documentation/temporary/handoff.md` once per session and folds it into the opening orientation (§12c).
 - `/merge` — squash-merge the PR, land the checkout back on `main`, delete the merged local branch.
@@ -1444,7 +1445,7 @@ so `npm run check:deps` reproduces the CI gate locally. The CI job calls the scr
 
 **Components ship:**
 - `_claude-project/skills/e2e/SKILL.md` — the skill protocol (discovery, scoping via PR diff, server startup per dev-server.md, execution, reporting)
-- `_claude-project/skills/e2e/gen-report.mjs` — data-driven HTML report generator (theme + true CSS lightbox baked in); the run writes `logs/e2e/results.json`, this renders `report.html`
+- `_claude-project/lib/gen-report.mjs` — the shared data-driven HTML generator (theme + true CSS lightbox baked in), also used by the `analysis` skill; the run writes `logs/e2e/results.json`, this renders `logs/e2e/<project>-e2e-<YYYYMMDD>.html`
 - `_claude-project/skills/e2e/example-flow.md` — copy-paste template for consumer projects to fill in with their own flows
 
 **Report.** A run produces a self-contained HTML report — per-step ✅/❌ with inline (base64) screenshots — so a run can be fired off and reviewed async; the screenshots are the audit trail behind each pass, not a substitute for the behavioral judgment.
@@ -1848,6 +1849,10 @@ The document is written for the next session's AI, rewritten in full every time,
 Dogfooded: the command lives in both `_claude-project/commands/handoff.md` and the kit's own `.claude/commands/`.
 
 Full spec: `commands/handoff.md`.
+
+## 12d. Analysis and discussion pages
+
+The `analysis` skill publishes a shared analysis as a claude.ai Artifact that readers discuss in comments, and `/work --discussion <slug or artifact link>` pulls that discussion back into an action plan. When to use it, what readers see, the discussion folder and every kit file involved: `analysis-and-discussions.md`.
 
 ## 13. Troubleshooting
 

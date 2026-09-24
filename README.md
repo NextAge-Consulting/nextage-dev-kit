@@ -196,7 +196,7 @@ The `project/` subfolder is created automatically by `/sync-dev-kit` if it doesn
 | `shadcn` | shadcn/ui component management |
 | `agent-browser` | Browser automation for testing |
 | `e2e` / `e2e-author` | Running and authoring plain-English E2E flows |
-| `analysis` | Written analyses packaged to share |
+| `analysis` | Written analyses packaged to share and discuss, pulled back with `/work --discussion` |
 | `dependency-triage` | The weekly dependency and vulnerability pass |
 | `dev-server` | Routes dev-server requests to `/dev` |
 | `rule-authoring` | How a rule is written so that it binds |
@@ -236,7 +236,8 @@ See `.claude/rules/project/dev-kit-workflow.md` for details.
 | Doc | Purpose |
 |-----|---------|
 | `project-documentation/handbook.md` | Full architecture, sync flow, three-surface layout. The authoritative reference. |
-| `project-documentation/gitflow-cheatsheet.md` | Day-to-day developer reference for `/branch`, `/link`, `/checkpoint`, `/commit`, `/open-pr`, `/merge`. |
+| `project-documentation/gitflow-cheatsheet.md` | Day-to-day developer reference for `/work`, `/checkpoint`, `/commit`, `/open-pr`, `/merge`. |
+| `project-documentation/analysis-and-discussions.md` | Analysis and discussion pages: when to build one, what readers see, and the `/work --discussion` pull-back into an action plan. |
 | `project-documentation/kit-repo-github-config.md` | How THIS repo is configured on GitHub and why it differs from consumer projects. Pre-flight sanity checklist before changes that might need GitHub-side config. |
 | `project-documentation/dependency-management.md` | The monorepo "one stack" discipline + the `dep-alignment` CI gate: trust-but-verify on old workarounds, solid-version philosophy, the "logged-in not 200" verification standard, accepted-residuals handling. |
 | `project-documentation/macbook-setup.md` | Fresh Apple Silicon MacBook, end to end: Xcode CLT, Homebrew, shell, the CLI toolchain, editors, GUI apps, Parallels for legacy WINDEV work, launcher and statusline. |

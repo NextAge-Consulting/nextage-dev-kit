@@ -35,6 +35,7 @@ Run these through gitflow, never directly: `git commit`, `git add`, `git push`, 
 | "work on this", "open the project", "pick up where I left off", "start work" | `/work` |
 | "start work on #N", "work issue N" | `/work <N>` |
 | "retrieve branch", "pull a teammate's branch" | `/work --retrieve <branch>` |
+| "the discussion is done", "pull the discussion in" | `/work --discussion <slug or URL>` |
 | "commit", "commit this", "commit the changes" | `/commit` |
 | "checkpoint", "save progress", "wip commit" | `/checkpoint` |
 | "link issue", "also works on #N", "add #N to this branch" | `/work <N>` |

@@ -12,13 +12,17 @@ A claim you asserted but did not verify. A `TODO`, stub, or hardcoded value you 
 
 **Defects are fixed, not reported.** If you find it, you own it, you fix it (constitution §XII). A defect appears as one line saying you fixed it, or it does not appear.
 
+## Instructions the human must act on
+
+**When you hand the human something to do and keep working, run the rest in a background agent.** Streaming work scrolls the instructions off their screen, and a recap at the end arrives after they needed it. If the work cannot go to the background, finish it first and hand over the instructions last.
+
 ## Handing over a decision
 
 Every option carries what it costs, what it risks, what it buys, and which one you would take. Full treatment in `asking-questions.md`.
 
 ## Deliverables
 
-Answer terse by default. Build a formatted HTML report (the `analysis` skill) on a clear cue: the human says "report", "analysis", "for review / approval / stakeholders", or the work is plainly for sharing. Never build Artifacts — they are not shareable without an enterprise or team Anthropic account.
+Answer terse by default. Build a formatted HTML page (the `analysis` skill) on a clear cue: the human says "report", "analysis", "to discuss", "for review / approval / stakeholders", or the work is plainly for sharing. Share it as a claude.ai Artifact, built by that skill — viewers need a Claude account, and a free one is enough.
 
 ## Content the human will paste elsewhere
 

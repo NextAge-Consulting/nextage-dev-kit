@@ -2,6 +2,12 @@
 
 All notable changes to the NextAge Dev Kit will be documented here.
 
+### September 24, 2026
+
+- **✨ Analyses become discussions** - The `analysis` skill publishes shared pages as claude.ai Artifacts, and a page is a discussion by default: stable ids on every section, numbered asks (`D1`, `Q1`) or a Comments section, and a note that tells readers inside the artifact viewer to comment on the page and everyone else to reply to the sender. `"mode": "report"` gives a read-only page; E2E reports are always reports.
+- **✨ `/work --discussion <slug or artifact URL>`** - Pulls a finished discussion back: the published page, every comment thread and any feedback that arrived outside the page become an action plan, and the discussion folder is removed.
+- **🐛 `/work` flags with no value** - `--issue`, `--retrieve` and `--discussion` given without a value, and `--issue` with no digits, now exit with the documented message instead of dying silently.
+
 ### July 10, 2026
 
 - **✨ `/e2e-author` skill** - Companion to the `/e2e` runner for writing and maintaining flow files. Carries the flow-file format, frontmatter spec, and a recipe library for the recurring agent-browser gotchas (off-screen click scroll, env-with-spaces loading, mouse-move arg split, viewport, OTP-from-DB), plus a dry-run-before-done rule so new flows can't rot unrun.

@@ -37,6 +37,8 @@ The outgoing handoff from Step 1 gets the same treatment before it is overwritte
 
 `handoff.md` itself is never swept and never retired. It lives in `temporary/` permanently and is replaced each session.
 
+A `discussion-<slug>/` folder is live until `/work --discussion` pulls it back — the analysis skill wrote it, and it is waiting on other people's comments. Never sweep one.
+
 ### Step 3: Classify every open item from the outgoing handoff
 
 Three resolutions. There is no fourth, and silence is not one of them.

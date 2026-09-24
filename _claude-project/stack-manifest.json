@@ -289,7 +289,7 @@
       "     `import 'zod'` resolves from the APP's directory. An app with its own",
       "     nested v4 gets v4 no matter what is hoisted to the root. All 7 Vite apps",
       "     across the 3 projects declare zod ^4.4.3, and all 3 root hoists differ",
-      "     (ubsai v3, leakgopher v3, qaero v4) with no production failure anywhere.",
+      "     (v3, v3 and v4) with no production failure anywhere.",
       "     This half is what makes the root hoist irrelevant.",
       "",
       "  2. ssr.noExternal (advisory).",
