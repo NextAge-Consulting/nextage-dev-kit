@@ -15,7 +15,7 @@ Every coding session starts with `/work`. It puts you on the branch your work be
 /work --discussion session-timeout # pull a finished discussion (slug or artifact URL) into an action plan
 ```
 
-**`/work` never cuts a branch.** At session-init nobody knows yet whether this is a feature, an infra change, or a question answered from the handoff — and because `/ship-main` runs only on `main`, cutting a branch here would block the infra path before the session began. The branch arrives from the command that actually declares the path: `/commit` names it from your commit message, `/checkpoint` cuts a `wip/` one.
+**`/work` never cuts a branch.** At session-init nobody knows yet whether this is a feature, an infra change, or a question answered from the handoff — and because `/ship-main` runs only on `main`, cutting a branch here would block the infra path before the session began. The branch arrives from the command that actually declares the path: `/commit` names it from your commit message.
 
 What happens automatically (no issue, on `main`):
 - **Local main is fast-forwarded from `origin/main`**, unless the tree is dirty or the fetch fails — both say so plainly rather than blocking.
@@ -26,21 +26,19 @@ What happens automatically (issue mode, anywhere):
 - Claude **reads the issue body + comments** and proposes an approach before any code is written.
 - On `main` the link parks there and rides onto whichever branch your first `/commit` creates; `/ship-main` instead names it in a `Closes #N` line once you answer that it is code complete.
 
-Where `wip/<abbrev>-<timestamp>` comes from: `/checkpoint` on `main` cuts it. The branch keeps that name until your first `/commit`, which renames it to `<type>/<slug>` from the commit message (e.g. `wip/lg-2026-05-12-153000Z` → `feat/dealer-filter-fix`). `<abbrev>` resolves from `PROJECT_ABBREV` in `.claude/sync-substitutions.json` (e.g. `lg`, `kit`, `ms`), falling back to the project's directory basename if unset. Run `/sync-dev-kit` to populate. Lets the Agents view distinguish concurrent wip/ branches across projects.
-
 What happens automatically (no issue, already on a feature branch):
 - Resume it. Same body of work continues, nothing refreshed — use `/catchup` when you want the latest main.
 
-**Edits already in the tree come along.** If you started editing before typing `/work`, those changes stay exactly where they are and follow you onto whichever branch the first `/commit` or `/checkpoint` creates. The one consequence is that `main` is not refreshed in that case (a fast-forward on a dirty tree would either fail or strand the edits) — `/work` says so, and `/catchup` closes the gap.
+**Edits already in the tree come along.** If you started editing before typing `/work`, those changes stay exactly where they are and follow you onto whichever branch the first `/commit` creates. The one consequence is that `main` is not refreshed in that case (a fast-forward on a dirty tree would either fail or strand the edits) — `/work` says so, and `/catchup` closes the gap.
 
-**Distinguishing concurrent sessions in the Agents view.** The `wip/<abbrev>-<timestamp>` branch name does NOT surface as the session title in the Agents view or the Claude desktop/web view — those views show the session summary, not the branch. To label a session so concurrent work across projects is easy to tell apart, use the built-in `/rename <name>` slash command. The rename is reflected in both the Agents view and the Claude views.
+**Distinguishing concurrent sessions in the Agents view.** The branch name does NOT surface as the session title in the Agents view or the Claude desktop/web view — those views show the session summary, not the branch. To label a session so concurrent work across projects is easy to tell apart, use the built-in `/rename <name>` slash command. The rename is reflected in both the Agents view and the Claude views.
 
 ---
 
 ## While working
 
 ```
-/checkpoint      # fast WIP save — validation, push, no fuss
+/checkpoint      # local save point — no gates, no branch, no push
 /commit          # full conventional commit with AI-generated message
 npm test         # run vitest (if the project has test scaffolding)
 npm run check-types  # tsc across all workspaces
@@ -55,6 +53,8 @@ Use `/checkpoint` freely for in-progress snapshots. Use `/commit` when a unit of
 **Every issue reaching Staged gets one comment for its author** — what was built, what they will see, and where it differs from what they asked. Claude writes it (shape: `skills/gitflow/references/staged-comment.md`) and the script posts it once the board has moved; you are not asked to approve the wording. It is posted once per issue, so `/open-pr` re-staging an issue `/commit` already staged posts nothing.
 
 **An autonomous run may `/checkpoint`** as each deliverable finishes — the one git operation `/autonomous` authorizes without a fresh instruction. `/commit`, `/open-pr`, `/merge`, `/ship-main` and `/deploy` still wait for you.
+
+**Checkpoints stay local.** A checkpoint commits on the branch you are standing on, `main` included, and pushes nothing. `/commit` and `/ship-main` fold every unpushed checkpoint into the one commit they make, so a `🔖 wip:` subject never reaches `main` for `/deploy` to read.
 
 `/commit` runs check-types, biome and semgrep itself before staging, so the CI equivalents of all three fire locally first — semgrep scoped to the files the commit touches, where CI scans the whole repo. `/checkpoint` deliberately does not: it is the fast WIP save, and a scan on every snapshot is friction on the one path built to have none.
 
@@ -237,7 +237,7 @@ Picking up tomorrow on unfinished work: same launch, just `/work` (no args). You
 
 | Symptom | Fix |
 |---------|-----|
-| "Not on a feature branch" from `/commit` | You are on `main`. `/commit` auto-branches from there, naming the branch from your commit message, so this should not block you — if it does, `/checkpoint` cuts a `wip/` branch. |
+| "Not on a feature branch" from `/commit` | You are on `main`. `/commit` auto-branches from there, naming the branch from your commit message, so this should not block you. |
 | `/merge` refuses — "CI not green" | Open the Actions tab, find the failure, fix, `/commit`, re-run `/merge`. |
 | `/e2e` — "no flows match this diff" | Expected for pure-docs / workflow-only PRs on the diff-scoped option. Reports clean, runs nothing. |
 | `/e2e` — dev server not reachable | Claude checks port first and starts if free. If that fails, the project's dev-server command may differ; check `.claude/rules/dev-server.md` for the project's convention. |

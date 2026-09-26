@@ -274,9 +274,7 @@ unlink_issues_from_branch() {
 # /work <issue#> no longer cuts a branch — it parks the link on whatever
 # branch the session is standing on, normally main. The branch is cut later
 # by whichever command declares the path, and that command calls this to
-# bring the links along. `git branch -m` moves the whole `[branch "x"]`
-# config section on its own, so a wip RENAME needs no migration; only a
-# freshly CREATED branch does.
+# bring the links along.
 migrate_branch_linked_issues() {
     local from="$1" to="$2"
     [ "$from" = "$to" ] && return 0

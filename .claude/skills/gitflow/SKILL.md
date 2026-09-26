@@ -1,6 +1,7 @@
 ---
 name: gitflow
 description: This skill should be used when the user asks to "work on", "start work", "pick up where I left off", "open the project", "commit", "commit this", "commit the changes", "ship to main", "commit straight to main", "infra commit", "emergency commit to main", "checkpoint", "save progress", "wip commit", "link issue", "link this issue", "also works on issue", "open pr", "open a pull request", "submit for review", "triage", "work the review", "go through gemini", "merge", "merge to main", "ship it", "retrieve a branch", "catch up with main", "catch my branch up", "get latest main", "pull main into my branch", "update my branch with main", "continue the merge", "abort the catchup", or any natural-language request for git work-session, commit, checkpoint, issue-link, pull-request, review-triage, catchup, merge, or deploy operations. Routes to the corresponding slash command. The canonical and ONLY authorized path for starting work, committing, checkpointing, PR creation, review triage, catchup, and merges in this project.
+user-invocable: false
 ---
 
 # gitflow
@@ -82,7 +83,7 @@ Full conventional commit with AI-generated message.
 - Ask which linked issues are code complete (finished, waiting for deployment); each yes becomes `--complete "<N,N>"`, is marked on the branch and moves to Staged after the push
 - Invoke `/commit` passing the message
 
-Auto-branch behavior: if on `main`, `/commit` derives a `<type>/<slug>` branch from the commit message and creates it before committing. If on a `wip/<timestamp>` branch (from a prior `/checkpoint`), it renames the branch to `<type>/<slug>` — unless there is an open PR for the branch, in which case it commits in place to preserve the PR link.
+Auto-branch behavior: if on `main`, `/commit` derives a `<type>/<slug>` branch from the commit message and creates it before committing. Unpushed `/checkpoint` commits are folded into the one commit it makes.
 
 See `commands/commit.md` for the full specification.
 
@@ -102,15 +103,15 @@ See `commands/ship-main.md` for the full specification.
 
 ### /checkpoint
 
-Fast WIP commit without deep analysis.
+A local save point, without deep analysis.
 
 **Procedure:**
 - Optional: take a short message from the user
 - Invoke `/checkpoint`
 
-See `commands/checkpoint.md`. The command auto-formats the message as `🔖 wip: <timestamp or user message>`. It asks no code-complete question — a checkpoint is partway by definition — and carries issue links and complete marks onto its branch.
+See `commands/checkpoint.md`. The command auto-formats the message as `🔖 wip: <timestamp or user message>`. It asks no code-complete question — a checkpoint is partway by definition.
 
-Auto-branch behavior: if on `main`, `/checkpoint` creates a `wip/<timestamp>` branch before committing. A later `/commit` on that `wip/*` branch renames it based on the commit message.
+No branch is cut and nothing is pushed: the checkpoint is a local commit on the current branch, `main` included. `/commit` and `/ship-main` fold every unpushed checkpoint into the one real commit they make, so a `🔖 wip:` subject never reaches origin.
 
 ### /work
 
@@ -199,8 +200,8 @@ The commands invoke these scripts in `skills/gitflow/scripts/`:
 | Script | Purpose |
 |--------|---------|
 | `work.sh` | Refresh `main` or resume the current branch, cutting nothing; `--issue <N[,N…]>` to link one or more issues to the branch you are on; `--retrieve` to fetch and switch to someone else's branch; `--discussion <slug\|URL>` to locate a discussion folder and print its pointer |
-| `commit.sh` | Full conventional commit, stages all, pushes; auto-branches/renames as needed |
-| `checkpoint.sh` | WIP commit, stages all, pushes; auto-creates `wip/<timestamp>` on main |
+| `commit.sh` | Full conventional commit, stages all, pushes; auto-branches on main; folds unpushed checkpoints |
+| `checkpoint.sh` | Local commit on the current branch, stages all; no branch, no push |
 | `open-pr.sh` | Refuse (exit 12) while a linked issue is not code complete; push branch, create PR via gh or GitHub API; prepends `Closes #N` from branch-linked issues and moves them to Staged |
 | `wait-for-pr-ready.sh` | Poll until CI green + (if a `/gemini review` comment was posted for the current HEAD) Gemini Code Assist has posted its review; fail-loud timeout. Trigger-aware: no trigger comment for HEAD → CI-only ready. `GEMINI_NOT_INSTALLED="true"` short-circuits the Gemini path entirely. Invoked by `/open-pr`, `/triage`, `/merge`. |
 | `merge.sh` | Wait for PR readiness, squash-merge via gh, land this checkout back on `main`, delete the merged local branch, reinstall deps if manifests changed |

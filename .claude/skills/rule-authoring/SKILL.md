@@ -1,6 +1,7 @@
 ---
 name: rule-authoring
 description: Use when writing or editing any rule, skill, output style, or CLAUDE.md — `.claude/rules/**`, `.claude/skills/**`, `.claude/output-styles/**`, or a project's own `rules/project/**`. Also use when auditing existing rules for size or overlap. Covers how a rule is written so that it binds.
+user-invocable: false
 ---
 
 # Rule Authoring

@@ -72,11 +72,6 @@ If the list is empty, skip Step 1.5 entirely and proceed to Step 2.
    - On `n`: ask user to paste the value directly.
 4. **If no discovery command is present**:
    - Show the description's example/format hint and ask the user directly: "Value for <KEY>?"
-   - **If the description contains a `Suggested default:` line with an embedded shell command** (typical: `PROJECT_ABBREV`):
-     - Extract the command (it appears between backticks after `Suggested default:`).
-     - Run it via `Bash` from the consumer's project root (the cwd where `/sync-dev-kit` was invoked).
-     - Show the computed default value to the user and offer it as the prefill: "Suggested default: `<value>`. Accept with enter, or provide your own (e.g. a shorter abbrev)."
-     - On accept-with-enter → write the suggested value. On user-provided value → write that. On "disable" / "skip" → fall through to the standard resolutions below.
 5. **Resolutions:**
    - User provides a value → write it: `jq --arg k "<KEY>" --arg v "<VALUE>" '.[$k] = $v' .claude/sync-substitutions.json > /tmp/subs.json && mv /tmp/subs.json .claude/sync-substitutions.json`
    - User says "disable" / "leave empty" / "I don't use this feature" → add to `_intentionally_empty`: `jq --arg k "<KEY>" '._intentionally_empty = ((._intentionally_empty // []) + [$k] | unique)' .claude/sync-substitutions.json > /tmp/subs.json && mv /tmp/subs.json .claude/sync-substitutions.json`. Surface that this suppresses the prompt on future syncs.

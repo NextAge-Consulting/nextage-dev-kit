@@ -203,7 +203,7 @@ All Claude-driven editing happens on a branch in the project checkout. One check
 
 **Lifecycle (the only verb you type is `/work`):**
 
-- `/work` — on `main`, refresh from `origin/main` and stay there; no branch is cut until the first `/commit` or `/checkpoint`. On a feature branch, resume it. Idempotent within a body of work.
+- `/work` — on `main`, refresh from `origin/main` and stay there; no branch is cut until the first `/commit`. On a feature branch, resume it. Idempotent within a body of work.
 - `/work <issue#[,issue#…]>` — links the issue(s) to the branch you are standing on and cuts no branch, on `main` or anywhere else. Re-run it on a branch that already carries links to add more.
 - `/work --retrieve <branch>` — fetch a teammate's branch, fast-forward any local copy, switch to it. Refuses on a dirty tree; `/checkpoint` first.
 - `/work --discussion <slug or artifact URL>` — pull a finished discussion back: the `analysis` skill's published page, its comment threads and any feedback that arrived outside it become `project-documentation/temporary/<slug>-plan.md`, and the discussion folder is removed.
@@ -213,9 +213,7 @@ Every shape of `/work` also reads `project-documentation/temporary/handoff.md` o
 
 **One session = one body of work = one branch = one PR.** All commits made during a session land on the same feature branch. Re-run `/work <N>` to add more issues mid-stream. Use `/open-pr` once and `/merge` once.
 
-**End-of-day on unfinished work:** push via `/commit` or `/checkpoint`, close the session. Next session's `/work` sees you are already on the branch and resumes — same branch, same body of work, no new branch created.
-
-**`wip/<abbrev>-<timestamp>` rename at first commit.** When `/work` cuts a branch without issue context, it starts as `wip/<abbrev>-<timestamp>`. `/commit` detects the `wip/*` prefix on first commit and renames the branch to its real feature name derived from the commit message (e.g. `feat/dealer-filter-fix`). The user never types the wip name — it is internal session state.
+**End-of-day on unfinished work:** `/commit` it (pushed) or `/checkpoint` it (local only), close the session. Next session's `/work` sees you are already on the branch and resumes — same branch, same body of work, no new branch created.
 
 **Uncommitted edits carry onto the new branch.** Starting to edit before typing `/work` is ordinary — you noticed something first. `git checkout -b` brings those edits along, so nothing is stranded. The one consequence: `main` is not refreshed in that case (a fast-forward on a dirty tree would either fail or strand the edits), so the branch is based on local `main`. `/work` says so plainly; `/catchup` integrates the latest when you want it.
 
@@ -309,10 +307,8 @@ the name of your current branch.
 | Layer | Where | What |
 |---|---|---|
 | Primary | `branch_helpers.sh:create_and_switch` | `git checkout -b` from local HEAD creates the branch with NO upstream; the first push sets it. |
-| Belt-and-suspenders | `branch_helpers.sh:safe_push` | Reads `@{u}`; if it does NOT match `origin/<local-branch>`, push with `-u origin <local-branch>` to (re)set tracking. Used by `commit.sh`, `checkpoint.sh`, `open-pr.sh`. |
+| Belt-and-suspenders | `branch_helpers.sh:safe_push` | Reads `@{u}`; if it does NOT match `origin/<local-branch>`, push with `-u origin <local-branch>` to (re)set tracking. Used by `commit.sh`, `open-pr.sh`. |
 | Recovery | `commit.sh --push-only` | When a prior `/commit` committed locally but failed at push (typical: a branch left with bogus tracking), retry the push without re-running typecheck/stage/commit. |
-
-**Why the rename path was already safe.** `/work` (no args) creates `wip/<abbrev>-<timestamp>` with origin/main upstream → first `/commit` calls `rename_current_branch` which explicitly runs `git branch --unset-upstream` → then push -u → correct. That path was never broken; only the `/work --issue` path (which skips the wip→feat rename) hit the bug. `safe_push` covers both paths uniformly so the fix doesn't depend on which entry point was used.
 
 **Caller recovery for half-shipped commits.** A feature branch that inherited the bogus upstream still carries it. The fix in `commit.sh` (safe_push) is delivered THROUGH the file at `<project>/.claude/skills/gitflow/scripts/commit.sh`. For a stranded branch (committed but not pushed), invoke `commit.sh --push-only` while standing on the stranded branch:
 
@@ -382,10 +378,22 @@ If linearizing history is genuinely needed before opening a PR, use `SKIP_GIT_GU
 
 1. Claude invokes `/checkpoint` (or skill auto-invokes)
 2. Command calls `skills/gitflow/scripts/checkpoint.sh` with optional message suffix
-3. Script stages all, commits with `🔖 wip: <timestamp or message>`, pushes
+3. Script stages all and commits with `🔖 wip: <timestamp or message>` on the current branch, `main` included. No branch is cut and nothing is pushed.
 4. No local typecheck runs — checkpoints are never gated (speed over compliance for WIP)
 
 Checkpoints are meant to be fast. Skip analysis. No changelog. No version.
+
+### 5.3. The fold
+
+`/commit` and `/ship-main` fold every unpushed checkpoint into the one real commit they make. `checkpoint_fold_base` (`branch_helpers.sh`) walks back from HEAD over commits whose subject starts `🔖 wip:` and that no remote ref contains; once every gate has passed, `fold_checkpoints` soft-resets to that base and the script commits once. The gates scan from the base, so content saved in checkpoints — which skipped them — is checked too.
+
+Why the fold exists: `/deploy` reads subjects on `main` to compute the bump, so a checkpoint must never land there. Why after the gates: a failing gate then leaves the checkpoints exactly as they were.
+
+`/commit` on `main` cuts its branch first, moving the checkpoints with it, and resets local `main` to the base straight away. Until `/commit` or `/ship-main` runs, local `main` is ahead of `origin/main`: `fast_forward_local_main` refuses and names the checkpoints, and `/deploy`'s in-sync gate refuses.
+
+A checkpoint already on a remote is never folded — rewriting it would need a force-push.
+
+`skills/gitflow/scripts/checkpoint.test.sh` covers all of this against a real bare origin.
 
 ---
 
@@ -789,7 +797,6 @@ Current kit-referenced placeholders (authoritative list is in `_claude-project/s
 | `GITFLOW_STATUS_STAGED_ID` | `_claude-project/gitflow-project.conf` | GraphQL option ID for "Staged" (code complete, waiting for deployment) — set by `/commit` and `/ship-main` for each issue answered code complete, and by `/open-pr` for every linked issue |
 | `GITFLOW_STATUS_DEPLOYED_ID` | `_claude-project/gitflow-project.conf` | GraphQL option ID for the deploy status — set by `/deploy` after tag push for every issue named by a closing keyword since the last tag. The column may be named anything (`Done`, `Deployed`, …). `/merge` does NOT trigger it. |
 | `GEMINI_NOT_INSTALLED` | gitflow scripts (runtime-read via `jq`) | Inverted-default toggle — DEFAULT (missing/empty) = Gemini is installed → trigger scripts (`/open-pr`, `/commit --review`) post `/gemini review` comments, and `wait-for-pr-ready.sh` honors triggered reviews. Set `"true"` only when Gemini is genuinely absent from the repo → trigger scripts skip posting and the wait treats Gemini as `skipped`. Naming captures a fact about the repo, not a config preference. Semantics deliberately INVERTED from `GITFLOW_*` (which use empty = disabled) because the name encodes a negation. See "Runtime-read placeholders" below |
-| `PROJECT_ABBREV` | `_claude-project/skills/gitflow/scripts/branch_helpers.sh` (runtime-read via `jq`) | Short project label embedded in `wip/<abbrev>-<timestamp>` branch names so the Agents view can distinguish concurrent sessions across projects. Empty/missing → `branch_helpers.sh` falls back to `basename <primary-repo-root>`. §9.8 walkthrough pre-computes that fallback and offers it as the prefill so the user can accept-with-enter or provide a shorter abbrev. See "Runtime-read placeholders" below |
 | `AWS_ACCOUNT_ID` | `_claude-project/rules/cli-utilities.md` (runtime-read via `jq`) | 12-digit AWS account ID this project's infra lives in. Confirm `aws sts get-caller-identity` matches it before any operation. Empty → project has no AWS. See "Runtime-read placeholders" below |
 | `AWS_REGION` | `_claude-project/rules/cli-utilities.md` (runtime-read via `jq`) | Default AWS region for this project's resources, e.g. `us-east-1`. Passed as an explicit `--region` on every AWS CLI command; never the shell default, which is per-machine and routinely points elsewhere. Empty → project has no AWS. See "Runtime-read placeholders" below |
 | `AWS_PROFILE` | `_claude-project/rules/cli-utilities.md` (runtime-read via `jq`) | Named AWS CLI profile for this project's account, e.g. `acme-prod`. Passed as an explicit `--profile` on every AWS CLI command. Empty → default profile / no AWS. See "Runtime-read placeholders" below |
@@ -799,7 +806,7 @@ The kit ships a template at `_claude-project/sync-substitutions.json` with empty
 
 **Sync flow** — `sync-dev-kit.sh` uses the substitutions in two places:
 
-1. **During scan**: the `kit_sha` for each file is computed AFTER substituting placeholders with project values. So a kit template with `{{PROJECT_ABBREV}}` matches a project file with `wa` and reports `clean`, not `conflict`. Three states per key, with deliberately distinct behavior:
+1. **During scan**: the `kit_sha` for each file is computed AFTER substituting placeholders with project values. So a kit template with `{{ORG}}` matches a project file with `acme` and reports `clean`, not `conflict`. Three states per key, with deliberately distinct behavior:
    - **Key present, non-empty value** → normal substitution, `{{KEY}}` → value.
    - **Key present, empty string value** → substitution still happens, `{{KEY}}` → empty. This is the explicit opt-out for features that gate on a placeholder being unset (e.g. `GITFLOW_*` for gitflow project integration). The conf file lands with `FOO=""` and runtime treats as off.
    - **Key absent from the file** → no substitution, `{{KEY}}` marker survives in the content. Surfaces as a real diff on every scan until the consumer addresses it. Used as a "you haven't decided yet" signal — distinct from empty (informed off).
@@ -816,7 +823,6 @@ Some placeholders are read at runtime instead. Scripts in the kit query `.claude
 
 ```bash
 GEMINI_NOT_INSTALLED=$(jq -r '.GEMINI_NOT_INSTALLED // ""' .claude/sync-substitutions.json)
-PROJECT_ABBREV=$(jq -r '.PROJECT_ABBREV // ""' "$primary/.claude/sync-substitutions.json")
 ```
 
 Properties:
@@ -1052,7 +1058,7 @@ Board transition + assignment are **fail-loud when configured** — see the fail
 
 **Storage**: `git config --local branch.<name>.gitflow-issues = "23 25 26"` — git wipes on branch delete, no stray metadata files. Code-complete marks sit beside it in `branch.<name>.gitflow-complete = "23 25"`, and the issues whose Staged comment has been posted in `branch.<name>.gitflow-noted`.
 
-**Code complete** means finished and waiting for deployment. `/commit` and `/ship-main` ask, for each linked issue not yet marked, whether it is code complete (`--complete "<N,N>"`); each yes is marked on the branch and moved to Staged once the push lands. `--complete` naming an issue not linked on the branch exits 2 before anything happens. `/checkpoint` asks nothing — it is partway by definition — and carries links and marks onto its `wip/` branch unchanged. `/ship-main` names only the complete issues in its `Closes` line, moves them to Staged and unlinks exactly those after the push; incomplete ones stay parked on `main`. `/open-pr` is a gate: every linked issue must be complete, any unmarked one is confirmed first ("Opening this PR marks #42 as Staged. Proceed?"), and an unconfirmed one makes `open-pr.sh` exit 12 before pushing.
+**Code complete** means finished and waiting for deployment. `/commit` and `/ship-main` ask, for each linked issue not yet marked, whether it is code complete (`--complete "<N,N>"`); each yes is marked on the branch and moved to Staged once the push lands. `--complete` naming an issue not linked on the branch exits 2 before anything happens. `/checkpoint` asks nothing — it is partway by definition — and leaves links and marks where they are. `/ship-main` names only the complete issues in its `Closes` line, moves them to Staged and unlinks exactly those after the push; incomplete ones stay parked on `main`. `/open-pr` is a gate: every linked issue must be complete, any unmarked one is confirmed first ("Opening this PR marks #42 as Staged. Proceed?"), and an unconfirmed one makes `open-pr.sh` exit 12 before pushing.
 
 **Every issue reaching Staged gets one comment for its author** — what was built, what they will see, and where it differs from what they asked (`skills/gitflow/references/staged-comment.md`). Claude writes it as `<notes_dir>/<N>.md` and passes `--notes <notes_dir>`; `commit.sh`, `open-pr.sh` and `ship-main.sh` refuse (exit 2, before committing or pushing) when an issue about to be staged has none, and post it once the board has moved. The comment is posted once per issue: `/open-pr` re-staging an issue `/commit` already staged posts nothing.
 
@@ -1813,6 +1819,38 @@ A new kit consumer needs to author `design.md` once before any UI work proceeds.
 The kit itself has no UI — no JSX/TSX, no `design.md`. The skill and its companion rule live only in `_claude-project/` (kit canonical for consumer sync) and NOT in the kit's own `.claude/` working copy. Consumer projects DO install both, automatically via `/sync-dev-kit`.
 
 The design-system skill is one entry in a larger set of template-only (not-dogfooded) items. The authoritative list — what the kit excludes from its own `.claude/` and why — is the **"Kit dogfood manifest" table in `.claude/rules/project/dev-kit-workflow.md`**, which also carries the mandate that every new kit item gets an explicit dogfood decision. This section is illustrative; that table is the single source of truth.
+
+### 12a.8. Claude Design — the `claude-design` skill
+
+A project's design system is published to Claude Design from code, and designs come back
+into code; Claude Design does the designing. The `claude-design` skill carries the
+engine that builds a Claude Design "Design System" from the UI package
+(`scripts/build.mjs`, driven by a per-project `design-system.config.mjs`), the render
+check that mounts every component the way a design page and a canvas do, and one
+command, `/ui-design`, covering a design's life: `start` (a folder under
+`project-documentation/temporary/design-<name>/` and the design conversation),
+`prototype` (the brief, then the design), `feedback` (the comments pulled down and settled
+item by item, then the design revised), `implement` (the design exported into its folder
+and built into screens, its link kept in permanent docs), `publish-system` (build,
+verify, publish the design system) and `refresh-design` (bring designs onto the current
+system). Every action that opens an existing design first checks the design's copy of the
+system against the published version, and asks whether to refresh when it is behind. The
+config's required `timeZone` dates each sync in the project's zone.
+
+Two rules follow from it and live in the `design-system` skill: every token resolvable
+and commented ("Tokens must survive the trip to Claude Design"), and design-system
+components kept inside what React 18 and 19 share, because design pages run React 18.
+
+`skills/claude-design/references/working-with-claude-design.md` is the reference: why
+Claude Design rather than Claude Code designs, what a design is (an interactive
+prototype), where Claude Design lives and how a design is shared, the review-round
+process, and the two-person process — including a collaborator in another organization,
+who drives a shared design from Claude Code by its link.
+
+`project-documentation/ui-design-cheatsheet.md` is the one-page user reference, the
+companion to `gitflow-cheatsheet.md`.
+
+Template-only, like the rest of this subsystem.
 
 ---
 

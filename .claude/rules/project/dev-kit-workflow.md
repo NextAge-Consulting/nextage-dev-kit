@@ -47,6 +47,7 @@ The kit dogfoods only what it actually uses. Everything below ships to consumers
 | `commands/deploy.md`, `skills/gitflow/scripts/deploy.sh` | Kit has nothing to deploy — no version artifact, no deploy target. |
 | `commands/dev.md`, `skills/dev-server/**` | Kit has no dev server / runnable app. |
 | `skills/design-system/**`, `rules/ui-design.md`, `rules/a11y-baseline.md` | Kit has no UI — no JSX/TSX, no `design.md` (handbook §12a.7). |
+| `skills/claude-design/**`, `commands/ui-design.md` | Kit has no UI package and no design system to publish to Claude Design. |
 | `skills/ui-patterns/**`, `rules/ui-patterns.md` | Kit has no UI — nothing to compose and no interactions to pattern. |
 | `templates/dependency-policy.md` | Operating procedure for acting on Dependabot output. The kit has no `package.json` and no dependencies, so there is nothing to triage and no timelines to own. Syncs to consumers in `template` mode (handbook §11.10b). |
 | `templates/ui-inventory.md` | Seed for a consumer's `rules/project/ui-inventory.md` — an enumeration of that project's own components. Kit has no UI, so there is nothing to enumerate. |

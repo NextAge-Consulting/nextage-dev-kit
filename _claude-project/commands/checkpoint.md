@@ -1,6 +1,6 @@
 # /checkpoint
 
-Fast WIP commit without deep analysis. Part of the gitflow subsystem. Use for mid-task save points. Checkpoints skip typecheck (speed over compliance — WIP commits are not shipped).
+A local save point, without deep analysis. Part of the gitflow subsystem. A checkpoint is a commit on the branch you are standing on — `main` included — that cuts no branch and pushes nothing. Its real user is an autonomous session diffing its own stages.
 
 $ARGUMENTS
 
@@ -16,23 +16,26 @@ Pass the user's optional message suffix (from `$ARGUMENTS`) as positional argume
 
 ### Step 2: Report
 
-- Checkpoint committed and pushed: report the timestamp
+- Checkpoint saved: report the timestamp and the branch, and that it is local only
 - Nothing to checkpoint: report
 - Script exited non-zero: surface exit code and message
 
+## Checkpoints never reach origin
+
+`/commit` and `/ship-main` fold every unpushed checkpoint into the one real commit they make: they soft-reset to the commit the checkpoints sit on and commit once, after every gate has passed. So a `🔖 wip:` subject never lands on `main`, where `/deploy` reads subjects to compute the version bump.
+
+On `main`, a `/commit` moves the checkpoints onto the branch it cuts and resets local `main` to where they started. Until one of the two runs, local `main` is ahead of `origin/main`, so `/catchup` refuses to fast-forward and `/deploy` refuses to start — each says why.
+
+A checkpoint that was already pushed is never folded; rewriting it would need a force-push.
+
 ## What this command skips
 
-- Typecheck — deliberate, checkpoints are WIP
-- Changelog — WIP commits never appear in changelog
+- Typecheck, lint and semgrep — the real commit runs them over the folded content
+- Changelog — checkpoints never appear in the changelog
 - Version bump — only main branch merges trigger bumps
-
-## Branch behavior
-
-If currently on `main` or `master`, the script auto-creates a `wip/<timestamp>` branch before committing, and carries any issue links parked on `main` onto it. A later `/commit` on that branch renames it based on the real commit message; `git branch -m` moves the branch's config section, so the links follow the rename on their own.
-
-If already on any other branch, the checkpoint happens in place.
+- The code-complete question — a checkpoint is partway by definition; issue links stay on the branch until `/commit` or `/ship-main` carries them
 
 ## Blocking conditions
 
-- Nothing staged (empty diff)
-- `git push` failure
+- Detached HEAD
+- Nothing to checkpoint (empty diff)

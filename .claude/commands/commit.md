@@ -109,12 +109,12 @@ The script resolves the target branch before committing:
 
 | Current branch | Action |
 |----------------|--------|
-| `main` / `master` | Derive `<type>/<slug>` from the commit message, create and switch. Any issue links parked on `main` by `/work <issue#>`, and which of them are complete, are carried onto the new branch and cleared from `main`. |
-| `wip/<timestamp>` with no open PR | Rename to `<type>/<slug>` from the commit message (local + remote) |
-| `wip/<timestamp>` with open PR | Commit in place (renaming would break the PR link) |
+| `main` / `master` | Derive `<type>/<slug>` from the commit message, create and switch. Any issue links parked on `main` by `/work <issue#>`, and which of them are complete, are carried onto the new branch and cleared from `main`. Any `/checkpoint` commits move with it, and local `main` is reset to where they started. |
 | Any other branch | Commit in place |
 
 Collisions on the target name are resolved by appending `-2`, `-3`, etc.
+
+Unpushed `/checkpoint` commits are folded into this one: once every gate has passed, the script soft-resets to the commit they sit on and commits once. The gates scan everything the checkpoints saved, since checkpoints skip them.
 
 ## What this command does NOT do
 

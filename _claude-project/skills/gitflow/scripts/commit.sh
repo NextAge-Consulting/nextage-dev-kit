@@ -14,6 +14,7 @@
 # Responsibilities (default mode):
 #   - Auto-create or rename branch as needed (see Branch behavior below)
 #   - Run project-type-appropriate typecheck (unless --skip-typecheck)
+#   - Fold any unpushed /checkpoint commits into this one (after every gate)
 #   - Stage all changes
 #   - Commit with --no-verify (validation is done by this script)
 #   - Push to origin via safe_push (sets upstream correctly on first push)
@@ -25,8 +26,8 @@
 #
 # Branch behavior:
 #   - On main/master: derive <type>/<slug> from message, create branch, commit on it.
-#   - On wip/<timestamp>: rename to <type>/<slug> from message (unless the wip branch
-#     has an open PR, in which case commit in place to preserve the PR link).
+#     Checkpoint commits on main move to the new branch; local main is reset to
+#     the commit they sat on, so main never keeps a checkpoint.
 #   - On any other branch: commit in place.
 #
 # Not responsibilities:
@@ -132,6 +133,10 @@ fi
 # merges cleanly, and /merge refuses the drift that does not.
 main_drift_report main commit.sh || true
 
+# The commit any unpushed checkpoints sit on. Every gate below judges the
+# folded content against it; the fold itself waits until they have all passed.
+FOLD_BASE=$(checkpoint_fold_base)
+
 # Branch resolution
 if is_protected_branch "$CURRENT_BRANCH"; then
     TARGET_NAME=$(resolve_collision "$(derive_branch_from_message "$MESSAGE")")
@@ -139,20 +144,15 @@ if is_protected_branch "$CURRENT_BRANCH"; then
     PREVIOUS_BRANCH="$CURRENT_BRANCH"
     create_and_switch "$TARGET_NAME"
     CURRENT_BRANCH="$TARGET_NAME"
+    # The checkpoints now live on the new branch, so main goes back to the
+    # commit they sat on. Done here rather than at the fold: a gate that fails
+    # below must not leave main still carrying them.
+    if [ "$FOLD_BASE" != "$(git rev-parse HEAD)" ]; then
+        git branch -f "$PREVIOUS_BRANCH" "$FOLD_BASE"
+    fi
     # /work <issue#> parks its link on main rather than cutting a branch, so the
     # branch created HERE is the one the issue belongs to.
     migrate_branch_linked_issues "$PREVIOUS_BRANCH" "$CURRENT_BRANCH"
-elif is_wip_branch "$CURRENT_BRANCH"; then
-    if has_open_pr "$CURRENT_BRANCH"; then
-        echo "gitflow: $CURRENT_BRANCH has an open PR — skipping auto-rename." >&2
-    else
-        TARGET_NAME=$(resolve_collision "$(derive_branch_from_message "$MESSAGE")")
-        if [ "$TARGET_NAME" != "$CURRENT_BRANCH" ]; then
-            echo "gitflow: renaming $CURRENT_BRANCH → $TARGET_NAME based on commit message." >&2
-            rename_current_branch "$TARGET_NAME"
-            CURRENT_BRANCH="$TARGET_NAME"
-        fi
-    fi
 fi
 
 # Typecheck (script-level validation; hook layer is belt-and-suspenders)
@@ -235,7 +235,9 @@ if [ -f ".github/workflows/ci.yml" ] && grep -qE '^[[:space:]]*semgrep:[[:space:
         exit 4
     fi
 
-    # Tracked modifications plus untracked additions, minus deletions. `mapfile`
+    # Tracked modifications plus untracked additions, minus deletions, measured from
+    # FOLD_BASE so content saved in checkpoints — which skipped every gate — is
+    # scanned too. `mapfile`
     # is deliberately not used: macOS ships bash 3.2 as /bin/bash and does not
     # have it, so this script would die on the shebang platform it most often
     # runs on.
@@ -244,7 +246,7 @@ if [ -f ".github/workflows/ci.yml" ] && grep -qE '^[[:space:]]*semgrep:[[:space:
         [ -n "$semgrep_f" ] && [ -f "$semgrep_f" ] && SEMGREP_FILES+=("$semgrep_f")
     done < <(
         {
-            git diff --name-only --diff-filter=d HEAD 2>/dev/null
+            git diff --name-only --diff-filter=d "$FOLD_BASE" 2>/dev/null
             git ls-files --others --exclude-standard 2>/dev/null
         } | sort -u
     )
@@ -265,7 +267,8 @@ if [ -f ".github/workflows/ci.yml" ] && grep -qE '^[[:space:]]*semgrep:[[:space:
     fi
 fi
 
-# Stage all changes
+# Every gate passed — fold the checkpoints, then stage everything.
+fold_checkpoints "$FOLD_BASE"
 git add -A
 
 # Abort if nothing staged (avoid empty commits)

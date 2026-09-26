@@ -1,6 +1,7 @@
 ---
 name: design-system
 description: Project-agnostic UI/design-system discipline backed by a per-project `design.md` (google-labs-code spec). Use when creating or styling UI components, pages, forms, or any frontend work in any kit-enabled project. The skill enforces "read the project's design.md for tokens, ground the work in the project's real components for look-and-feel, then apply universal styling discipline" and refuses to proceed if `design.md` is missing at the project root.
+user-invocable: false
 ---
 
 # Design System
@@ -204,6 +205,30 @@ one layer and no component CSS changes. **It is the worked example of the shape
 every other family needs**, and pointing at it is the fastest way to explain what
 "done" looks like.
 
+### Dark mode follows the OS; a class only overrides it
+
+**The stylesheet applies the dark values under `prefers-color-scheme: dark` unless
+`<html>` carries `light`, and a `dark` or `light` class on `<html>` forces a theme
+either way.** Following the OS is the design system's job, never a script an app has
+to run — shadcn's `.dark`-class-only default is not enough on its own.
+
+- **Write the dark values once.** On Tailwind v4, define the variant and put the dark
+  tokens in `:root { @variant dark { … } }` — the `claude-design` producer reads that
+  form:
+
+  ```css
+  @custom-variant dark {
+    &:where(.dark, .dark *) { @slot; }
+    @media (prefers-color-scheme: dark) {
+      &:where(:root:not(.light), :root:not(.light) *) { @slot; }
+    }
+  }
+  ```
+
+- **A theme toggle is optional.** It sets the class and saves the choice; toggling
+  back to the OS's theme clears both. An inline script in `<head>` applies a saved
+  choice before first paint — in React, with `suppressHydrationWarning` on `<html>`.
+
 ### Converting a legacy app: do not derive values from it
 
 Measuring what the old app did most often canonises its drift with extra steps.
@@ -262,6 +287,17 @@ no comment reaches the design tool with no meaning attached.
 **Say in words what the format has no field for.** A type role that changes size
 at a breakpoint carries one size, so its comment names the other. Tabular
 figures, or any font feature, go in the role's comment the same way.
+
+### Design-system components run on React 18 inside Claude Design
+
+Design pages and canvases run React 18, whatever the app runs. A component in the
+design system's feed stays inside what React 18 and 19 share: no `use()`, no
+`<Context>` rendered as a provider, no `useActionState`, `useOptimistic` or
+`useFormStatus`, no form actions, no ref cleanup functions — each breaks inside a
+design, and the render check fails on it when the component has a preview. Ref as
+a prop is handled by the bundle.
+An app's own composites never enter the design system and may use anything. The
+`claude-design` skill carries the bundle and the check.
 
 ## What `design.md` covers vs what it doesn't
 

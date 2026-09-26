@@ -7,72 +7,6 @@ is_protected_branch() {
     [ "$1" = "main" ] || [ "$1" = "master" ]
 }
 
-# is_wip_branch <name> — returns 0 if branch looks like an auto-created wip branch.
-is_wip_branch() {
-    [[ "$1" =~ ^wip/ ]]
-}
-
-# get_project_abbrev — echoes a short project label for embedding in wip/ branch names.
-#
-# Resolution order:
-#   1. PROJECT_ABBREV from <repo-root>/.claude/sync-substitutions.json (jq, runtime-read).
-#   2. basename of the repo root (via `git rev-parse --git-common-dir`, then dirname).
-#   3. "proj" as a last-ditch fallback if no git context is available.
-#
-# Output is sanitized to branch-name-safe chars (lowercase, [a-z0-9._-]).
-#
-# Resolved from the repo root rather than cwd, so the abbrev is stable no matter
-# which subdirectory the command was invoked from.
-get_project_abbrev() {
-    local repo_root abbrev common_dir
-
-    # Resolve the repo root. --git-common-dir points at <root>/.git; `dirname`
-    # gives the root itself.
-    if common_dir=$(git rev-parse --git-common-dir 2>/dev/null); then
-        # --git-common-dir can return a relative path; resolve to absolute.
-        if [ "${common_dir:0:1}" != "/" ]; then
-            common_dir="$(cd "$common_dir" 2>/dev/null && pwd)"
-        fi
-        repo_root="$(dirname "$common_dir")"
-    fi
-
-    abbrev=""
-    if [ -n "$repo_root" ] && [ -f "$repo_root/.claude/sync-substitutions.json" ] && command -v jq >/dev/null 2>&1; then
-        abbrev=$(jq -r '.PROJECT_ABBREV // ""' "$repo_root/.claude/sync-substitutions.json" 2>/dev/null)
-    fi
-
-    if [ -z "$abbrev" ]; then
-        if [ -n "$repo_root" ]; then
-            abbrev=$(basename "$repo_root")
-        else
-            abbrev="proj"
-        fi
-    fi
-
-    # Sanitize: lowercase, non-[a-z0-9._-] → '-', collapse, trim.
-    abbrev=$(printf '%s' "$abbrev" \
-        | tr '[:upper:]' '[:lower:]' \
-        | sed -E 's/[^a-z0-9._-]+/-/g; s/^-+//; s/-+$//')
-    [ -z "$abbrev" ] && abbrev="proj"
-
-    echo "$abbrev"
-}
-
-# make_wip_branch_name — echoes wip/<project-abbrev>-YYYY-MM-DD-HHMMSSZ.
-#
-# Timestamp is UTC + ISO 8601 (with trailing Z) per Constitution §VI: every
-# timestamp in the codebase must be timezone-aware. Branch names produced on
-# different developers' machines collide deterministically when keyed to a
-# single timezone; the second-precision avoids back-to-back collisions when
-# /work and /checkpoint fire in the same minute.
-#
-# The project-abbrev prefix lets the Agents view distinguish concurrent
-# wip/ branches across multiple projects — without it, every wip/ branch
-# looks like timestamp-only and projects are indistinguishable in the UI.
-make_wip_branch_name() {
-    echo "wip/$(get_project_abbrev)-$(date -u +%Y-%m-%d-%H%M%SZ)"
-}
-
 # derive_branch_from_message <commit_message> — echoes <type>/<slug> derived from
 # the first line of a conventional commit message.
 derive_branch_from_message() {
@@ -136,51 +70,6 @@ resolve_collision() {
     echo "$candidate"
 }
 
-# has_open_pr <branch> — returns 0 if the branch has an OPEN PR on GitHub.
-# Returns non-zero if gh is unavailable or no open PR exists.
-has_open_pr() {
-    local branch="$1"
-    command -v gh >/dev/null 2>&1 || return 1
-    local state
-    state=$(gh pr view "$branch" --json state -q .state 2>/dev/null)
-    [ "$state" = "OPEN" ]
-}
-
-# rename_current_branch <new_name> — renames the current local branch and syncs remote.
-# If the old branch was pushed to origin, pushes the new branch and deletes the old remote ref.
-rename_current_branch() {
-    local new="$1"
-    local old
-    old=$(git branch --show-current)
-
-    if [ "$old" = "$new" ]; then
-        return 0
-    fi
-
-    git branch -m "$new"
-
-    # ALWAYS clear upstream tracking after rename — regardless of whether the
-    # old branch existed on remote. Rationale: `git branch -m` preserves the
-    # old branch's upstream config (branch.<new>.remote, branch.<new>.merge),
-    # which often points at a name unrelated to the renamed branch — a branch
-    # cut from origin/main can inherit origin/main as its upstream. Without
-    # clearing here, the caller's subsequent `git push` fails under
-    # push.default=simple because the upstream name (main) does not match the
-    # local name (the new name).
-    # Suppression rationale (Constitution §XIII): --unset-upstream exits
-    # non-zero when there is no upstream to remove; that is the expected
-    # state for some renames, not an error.
-    git branch --unset-upstream 2>/dev/null || true
-
-    # If old branch existed on remote, mirror the rename there too.
-    if git ls-remote --exit-code --heads origin "$old" >/dev/null 2>&1; then
-        git push -u origin "$new"
-        if ! git push origin --delete "$old"; then
-            echo "gitflow: warning — failed to delete remote branch $old (non-fatal)" >&2
-        fi
-    fi
-}
-
 # create_and_switch <name> — creates branch from current HEAD and switches to it.
 # Carries uncommitted changes via git's default checkout -b behavior.
 create_and_switch() {
@@ -200,11 +89,6 @@ create_and_switch() {
 #     plain `git push` because "main" != "<new>". This function is the
 #     belt-and-suspenders so any branch with leftover bogus tracking still
 #     pushes correctly.
-#
-#   - `git branch -m <old> <new>` carries forward <old>'s upstream config
-#     under the new branch name. `rename_current_branch` above explicitly
-#     calls `--unset-upstream` for this reason; safe_push handles the case
-#     where some other caller forgot to.
 #
 # Detection: read @{u} via rev-parse --symbolic-full-name. If it matches
 # origin/<local-branch>, do a plain `git push` (preserves the user's
@@ -230,6 +114,47 @@ safe_push() {
     fi
 }
 
+# ─── Checkpoints ──────────────────────────────────────────────────────────
+# A checkpoint is a LOCAL commit on whatever branch is checked out — main
+# included — and is never pushed. /commit and /ship-main fold every unpushed
+# checkpoint into the one real commit they make, so a `🔖 wip:` subject never
+# reaches origin, where /deploy would read it to compute the version bump.
+CHECKPOINT_PREFIX='🔖 wip:'
+
+# checkpoint_fold_base — echoes the commit that the trailing run of unpushed
+# checkpoint commits sits on; HEAD itself when there are none.
+#
+# Walks back from HEAD while the commit is a checkpoint AND no remote ref
+# contains it. A pushed checkpoint (from before checkpoints went local) is never
+# folded: rewriting it would need a force-push. A root commit stops the walk.
+checkpoint_fold_base() {
+    local base subject
+    base=$(git rev-parse HEAD)
+    while :; do
+        subject=$(git log -1 --format=%s "$base")
+        case "$subject" in
+            "$CHECKPOINT_PREFIX"*) ;;
+            *) break ;;
+        esac
+        [ -z "$(git for-each-ref --contains "$base" --format='%(refname)' refs/remotes)" ] || break
+        git rev-parse --verify --quiet "${base}^" >/dev/null || break
+        base=$(git rev-parse "${base}^")
+    done
+    echo "$base"
+}
+
+# fold_checkpoints <base> — soft-reset HEAD to <base>, so every checkpoint
+# commit above it becomes staged content for the caller's single commit.
+# No-op when <base> is HEAD. Run it only after every gate has passed: a gate
+# that fails afterwards would leave the checkpoints already unwound.
+fold_checkpoints() {
+    local base="$1" n
+    [ "$base" = "$(git rev-parse HEAD)" ] && return 0
+    n=$(git rev-list --count "${base}..HEAD")
+    echo "gitflow: folding $n checkpoint commit(s) into this commit." >&2
+    git reset --soft "$base"
+}
+
 # fast_forward_local_main — refresh local main from origin/main (fail-loud).
 #
 # Used in two places:
@@ -246,9 +171,9 @@ safe_push() {
 #   - Working tree dirty → exit 5, refuse (a fast-forward would either fail or
 #     silently strand the edits; /work handles the dirty case separately)
 #   - `git fetch origin main` fails → exit 6 (network / auth / scope)
-#   - Local main has diverged from origin/main (local-only commits) → exit 7
-#     with diff summary; this is anomalous under gitflow (Claude doesn't
-#     commit to main directly)
+#   - Local main has commits origin/main lacks → exit 7. Checkpoints are the
+#     one ordinary cause (they are local by design), and the message names
+#     /commit or /ship-main as the way out; anything else is anomalous
 #   - Already up-to-date → exit 0 with informational message
 #   - Fast-forward succeeds → exit 0, report old → new SHA + commits pulled
 fast_forward_local_main() {
@@ -299,6 +224,12 @@ fast_forward_local_main() {
             return 6
         fi
         return 0
+    fi
+
+    if [ "$(checkpoint_fold_base)" != "$local_sha" ]; then
+        echo "fast_forward_local_main: local $branch carries unpushed checkpoint commits." >&2
+        echo "  /commit (branch + PR) or /ship-main (straight to $branch) folds them into one real commit." >&2
+        return 7
     fi
 
     if git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then

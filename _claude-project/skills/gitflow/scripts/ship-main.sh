@@ -16,6 +16,8 @@
 #     branch, so it can't trip this by accident).
 #   - Runs the same typecheck + biome lint as /commit (the assist worth keeping);
 #     --skip-typecheck for a true emergency.
+#   - Folds any unpushed /checkpoint commits into the one commit it makes, so no
+#     `🔖 wip:` subject reaches main for /deploy to read.
 #   - Commits with a CONVENTIONAL message so the next /deploy classifies it for
 #     bump-level + changelog exactly like a merged-PR squash commit.
 #   - Pushes straight to main; rebases the commit onto origin/main if it advanced.
@@ -76,6 +78,10 @@ fi
 if [ -n "$COMPLETE_ISSUES" ] && ! validate_complete_issues "$COMPLETE_ISSUES" "$CURRENT_BRANCH"; then
     exit 2
 fi
+
+# The commit any unpushed checkpoints sit on. The gates judge the folded content
+# against it; the fold itself waits until they have all passed.
+FOLD_BASE=$(checkpoint_fold_base)
 
 # --- Validation (the assist that stays; --skip-typecheck for emergencies) --
 if [ "$SKIP_TYPECHECK" -eq 0 ]; then
@@ -142,7 +148,9 @@ if [ -f ".github/workflows/ci.yml" ] && grep -qE '^[[:space:]]*semgrep:[[:space:
         exit 4
     fi
 
-    # Tracked modifications plus untracked additions, minus deletions. `mapfile`
+    # Tracked modifications plus untracked additions, minus deletions, measured from
+    # FOLD_BASE so content saved in checkpoints — which skipped every gate — is
+    # scanned too. `mapfile`
     # is deliberately not used: macOS ships bash 3.2 as /bin/bash and does not
     # have it, so this script would die on the shebang platform it most often
     # runs on.
@@ -151,7 +159,7 @@ if [ -f ".github/workflows/ci.yml" ] && grep -qE '^[[:space:]]*semgrep:[[:space:
         [ -n "$semgrep_f" ] && [ -f "$semgrep_f" ] && SEMGREP_FILES+=("$semgrep_f")
     done < <(
         {
-            git diff --name-only --diff-filter=d HEAD 2>/dev/null
+            git diff --name-only --diff-filter=d "$FOLD_BASE" 2>/dev/null
             git ls-files --others --exclude-standard 2>/dev/null
         } | sort -u
     )
@@ -172,7 +180,8 @@ if [ -f ".github/workflows/ci.yml" ] && grep -qE '^[[:space:]]*semgrep:[[:space:
     fi
 fi
 
-# --- Stage + commit directly on main --------------------------------------
+# --- Fold checkpoints, stage + commit directly on main ---------------------
+fold_checkpoints "$FOLD_BASE"
 git add -A
 if git diff --cached --quiet; then
     echo "gitflow: nothing to commit." >&2

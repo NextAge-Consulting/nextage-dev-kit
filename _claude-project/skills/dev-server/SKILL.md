@@ -1,6 +1,7 @@
 ---
 name: dev-server
 description: This skill should be used when the user asks to "start dev", "run dev", "start dev server", "run the server", "start shop", "start dealer", "spin up <app>", "start with tunnel", "tunnel <app>", "expose to a teammate", "run on cloudflare", "what's running", "show dev servers", or any natural-language request to launch a dev server. The canonical and ONLY authorized path for starting dev servers in a kit-enabled project. Routes to the `/dev` slash command, which opens a new terminal tab at the project root and runs the dev command, with the port auto-overridden on collision via `lsof` pre-check. `--tunnel` flag wraps the dev command with a Cloudflare named tunnel.
+user-invocable: false
 ---
 
 # dev-server

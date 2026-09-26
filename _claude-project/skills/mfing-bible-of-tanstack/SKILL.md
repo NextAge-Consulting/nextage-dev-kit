@@ -1,6 +1,7 @@
 ---
 name: mfing-bible-of-tanstack
 description: House rules for TanStack Start, Router, Query, Table and Form in business applications — which data layer a screen uses, server functions and auth, browses, record forms, loading states, and how to find upstream guidance for anything not covered here. Use when creating routes, server functions, browses or forms, wiring queries or mutations, adding or upgrading a TanStack dependency, implementing authentication, building webhooks, or debugging data fetching.
+user-invocable: false
 ---
 
 # The MF'ing Bible of TanStack

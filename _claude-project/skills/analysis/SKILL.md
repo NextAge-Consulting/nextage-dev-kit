@@ -1,6 +1,7 @@
 ---
 name: analysis
 description: Produce a written analysis the human asked for — an audit, assessment, investigation, proposal or deep-dive — and package it to share and discuss. Use when asked to analyze / audit / assess / investigate something and write it up, OR when the output is "to share", "to discuss", "for stakeholders", "for approval", or "for review". Covers the format decision, the shared self-contained HTML generator, publishing the page as a claude.ai Artifact, and the discussion folder that `/work --discussion` later pulls back into an action plan.
+user-invocable: false
 ---
 
 # Producing Analysis

@@ -9,7 +9,7 @@
 #
 # Responsibilities:
 #   - On main: refresh main from origin and STAY THERE. No branch is cut.
-#   - On a feature/wip branch: resume it, untouched.
+#   - On any other branch: resume it, untouched.
 #   - For --issue: validate, link the issue via git config on the CURRENT branch,
 #     transition to In Progress, assign the current user, dump issue context for
 #     the Claude session. No branch is cut — see below.
@@ -34,8 +34,7 @@
 #
 # And it bought nothing, because the safety already exists downstream and is
 # strictly better there: `/commit` on main auto-creates a branch named from the
-# commit MESSAGE (no wip placeholder, no rename), `/checkpoint` on main
-# auto-creates a wip branch, and `git-guard.sh` blocks raw `git commit`.
+# commit MESSAGE, and `git-guard.sh` blocks raw `git commit`.
 #
 # So the branch belongs to the moment the decision is actually made — the first
 # commit — not to session-init. `--issue N` is NOT an exception to that. An

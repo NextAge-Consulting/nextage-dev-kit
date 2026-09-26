@@ -225,7 +225,6 @@ From the **project root** (not inside the kit), run `/sync-dev-kit`. First-run f
 1. **Scan** — compares kit templates against the (empty) project; bootstraps `.claude/sync-substitutions.json`.
 2. **Substitutions walkthrough (Step 1.5)** — Claude walks you through each empty placeholder, one at a time. The ones you'll almost always set:
    - `ORG` — GitHub org login.
-   - `PROJECT_ABBREV` — short label for `wip/<abbrev>-…` branch names (Claude pre-computes a default from the dir name; accept or shorten).
    - `GEMINI_NOT_INSTALLED` — leave empty for now if you're installing Gemini in step 5; set to `"true"` if this repo will not have Gemini.
    - `GITFLOW_PROJECT_ID` + the four `GITFLOW_STATUS_*` IDs (field, In Progress, Staged, the deploy status) — only if you use a GitHub Project board (Claude can run the `gh api graphql` discovery for you). With a board, all five are required. Leave all five empty / `_intentionally_empty` to skip board integration. Either way, pick how issues close — `github-project-board-setup.md` §3.
    - `DEPLOY_BACKEND` + `DEPLOY_WORKFLOWS` + `CODEBUILD_PROJECT_PREFIX` — the deploy pipeline; see step 7. A repo that deploys by its own procedure sets `DEPLOY_BACKEND=custom` and leaves the other two empty; a repo that does not deploy at all sets `none`.

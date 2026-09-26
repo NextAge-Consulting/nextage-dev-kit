@@ -1,6 +1,7 @@
 ---
 name: postgres-neon-drizzle
 description: How we build on PostgreSQL + Neon + Drizzle ORM — migrations and their bookkeeping, nondeterministic (case-insensitive) collations, custom column types, Neon branching for dev and tests, and provisioning a new database. Use when writing or changing a Drizzle schema, generating or applying a migration, adding a text column, writing a query against a converted database, provisioning a tenant database, or setting up DB-backed tests. Does NOT apply to projects on another engine — MSSQL, MySQL and SQLite work differently, and engine-agnostic naming conventions live in the constitution.
+user-invocable: false
 ---
 
 # PostgreSQL + Neon + Drizzle

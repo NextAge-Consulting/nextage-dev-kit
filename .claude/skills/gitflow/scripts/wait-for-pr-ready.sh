@@ -5,7 +5,7 @@
 #         (no /gemini review trigger posted for current HEAD
 #          OR Gemini Code Assist has posted a review on current HEAD).
 #
-# ─── Trigger-aware Gemini gating (2026-05-28) ───────────────────────────
+# ─── Trigger-aware Gemini gating ───────────────────────────────────────
 # Gemini Code Assist's auto-review on PR open is disabled in the kit's
 # .gemini/config.yaml (pull_request_opened.code_review: false). Reviews
 # fire only when a `/gemini review` comment is posted on the PR. The

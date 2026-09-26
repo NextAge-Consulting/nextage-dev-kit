@@ -1,6 +1,7 @@
 ---
 name: research
 description: The ladder for looking something up — library and API documentation, product behaviour, standards, or a conceptual question. Use before composing or explaining a technical solution, when verifying an API signature or field name, when a search came back thin, or when the question is conceptual or non-English. Covers WebSearch, WebFetch, Exa and the ctx7 CLI.
+user-invocable: false
 ---
 
 # Research

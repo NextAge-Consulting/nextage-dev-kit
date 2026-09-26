@@ -1,6 +1,7 @@
 ---
 name: ui-patterns
 description: The project's own UI patterns — how surfaces are COMPOSED and how they BEHAVE. Browse/list layouts, pagination, filtering, autosave, optimistic updates, loading/empty/error states, inline edit, multi-step flows. Use when building or changing how something is assembled or how it acts, not what it is made of. Each pattern is a reference file in references/, backed by primary-source research; read the matching one before implementing. Complements the design-system skill, which owns tokens and atoms.
+user-invocable: false
 ---
 
 # UI Patterns

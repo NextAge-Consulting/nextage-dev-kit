@@ -117,13 +117,12 @@ sha256() {
 # the actual values in `.claude/sync-substitutions.json`:
 #
 #   {
-#     "PROJECT_ABBREV": "wa",
 #     "ORG": "acme"
 #   }
 #
 # sync-dev-kit applies these substitutions to kit content in two places:
 #   1. During scan — computes kit SHA against substituted content, so a kit
-#      template with `{{PROJECT_ABBREV}}` matching a project file with `wa`
+#      template with `{{ORG}}` matching a project file with `acme`
 #      reports `clean`, not `conflict`.
 #   2. During apply — writes substituted content into the project, so the
 #      project file on disk has real values, not placeholders.

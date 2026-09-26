@@ -90,6 +90,7 @@ If the push fails the links stay put, so a retry names the same issues.
 - Does NOT deploy — a deploy starts only when `/deploy` dispatches it; a main push triggers nothing. Run `/deploy` to ship.
 - Does NOT bump version or write changelog — `/deploy` owns that; your ship-main commits get folded into the next release automatically.
 - Does NOT auto-branch — that's `/commit`'s job and the whole reason `/ship-main` is separate.
+- Does NOT push checkpoints — unpushed `/checkpoint` commits on `main` are folded into the one commit it makes, after every gate has passed, so no `🔖 wip:` subject reaches `main`.
 
 ## Prerequisite
 

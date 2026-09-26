@@ -9,14 +9,13 @@ $ARGUMENTS
 One checkout, one branch at a time. `/work` puts you where your work already is, and does not guess at where it might go.
 
 - **On `main`** — refresh `main` from origin and stay on it. **No branch is cut.**
-- **On a feature or `wip/*` branch** — resume it. This is the re-entry path across consecutive sessions: same branch, same body of work, nothing recreated.
+- **On any other branch** — resume it. This is the re-entry path across consecutive sessions: same branch, same body of work, nothing recreated.
 
 **Bare `/work` does not create a branch, deliberately.** At session-init nobody knows yet whether this is a feature, a kit or infra change, or a question answered straight from the handoff. Cutting a branch here makes that choice before it can be made — and because `/ship-main` refuses to run anywhere but `main`, it actively blocks the infra path on every single infra session.
 
 Nothing is lost by waiting, because the safety lives downstream and is better there:
 
-- `/commit` on `main` auto-creates a branch named from the **commit message** — a real name, no `wip/` placeholder and no rename step.
-- `/checkpoint` on `main` auto-creates a `wip/` branch.
+- `/commit` on `main` auto-creates a branch named from the **commit message** — a real name, no placeholder and no rename step.
 - `git-guard.sh` blocks raw `git commit` regardless.
 
 So the branch is cut at the moment the decision is genuinely made: the first commit. **`/work <issue#>` is not an exception to that.**
@@ -173,12 +172,11 @@ The handoff never displaces what the human pointed at, and it never silently dis
 The branch then arrives from whichever command declares the path:
 
 - `/commit` on `main` → auto-creates a branch named from the commit message.
-- `/checkpoint` on `main` → auto-creates a `wip/` branch.
 - `/ship-main` → stays on `main` on purpose. This is the path a branch cut at `/work` would make unreachable.
 
 ## Related
 
-- `/commit`, `/checkpoint` — commit your changes; rename `wip/*` branches to their feature name at first commit.
+- `/commit`, `/checkpoint` — commit your changes; `/commit` folds any local checkpoints into the one commit it makes.
 - `/open-pr` — open a PR from the current branch. Closes-N's come from linked issues.
 - `/merge` — squash-merge the PR, land this checkout back on `main`, delete the merged branch.
 - `/ship-main` — commit straight to `main` with no branch and no PR, for infra and config work.
