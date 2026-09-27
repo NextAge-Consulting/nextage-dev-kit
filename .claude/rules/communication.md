@@ -42,6 +42,6 @@ Prose they are only going to read is ordinary prose.
 
 Infra, pipeline and tooling choices go to the human with their options; never pick unilaterally.
 
-A decision already settled in the kit's handbook or pipeline docs gets cited, not relitigated.
+A decision already settled in the kit's docs gets cited, not relitigated.
 
 A side question gets an answer in a sentence or two, not a fix. The human asks if they want it done.

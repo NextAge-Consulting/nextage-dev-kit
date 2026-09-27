@@ -4,7 +4,7 @@ How the box under a kit-pipeline app is normally built. **This is how we do it, 
 the only way to do it** — a project is free to diverge with a reason.
 
 A reference, read when relevant. Not a rule, not enforced, not synced into consumer
-projects. The kit ships no buildspec because deploy targets vary (handbook §11.9);
+projects. The kit ships no buildspec because deploy targets vary (pipeline.md §2.7);
 what does not vary in practice is the shape below, and re-deriving it per project is
 how pieces get silently skipped.
 

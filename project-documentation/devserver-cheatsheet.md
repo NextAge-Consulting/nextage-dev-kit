@@ -168,13 +168,13 @@ Each `/dev <app> --tunnel` invocation spawns its own `cloudflared` process. Clou
 
 ## Universal across projects
 
-Lives in `_claude-project/skills/dev-server/` in this kit → synced to every consumer project via `/sync-dev-kit`. Same skill works for:
+The same `/dev` works in every kit-enabled project:
 
 - Monorepos with multiple workspace apps (`dev:shop`, `dev:dealer`, …).
 - Flat repos with a single `dev` script (`/dev` prompts → runs the one option).
 - Any project that follows the `dev*` script convention in root `package.json`.
 
-No per-project zshrc functions. No project-specific shell aliases. The kit is the source of truth.
+No per-project zshrc functions and no project-specific shell aliases.
 
 ---
 

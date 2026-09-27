@@ -20,7 +20,7 @@ Run the scan mode of the sync script:
 ~/.claude/scripts/sync-dev-kit.sh --scan
 ```
 
-(If the project has not been synced before, the script is read from the kit location — confirm the config file at `~/.claude/dev-kit-config.json` exists, else point the user at `handbook.md` §0.1.)
+(If the project has not been synced before, the script is read from the kit location — confirm the config file at `~/.claude/dev-kit-config.json` exists, else point the user at `kitmaintainer-handbook.md` §0.1.)
 
 Parse the JSON output. Top-level fields:
 
@@ -145,7 +145,7 @@ The lockfile tolerates both schemas: a legacy bare-string value means `owned`. E
 
 The helpers live in `sync-dev-kit.sh` (`canonicalize_settings` + `sha256_settings_kit` + `sha256_settings_proj`). Every field — hooks, permissions, env — flows through normal 3-way state; the kit owns them all. The lockfile baseline SHA tracks the canonicalized content, matching subsequent scans.
 
-You (Claude) don't need to invoke anything special — the script handles it. See handbook §9.6.
+You (Claude) don't need to invoke anything special — the script handles it. See kitmaintainer-handbook.md §9.6.
 
 ### Step 3: Present each non-clean file
 
@@ -251,7 +251,7 @@ Summarize:
 - **Kit behind remote**: refuse to proceed; user must `git pull` in kit first (their baseline would diverge otherwise)
 - **Running from inside the kit repo**: script refuses with exit code 4; surface message
 - **Mid-feature sync**: expected and supported. Sync runs on whatever branch you are on, so a rule fixed mid-session is live in context for the rest of it. The applied changes ride the same commit as the rest of the body of work, which is the house model (rules/git.md), not something to avoid.
-- **Script missing (`~/.claude/dev-kit-config.json` not found)**: point at `handbook.md` §0.1
+- **Script missing (`~/.claude/dev-kit-config.json` not found)**: point at `kitmaintainer-handbook.md` §0.1
 
 ## What this command does NOT do
 

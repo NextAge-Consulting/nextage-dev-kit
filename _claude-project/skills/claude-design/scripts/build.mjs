@@ -341,6 +341,34 @@ async function buildComponents() {
     css = css.replace(new RegExp(`(^|[\\s,{}(])${escaped}(?=[\\s,{:)])`, 'g'), `$1[data-theme="${theme}"]`)
   }
   if (/<\/style/i.test(css)) throw new Error('bundle.css contains "</style" — it would end the inline element')
+
+  // The README promises designs this class vocabulary. The package's CSS build
+  // only emits classes its own source uses, and a class a design uses that the
+  // stylesheet lacks styles nothing and reports nothing — so a promised class
+  // that is not shipped fails the build, naming each one.
+  const SPACING_UTILITIES = ['p', 'px', 'py', 'pt', 'pr', 'pb', 'pl', 'm', 'mx', 'my', 'mt', 'mr', 'mb', 'ml', 'gap', 'gap-x', 'gap-y']
+  const typePrefix = CONFIG.typeRoles?.utilityPrefix ?? 'type-'
+  const promised = [
+    ...(CONFIG.spacing?.steps ?? []).flatMap((n) => SPACING_UTILITIES.map((u) => `${u}-${n}`)),
+    ...colorTokens.flatMap((t) => ['bg', 'text', 'border'].map((u) => `${u}-${t.name}`)),
+    ...radius.map((t) => t.name.replace(families.radius, 'rounded-')),
+    ...groups.flatMap((g) => g.styles.map((st) => `${typePrefix}${st.name}`)),
+  ]
+  // A class's selector escapes the dot in a half step (`.p-0\\.5`); a match must
+  // end where the selector does, so `gap-2` is not found inside `gap-20`.
+  const shipped = (cls) => {
+    const sel = `.${cls.replace(/\./g, '\\.')}`
+    for (let i = css.indexOf(sel); i !== -1; i = css.indexOf(sel, i + 1)) {
+      const next = css[i + sel.length]
+      if (next === undefined || /[\s{:,.>[)]/.test(next)) return true
+    }
+    return false
+  }
+  const unshipped = promised.filter((cls) => !shipped(cls))
+  if (unshipped.length) {
+    console.error(`design-system build: ${unshipped.length} class(es) the README promises are not in ${CONFIG.css.file} — add them to the package's CSS (Tailwind: an @source inline line in the feed stylesheet):\n  ${unshipped.join(' ')}`)
+    process.exit(1)
+  }
   fs.writeFileSync(path.join(dir, 'bundle.css'), css)
 
   // bundle.js: one classic script assigning window.<namespace>, reading React
@@ -367,6 +395,10 @@ async function buildComponents() {
     jsx: 'automatic',
     tsconfig: path.join(PKG, CONFIG.tsconfig ?? 'tsconfig.json'),
     define: { 'process.env.NODE_ENV': '"production"' },
+    // An image a component imports travels inside the bundle: a design copies the
+    // system's files but cannot load a picture by path, so a component pointing at
+    // the app's public folder would render a broken image there.
+    loader: { '.png': 'dataurl', '.jpg': 'dataurl', '.jpeg': 'dataurl', '.gif': 'dataurl', '.webp': 'dataurl', '.svg': 'dataurl' },
     plugins: [pageReact()],
     logLevel: 'silent',
     // Components the page mounts by name (a preview, a canvas x-import, Radix

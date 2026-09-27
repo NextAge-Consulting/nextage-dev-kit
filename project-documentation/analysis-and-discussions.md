@@ -76,19 +76,6 @@ Each page's menu offers Pin, Rename, Duplicate, Copy link and Delete. Copy link 
 
 Deleting a page there removes it and its comments for everyone. Delete it after the pull-back, once the plan holds everything the comments said.
 
-## Where it lives in the kit
-
-| Piece | Kit source | Role |
-|---|---|---|
-| Format decision and publishing | `_claude-project/skills/analysis/SKILL.md` | writes the folder, builds and publishes the page, writes the pointer |
-| Page generator | `_claude-project/lib/gen-report.mjs` | discussion and report pages, and E2E reports |
-| Pull-back | `_claude-project/commands/work.md` Step 3b | reads the page, the comments and the feedback; writes the plan |
-| Folder lookup | `_claude-project/skills/gitflow/scripts/work.sh` (`--discussion`) | resolves slug or link to the folder and prints the pointer; `work.test.sh` covers it |
-| When to build a page | `_claude-project/rules/communication.md` | the cue words, and Artifacts as the way to share |
-| Sweep exemption | `_claude-project/commands/handoff.md`, `rules/development-guidelines.md` | keeps open discussion folders out of the `temporary/` sweep |
-
-The skill and the generator are template-only: the kit has no stakeholders to share with, so it does not run them itself (`.claude/rules/project/dev-kit-workflow.md`). `/work`, `/handoff` and the rules are dogfooded.
-
 ## Limits
 
 - A reader needs a Claude account to open or comment on the published page.

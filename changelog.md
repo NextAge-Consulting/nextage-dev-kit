@@ -2,6 +2,12 @@
 
 All notable changes to the NextAge Dev Kit will be documented here.
 
+### September 27, 2026
+
+- **📝 Guides by role** - The docs are split by who reads them: `overview.md` ties the build-and-ship loop together, and `developer-handbook.md`, `designer-handbook.md` and `devops-handbook.md` each give one role the short version with pointers to reference. `pipeline.md` is now the DevOps reference — the deploy procedure, CI and repository templates — and `testing.md` the test-scaffolding and `/e2e` reference. `handbook.md` is renamed `kitmaintainer-handbook.md` and holds only what the kit maintainer needs.
+- **📝 Designing in Claude Design** - `designer-handbook.md` explains what Claude Design is, when to reach for it, the `/ui-design` loop, and how two people — including one in another organization — work on one design.
+- **📝 Rule authoring covers path-scoped rules** - The `rule-authoring` skill says when and how to scope a rule to paths.
+
 ### September 24, 2026
 
 - **♻️ `/checkpoint` is local** - A checkpoint commits on the branch you are standing on, `main` included, and cuts no branch and pushes nothing. `/commit` and `/ship-main` fold every unpushed checkpoint into the one commit they make, after every gate has passed, so a `🔖 wip:` subject never reaches `main` for `/deploy` to read. The `wip/` branch, its rename on first `/commit`, and the `PROJECT_ABBREV` substitution that named it are gone.

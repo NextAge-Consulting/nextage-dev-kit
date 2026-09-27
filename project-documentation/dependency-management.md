@@ -5,8 +5,8 @@
 **Who it's for.** Any Node consumer of the kit, especially monorepos with multiple apps/packages under `workspaces`. Single-package repos still get the gate (it's a guaranteed no-op pass for them) and still benefit from the trust-but-verify and verification-standard sections.
 
 **The machinery this doc backs:**
-- `scripts/check-dep-alignment.mjs` — the alignment gate (ships via `_claude-project/templates/scripts/`; handbook §11.16).
-- the `dep-alignment` CI job in `ci.yml` (Node-gated; handbook §11.16).
+- `scripts/check-dep-alignment.mjs` — the alignment gate (ships via `_claude-project/templates/scripts/`; pipeline.md §3.6).
+- the `dep-alignment` CI job in `ci.yml` (Node-gated; pipeline.md §3.6).
 - `npm run check:deps` — the local convenience script consumers add to `package.json`.
 
 ---
@@ -101,7 +101,7 @@ A `dependabot.yml` group governs **version** updates. **Security** PRs are a *se
 
 ## 7. Cross-references
 
-- **handbook §11.16** — the `dep-alignment` job + `scripts/check-dep-alignment.mjs` wiring and the `check:deps` convention.
-- **handbook §11.10** — `dependabot.yml` (grouping / cooldown / monthly cadence).
+- **pipeline.md §3.6** — the `dep-alignment` job + `scripts/check-dep-alignment.mjs` wiring and the `check:deps` convention.
+- **pipeline.md §3.3** — `dependabot.yml` (grouping / cooldown / monthly cadence).
 - **pipeline.md §1.4** — quality + security tools (where the gate sits in the pipeline).
 - **constitution §X / §XIII** — fail-loud and suppression discipline (the gate fails loud; §6 residuals are the disciplined alternative to silent suppression).

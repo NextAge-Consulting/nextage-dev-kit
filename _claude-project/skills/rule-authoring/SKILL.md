@@ -36,6 +36,22 @@ the instruction.
 
 **Verify every reference as you write it.** A rule that names a file, command, flag, script, section or skill is asserting it exists — so check. This is the single biggest defect class: instructions to read documents never written, to run scripts absent since the first commit, to pass a flag no script implements, to obey a hook that does not exist. None of it fails loudly; it just quietly cannot be followed.
 
+## Scoping one to paths
+
+**A rule that only matters for some files gets a `paths:` list, and loads only when a matching file is read.** A rule without one loads every session.
+
+```markdown
+---
+paths:
+  - "**/*.{ts,tsx}"
+  - "**/db/**/*.ts"
+---
+```
+
+**Start a pattern with `**/` unless it names a fixed path from the repo root.** `src/components/**` misses `apps/web/src/components/` in a monorepo.
+
+**Leave the always-on rules unscoped:** the constitution, git, security, naming. Scope what belongs to a language, a framework, or a directory.
+
 ## Cutting one
 
 **Compression drops scaffolding, restatement, and derivation — never a requirement.** A behavior required before the edit is required after it.

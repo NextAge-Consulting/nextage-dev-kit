@@ -234,22 +234,15 @@ Short version:
 
 The developer never runs raw `git commit`, `git push`, `git merge`, `git checkout <file>`, `git reset`, `git revert`, `git clean`, `git restore`. Those are blocked by the project's `git-guard.sh` hook. If the developer needs one legitimately, use the `SKIP_GIT_GUARD=1` prefix with explicit reason.
 
-Claude handles the commit message generation, PR title, PR body. The developer provides the trigger. For internals and the full architecture, see `project-documentation/handbook.md`.
+Claude handles the commit message generation, PR title, PR body. The developer provides the trigger. The role guide is `project-documentation/developer-handbook.md`.
 
-**Designing screens goes through `/ui-design`** — Claude Design does the designing, the code stays the source of the design system. See `project-documentation/ui-design-cheatsheet.md` for the one-page reference: a design's life from `start` to `implement`, publishing the design system, review comments, and working with a collaborator in another organization.
+**Prototyping a screen in Claude Design goes through `/ui-design`** — reach for it whenever a screen is worth working out visually first; the design is built from the project's own design system, and the code stays that system's source. `project-documentation/designer-handbook.md` is the introduction — what it is, when to reach for it, and how two people work on one design. `project-documentation/ui-design-cheatsheet.md` is the one-page reference: a design's life from `start` to `implement`, publishing the design system, review comments, and working with a collaborator in another organization.
 
 ---
 
-## Section 9: When the maintainer pushes kit updates
+## Section 9: When the kit updates
 
-When the maintainer pushes rule updates, new skills, or hook changes to a project the developer works on:
-
-1. The maintainer runs `/sync-dev-kit` in the project, reviews changes interactively, then lands them with `/ship-main` (sync itself does no git)
-2. The maintainer pushes the project repo
-3. The developer pulls the project repo
-4. The developer's Claude sessions in that project automatically pick up the updated `.claude/` config on next session start
-
-The developer never runs `/sync-dev-kit` themselves. That's maintainer-only.
+Kit changes — new rules, skills, commands, hook fixes — reach a project as an ordinary commit on `main`. Pull (`/work` on `main` does it), and the next Claude session in that project picks them up. There is nothing to install and nothing to run.
 
 ---
 

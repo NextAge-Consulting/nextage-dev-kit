@@ -1,6 +1,6 @@
-# Dev Kit Handbook
+# Kit Maintainer Handbook
 
-The authoritative reference for how projects using this dev kit are configured, how the git workflow operates, and how changes propagate from the kit to consumer projects.
+The kit maintainer's handbook: how the kit is built, how its subsystems work inside, and how a change to it reaches every project. Working **with** the kit — developing, designing or running the pipeline in a project that uses it — starts at `overview.md` instead.
 
 This doc is the architectural anchor. When something in the kit, a hook, a command, or a rule is unclear or appears to conflict with another piece, this handbook wins. Update the handbook first, then update the kit to match.
 
@@ -85,12 +85,9 @@ The kit isn't enforcing 100% compliance. It's a baseline sync — consumer proje
 
 ## 1. Who this is for
 
-The kit has two human roles:
+**The kit maintainer** — the one person who changes the kit, runs `/sync-dev-kit`, and installs the maintainer surface (§0.1).
 
-- **Maintainer** — kit author, master of every project. The only role that runs `/sync-dev-kit`, and the only one who installs the maintainer surface (§0.1). Maintains opinions centrally in `_claude-project/`.
-- **Consumer developer** — any other developer on a project. Never touches the kit directly. Clones projects, gets a working setup from the repo. See `developer-onboarding.md`.
-
-Anything else in this handbook is for Claude (local or cloud) to follow mechanically.
+Everyone else works with the kit and never needs this file. Their guides are role by role: `developer-handbook.md`, `designer-handbook.md` and `devops-handbook.md`, tied together by `overview.md`. One person often wears several of those hats; each guide stays short so that wearing one never means reading the others.
 
 ---
 
@@ -172,7 +169,7 @@ Every layer exists simultaneously. Dropping any layer reduces the reliability fl
   (An earlier revision used a command-context token created by the gitflow scripts. That mechanism was removed — the subprocess-invisibility property makes it unnecessary. Do not reintroduce token logic.)
 
   **Scope limit — this layer does not cover humans.** A `PreToolUse` hook fires only on Claude's tool calls. A developer committing from a terminal or an IDE is invisible to it. That is deliberate: the only way to gate those is a `.git/hooks/pre-commit`, and git hooks cannot be tracked in git or survive a clone, so the kit does not manage them (see §3.1.1). Terminal-side discipline rests on the CI gates, which no local bypass can evade.
-- **No version bump in feature-PR scripts; changelog has a single writer.** Version bumps and `changelog.md` updates are owned by `/deploy` (see §6.5). Feature-PR scripts (`commit.sh`, `open-pr.sh`, `merge.sh`) commit code only — they never touch the manifest version field or `changelog.md`. Earlier kit revisions had `open-pr.sh` insert a per-PR changelog entry on the feature branch and `deploy.sh` insert again at release time; that produced duplicate bullets in main and was removed in favor of single-writer.
+- **No version bump in feature-PR scripts; changelog has a single writer.** Version bumps and `changelog.md` updates are owned by `/deploy` (see pipeline.md §2.1). Feature-PR scripts (`commit.sh`, `open-pr.sh`, `merge.sh`) commit code only — they never touch the manifest version field or `changelog.md`. Earlier kit revisions had `open-pr.sh` insert a per-PR changelog entry on the feature branch and `deploy.sh` insert again at release time; that produced duplicate bullets in main and was removed in favor of single-writer.
 
 #### 3.1.1. Why the kit does not manage `.git/hooks/`
 
@@ -282,8 +279,8 @@ Any of:
 
 ### 4.3. What the script does NOT do
 
-- Does not update `changelog.md` (single-writer: `/deploy` is the sole author — see §6.5 + §11.5)
-- Does not bump version (handled by `/deploy` — see §6.5)
+- Does not update `changelog.md` (single-writer: `/deploy` is the sole author — see pipeline.md §2.1, §2.4)
+- Does not bump version (handled by `/deploy` — see pipeline.md §2.1)
 - Does not create a tag (same)
 - Does not rename the branch (wt-{username} dropped)
 
@@ -430,7 +427,7 @@ Dev actions per PR: `/open-pr` to start, `/triage` if Gemini has items, `/merge`
 6. commitlint CI check gates PR title format — blocks merge if malformed.
 7. On wait exit 0: command prompts the user to run `/triage` (if Gemini items expected) or `/merge` (if not). Explicit handoff — never auto-invokes.
 
-Note: `/open-pr` does NOT touch `changelog.md`; `/deploy` is the single changelog writer (§6.5).
+Note: `/open-pr` does NOT touch `changelog.md`; `/deploy` is the single changelog writer (pipeline.md §2.1).
 
 ### 6.3. `/merge` procedure
 
@@ -445,136 +442,9 @@ Note: `/open-pr` does NOT touch `changelog.md`; `/deploy` is the single changelo
 4. **No further action needed from Claude.** The checkout is standing on the merged `main`; the next `/work` cuts a fresh branch from there.
 5. **No automated post-merge action.** No version bump, no tag, no deploy. The squash commit sits on main until `/deploy` is invoked. Multiple merges may accumulate between deploys.
 
-### 6.4. Changelog ownership (single writer = `/deploy`)
+Changelog ownership, the `/deploy` procedure and version bumps are DevOps reference: `pipeline.md` Part 2.
 
-**`changelog.md` has exactly one writer: `/deploy`.** No CI workflow, no `changelog.yml`, no per-PR entries on feature branches. Claude composes the consolidated release entry locally during `/deploy` from commit subjects since the last `v*.*.*` tag and applies `skills/gitflow/references/changelog-rules.md` to filter and rewrite. `deploy.sh` then inserts that entry under today's date header in `changelog.md` as part of the bump commit pushed directly to `main`.
-
-**Why single-writer.** Feature-PR scripts do not touch `changelog.md` at all — the only place a `--changelog-file` is consumed is `deploy.sh` (there is no such flag on `open-pr.sh`). A single writer is what prevents duplicate bullets landing under the same date header.
-
-**What this means for slash-command flow.**
-- `/open-pr` does not write to `changelog.md`. It pushes the branch and creates the PR, full stop.
-- `/merge` does not write to `changelog.md`. It squash-merges the feature PR.
-- `/deploy` is the only command that touches `changelog.md`. The entry covers every commit since the last tag — typically multiple feature PRs grouped into one release.
-
-**Cost vs. value.** Per-PR entries had no consumer (the only readers of `changelog.md` see the consolidated release entries). The CI cost was nonzero (Claude API per PR) and the duplication tax compounded across every release. Removing it loses no information.
-
-### 6.5. `/deploy` procedure (direct-push to main)
-
-> **`/deploy` pushes the version bump DIRECTLY to `main`** — no release branch, no PR, no admin-merge. It reuses the same direct-to-main mechanism as `/ship-main` (§6.8). The bump commit + tag ARE the release record. This works because the pipeline uses no branch protection and `main` does not require a PR (pipeline.md §1.1, new-project-setup.md step 3). No command admin-merges: `/deploy` direct-pushes the bump, and `/sync-dev-kit` does no git at all (it stamps the lockfile and leaves the synced files for the user to land via `/ship-main`). So `enforce_admins: false` is not required by anything.
-
-`/deploy` is the **human-serialized release boundary**: bump and deploy fire in one invocation, in order, so the source-of-truth version and the deployed artifact match by construction — no skew. The bump commit lands on `main` moments before the deploy is dispatched; the deploy reads the just-bumped source. (See §11.2 for why auto-bump-on-merge is forbidden.)
-
-File: `.claude/skills/gitflow/scripts/deploy.sh` (per project, kit-synced). Slash command spec: `_claude-project/commands/deploy.md`.
-
-**Procedure:**
-
-1. **State gates** (refuse to run if any fail):
-   - On `main`
-   - Working tree clean
-   - Local `main` == `origin/main` (no stale local; nothing un-pushed)
-   - HEAD's required check-runs are not `failure` / `timed_out` / `cancelled`
-   - At least one commit since the last `v*.*.*` tag
-
-2. **Bump-level inference** (Claude does this in `/deploy` Step 2 before invoking the script):
-   - Scan SUBJECT lines of commits since last tag
-   - `<type>!:` or `BREAKING CHANGE:` footer → major
-   - `feat(...):` → minor
-   - `fix(...):` / `perf(...):` / `refactor(...):` → patch
-   - `chore(...):` / `docs(...):` / `test(...):` / `style(...):` / `ci(...):` / `build(...):` → patch (Option B — chore counts as a release)
-   - Highest wins. NEVER skip the bump when there are commits to deploy.
-
-3. **Changelog entry** (Claude generates from commit subjects since last tag, applying `references/changelog-rules.md`): one or more bullets in `- **<emoji> <Title Case>** - <user-impact>` form. Group related fixes. Pure infra commits get a single `Dependency Updates` / `Internal Tooling` line.
-
-4. **Script execution** (`deploy.sh --level <patch|minor|major> --changelog-file <path>`):
-   - `npm version <level> --no-git-tag-version` (Node) or `sed` rewrite of `version = "x.y.z"` (Python)
-   - Insert changelog entry under today's date header in `changelog.md`
-   - Commit bump + changelog ON `main` as `🚀 release: v<NEW>` (`--no-verify`; validation already ran)
-   - **Push `main` directly** to origin. If `origin/main` advanced, rebase the bump commit onto it and re-push; on conflict, stop and surface for resolution. The bump commit + tag are the release record — no release branch, no PR, no admin-merge.
-   - `git tag v<NEW> <bump-sha>` and `git push origin v<NEW>` (tags aren't gated by `branches/*` protection rules; tag-protection rules are separate and only need configuration if cross-account tag pollution is a concern)
-   - **Migration phase (if `MIGRATE_WORKFLOW` is set):** dispatch the migration — `aws codebuild start-build` on the migrate project under the default `codebuild` backend, `gh workflow run <migrate-wf> --ref main` under `github` — then watch it to completion **gated**: a real migration failure aborts the deploy here (exit 18 trigger / 19 run) BEFORE any app deploy is dispatched. Always watched, even under `--no-watch` (that flag only governs the app-deploy watch). Deploying app images against a failed/half-applied schema is the failure mode this gate exists to prevent. **Skipped entirely** when `MIGRATE_PATHS` is set and `git diff --name-only <last-tag>..HEAD -- <MIGRATE_PATHS>` is empty (no migration files changed since the last deploy) — no build is started. See the **Migration phase** subsection below.
-   - For each service in `DEPLOY_WORKFLOWS` (resolved via the per-project `.claude/sync-substitutions.json`; falls back to `deploy.yml` if unset AND no `MIGRATE_WORKFLOW`), dispatch its deploy against post-bump HEAD — `aws codebuild start-build` on `<CODEBUILD_PROJECT_PREFIX><service>` under `codebuild`, `gh workflow run <wf> --ref main` under `github`. A migrate-only repo (`MIGRATE_WORKFLOW` set, `DEPLOY_WORKFLOWS` empty) stops after the migration phase — no `deploy.yml` fallback.
-   - Watch the deploys (unless `--no-watch`): under `codebuild` the fleet is polled together and every build's status is reported before a failure exits; under `github` each run is watched in turn with `gh run watch`.
-
-5. **Reporting**: success → report `v<NEW>` + the build (or workflow run) URL. Failure modes (state gates, bump, push, tag push, deploy dispatch, deploy build, migration trigger/run) all exit non-zero with specific codes — Claude surfaces the code + stderr and stops. Exits 18 (migration trigger failed) / 19 (migration run failed or run-id unresolved) abort before any app deploy.
-
-**What `/deploy` does NOT do:**
-- Does NOT run a CI, lint, typecheck or build pass — those gates already fired on the merged feature PRs, and `/merge` owns the production build gate while the PR is still open. A `/ship-main` commit reaches `/deploy` with no gate by design.
-- Does NOT open a release PR or admin-merge anything — the bump commit pushes straight to `main` (require-PR off, the default). `/deploy` no longer needs `enforce_admins: false`.
-- Does NOT auto-bump on every feature-PR merge (the bot-PR pattern caused version-skew; see §11.2).
-- Does NOT infer the changelog from PR descriptions — uses commit subjects since last tag.
-
-**`/sync-dev-kit` does NO git.** Sync only applies the accepted kit updates to the working tree and stamps the lockfile — it does not commit or push. The synced files are left uncommitted; the user lands them with `/ship-main` (or `/commit`). Committing is gitflow's job, not sync's — see §9.4.1.
-
-**Migration audit when adopting direct-push deploy:** `/sync-dev-kit` brings `deploy.sh` (direct-push, no release branch / PR / admin-merge) + `commands/deploy.md`. Consumer-side checks:
-1. Confirm `main` does not require a PR (the default — pipeline.md §1.1). With require-PR on, the direct push to main is rejected.
-2. Confirm `.commitlintrc.json` includes `"release"` in `type-enum` (the `🚀 release:` subject still flows through the bump-level scan).
-3. Confirm every name in `DEPLOY_WORKFLOWS` has a dispatch target: under `codebuild`, a CodeBuild project named `<CODEBUILD_PROJECT_PREFIX><service>`; under `github`, a workflow whose ONLY trigger is `workflow_dispatch:` (§11.4) — push-to-main and tag-push triggers would double-fire.
-
-**Split-deploy consumers (`DEPLOY_WORKFLOWS` substitution).** The substitution lives in `.claude/sync-substitutions.json` (runtime-read by `deploy.sh` via `jq`, NOT placeholder-substituted into any kit template). Format: space-separated workflow filenames, e.g. `"deploy-shop.yml deploy-dealer.yml"`. Behavior:
-- Empty / missing → `deploy.sh` falls back to `deploy.yml`.
-- Populated → `deploy.sh` dispatches every listed service: concurrently under `codebuild`, one watched run at a time under `github`.
-- Bare service names on the command line (`/deploy worker`) or the repeatable `--workflow <name>` flag override the substitution for one invocation — useful for re-firing a single service after a partial failure.
-
-**Migration phase (`MIGRATE_WORKFLOW` substitution).** A single workflow that `/deploy` runs as **step 1** — once, before any app deploy, watched to completion and gated. Solves two problems: (a) in a split-deploy monorepo, the schema migration was duplicated inside all N app deploy workflows (no-op in the trailing N−1, but present "in case one runs alone"); pulling it to a single gated pre-step runs it exactly once; (b) a DB-only repo (no UI / no app artifact — e.g. a service that maintains a database for a legacy app) can `/deploy` to migrate with zero app deploys.
-
-- Substitution lives in `.claude/sync-substitutions.json` (runtime-read by `deploy.sh` via `jq`, NOT placeholder-substituted). A single `migrate.yml`-shaped name: under `codebuild` it maps to the migrate project by prefix (or `CODEBUILD_MIGRATE_PROJECT`), under `github` it is the workflow filename. `--migrate-workflow <file>` CLI flag overrides it.
-- Empty / missing → no migration phase (prior behavior; any migration stays inline in the app deploy workflows).
-- Set → `deploy.sh` dispatches it and waits for it to finish. Real failure → exit 19, deploy aborts before any app deploy.
-- `MIGRATE_WORKFLOW` set + `DEPLOY_WORKFLOWS` empty → **migration-only deploy** (no `deploy.yml` fallback). This is the DB-maintenance-repo shape.
-- Migration is **never invoked on its own** — there is no `/migrate` command. It exists only as deploy's first phase (you would never migrate without deploying). The migrate project (or, under `github`, the migrate workflow's `workflow_dispatch:` trigger) is purely the mechanical hook `deploy.sh` uses to fire it.
-
-**Migration-skip (`MIGRATE_PATHS` substitution).** The migration *step* is already idempotent (drizzle-kit skips applied migrations), but dispatching it at all costs ~2 min — build boot + `npm ci` just to reach a no-op. `MIGRATE_PATHS` lets `deploy.sh` decide *locally, before starting any build* whether the migration is worth dispatching.
-
-- Space-separated git pathspec(s) naming where migration files live (drizzle: `apps/shared/src/db/migrations`; Prisma: `prisma/migrations`; Alembic: `alembic/versions`). **Multiple paths supported** — a repo with several databases lists every migration dir; the workflow fires if *any* changed. Runtime-read from `.claude/sync-substitutions.json`; `--migrate-paths <path>...` overrides.
-- Before firing `MIGRATE_WORKFLOW`, `deploy.sh` runs `git diff --name-only "$LAST_TAG"..HEAD -- $MIGRATE_PATHS`. **Empty → skip the workflow entirely** (nothing to apply). Non-empty → fire as normal.
-- **The reference is `LAST_TAG` — the PREVIOUS deploy's tag, captured at the state gate before this run creates its own tag.** This is load-bearing: a fresh `git describe` at the migrate step would return *this run's* just-pushed tag, making the diff empty every time → always-skip (silently broken). Never recompute it.
-- Empty / missing `MIGRATE_PATHS` → **no skip; the workflow always fires** (prior behavior). The skip is strictly opt-in per project.
-- **Safe under the failed-migration recovery model.** If a prior deploy's migration failed, that deploy's tag still exists → re-running `/deploy` stops at the "no commits since tag" gate, forcing the documented manual recovery (which applies the migration); the migrate workflow stays idempotent as the backstop. The only way to skip a genuinely-pending migration is to actively ignore a failed deploy and force past its abort — operator error, not a design hole. `git diff` failure → exit 20 (fail-loud, never skip on an errored check).
-- Does **not** reorder anything: the bump/changelog/tag block stays before the deploy, exactly as it must (the app image bakes in `package.json`'s version + changelog, so the bump has to precede the build). The skip is a guard in front of the migrate trigger, nothing more.
-
-**Dispatch backend (`DEPLOY_BACKEND` substitution).** Which compute `/deploy` dispatches to. **`codebuild` is the default and the stance.** It starts AWS CodeBuild projects via `aws codebuild start-build`, so everything that touches AWS runs on AWS compute — no workflow holds an AWS credential, and the only remaining GitHub dependency is the git clone. `github` fires GitHub Actions workflows via `gh workflow run`, and stays in the script because a repo deploying somewhere with no AWS account behind it has nowhere to put a build project.
-
-Two more values exist so a project can state the truth rather than be read as an unprovisioned `codebuild`. **`custom`** means the project DOES deploy, by a procedure `/deploy` does not dispatch — an SSH push to a box, a hosting provider's own CLI, a hand-run script. **`none`** means it does not deploy at all; the kit itself is the example. Both stop `deploy.sh` at exit 2 before any bump, commit or tag, so nothing is released and the message says which of the two it was.
-
-The key answers exactly one question — what else must be set — and nothing more. `codebuild` needs the `aws` CLI, `CODEBUILD_PROJECT_PREFIX` and `AWS_REGION`; `github` needs `gh` and real `workflow_dispatch:` workflows; `custom` and `none` need nothing. That is why `custom` is not split by transport: the shape of a bespoke deploy belongs in the project's own deploy script and its rule under `rules/project/`, where it can actually be run, not in a config value that only ever gets compared for equality.
-
-- **`DEPLOY_WORKFLOWS` stays the single service list on both dispatching backends.** Under `codebuild` a filename maps to a project by `CODEBUILD_PROJECT_PREFIX` — `deploy-worker.yml` with prefix `myapp-deploy-` is project `myapp-deploy-worker`. There is deliberately no second list to drift out of step with the first. `CODEBUILD_MIGRATE_PROJECT` names the migration project when it does not follow that pattern.
-- **The backend is read from a per-consumer substitution, never sniffed from the repo.** A release boundary must not guess where it is shipping from. An unset or empty key lands on `codebuild` and then fails loud (exit 2, before any bump) if the project has not provisioned for it — it never silently ships through the other backend.
-- **Under `codebuild` the fleet is dispatched concurrently and polled together**, where `github` watches each run in turn — a six-service release costs the slowest service rather than the sum of all six. A single non-`SUCCEEDED` build fails the release (exit 13), and every build's status is reported first so one broken service does not hide the others'.
-- **The migrate gate is identical on both dispatching backends:** watched to completion, a real failure aborts (exit 18 trigger / 19 run) before any app ships.
-- `codebuild` requires the `aws` CLI (exit 8 without it) and `CODEBUILD_PROJECT_PREFIX` (exit 2 without it). Any other value for the key fails loud with exit 2 — before any bump, tag or push.
-
-**The migrate-build body contract (project-owned).** The kit owns the *orchestration*; the migration's *body* — the migrate buildspec under `codebuild` — is project-specific (the kit ships none — deploys aren't generalizable). The body MUST:
-
-1. Run the project's migration command against the **production** database (e.g. `drizzle-kit migrate` with the prod `DATABASE_URL` read from Parameter Store by the CodeBuild service role). Run it standalone — `drizzle-kit migrate` needs only the DB URL and the migration files, not a running app container. On Neon, read the **direct** (non-pooled) endpoint: the pooler runs in transaction mode and does not hold the session-level advisory lock drizzle-kit takes, so a pooled URL can half-apply a migration instead of failing cleanly. Validate the value's shape before using it, and never echo it.
-2. **Exit 0 on a no-op** (no pending migrations) and **non-zero only on a genuine failure.** `drizzle-kit migrate` is idempotent and on the documented happy path exits 0 when there's nothing to apply — but verify your `drizzle-kit` version's actual no-op exit behavior, because the orchestrator gates purely on the build's conclusion: a spurious non-zero will (correctly, per the contract) abort the deploy. If your command false-fails on no-op, trap it in the command rather than letting the build report failure:
-
-   ```yaml
-   # buildspec reference pattern — adapt the no-op signal to YOUR command/version (verify first)
-   build:
-     commands:
-       - |
-         if ! out=$(npm run db:migrate 2>&1); then
-           # only swallow the verified no-op signal; re-raise everything else
-           if printf '%s' "$out" | grep -qiE 'no (pending )?migrations|nothing to (migrate|apply)|already applied|up to date'; then
-             printf '%s\n' "$out"; echo "no pending migrations — treating as success"
-           else
-             printf '%s\n' "$out" >&2; exit 1
-           fi
-         else
-           printf '%s\n' "$out"
-         fi
-   ```
-
-   Do NOT blanket `|| true` the migration — that swallows real failures and defeats the gate. The trap must match a *specific* no-op signal and re-raise anything else.
-
-See `commands/deploy.md` for the full slash-command spec.
-
-### 6.6. PR title enforcement
-
-File: `.github/workflows/commitlint.yml` (per project). Runs `commitlint` against PR title on `pull_request` event. Blocks merge if title doesn't match conventional format.
-
-### 6.7. `/triage` — Gemini review walkthrough
+### 6.4. `/triage` — Gemini review walkthrough
 
 `/triage` walks through open Gemini Code Assist review comments on the current PR **one at a time**. Used between `/open-pr` and `/merge` when Gemini's review surfaces actionable items.
 
@@ -591,7 +461,7 @@ Hard rules: one item at a time (no batching), never auto-act, NEVER commit mid-t
 
 See `commands/triage.md` for the full procedure and edge cases.
 
-### 6.8. `/ship-main` — the deliberate direct-to-main exception
+### 6.5. `/ship-main` — the deliberate direct-to-main exception
 
 `/ship-main` commits a conventional message **directly on `main`** and pushes — no branch, no PR, no CI. It is the conscious exception for quick infra / config / emergency / "get it in and back to clean" work where a full branch → PR → CI → merge cycle is theater.
 
@@ -606,7 +476,7 @@ See `commands/triage.md` for the full procedure and edge cases.
 - **Validation stays.** The script runs `check-types`, `biome lint` and `semgrep` over the files the commit touches — the same three gates as `/commit`, and they matter more here: a finding that slips through does not sit on a branch awaiting review, it lands on the default branch and breaks CI for everyone. `--skip-typecheck` is a true-emergency override for the TYPECHECK alone; biome and semgrep sit outside that guard and have no bypass.
 - **Pushes straight to main.** If `origin/main` advanced, it rebases the commit onto it and re-pushes; conflict → stop and resolve.
 - **Feeds `/deploy` like any main commit.** `/ship-main` commits land on `main` and are read by the next `/deploy` (commit subjects since the last tag) to compute the bump level + changelog, exactly like a merged-PR squash commit. Conventional format is therefore required, not optional.
-- **Requires require-PR off** (the default — §6.5, pipeline.md §1.1). With require-PR set, GitHub rejects the direct push.
+- **Requires require-PR off** (the default — pipeline.md §1.1). With require-PR set, GitHub rejects the direct push.
 
 Full spec: `commands/ship-main.md`.
 
@@ -641,22 +511,6 @@ See `skills/gitflow/references/changelog-rules.md`. Summary:
 - Exclude: `refactor`, `style`, `test`, `docs`, `chore`.
 - Format: `- **<emoji> <Feature Name>** - User-visible description`.
 
-### 7.3. Version bump semantics
-
-Applied at `/deploy` time across the SUBJECT lines of all commits since the last `v*.*.*` tag. Highest match wins.
-
-| Subject pattern | Bump |
-|-----------------|------|
-| `<type>!:` or `BREAKING CHANGE:` footer | major |
-| `feat(...):` | minor |
-| `fix(...):`, `perf(...):`, `refactor(...):` | patch |
-| `chore(...):`, `docs(...):`, `test(...):`, `style(...):`, `ci(...):`, `build(...):` | patch (Option B — chore counts as a release) |
-| Anything else | patch |
-
-Option B intentionally treats `chore` as patch-bumping. Rationale: `chore(deps): bump foo` IS a release-worthy change — the deployed artifact has new dependencies. Skipping bump on `chore` would ship a new artifact under an unchanged version, breaking version-as-build-identity.
-
-NEVER skip the bump when there are commits to deploy. "Deploy + no version change = lie."
-
 ---
 
 ## 8. Project bootstrap
@@ -670,7 +524,7 @@ Setting up a new project to use this kit:
    ```
 3. Commit the new `.claude/` and `.mcp.json`
 4. No branch protection to apply — the pipeline uses none (`/merge` self-gates; see `pipeline.md` §1.1). Just confirm `main` does not require a PR (the default), so the direct-push paths work.
-5. Copy `commitlint.yml` and `ci.yml` templates (below) into `.github/workflows/`. If the project deploys, stand up its CodeBuild pipeline (`new-project-setup.md` step 7, §11.9) — dispatched only by `/deploy` (§11.4).
+5. Copy `commitlint.yml` and `ci.yml` templates (pipeline.md Part 3) into `.github/workflows/`. If the project deploys, stand up its CodeBuild pipeline (`new-project-setup.md` step 7, pipeline.md §2.7) — dispatched only by `/deploy` (pipeline.md §2.5).
 7. Optional, per dev: set `EXA_API_KEY` in their shell rc (research tier 3; the built-in tools need no key)
 
 ---
@@ -904,6 +758,20 @@ This preserves the missing-vs-empty-vs-populated invariants from §9.7 while add
 
 The orchestration is in the `/sync-dev-kit` slash command (`_claude-maintainer/commands/sync-dev-kit.md`), Step 1.5. Claude reads the substitutions file, the `_placeholders_referenced_by_kit` block, and the `_intentionally_empty` list, then drives the per-key flow with the user. Discovery commands are invoked via `Bash`. Updates are written by re-serializing the JSON via `jq`.
 
+### 9.9. Template-mode files, ack and decline
+
+**All six testing templates (`testing.md` §1) are `template`, including `globalSetup.ts` and `integration-helpers.ts`.** Those two look like project-agnostic infrastructure — one consumer had copied both byte-for-byte — and marking them `owned` would push harness fixes automatically. A second consumer settled it the other way: a dual-database project adapted `globalSetup.ts` to migrate two databases on one branch and grew `integration-helpers.ts` a second per-plane helper. Under `owned` the hook would have blocked both edits, and the project would have had no legal way to test its own topology. Database shape is project shape; the whole directory is the project's.
+
+**How an improvement reaches a project.** A consumer that never touched its copy sees `kit-only` and is offered the update like any other file. A consumer that adapted its copy sees `template-drift`: the kit's delta is shown, nothing is reconciled, the project decides. When the user keeps theirs, the walkthrough runs `sync-dev-kit.sh --ack-file <kit-path>`, which advances the lockfile baseline to the kit's current content **without writing the project file**. That is what stops a declined drift from re-reporting on every subsequent sync — and it is not a permanent mute, since the next kit change to that file surfaces again.
+
+**Ack is not restricted to `template` files, and the test is not the mode — it is whether the kit's current content has been INCORPORATED.** An ack asserts "this kit version has been seen and our copy still differs on purpose." Acking *instead of* applying makes that assertion false and silences a real enforced update; that is the failure to prevent. Acking an `owned` file *after* resolving its conflict by hand is the opposite — the kit's changes are in the file, only the project's own customization still differs, and skipping the ack leaves the identical conflict re-reporting on every sync forever, burying the next genuine kit change in noise the user has learned to skip. So an `owned` conflict resolves in two steps: merge (or apply), then ack. The script deliberately does not enforce this; the guard lives in the `/sync-dev-kit` walkthrough where the user can see which of the two situations they are in.
+
+A consumer legitimately customizing an `owned` file is expected in at least one place the kit ships today — pipeline.md §3.7 tells projects to add domain rules to `.gemini/styleguide.md` — and the merge-then-ack cycle is what makes that work: quiet until the kit touches the file, one conflict when it does, hand-merge, ack, quiet again.
+
+**A file the project does not want at all is `--decline-file`.** A consumer that has no copy sees `new-kit`, and "skip" is not an answer — a skipped `new-kit` leaves no lockfile entry, so it is offered again on every sync forever. Declining records the kit's current content as a refusal without creating the file, and the entry reports `declined` (silent). Ack is the wrong tool here and the script refuses it in both directions: ack on a file you do not have would report `project-deleted` next scan, and decline on a file you DO have is rejected with a pointer to ack. Like ack, a refusal is per kit VERSION — change the file in the kit and it is offered again — and `--apply-file` undoes it by overwriting the entry.
+
+**TS LSP diagnostics on kit-side files**: the kit repo has no npm deps (see kit-repo-github-config §1), so any LSP scoped to the kit will flag `Cannot find module 'vitest'` / `Cannot find name 'process'` on the template `.ts` files. Expected — they aren't meant to compile in the kit, only in the consumer where the deps exist.
+
 ## 10. Environment variables
 
 **None are required.** Documentation and research run on the built-in `WebSearch`
@@ -926,129 +794,11 @@ Maintainer's local: `includeGitInstructions: false` in `~/.claude/settings.json`
 
 ---
 
-## 11. Workflow file templates
+## 11. Templates and integrations
 
-Live templates ship with the kit at `_github-project/workflows/`. Consumer projects receive them via `/sync-dev-kit` — they land at `.github/workflows/`. Edit the kit files, not the snippets below; the snippets are documentation. Consult `_github-project/workflows/*.yml` for the authoritative versions.
+Workflow templates live at `_github-project/workflows/` and land in a consumer's `.github/workflows/`; edit the kit files, never a doc's snippet of them. How a project uses the CI, deploy, dependency and Gemini templates is DevOps reference, `pipeline.md` Parts 2–3; test scaffolding and `/e2e` are `testing.md`. What stays here is the machinery behind the rest.
 
-### 11.1. `commitlint.yml`
-
-**PR-title validator (conventional commits). Title ONLY — not branch commits.**
-
-Fires on `pull_request: opened/edited/synchronize/reopened`. Pipes the PR title through `@commitlint/cli` with the repo's `.commitlintrc.json` config. No third-party action — just `actions/checkout` + `actions/setup-node` + an inline `npx commitlint`.
-
-**Why title-only:**
-- Consumer repos squash-merge with `commit title = PR_TITLE`. The squash commit that lands on `main` IS the PR title; branch commits are discarded.
-- Local gitflow enforces conventional format at commit time for human-authored commits — that's the real guard.
-- Machine-generated PRs (Dependabot, Renovate) produce malformed branch commits on a regular basis. Dependabot specifically double-scopes `chore(deps)(deps):` even when `include: scope` is absent from `dependabot.yml`. Linting those branch commits blocks merges that would land as clean squashes.
-
-**Do NOT swap in a commitlint action that lints every commit in the PR** (`wagoid/commitlint-github-action` and similar do this by default). It rejects Dependabot PRs whose branch commits don't conform even when the PR title is clean, and the branch commits never reach `main`.
-
-**Required `permissions:` block.** The workflow declares `permissions: { contents: read, pull-requests: read }`. Kept even though the inline approach only reads `github.event.pull_request.title` — cheap, documented, explicit.
-
-**Job name kept as `lint`** so the GitHub status check name stays `commitlint / lint`. `/merge` self-gates by reading the PR's check-runs by name; renaming the job changes the check name and can let a merge slip through without the gate seeing it.
-
-**`.commitlintrc.json` requires a custom `parserPreset`.** The gitflow commit format is emoji-prefix (`✨ feat: ...`, `🐛 fix: ...`), which stock `@commitlint/config-conventional` rejects because its default `headerPattern` expects the type token at position 0. The template ships a `parserOpts.headerPattern` that tolerates an optional leading emoji cluster before the type. Keep this in sync with the commit format enforced by `commit.sh` — if the commit format changes, the parser regex must change too.
-
-### 11.2. Anti-pattern: never auto-bump the version on merge
-
-Version bump + tag live in the local `/deploy` command (§6.5), never in a CI workflow or a release-bot. Do NOT introduce auto-bump-on-merge — a `version-bump.yml` workflow or a release-bot PR. It fails three ways:
-
-- **Version skew** — the bump trails the feature merge by a cycle, so the version on `main` doesn't match the deployed code.
-- **Pre-bump deploys** — a push-triggered deploy races the bump workflow and ships the wrong version.
-- **Adversarial body parsing** — scanning commit *bodies* for `BREAKING CHANGE` / conventional markers false-matches prose embedded in PR descriptions. Pipeline control signals read STRUCTURED metadata (commit subject, `author.name`), never freeform body text.
-
-### 11.4. Deploy trigger contract (MANDATORY)
-
-**A deploy starts only when `/deploy` dispatches it.** Nothing about a push, a tag, a merge or a schedule may start one.
-
-- **`codebuild` (the default):** every deploy and migrate CodeBuild project has **no source webhook and no schedule**. `deploy.sh` starts it with `aws codebuild start-build` against post-bump `main`.
-- **`github`:** every deploy and migrate workflow's ONLY trigger is `workflow_dispatch:`. `deploy.sh` fires it with `gh workflow run <wf> --ref main`.
-
-```yaml
-on:
-  workflow_dispatch:
-```
-
-**Why dispatch ONLY:**
-
-A trigger on tag push double-fires: `/deploy` creates the tag AND dispatches the deploy, so a tag-triggered build runs twice.
-
-A trigger on push to `main` reintroduces the pre-bump race (the deploy reads `package.json` before the bump) and makes *every* `/merge` ship, not just the merges the user intends as a release. `/merge` is not `/deploy` (§6.5).
-
-**The contract:**
-
-```
-/merge       → squash commit lands on main           → NOTHING fires
-/merge       → squash commit lands on main           → NOTHING fires
-/deploy      → bump + tag + push + dispatch          → each deploy fires once
-                                                        against post-bump HEAD
-                                                        with correct version
-```
-
-Multiple merges between deploys are normal. The deploy ships everything since the last release tag in one bump.
-
-**What goes inside the deploy is consumer-specific** — build, ECR push, host rollout, verification. The kit ships no buildspec or `deploy.yml`, only this contract and the body pattern in §11.9.
-
-**Audit when adopting `/deploy`:** a CodeBuild project with a webhook or an EventBridge schedule attached, or a workflow with any of these, must lose it:
-
-- `on: push:` (any branches or tags)
-- `on: schedule:`
-- `on: workflow_run:`
-- `if: !contains(github.event.head_commit.message, 'chore: bump version')` — dead code under dispatch-only; remove it
-
-If the deploy does anything that needs a "fire automatically on X" hook, that work belongs somewhere else, not in the deploy.
-
-### 11.5. Changelog generation (not a workflow)
-
-Changelog generation is NOT a GitHub Action and has exactly one writer: `/deploy`. Claude composes the consolidated release entry locally during `/deploy` from commit subjects since the last `v*.*.*` tag. `deploy.sh` inserts that entry under today's date header in `changelog.md` as part of the bump commit pushed directly to `main`. Feature-PR scripts (`commit.sh`, `open-pr.sh`, `merge.sh`) do not touch `changelog.md`.
-
-Rationale:
-- Zero CI infrastructure (no `changelog.yml`, no `ANTHROPIC_API_KEY` secret, no runner dependency).
-- `changelog-rules.md` requires editorial intelligence (filter `refactor/style/test/docs/chore`, rewrite internals as user-facing prose) that template tools like release-please cannot provide.
-- Single-writer eliminates the duplicate-bullet bug from the earlier two-writer design (one entry per feature PR + one per release = two copies of the same line in main). See §6.4.
-
-**Procedure (`/deploy`):**
-1. `/deploy` lists conventional commit subjects since the last `v*.*.*` tag.
-2. Claude applies `changelog-rules.md` to generate one or more bullets in `- **<emoji> <Title Case>** - <user-impact>` form. Pure infra commits collapse to a single `Internal Tooling` / `Dependency Updates` line.
-3. Claude writes the entries to a tempfile and invokes `deploy.sh --changelog-file <path>`.
-4. The script inserts the entry under today's date header in `changelog.md`, bumps the manifest version, commits everything as `🚀 release: v<NEW>` on `main`, and pushes `main` directly (require-PR off, the default — no release branch, no PR; see §6.5).
-5. The script deletes the tempfile on success.
-
-There is no `--no-changelog` mode and no `--changelog-file` flag on `open-pr.sh`. Releases without user-facing entries still get a one-line `Internal Tooling` bullet — every release commits exactly one new bullet, never zero.
-
-**MANDATORY changelog format — Keep-a-Changelog:**
-
-`deploy.sh` inserts entries by anchoring on standard Keep-a-Changelog landmarks. The consumer project's changelog MUST conform on adoption:
-
-```markdown
-# <Project> Changelog
-
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [Unreleased]
-
-## 2026-05-06
-
-- **🐛 Tracking Number Whitespace** - User-facing description of the fix.
-
-## 2026-04-28
-
-- ...
-```
-
-Required:
-- An `## [Unreleased]` h2 placeholder after the preamble. `open-pr.sh` anchors new dated sections after this line.
-- Date headers as **h2 with ISO-8601 dates**: `## YYYY-MM-DD` (e.g., `## 2026-05-06`). An `### Month Day, Year` (h3, long-form) format is NOT supported — `open-pr.sh`'s Python insertion falls through and appends at EOF, producing an out-of-order changelog.
-- Entries as `- **<emoji> <Title Case>** - <user-impact>` bullets.
-
-Adoption migration for projects with non-conforming changelogs: convert all date headers to `## YYYY-MM-DD`, add `## [Unreleased]` placeholder. The renderer (if any) can preserve the prior visual style by swapping the h2/h3 component CSS.
-
-See `commands/open-pr.md`, `commands/deploy.md`, and `skills/gitflow/references/changelog-rules.md`.
-
-### 11.7. Issue → branch → PR linking
+### 11.1. Issue → branch → PR linking
 
 Issue↔branch↔PR linking is first-class in the gitflow subsystem. Two commands drive it:
 
@@ -1120,372 +870,7 @@ Then populate the five `GITFLOW_*` keys in `.claude/sync-substitutions.json` (vi
 
 Kit ships a placeholder template at `_claude-project/gitflow-project.conf` with empty values. Each consumer project fills in their own IDs once (committed to the repo). There is no per-transition opt-out: a board gitflow drives has all four statuses. A project with no board leaves all five keys empty and lists them in `_intentionally_empty`.
 
-### 11.8. `.semgrepignore` (MANDATORY when adopting Semgrep)
-
-Semgrep walks every tracked path by default. In any repo with design assets, reference documents, or other binaries under version control, generic secret-regex rules (`detected-private-key`, `detected-github-token`) match base64-ish noise inside EPS/PDF/PSD binary streams and fire per-file timeouts. A repo carrying a few hundred PDF/EPS brand assets times out on every Semgrep CI run until `.semgrepignore` excludes them.
-
-Kit template at `_claude-project/templates/.semgrepignore` syncs to consumer's `/.semgrepignore` on bootstrap. Scope includes `project-documentation/`, `docs/`, design binaries (pdf/eps/ai/psd/indd/sketch/fig/xd), raster/vector images, video/audio, archives, fonts, build outputs, and lockfiles. Lockfiles excluded because Dependabot owns dep security — Semgrep scanning them is noise.
-
-Ship this as part of Semgrep adoption. Do NOT wait for a timeout-warning incident to discover the need.
-
-### 11.9. Deploy buildspec body pattern (build → push → roll out)
-
-The kit ships no buildspec — deploy targets vary per project — so each consumer authors its own, dispatched only by `/deploy` (§11.4, §6.5).
-
-**One deploy buildspec per project, one CodeBuild project per service.** Every service's project points at the same `infra/codebuild/buildspec.yml` and sets its own environment variables (service, image name, Dockerfile, SSM path, health port). A change to the build shape is made once; each service still fails in isolation.
-
-Body shape:
-
-- **`install`** — the session-manager-plugin (the rollout reaches the host through SSM), and a `docker buildx` builder.
-- **`pre_build`** — assert the ECR repository and its lifecycle policy exist (§11.9.2, `new-project-setup.md` §7a), verify the client build-time variables (`infrastructure.md`), log in to ECR.
-- **`build`** — `docker buildx build --target production`, pushed tagged `latest`, the short sha and a timestamp, with a registry build cache. Base images come from the ECR Public mirror (`infrastructure.md`).
-- **`post_build`** — reach the host by **instance id** over SSH with an `aws ssm start-session` `ProxyCommand` (no inbound `:22`), take a host-side `flock` so concurrent service rollouts serialize, `docker compose pull <service>` then `docker compose up -d --force-recreate --no-deps <service>`, and poll the service's `/health` until it answers, dumping its logs if it never does.
-
-Selective per-app deploy (rebuild only apps whose files changed) is NOT part of the model — `/deploy` ships everything since the last tag in one intentional release; `/deploy <service>` is the explicit way to ship less.
-
-### 11.9.2. New-container provisioning checklist (ECR)
-
-Adding a NEW container/service to a consumer's docker-compose has TWO AWS-side
-prerequisites that fail with the same opaque error when missed — a `403 Forbidden`
-on a blob/manifest HEAD during push or pull (ECR returns 403, not 404, for both
-missing repos and unauthorized ones):
-
-1. **Create the ECR repository together with its lifecycle policy (one-time, manual — the
-   CodeBuild service role intentionally lacks `ecr:CreateRepository` and
-   `ecr:PutLifecyclePolicy`):**
-
-   ```bash
-   aws ecr create-repository --repository-name <prefix>-<service> --region <region>
-   ```
-
-2. **IAM policies must be PREFIX-scoped, never enumerated.** Both the CodeBuild
-   service role's push policy AND the host's pull role must use
-   `arn:aws:ecr:<region>:<acct>:repository/<prefix>-*` as the resource — an
-   enumerated ARN list means every new container needs TWO policy edits that
-   nobody remembers — producing a push 403 from the enumerated push policy and a
-   pull 403 from the enumerated EC2 pull role.
-   Include `ecr:DescribeRepositories` in both so the guard step below works.
-
-3. **The deploy buildspec asserts both in `pre_build`**, before ECR login, so a
-   missing repository or policy surfaces as an actionable error instead of the 403.
-   The guard, the read-only grants it needs and why it must tell a missing policy
-   from a missing permission are in `new-project-setup.md` §7a.
-
-The kit ships no buildspec (§11.4), so this is adoption guidance: audit existing
-consumers' push/pull policies for enumerated ARNs once, and keep the guard in every
-deploy buildspec. Checklist row: E67.
-
-
-### 11.10. `dependabot.yml` (monthly + cooldown + grouping)
-
-`dependabot.yml` schedules the PRs that Dependabot opens for version + security updates. Acting on those PRs is the `dependency-triage` pass (§11.10a), under the policy in §11.10b.
-
-**Ships via:** `/sync-dev-kit` copies `_github-project/dependabot.yml` → `<consumer>/.github/dependabot.yml`. No placeholders.
-
-**Ecosystem coverage out of the box:**
-
-| Ecosystem | Directory | Cadence | Cooldown (patch/minor/major days) | Grouping |
-|---|---|---|---|---|
-| `npm` | `/` (workspaces auto-detected) | monthly Monday | 3 / 7 / 30 | `npm-patch` + `npm-dev-minor` + `npm-security` — runtime majors open individually |
-| `github-actions` | `/` (scans `.github/workflows/*.yml`) | monthly Monday | 3 / 7 / 14 | `actions-minor-patch` |
-| `docker` | `/` (scans root for `Dockerfile*`) | monthly Monday | 3 / 7 / 30 | `docker-minor-patch` |
-
-**Why monthly + cooldown** (design rationale — critical for a 2–10 engineer shop to understand before tuning):
-
-Weekly cadence produces waves of ~9 PRs in a single day (majors, dev-majors, grouped batches, framework-track minors) — unsurvivable for a 2-person shop. Research evidence:
-
-- **Matthew Hou (6-engineer team) — dev.to case**: weekly Dependabot = 40–60 PRs/week → turned it off, switched to monthly batched review + quarterly major audits. Post-change: dep incidents 3→0, review time 8hr/wk → 4hr/mo.
-- **HN 647-pt thread** on Filippo's "Turn Dependabot off": mainline sentiment is "merge relentlessly OR turn off + do quarterly audits." Weekly is the worst of both.
-- **GitHub's own `cooldown` feature** (introduced 2025): explicitly designed to delay PRs N days after a version ships so supply-chain attacks get caught and attacked versions get yanked before you merge them (Shai-Hulud / tinycolor incidents). Phoenix Security recommends 48–72h post-tinycolor. `semver-patch-days: 3, semver-minor-days: 7, semver-major-days: 30` is a defensible default.
-
-Result: one monthly grouped wave per ecosystem + majors individually after 30-day cooldown. Review burden ~1 defined session/month, security-fix lane still fires immediately (Dependabot security updates skip cooldown automatically).
-
-**Commit-message prefix discipline** (unchanged):
-- `chore(deps)` / `chore(deps-dev)` / `chore(ci)` / `chore(docker)` are subject-only `chore` types — `deploy.sh`'s bump-level inference (§6.5 Step 2) treats them as patch under Option B (chore counts as a release-worthy bump).
-- `include: scope` is INTENTIONALLY ABSENT from all three blocks. With it set, Dependabot appends its own `(deps)` scope on top of the prefix — titles render as `chore(deps)(deps): bump foo`. The prefix already carries the scope; don't double it.
-
-**Interaction with `/deploy` (§6.5)**: dep PRs land on main via `/merge` like any other PR, but do not fire deploys on their own. They ride the next `/deploy` invocation alongside whatever else has accumulated. The monthly cadence + cooldown limits the dep-PR wave per ecosystem; whether a wave triggers a release is the maintainer's call at `/deploy` time. Cadence solves review burden; `/deploy` solves "when does it ship."
-
-**Ignore rules — one ships by default:**
-
-- `dependency-name: "node"` / `update-types: ["version-update:semver-major"]` in the docker block. **Why:** Dependabot doesn't understand Node's LTS policy. Odd-numbered Node releases (25, 27, …) never become LTS; even-numbered ones enter Active LTS ~6 months after release. Without this ignore, every 6 months we'd get a wave of Node-major PRs we don't want to merge. Patches (24.x.y security fixes) still flow through. The ONE major bump we DO care about — the Active-LTS transition — is checked during the `dependency-triage` pass (§11.10a), not by Dependabot.
-
-If a project adds other framework-specific holds (pinned transitive dep, known-broken major), add them in the consumer's `.github/dependabot.yml` as `locally-modified` overrides. Document the hold reason as a comment in the consumer's `.github/dependabot.yml`.
-
-**Auto-review skip coordination**: dep PR prefixes (`chore(deps):` etc.) are the same prefixes used by other pipeline-generated PRs. Gemini Code Assist (§11.11) does not have a built-in `ignore_title_keywords` equivalent at the consumer-config tier; if review noise on dep PRs becomes an issue, switch the dependabot prefix or open a Gemini config feature request.
-
-### 11.10a. `dependency-triage` skill (the weekly dependency + vulnerability pass)
-
-The weekly dependency **process** is a kit skill (`_claude-project/skills/dependency-triage/SKILL.md`); the per-project **policy** — timelines, owner, exceptions — is `dependency-policy.md` (§11.10b). Claude runs the analysis + verification; the human authorizes every main-landing merge.
-
-**Why a skill, not a doc:** you want Claude to *execute* the same triage everywhere, identically — reading prose and re-deriving the process each time is exactly what drifts. The skill encodes the load-bearing facts so they don't have to be re-argued per project.
-
-**The pipeline assumption is the simplification.** The skill *assumes* the kit pipeline (gitflow + `/deploy` + CI-does-not-build) rather than parameterizing a build-gate — because if you're triaging Dependabot you're on the full pipeline by definition (the build-runs-at-`/deploy`, PR-CI-doesn't-build property is uniform across consumers; §11.13 "Wiring CI" + §6.5). A project that broke from the pipeline owns the subtraction.
-
-**What's universal (in the skill) vs project-specific (discovered):**
-- Universal: the "PR-CI doesn't build" fact; the three blast-radius tiers; rebase-before-trusting-red; toolchain-build-before-merge; the verification standard; the guardrails.
-- Project-specific, **discovered at runtime** (not configured): which packages are Tier 3 (read the `npm-toolchain` group in `dependabot.yml` — §11.10); the build/run commands and app ports (read the project's `Dockerfile.*` + deploy workflows). This is deliberate — the values vary and AI reads them from the repo; a config surface would be over-engineering.
-
-**Pairs with** the `npm-toolchain` / `npm-patch` split in `dependabot.yml` (§11.10, now kit-standard) and the `dep-alignment` gate (§11.13a). Deeper dependency discipline: `dependency-management.md`.
-
-### 11.10b. `dependency-policy.md` (synced as `template` mode)
-
-The operating procedure for dependency and vulnerability work — what to do with what
-Dependabot produces. The kit long shipped the configuration (§11.10) and the triage
-skill (§11.10a) but never the procedure, so the answer to "who acts on this, and by
-when" was undefined in every consumer.
-
-**Ships via:** `/sync-dev-kit` copies `_claude-project/templates/dependency-policy.md`
-→ `<consumer>/project-documentation/dependency-policy.md`. It lands in the project's
-docs rather than `.claude/` because it is read by a human on a cadence, not loaded as
-a rule on every turn.
-
-**Mode `template`.** The timelines table and the owner names are each client's own.
-A consumer that tunes them gets `template-drift` (informational), never a reverted
-edit. `--ack-file` records "seen it, keeping ours".
-
-**The timelines table is the only dial.** Tightening toward a formal standard —
-ISO 27001 Annex A 8.8 wants a documented discover → prioritise → treat → review
-process with defined roles, timelines and evidence — is editing that table and adding
-a sign-off, not writing a different document. A 8.8 does not require zero
-vulnerabilities; it requires them managed deliberately and defensibly, which is what
-the exceptions-with-expiry-dates section provides.
-
-**Why there is no enforcing gate.** A gate assumes whoever hits it can resolve it.
-Build-graph updates can cost hours and the person holding the keys after handover has
-less context than the person who built it, so a gate either stops them shipping or
-teaches them to bypass it. The cadence is honour-system by design; the document's job
-is to make "did we do it" answerable, not enforced.
-
-### 11.11. `.gemini/config.yaml` + `.gemini/styleguide.md` (Gemini Code Assist config)
-
-Gemini Code Assist is the kit's chosen AI PR reviewer (consumer / free tier). Install via [github.com/marketplace/gemini-code-assist](https://github.com/marketplace/gemini-code-assist) at the org level. **Reviews are comment-triggered, not auto-fired on PR open** (see §11.11.1 below). The kit's `_gemini-project/config.yaml` disables Gemini's auto-trigger and the gitflow scripts post `/gemini review` comments at the deliberate moments where review is wanted.
-
-The kit ships two files via `/sync-dev-kit`:
-- `_gemini-project/config.yaml` → `<consumer>/.gemini/config.yaml` — reviewer behavior knobs
-- `_gemini-project/styleguide.md` → `<consumer>/.gemini/styleguide.md` — project-specific rules Gemini reads on every review
-
-Both are universal — same content per project, no placeholders. Customize the styleguide per project to add domain rules; the config defaults work for most projects.
-
-**What `config.yaml` sets:**
-
-| Setting | Why |
-|---|---|
-| `have_fun: false` | No flair / poems in PR summaries. Operational tone. |
-| `ignore_patterns` | Skip generated code (`*.gen.ts`, `routeTree.gen.ts`, `*.generated.*`) and lockfiles. Note: Gemini already skips `.github/workflows/**` by Google policy and skips markdown by default — those are not in this list because they're vendor-side. |
-| `code_review.comment_severity_threshold: LOW` | Surface everything; consumer triages via `/triage`. Tighten to `MEDIUM`/`HIGH` if review noise becomes excessive. |
-| `code_review.max_review_comments: -1` | Unlimited per-PR. The threshold above is the noise control. |
-| `code_review.pull_request_opened.summary: false` | Disabled 2026-05-12. `/open-pr` writes the structured PR body; Gemini's auto-summary was duplication. |
-| `code_review.pull_request_opened.code_review: false` | **Disabled 2026-05-28.** Reviews are comment-triggered exclusively — gitflow scripts post `/gemini review` at controlled points (see §11.11.1). |
-| `code_review.pull_request_opened.include_drafts: false` | Don't review draft PRs. Mirrors the prior reviewer's behavior. |
-
-**What `styleguide.md` adds:**
-
-The styleguide is project-context Gemini reads on every review. The kit template includes:
-- Constitution §XIV (caller-scan attestation requirement) — surfaces if the actor forgot the attestation
-- Constitution §X (fail-fast / fail-loud) — flags new silent error handlers
-- Constitution §VI (timezone-aware code) — flags `new Date()` without explicit tz
-- Constitution §XIII (suppression discipline) — flags new lint suppressions without specific reasons
-- Severity guidance (`Critical | High | Medium | Low`)
-- A "what NOT to flag" section (test files, generated files)
-- Project-context placeholders to customize per consumer
-
-Customize the styleguide per project. The defaults assume a TanStack/Hono/drizzle stack — strip what doesn't apply.
-
-**Why Gemini and not a paid alternative**: see `pipeline.md` §1.4 (rejected tools). Short version: Gemini's consumer / free tier matches CR Pro's catch quality on the bake-off seed defects, reads in-repo `.claude/rules/*.md` as review context out of the box, and runs at $0/seat. The 33 PR/day quota is far above typical 2-dev-shop cadence.
-
-**Pairs with `.github/dependabot.yml` (§11.10):** Gemini's `include_drafts: false` plus dependabot's commit-prefix conventions keep mechanical PRs from triggering review cycles.
-
-### 11.11.1. Comment-driven Gemini triggers (2026-05-28 redesign)
-
-Prior model (pre-2026-05-28): Gemini auto-reviewed on PR open + `commit.sh` posted `/gemini review` on every push. `wait-for-pr-ready.sh` blocked until Gemini reviewed the current HEAD on every call. Problems: (a) deploy.sh's release PR triggered Gemini despite having no code to review — wasted quota + hung merge; (b) late-triage commits re-triggered Gemini reviews the user had already decided to ship without; (c) the trigger side and wait side operated in separate vacuums — a silently-failed `gh pr comment` left `/merge` hanging forever waiting for a review that was never coming.
-
-Current model: **trigger reality drives wait reality.** A single observable — the presence of a `/gemini review` comment on the PR scoped to the current HEAD's committer date — couples both sides.
-
-| Site | Trigger behavior |
-|---|---|
-| `/open-pr` | Always posts `/gemini review` after `gh pr create`. Fail-loud if post fails. |
-| `/commit --review` | Posts `/gemini review` after push. Fail-loud if post fails. |
-| `/commit --no-review` | Does NOT post. The wait at `/merge` sees no trigger and proceeds CI-only. |
-| `/commit` (PR open, no flag) | `.claude/commands/commit.md` prompts the user via `AskUserQuestion`; result determines `--review` / `--no-review`. |
-| `/commit` (no PR open) | Nothing to comment on; skips silently. |
-| `/checkpoint` | Never posts. Checkpoints are mid-flight saves below the review threshold; `/commit` is the signal that work is review-ready. |
-| `/deploy` | Never posts. The bump commit pushes directly to `main` — no PR exists for Gemini to review. (Under the earlier release-PR design, deploy likewise never triggered Gemini; the direct-push model removes the PR entirely.) |
-
-The wait side reads truth, not intent. `wait-for-pr-ready.sh` queries the PR's top-level comments (via `gh api repos/{owner}/{repo}/issues/{pr}/comments`), filters to `/gemini review` body (case-insensitive, exact match — not prose like "I'll run /gemini review later"), and scopes to comments created AFTER the HEAD's committer date. If such a comment exists → wait for a Gemini review on HEAD. If absent → CI-only readiness. No author filter — manual triggers from the user (or from a consumer developer, or from any maintainer) are honored identically to scripted triggers.
-
-This removes the "vacuum" failure mode: a silently-failed `gh pr comment` is now fail-loud at the trigger site (`commit.sh` exits 10, `open-pr.sh` exits 9), and the downstream wait never assumes Gemini is coming when it isn't.
-
-Posting via `gh pr comment` lands the trigger under the developer's GitHub identity (gh CLI auth, not a `[bot]`-suffix account), so Gemini's loop-prevention filter (per Google's own gemini-cli PR #16746, which ignores `[bot]` commenters) does not suppress it.
-
-`GEMINI_NOT_INSTALLED="true"` in `.claude/sync-substitutions.json` short-circuits the entire path: trigger scripts skip posting, and the wait skips the Gemini check entirely (treats it as `Gemini=skipped`). Use only on repos where the Gemini App is genuinely absent — the value records a fact about the repo, not a preference.
-
-### 11.13. Vitest scaffolding (synced as `template` mode)
-
-Per-app test infrastructure, shipped from `_claude-project/templates/testing/` and synced in **`template` mode**: the kit provides the starting point, the **project owns the file**. Consumers edit these freely — `block-kit-edit.sh` permits it and `/sync-dev-kit` never reverts it.
-
-**All six files are `template`, including `globalSetup.ts` and `integration-helpers.ts`.** Those two look like project-agnostic infrastructure — one consumer had copied both byte-for-byte — and marking them `owned` would push harness fixes automatically. A second consumer settled it the other way: a dual-database project adapted `globalSetup.ts` to migrate two databases on one branch and grew `integration-helpers.ts` a second per-plane helper. Under `owned` the hook would have blocked both edits, and the project would have had no legal way to test its own topology. Database shape is project shape; the whole directory is the project's.
-
-**Destination comes from the `SHARED_MODULE_DIR` substitution**, because test layout is project-specific (`apps/shared` in a monorepo, `src` or `.` in a flat repo, `packages/<name>` elsewhere). `vitest.config.ts` lands at `<SHARED_MODULE_DIR>/vitest.config.ts`; every other file at `<SHARED_MODULE_DIR>/test/<name>`. **Empty means the project has no shared test module and the scaffolding is skipped entirely** rather than landing somewhere wrong — so this costs nothing for projects it does not apply to.
-
-**How an improvement reaches a project.** A consumer that never touched its copy sees `kit-only` and is offered the update like any other file. A consumer that adapted its copy sees `template-drift`: the kit's delta is shown, nothing is reconciled, the project decides. When the user keeps theirs, the walkthrough runs `sync-dev-kit.sh --ack-file <kit-path>`, which advances the lockfile baseline to the kit's current content **without writing the project file**. That is what stops a declined drift from re-reporting on every subsequent sync — and it is not a permanent mute, since the next kit change to that file surfaces again.
-
-**Ack is not restricted to `template` files, and the test is not the mode — it is whether the kit's current content has been INCORPORATED.** An ack asserts "this kit version has been seen and our copy still differs on purpose." Acking *instead of* applying makes that assertion false and silences a real enforced update; that is the failure to prevent. Acking an `owned` file *after* resolving its conflict by hand is the opposite — the kit's changes are in the file, only the project's own customization still differs, and skipping the ack leaves the identical conflict re-reporting on every sync forever, burying the next genuine kit change in noise the user has learned to skip. So an `owned` conflict resolves in two steps: merge (or apply), then ack. The script deliberately does not enforce this; the guard lives in the `/sync-dev-kit` walkthrough where the user can see which of the two situations they are in.
-
-A consumer legitimately customizing an `owned` file is expected in at least one place the kit ships today — §11.11 tells projects to add domain rules to `.gemini/styleguide.md` — and the merge-then-ack cycle is what makes that work: quiet until the kit touches the file, one conflict when it does, hand-merge, ack, quiet again.
-
-**A file the project does not want at all is `--decline-file`.** A consumer that has no copy sees `new-kit`, and "skip" is not an answer — a skipped `new-kit` leaves no lockfile entry, so it is offered again on every sync forever. Declining records the kit's current content as a refusal without creating the file, and the entry reports `declined` (silent). Ack is the wrong tool here and the script refuses it in both directions: ack on a file you do not have would report `project-deleted` next scan, and decline on a file you DO have is rejected with a pointer to ack. Like ack, a refusal is per kit VERSION — change the file in the kit and it is offered again — and `--apply-file` undoes it by overwriting the entry.
-
-**What's in the template dir:**
-
-| File | Purpose |
-|---|---|
-| `vitest.config.ts` | Node env; globals off (explicit imports from `vitest`); two projects — `unit` (parallel, no DB) and `integration` (parallel, present only when Neon creds exist); `globalSetup` → globalSetup.ts; `setupFiles` → test-utils.ts; `root` pinned to the config-file dir so `npm test` from repo root resolves include globs. |
-| `globalSetup.ts` | Integration branch lifecycle. Forks the default (production) branch once per run, runs `drizzle-kit migrate` against it, sets `DATABASE_URL` before workers spawn; deletes the branch in `teardown` (`expires_at` 30 min is the crash backstop). Uses `@neondatabase/api-client` — **pin `^2.7.2` or later**: `deleteProjectBranch` takes a single `{ projectId, branchId }` object from 2.7.2, and the older positional form silently requests `/projects/undefined/branches/undefined`, 404s, and leaks a branch per run. Teardown deliberately does not swallow that failure. |
-| `integration-helpers.ts` | `dbTest(name, fn)` — the only DB entry point for integration tests. Runs `fn` inside an always-rolled-back Postgres transaction and passes the `tx` handle into the code under test, so parallel tests on the one shared branch stay MVCC-isolated. |
-| `auth-mocks.ts` | Typed `MockAuthedUser` + `mockAuthedUser()` / `mockUnauthed()` stubs. |
-| `test-utils.ts` | Setup file. Pins `process.env.TZ` (chosen per consumer — UTC for UTC-stored projects, local TZ for projects that store in local time). Exposes a deterministic UUID-v7-like helper. Re-exports auth mocks. |
-| `smoke.test.ts` | 4 assertions proving vitest picks up the config, runs the setup file, resolves module imports, runs assertions under node env. |
-
-**TS LSP diagnostics on kit-side files**: the kit repo has no npm deps (see kit-repo-github-config §1), so any LSP scoped to the kit will flag `Cannot find module 'vitest'` / `Cannot find name 'process'` on the template `.ts` files. Expected — they aren't meant to compile in the kit, only in the consumer where the deps exist.
-
-**Enabling it for a consumer:**
-
-```bash
-# 1. Deps. Pin api-client ^2.7.2 or later — see the globalSetup.ts row above.
-npm install -D vitest '@neondatabase/api-client@^2.7.2' pg
-
-# 2. Point the substitution at the workspace holding the shared module.
-#    "apps/shared" in a monorepo, "src" or "." flat, "" if the project has none.
-jq '.SHARED_MODULE_DIR = "apps/shared"' .claude/sync-substitutions.json > tmp && mv tmp .claude/sync-substitutions.json
-
-# 3. /sync-dev-kit — the files arrive as `new-kit` and land at their mapped
-#    destinations. Every later kit improvement arrives the same way.
-
-# 4. Wire npm scripts in root package.json:
-#      "test":       "vitest run -c <shared-module>/vitest.config.ts"
-#      "test:watch": "vitest -c <shared-module>/vitest.config.ts"
-```
-
-**Test-dir placement** — tests live at `<shared-module>/test/` (sibling of `src/`), NOT under `src/`. Keeps test code out of the production include glob and avoids special-casing test excludes in builder tooling. Runner defaults are not uniform — Mocha defaults to a `test/` directory; Vitest and Jest discover by filename glob (`.test.` / `.spec.`) and don't mandate a layout — but the sibling-of-`src/` convention is common because it works cleanly under all three when configured. `<shared-module>/tsconfig.json` should explicitly `"include": ["src/**/*", "test/**/*"]` so `check-types` still typechecks test files. Tests inside `src/` was tried and reverted after recognizing the real cost (test code leaking into the production include glob).
-
-**TZ pinning** — consumer MUST choose a TZ that matches how their project stores and displays timestamps. The template ships with `America/Chicago` as the default. If your DB stores in UTC, pin `UTC`. The smoke-test assertion also must match.
-
-**Integration pattern — one branch per run, transaction per test.** Reference templates at `_claude-project/templates/testing/`: `globalSetup.ts` (branch lifecycle) + `integration-helpers.ts` (`dbTest`). Same behavior locally and in CI: `globalSetup.ts` forks the project's default (production) branch **once per test run** (Neon copy-on-write), migrates it, points `DATABASE_URL` at it before any worker spawns, and deletes it in `teardown`. One create + one delete for the whole run → no API rate-limiting, no orphaned branches. Uses `@neondatabase/api-client` directly.
-
-**Vitest "projects" split.** `vitest.config.ts` defines two projects: a `unit` project (parallel, no DB — runs in every context including forks and Dependabot PRs that have no Neon creds) and an `integration` project (also parallel, every worker sharing the one branch). The integration project is present only when `NEON_API_KEY` + `NEON_PROJECT_ID` are set.
-
-**Isolation = transaction-per-test.** `dbTest(name, async (tx) => { … })` is the ONLY way a test touches the DB. It runs the body inside a Postgres transaction that is ALWAYS rolled back, so concurrent tests on the one shared branch are MVCC-isolated and run in **parallel** without colliding — nothing persists between tests. There is no exported pool or committing `db` handle, so a test physically cannot write outside a rolled-back transaction; isolation is enforced by the API, not by author discipline. Every production function takes `db` as a parameter, so `tx` threads straight through into the code under test — sequences, triggers, FK cascades, NOTIFY all behave normally inside the transaction. A global-sweep test (a function that scans a whole table) clears that table at the top of its transaction (rolled back after). Carve-out: a test that takes a SESSION-level advisory lock must release it itself — `ROLLBACK` won't.
-
-**Why no fallback to a shared dev DB.** The "fall back to .env DATABASE_URL when Neon creds are absent" pattern was tried and rejected. It silently couples tests to mutable shared state. Postgres sequences (`SERIAL` / `bigserial`) increment globally and are NOT rolled back by transaction rollback, so any mutation test would leave sequence drift on the shared DB forever. An ephemeral branch that's deleted at the end of the run eliminates that entirely and is cheap (~$0.01/run). Use it.
-
-**Required env vars** (set in `.env` locally and as repo Secrets in CI — see "Single-tab Secrets" below):
-- `NEON_API_KEY` — personal-scope key, each developer generates their own at `console.neon.tech` → avatar → Account settings → API keys. CI uses the project owner's key. Each dev needs collaborator access to the shared project (Neon UI: "Projects shared with me").
-- `NEON_PROJECT_ID` — the shared project ID (e.g. `blue-night-70788817`). Same value for every dev + CI.
-
-**Optional env vars** (project-specific, omit when Neon defaults work):
-- `NEON_DATABASE_NAME` — Neon auto-creates a `neondb` database on project creation. If your app's schema lives in a different database (very common), set this so test branches connect to the right DB. Without it, tests get "relation 'product' does not exist" errors.
-- `NEON_ROLE_NAME` — defaults to project owner role; set when your app's schema is owned by a non-default role (typical when `NEON_DATABASE_NAME` is also non-default — same name pattern usually).
-
-**Single-tab Secrets.** All four go in repo Secrets (not split between Secrets and Variables). Only `NEON_API_KEY` is technically sensitive; the other three are identifiers. Splitting buys log-visibility but costs a dual-prefix mental model on every workflow edit forever — recoverable any time with one `run: echo "project=$NEON_PROJECT_ID"` step. Single mental model wins for small shops.
-
-**Parent branch.** `globalSetup.ts` forks the project's default (production) branch. Fork-from-production is the canonical answer because:
-- prod is the only authoritative reference for "what schema is actually live"
-- forking from `dev` risks testing against schema that may never reach prod (devs can leave migrations applied to dev that they later drop from a PR)
-- privacy is small concern for shops with shared prod access already
-
-Point it at a different parent only if your project default is not the right reference — change the `createProjectBranch` call in `globalSetup.ts`.
-
-**Migration-during-PR (wired in `globalSetup.ts`).** After forking the branch and setting `DATABASE_URL`, `setup` runs `execSync("npx drizzle-kit migrate")` once against the fresh branch. This is **idempotent**: drizzle tracks applied migrations in `__drizzle_migrations`. The branch forked production, which lacks any migration from THIS PR — so a migration PR applies exactly the new one, and a non-migration PR is a no-op. Either way the pending migration is validated in the same CI pass, same code path as the production deploy step (`npm run db:migrate` post-deploy).
-
-Cost: ~1s per run when a migration is applied (Drizzle is fast on small migration counts). No-op when the branch is already current.
-
-Adopting projects with non-Drizzle migration runners: swap the `execSync` command. The pattern (run-migrations-once-before-tests, in `globalSetup`) is general.
-
-**Required scripts** (root `package.json`):
-- `"test": "vitest run -c <vitest-config-path>"` — single command for both the unit and integration projects; the per-run branch + transaction-per-test (`dbTest`) handle isolation.
-
-Integration tests use the `*.integration.test.ts` filename convention as the `integration` project's include glob (the `unit` project excludes it); `npm test` runs both projects in one command.
-
-**Wiring CI** — kit ships a **stack-detecting** `ci.yml` at `_github-project/workflows/ci.yml`. A fast `detect` job checks out and sets `node`/`python` outputs; the rest gate on `needs.detect.outputs.*` (NOT `hashFiles()`, which is empty at job-`if:` time — the workspace isn't checked out yet). Node (root `package.json`) → `dep-alignment`, `check-types`, `biome`, `vitest`; Python (any `pyproject.toml`) → a `python` job running `ruff check` + `pytest` via uv in each pyproject dir (monorepo layouts like `services/<x>/` work with zero config); `semgrep` always runs. (`dep-alignment` is the cross-workspace dependency-version gate — §11.13a / dependency-management.md.) Sync via `/sync-dev-kit` to land it at `<consumer>/.github/workflows/ci.yml`. The Node `vitest` job runs `npm test` — Node projects need a `test` script in root `package.json` pointing at their vitest config (see "Install steps for a consumer" above). Python projects need uv (shop standard) with `ruff`/`pytest` as dev deps — no per-project config. A repo lacking a stack simply skips that stack's jobs; `/merge` self-gates on the check-runs that actually report, so skipped jobs don't block (there are no GitHub-required checks to wait forever on a never-run job).
-
-**No required-status-check promotion.** The pipeline uses no branch protection — `/merge` self-gates by reading the PR's check-runs directly and blocks on any failure, so a job gates merges as soon as it runs on a PR, with nothing to configure on GitHub. New CI jobs are picked up automatically.
-
-Phase 7 integration tests reuse the same `vitest` job once the integration harness is wired (`NEON_API_KEY` + `NEON_PROJECT_ID` secrets via repo Settings — the integration project only activates when both are present).
-
-**Smoke-test latency.** A consumer with only the smoke test takes ~5s in CI; not worth deferring the wiring. Land the workflow with the first real test file or the smoke-test scaffold — either is fine.
-
-**Companion: monorepo-shared workspace wiring (pairs with this scaffolding)**
-
-If your shared module (e.g. `apps/shared/`) is consumed via tsconfig path alias but is NOT a declared npm workspace, the root `npm run check-types --workspaces --if-present` will NOT typecheck it. A real TS error there can ship to main undetected. Close the gap:
-
-1. Create `<shared-module>/package.json` with `private: true`, `"name": "@your-org/shared"`, and `"scripts": {"check-types": "tsc --noEmit"}`.
-2. Add `<shared-module>` to the root `package.json` `workspaces` array.
-3. If using Vite and `import.meta.env.VITE_*` in shared code, create `<shared-module>/src/vite-env.d.ts` with `/// <reference types="vite/client" />`. This registers `ImportMetaEnv` globally so `import.meta.env.VITE_*` resolves when `tsc` runs standalone in the shared module. Without it, standalone tsc fires TS2339 even though peer workspaces' tsc loads vite types transitively via their own `vite.config.ts`.
-
-**Why this matters** — a shared module that isn't a workspace ships real type errors (TS2339 and friends) invisibly: no CI job type-checks it. Any project with a path-alias-only shared module has this gap until it runs this recipe.
-
-### 11.13a. `dep-alignment` job + `scripts/check-dep-alignment.mjs` (cross-workspace dependency-version gate)
-
-Monorepo invariant enforcement: every shared dependency is declared at **one** version across all workspaces. Version skew across apps produces runtime failures no other check catches, and Dependabot *creates* that skew because it bumps each manifest independently. This gate is the safety net. Full discipline (trust-but-verify, solid-version philosophy, the "logged-in not 200" verification standard, accepted-residuals handling) lives in **`dependency-management.md`**.
-
-**The script.** `scripts/check-dep-alignment.mjs` reads the root `package.json`, expands `workspaces` (literal dirs and trailing-glob `apps/*`; also the `{ packages: [...] }` form), and fails (exit 1) if any dependency name is declared at more than one version-range across the manifests. No install — it reads `package.json` files only. A single-package repo (no `workspaces`) has one manifest, so it's a guaranteed pass: **safe to run on any Node repo.** Fails loud on an unreadable *declared* workspace manifest (never reports "aligned" while a manifest is broken — constitution §X).
-
-**Ships via:** `/sync-dev-kit` copies `_claude-project/templates/scripts/check-dep-alignment.mjs` → `<consumer>/scripts/check-dep-alignment.mjs`. No placeholders.
-
-**CI wiring.** The `dep-alignment` job in `ci.yml` is Node-gated (`needs: detect`, `if: needs.detect.outputs.node == 'true'`), so a Python-only consumer skips it cleanly — it never blocks a non-Node repo (§11.13 "Wiring CI"; a skipped job is neutral, and `/merge` self-gates only on the check-runs that actually report). The job runs `node scripts/check-dep-alignment.mjs` directly (no `npm ci`).
-
-**Local convenience.** Consumers add to root `package.json`:
-
-```json
-"scripts": { "check:deps": "node scripts/check-dep-alignment.mjs" }
-```
-
-so `npm run check:deps` reproduces the CI gate locally. The CI job calls the script directly and does NOT depend on this npm script existing, but adopting it is the documented convention (the script's failure message and `dependency-management.md §1` both assume `npm run check:deps`).
-
-**Updating a shared dep:** bump it to the same version in *every* workspace that declares it in one change, run `npm run check:deps` (must be ✓), then verify per `dependency-management.md §5`. Never bump one workspace and not the others — the gate fails the PR, by design.
-
-### 11.15. `/e2e` skill (Claude-as-intelligent-tester)
-
-**What this is.** A Skill that implements the locked E2E testing model (kit `pipeline.md` §1.5): Claude drives `agent-browser` through plain-English flow files, detects failure behaviorally, reports pass/fail. **Not a scripted test suite. Not Playwright. Not Stagehand.**
-
-**Components ship:**
-- `_claude-project/skills/e2e/SKILL.md` — the skill protocol (discovery, scoping via PR diff, server startup per dev-server.md, execution, reporting)
-- `_claude-project/lib/gen-report.mjs` — the shared data-driven HTML generator (theme + true CSS lightbox baked in), also used by the `analysis` skill; the run writes `logs/e2e/results.json`, this renders `logs/e2e/<project>-e2e-<YYYYMMDD>.html`
-- `_claude-project/skills/e2e/example-flow.md` — copy-paste template for consumer projects to fill in with their own flows
-
-**Report.** A run produces a self-contained HTML report — per-step ✅/❌ with inline (base64) screenshots — so a run can be fired off and reviewed async; the screenshots are the audit trail behind each pass, not a substitute for the behavioral judgment.
-
-**Authoring companion — `e2e-author` skill.** Writing and maintaining flow files is its own skill (`_claude-project/skills/e2e-author/SKILL.md`), sibling to the runner. It carries the flow-file format, the frontmatter spec, and a recipe library for the recurring agent-browser gotchas (off-screen click won't fire, env values with spaces truncate, mouse-move arg split, viewport, OTP-from-DB), plus a dry-run-before-done rule so new flows can't rot unrun. `/e2e` runs flows; `/e2e-author` writes them.
-
-**Consumer setup:**
-1. `/sync-dev-kit` copies the skill into `<consumer>/.claude/skills/e2e/`.
-2. Consumer creates flow files at `apps/shared/test/e2e/*.md` (monorepo layout) or `test/e2e/*.md` (flat layout). Copy `example-flow.md` as a starting point.
-3. Each flow declares `triggers:` — glob patterns for the files it covers. The skill computes the diff∩triggers intersection **only when the user picks the diff-scoped scope option** (see below).
-
-**Invocation modes (documented in SKILL.md):**
-- `/e2e all` — force-run every flow regardless of diff (no question)
-- `/e2e <flow-name>` — run a single flow by `name:` frontmatter value (no question)
-- `/e2e` with no arg — ask the **scope question** (one `AskUserQuestion`): diff-scoped (fires the diff logic) / all flows / select specific (a second `multiSelect` question listing discovered flows).
-
-`/e2e` is a standalone command. It runs only when the user invokes it — `/merge` does not call it and asks nothing about E2E.
-
-**Separation of concerns.** Skill = orchestration + scope selection; flow files = test definitions with their own triggers. Each concern has one home.
-
-**What the skill does NOT do:**
-- No scripted assertions / `expect()` calls — failure is behavioral
-- No retries or flake-tolerance — a step failing is a real signal
-- No browser fleet / parallelism — single `agent-browser` session per flow
-
-**Failure handling.** `/e2e` reports pass/fail — any ❌ is a real signal. Decide per-case whether it's a real bug (fix) or flow-definition drift (update the flow file in the same PR). Don't bypass a red flow.
-
-**Known open work (deferred).** One loose end worth capturing for future iteration:
-
-1. **Substantive behavioral assertions.** MVP flows are render-checks ("homepage loads", "form renders"). Real-value accretion is flow-specific business logic — validate price math on product detail, cart total recalculates when shipping address changes, Stripe elements actually mount and accept input, post-login dealer pricelist reflects the correct tier. Accretion-on-demand per flow when a specific bug class starts slipping through.
-
----
-
-### 11.16. Dev server protocol (`rules/dev-server.md` + `hooks/dev-server-guard.sh`)
+### 11.2. Dev server protocol (`rules/dev-server.md` + `hooks/dev-server-guard.sh`)
 
 **What this is.** A behavioral rule + a PreToolUse Bash hook that together govern how Claude interacts with dev servers. Lives in kit-synced `rules/dev-server.md` and `hooks/dev-server-guard.sh`. The rule file is the source of truth; the hook enforces the single rule that matters most at tool-call time.
 
@@ -1506,57 +891,7 @@ so `npm run check:deps` reproduces the CI gate locally. The CI job calls the scr
 
 ---
 
-### 11.17. GitHub email noise — what triggers what, and how to silence it
-
-Each dev's noise tolerance differs. This section maps every email GitHub sends on a project running this pipeline to the setting that controls it, so each dev can decide for themselves what to keep and what to mute. **All settings are per-account, not per-repo or per-org** — your tuning doesn't affect anyone else.
-
-**Settings live in three places (override priority: thread > repo > account):**
-
-1. **Account settings** — `https://github.com/settings/notifications`. Global routing rules, default email, Actions/Dependabot scope, comment subscriptions.
-2. **Repo Watch dropdown** — top-right of any repo page. Choose `All Activity` / `Participating and @mentions` / `Ignore` / `Custom`. `Custom` lets you check Issues / Pull requests / Releases / Discussions / Security alerts independently.
-3. **Per-thread mute** — on a single PR / issue / discussion: `Unsubscribe` link in the right sidebar. Only stops that one thread.
-
-**Trigger → setting map:**
-
-| Email trigger | Source | Where to silence |
-|---|---|---|
-| New PR opened on a watched repo | Repo Watch | Repo Watch → Custom → uncheck Pull requests, OR set Watch to `Participating and @mentions` |
-| New issue opened on a watched repo | Repo Watch | Repo Watch → Custom → uncheck Issues, OR drop to Participating |
-| Comment on a PR/issue you're not subscribed to | Repo Watch | Same as above |
-| Comment on a PR you authored / commented on | Account: Participating | Account → Notifications → Participating → uncheck Email (rare — most devs keep this on) |
-| @mention of you anywhere | Account: Participating | Same as above. Note: Participating ALSO covers PRs you reviewed, issues you assigned yourself, etc. |
-| PR review submitted on your PR | Account: Participating | Same. Or per-thread mute. |
-| PR you authored was merged | Account: Participating | Same. Most devs want this one. |
-| New release published | Repo Watch | Repo Watch → Custom → uncheck Releases |
-| Discussion created/replied | Repo Watch | Repo Watch → Custom → uncheck Discussions |
-| GitHub Actions workflow failed | Account: Actions | Account → Notifications → Actions → set to `Only notify for failed workflows` (default) or `Off` |
-| GitHub Actions workflow succeeded after failing | Account: Actions | Same. Setting also controls this. |
-| GitHub Actions workflow first-time failure / restored success | Account: Actions | Same setting; granular sub-options in the same panel. |
-| Dependabot security alert opened | Account: Dependabot alerts | Account → Notifications → Dependabot alerts → toggle Email/Web. Repo-level kill switch: Settings → Code security → Dependabot alerts. |
-| Dependabot version-update PR opened | Repo Watch (it's a PR) | Repo Watch → Custom → uncheck Pull requests, OR drop to Participating. Dependabot PRs you don't review never fire Participating. |
-| Gemini PR summary / code review | Repo Watch | Posted as PR comments — Repo Watch / Participating. Gemini does not have a separate noise-suppression knob like CR's `review_status`. |
-| Gemini replied to your inline comment | Account: Participating | Same as any reply. |
-| Vulnerability alert (org-wide) | Org settings | `https://github.com/organizations/<org>/settings/security_analysis` — owner only. |
-| Workflow run cancelled / skipped | Not emailed by default | Only `Only notify for failed workflows` produces emails; cancels/skips are silent. |
-
-**Common scope-down patterns:**
-
-- **"Just deploy failures, nothing else"** → set every repo's Watch to `Participating and @mentions` (or `Ignore` if you don't want even those); Account → Actions → `Only notify for failed workflows`. You'll still see PRs you author / review / get mentioned in, plus any deploy-failure email.
-- **"PRs I'm involved in only"** → Watch all repos as `Participating and @mentions`. No `All Activity` anywhere. Most signal-heavy devs land here.
-- **"Watch the team's repo, ignore my own"** → mix Watch settings per repo; account-level rules are global, repo Watch is per-repo.
-
-**Per-org email routing:** Account → Notifications → "Custom routing" lets you send each org's emails to a different address (e.g. `work@`, `personal@`). Useful if you contribute across multiple orgs and want filtering at your mail client.
-
-**What you cannot disable:**
-- Account security emails (login from new device, password change, 2FA changes) — always on, by design.
-- Direct repository invitations.
-- Org membership invitations.
-
-**Verifying your config:** check `https://github.com/notifications` shortly after a known-noisy event (open a draft PR, push to it). If something showed up that you tried to mute, the relevant setting is one of the rows above; trace the trigger column to the source.
-
----
-
-### 11.18. UI inventory rule (synced as `template` mode)
+### 11.3. UI inventory rule (synced as `template` mode)
 
 **What it is.** A per-project rule at `.claude/rules/project/ui-inventory.md`, path-targeted to `{**/*.tsx,**/*.jsx}` so it auto-loads on every UI edit. It enumerates, as content rather than as references: the project's list/detail patterns and which to use when, every pattern reference file and what it governs, the components that already exist, and the standing prohibitions.
 
@@ -1564,7 +899,7 @@ Each dev's noise tolerance differs. This section maps every email GitHub sends o
 
 **Why it ships from `templates/`.** `is_skipped` excludes `_claude-project/rules/project/*` from the scan entirely — that tree is the consumer's own, and the kit never compares against it. So a seed placed there would reach nobody. `_claude-project/templates/ui-inventory.md` plus an explicit `dest_for_kit_path` entry is what lets the kit put one file into a directory it otherwise never writes to.
 
-**Mode is `template`, and `owned` would be incoherent.** The file's content IS this project's inventory; a consumer that has not replaced every line has not adopted it. It arrives once as `new-kit`, the project rewrites it, and later kit changes to the shape surface as `template-drift` — informational, never reconciled. Keep-ours is the expected answer, followed by an ack (§11.13) so the same drift does not re-report every sync.
+**Mode is `template`, and `owned` would be incoherent.** The file's content IS this project's inventory; a consumer that has not replaced every line has not adopted it. It arrives once as `new-kit`, the project rewrites it, and later kit changes to the shape surface as `template-drift` — informational, never reconciled. Keep-ours is the expected answer, followed by an ack (§9.9) so the same drift does not re-report every sync.
 
 **How it stays true.** Not by a note asking nicely — through the two skills that already gate on human sign-off. The `ui-patterns` skill's write-once step adds a pattern's line in the same pass that writes its reference; the `design-system` skill's reconciliation pass adds a component's line in the same pass that documents it in `design.md`. An inventory that lags is worse than none, because it is read as complete.
 
@@ -1822,32 +1157,47 @@ The design-system skill is one entry in a larger set of template-only (not-dogfo
 
 ### 12a.8. Claude Design — the `claude-design` skill
 
-A project's design system is published to Claude Design from code, and designs come back
-into code; Claude Design does the designing. The `claude-design` skill carries the
+Claude Design is a prototyping tool a project reaches for, from Claude Code or claude.ai,
+whenever a screen is worth working out visually first. The design system wires it in:
+the system is published from code, a design is built from the project's own components,
+and the design comes back into code as the reference the real screens are built from.
+The `claude-design` skill is AI reference, and `/ui-design` is that skill invoked
+directly, the way the gitflow commands are the gitflow skill's. The skill carries the
 engine that builds a Claude Design "Design System" from the UI package
 (`scripts/build.mjs`, driven by a per-project `design-system.config.mjs`), the render
-check that mounts every component the way a design page and a canvas do, and one
-command, `/ui-design`, covering a design's life: `start` (a folder under
+check that mounts every component the way a design page and a canvas do, and the
+actions of a design's life: `start` (a folder under
 `project-documentation/temporary/design-<name>/` and the design conversation),
-`prototype` (the brief, then the design), `feedback` (the comments pulled down and settled
-item by item, then the design revised), `implement` (the design exported into its folder
-and built into screens, its link kept in permanent docs), `publish-system` (build,
-verify, publish the design system) and `refresh-design` (bring designs onto the current
-system). Every action that opens an existing design first checks the design's copy of the
-system against the published version, and asks whether to refresh when it is behind. The
-config's required `timeZone` dates each sync in the project's zone.
+`create-design` (the brief, then the design — once), `work` (pick a design back up from its
+folder and keep changing it in conversation), `feedback` (`work` with the reviewers'
+comments as its agenda, the way `/work <N>` is `/work` with an issue), `implement` (the
+design exported into its folder, each hand-built piece decided as a component, a UI
+pattern or page-local, then built into screens, its link kept in permanent docs),
+`publish-system` (build, verify, publish the design system) and `apply-system` (bring
+designs onto the current system). Every action that opens an existing design takes its
+address from the folder's `README.md`, so nobody pastes a link, and first checks the
+design's copy of the system against the published version, asking whether to apply the current
+one when it is behind. Every change settled in `work` or `feedback` is appended to `brief.md`'s
+`## Decisions`: the design's history, which lives only as long as the transient folder.
+The config's required `timeZone` dates each sync in the project's zone.
 
 Two rules follow from it and live in the `design-system` skill: every token resolvable
 and commented ("Tokens must survive the trip to Claude Design"), and design-system
 components kept inside what React 18 and 19 share, because design pages run React 18.
 
-`skills/claude-design/references/working-with-claude-design.md` is the reference: why
-Claude Design rather than Claude Code designs, what a design is (an interactive
-prototype), where Claude Design lives and how a design is shared, the review-round
-process, and the two-person process — including a collaborator in another organization,
-who drives a shared design from Claude Code by its link.
+Project-specific values live in two places only: the UI package's
+`design-system.config.mjs` (including the Design System artifact's address) and each
+design's `project-documentation/temporary/design-<name>/` folder while it is in progress.
 
-`project-documentation/ui-design-cheatsheet.md` is the one-page user reference, the
+`skills/claude-design/references/working-with-claude-design.md` is the reference the
+skill reads before any design work: what Claude Design is for, what a design is (an
+interactive prototype), how a design is driven and shared — from Claude Code or its
+chat, and from Claude Code by link for an editor in another organization — what the
+engine handles, and the
+review and two-person processes.
+
+`project-documentation/designer-handbook.md` is the human introduction, and
+`project-documentation/ui-design-cheatsheet.md` the one-page user reference, the
 companion to `gitflow-cheatsheet.md`.
 
 Template-only, like the rest of this subsystem.
@@ -1890,66 +1240,112 @@ Full spec: `commands/handoff.md`.
 
 ## 12d. Analysis and discussion pages
 
-The `analysis` skill publishes a shared analysis as a claude.ai Artifact that readers discuss in comments, and `/work --discussion <slug or artifact link>` pulls that discussion back into an action plan. When to use it, what readers see, the discussion folder and every kit file involved: `analysis-and-discussions.md`.
+The `analysis` skill publishes a shared analysis as a claude.ai Artifact that readers discuss in comments, and `/work --discussion <slug or artifact link>` pulls that discussion back into an action plan. When to use it, what readers see and the discussion folder: `analysis-and-discussions.md`.
+
+**Where it lives in the kit:**
+
+| Piece | Kit source | Role |
+|---|---|---|
+| Format decision and publishing | `_claude-project/skills/analysis/SKILL.md` | writes the folder, builds and publishes the page, writes the pointer |
+| Page generator | `_claude-project/lib/gen-report.mjs` | discussion and report pages, and E2E reports |
+| Pull-back | `_claude-project/commands/work.md` Step 3b | reads the page, the comments and the feedback; writes the plan |
+| Folder lookup | `_claude-project/skills/gitflow/scripts/work.sh` (`--discussion`) | resolves slug or link to the folder and prints the pointer; `work.test.sh` covers it |
+| When to build a page | `_claude-project/rules/communication.md` | the cue words, and Artifacts as the way to share |
+| Sweep exemption | `_claude-project/commands/handoff.md`, `rules/development-guidelines.md` | keeps open discussion folders out of the `temporary/` sweep |
+
+The skill and the generator are template-only: the kit has no stakeholders to share with, so it does not run them itself (`.claude/rules/project/dev-kit-workflow.md`). `/work`, `/handoff` and the rules are dogfooded.
+
 
 ## 13. Troubleshooting
 
-### 12.1. Cloud session can't see my hooks
-
-Verify `.claude/settings.json` exists in the repo and is committed. Cloud loads from the repo only.
-
-### 12.2. `git commit` blocked by hook
-
-`git-guard.sh` denies raw `git commit` — use `/commit`, `/checkpoint`, or
-`/ship-main` instead. The gitflow scripts are unaffected by the hook (§3.1), so
-if a *slash command* is what got blocked, the deny message will name some other
-operation (`reset`, `restore`, `revert`, `clean`, `checkout <file>`); read it
-rather than assuming the commit itself was refused.
-
-Typecheck and commitlint failures now surface as CI gates on the PR, not as a
-local deny. Fix them from the PR checks.
-
-Emergency override, under explicit user authorization: `SKIP_GIT_GUARD=1 git commit …`
-
-### 12.3. MCP server fails to authenticate
-
-Verify `EXA_API_KEY` is exported in the current shell. For cloud sessions, verify it's in the cloud environment's env-var editor.
-
-### 12.4. Sync shows files I don't recognize as kit-only
+### 13.1. Sync shows files I don't recognize as kit-only
 
 Kit added new files since your last sync. The lockfile's `lastSyncedCommit` is behind kit HEAD. Run through the diff review normally; accept or reject each.
 
-### 12.5. `/deploy` failed or didn't ship
+## 14. Testing the kit's hooks
 
-`/deploy` is fully local. If it exits non-zero, the script reports the exit code:
+How: `.claude/rules/project/hook-testing.md`, which loads when a hook is edited. Why it looks nothing like an app's test suite:
 
-- `2`: bad args
-- `3`: not on main → `git checkout main`
-- `4`: dirty working tree → `/commit` first
-- `5`: out of sync with origin → `git pull` or push pending work
-- `6`: HEAD has failed CI check-runs on GitHub → fix CI on main first
-- `7`: no commits since last `v*.*.*` tag → nothing to deploy
-- `8`: a required CLI is missing — `gh`, or `aws` under the default `codebuild` backend
-- `9`: `npm` / `python3` missing
-- `10`: `npm version` / manifest-mutation failed
-- `11`: push rejected → is require-PR off for this repo? (require-PR on `main` rejects direct pushes; the pipeline expects it off — pipeline.md §1.1)
-- `12`: dispatching a deploy failed → under `codebuild`, does the CodeBuild project `<CODEBUILD_PROJECT_PREFIX><service>` exist and may the deploy-trigger credential start it? Under `github`, does the workflow exist on the default branch with `workflow_dispatch:`?
-- `13`: a deploy build failed → open the build URL the script printed (CodeBuild console, or the Actions run under `github`) and read its log
-- `17`: tag push failed → check tag-protection rules
-- `18`: the migration could not be dispatched → same checks as `12`, for the migrate project
-- `19`: the migration failed → nothing app-side shipped; fix the migration, then re-dispatch the migration and the deploys by hand (`commands/deploy.md` Recovery) — never deploy apps against a failed migration
-- `20`: the `MIGRATE_PATHS` diff failed → the skip check errored, so nothing was skipped silently
-- `21`: the deploy-trigger AWS credential in `.env` is missing or invalid → fix it (`new-project-setup.md` §7c); caught before anything mutated
+**A broken guard fails open, and silence is also what success looks like.** Every guard allows by printing nothing and exiting 0 — byte-for-byte what a guard that crashed, mis-parsed its input or matched nothing produces. A hook can be inert for months with no symptom but a block nobody was expecting.
 
-A deploy build that fails after the migration ran leaves the new schema under the old code. Read the build log first: a failure outside the code — a registry rate limit, a transient network error — is fixed by re-dispatching the same builds, with no new bump and no second migration.
+**The blast radius is every project at once,** arriving at each one's next sync with the authority of shared tooling nobody re-reads.
 
-### 12.6. A consumer developer's Claude session keeps falling back to raw git
+**The environment is the bug.** The defects found in practice were portability and encoding errors, not logic. A guard matching with `\b` in `sed` was inert on every Mac — BSD `sed` has no `\b` — and a Linux CI runner would have certified it healthy indefinitely. That is why suites run on edit, on the machine, through `test-on-edit.sh`: CI on Linux conceals exactly this class, and running at sync time lands a failure on whoever synced next, with no context for it.
 
-The developer didn't set `includeGitInstructions: false` in their `~/.claude/settings.json`. See `developer-onboarding.md`. Hooks should still catch raw git, so this is a fallback-frequency issue, not a correctness issue.
+**Allow cases come first** because a guard that blocks legitimate work gets routed around within a day, and then protects nothing. **Deny payloads go through a JSON encoder** because four guards built theirs by interpolating the command into a heredoc; any command with a double quote produced unparseable JSON, which is discarded, and the command ran. **Escape hatches are tested from the command string** because two hooks checked `SKIP_X=1` in their own environment, where a command prefix never sets it — the documented override had never worked. **Environment-dependent hooks point at temp fixtures** because a `block-kit-edit.sh` suite inheriting the maintainer's `HOME` passes every case by doing nothing.
+
+Every one of those defects passed a reading. None survived a test.
 
 ---
 
-## 14. What's deliberately NOT here
+## 15. Pipeline roadmap
+
+What the kit's pipeline does today and what is deliberately deferred. The design itself is `pipeline.md`.
+
+**Phases 1–6: DONE** (current capabilities). **Phases 7–10 + follow-ups: DEFERRED** roadmap.
+
+### Done (current capabilities)
+
+| Phase | Capability |
+|-------|------------|
+| 1 | GitHub config (squash-only, auto-delete branches) + basic CI (type-check + Biome + Semgrep, parallel jobs, concurrency-cancel). |
+| 2 | gitflow subsystem (`/work` `/commit` `/checkpoint` `/open-pr` `/merge` `/catchup`), commitlint title gate, issue↔branch↔PR linking, raw-git hook guard. |
+| 3 | Release automation via local `/deploy` (bump + changelog + tag + push + dispatch deploy), direct-push of the version bump to `main`, deploys dispatched only by `/deploy` (CodeBuild by default). |
+| 4 | Quality/security: Gemini advisory review, Dependabot (monthly + cooldown + grouping), Dependabot surfacing, Node LTS check, Semgrep + `.semgrepignore`. |
+| 5 | Test infrastructure: Vitest config (unit + integration projects), one-branch-per-run ephemeral Neon harness with transaction-per-test isolation, migration-during-PR, test dir structure + auth/util scaffolding, Vitest in CI. |
+| 6 | Unit + foundational integration tests for the complex-logic functions (pricing, packing, totals); all green in CI as a required check. |
+
+### Deferred roadmap
+
+#### Phase 7 — Integration tests (server-function scope)
+
+Builds on the Phase-6 `dbTest` / one-branch-per-run wiring; the per-PR migration pattern is in place. Scope is the server-function-file layer — none written yet.
+
+| What | Priority | Blocker |
+|------|----------|---------|
+| Checkout flows (money path) | CRITICAL | Stripe test keys as CI secrets + Mailpit |
+| Product/listing, account/approval, price-list generation functions | HIGH | None (DB branch in place) |
+| Init/cache, order retrieval | MEDIUM | None |
+| Contact, admin | LOW | None |
+
+- **Shared blockers:** Stripe Test Mode keys promoted to CI secrets; Mailpit in the test docker-compose (Phase 5D below); auth mocked (the one acceptable mock — shape stubs already exist).
+- **How written:** dedicated session per function file; Claude generates tests following the project's testing patterns. Review gate per test: *"if this function changed and produced wrong results, would this test catch it?"*
+- **Effort:** initial batch ≈ 3–5 days. Neon cost variable, budget ~$5–15/mo once integration tests are the main consumer.
+
+#### Phase 8 — E2E hardening
+
+The E2E model (Claude-as-tester via `agent-browser`, flow files, standalone `/e2e` command) is **shipped and exercised**. What remains is hardening, not building.
+
+| Item | What | Blocker / effort |
+|------|------|------------------|
+| Substantive behavioral assertions | Move beyond render-checks to correctness: price-math, cart+shipping recalculation, payment elements mount + accept input, post-login tier reflects correctly. | Per-flow, accretion-on-demand |
+| New-flow expansion | Confirmation-email verification (needs Mailpit); generation flows. | Mailpit (Phase 5D) for the email flow |
+
+#### Phase 9 — Production monitoring
+
+Fully independent — can start anytime. None of the three pieces started.
+
+| Item | What | Cost | Notes |
+|------|------|------|-------|
+| Error tracking (Sentry) | Account (Team plan, **flat / unlimited users**, not per-seat); install client + server SDKs in each app; source maps; perf monitoring; alert rules. | ~$26/mo | Multiple devs need access (free tier = 1 user). Decision locked. |
+| Uptime monitoring (UptimeRobot) | Account + per-URL HTTP monitors (5-min interval) + alert contacts. | $0 | ~5-min setup. |
+| Log viewer | Browser-accessible Pino-aware admin log viewer (level/namespace/search filter, file selection, pagination, context view, download, admin-gated). | $0 | **Decision still open:** port an existing in-house admin viewer (~1 day; parses Pino JSON natively) vs. Dozzle (10-min, but raw stdout — no Pino-field parsing, no filter, no download). The in-house port is recommended; pick before starting. |
+
+**Effort:** Sentry ~half-day (apps + source maps); UptimeRobot minutes; log viewer ~1 day if porting.
+
+#### Follow-up optimizations (cross-cutting)
+
+| Item | What | Why deferred |
+|------|------|--------------|
+| Mailpit (Phase 5D) | Add Mailpit to the test docker-compose; configure app to use Mailpit SMTP in test mode. | Unit tests don't need email; needed by Phase 7 integration tests. |
+| Test-enforcement rule (Phase 5E) | A project rule: editing complex-logic dirs verifies corresponding tests exist + pass; flag if missing. | Deferred until real tests landed (now done); the advisory-review styleguide already covers the PR side. |
+| Surfacing `workflow_run` filter | Filter the surfacing trigger to fire only on dependency-merge deploys (author-based). | Advisory-refresh value applies only when a new dep version shipped; current cadence works, just noisier. |
+| Autonomous-gitflow invocation guard | A `PreToolUse` hook on gitflow invocations that blocks when the latest user prompt contains no authorization keyword. | Text rules ("never proactively invoke git") aren't load-bearing — rule-reading and tool-calling are decoupled. Structural fix (same class as the destructive-git guard). Not yet scoped. |
+| Evaluate fallow.tools | [fallow.tools](https://fallow.tools/) — "codebase intelligence for typescript and javascript." Assess as a CI codebase-analysis step (quality/dead-code/dependency signal). Not yet trialed. | Candidate flagged 2026-06; needs hands-on eval before adopting into CI templates. |
+
+---
+
+## 16. What's deliberately NOT here
 
 - **Automated kit-update PRs.** Single-user kit. No need for GitHub Actions that PR kit updates to consumer projects. The maintainer runs `/sync-dev-kit` when ready.
 - **Kit versioning / releases.** The kit repo is public, but is not distributed as a versioned artifact — there is no package, tag, or release to depend on. Syncs point at kit HEAD commit SHA, not a version.
@@ -1958,7 +1354,7 @@ The developer didn't set `includeGitInstructions: false` in their `~/.claude/set
 
 ---
 
-## 15. References
+## 17. References
 
 - `skills/gitflow/SKILL.md` — gitflow skill, trigger metadata and routing
 - `skills/gitflow/references/commit-types.md` — commit type emoji/format reference

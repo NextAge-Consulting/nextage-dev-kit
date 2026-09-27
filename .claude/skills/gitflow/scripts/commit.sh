@@ -182,9 +182,13 @@ if [ "$SKIP_TYPECHECK" -eq 0 ]; then
     fi
 fi
 
-# Biome lint (if the project has adopted Biome — gated on biome.json presence).
-# Mirrors the CI `biome` job so lint failures fire locally in <1s instead of on
-# the PR 30s later. No-op in projects without Biome.
+# Biome lint (if the project has adopted Biome — gated on biome.json presence
+# AND a root package.json). Mirrors the CI `biome` job so lint failures fire
+# locally in <1s instead of on the PR 30s later. CI runs that job only when a
+# root package.json exists (its `node` detection), and Biome can only be
+# installed as a devDependency of one — so a project with the kit's biome.json
+# but no Node stack skips this gate, exactly as CI does, rather than failing on
+# a linter it has no way to install. No-op in projects without Biome.
 #
 # ALWAYS `@biomejs/biome`, NEVER a bare `biome`, and always `--no-install`.
 # `npx biome` resolves to an UNRELATED package of that name on npm (an
@@ -193,7 +197,7 @@ fi
 # `--no-install`, npx silently downloads whatever is latest, which is how a
 # project's pinned biome.json schema and the binary actually running it drift
 # apart with nothing to say so.
-if [ -f "biome.json" ] || [ -f "biome.jsonc" ]; then
+if { [ -f "biome.json" ] || [ -f "biome.jsonc" ]; } && [ -f "package.json" ]; then
     echo "gitflow: running biome lint..." >&2
     if ! npx --no-install @biomejs/biome --version >/dev/null 2>&1; then
         echo "" >&2

@@ -61,7 +61,7 @@ Pushes branch, creates PR, prepends `Closes #N` from any branch-linked issues. T
 | `commitlint.yml` | Optional. Local `/commit` already enforces conventional format. Would need `.commitlintrc.json` at root. Install if a PR-title backstop is wanted. |
 
 Version bump and tag are **not** workflows and are not coming back as workflows — they
-live in the local `/deploy` command, single-writer and human-serialized (handbook §6.5,
+live in the local `/deploy` command, single-writer and human-serialized (pipeline.md §2.1,
 and the do-not-reintroduce note at §11.5).
 
 ---
@@ -96,7 +96,7 @@ That's it — `/merge` self-gates by reading the workflow's check-runs directly.
 
 ## 6. Related docs
 
-- `handbook.md` — full architecture, sync flow, three-surface layout
+- `kitmaintainer-handbook.md` — full architecture, sync flow, three-surface layout
 - `gitflow-cheatsheet.md` — day-to-day developer reference (applies to all projects)
 - `developer-onboarding.md` — second-dev setup procedure
 

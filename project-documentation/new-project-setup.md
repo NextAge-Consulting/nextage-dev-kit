@@ -17,7 +17,7 @@ The single walkthrough for taking a brand-new project from nothing to "kit insta
 ### One-time per machine (skip anything already done)
 
 - [ ] **P0** — Machine prerequisites installed: `git`, `gh` (authenticated, `repo`+`project` scopes), `jq`, `node`/`npm` (or `python3`), `shasum`, plus optional `shellcheck` / `agent-browser` `[you]`
-- [ ] **P1** — (maintainer only) Maintainer surface installed: `handbook.md` §0.1 `[you]`
+- [ ] **P1** — (maintainer only) Maintainer surface installed: `kitmaintainer-handbook.md` §0.1 `[you]`
 - [ ] **P2** — (optional) Custom statusline: `/install-statusline` `[claude]`
 - [ ] **P3** — (optional) Claude Project Launcher: `/install-cpl` `[claude]`
 
@@ -84,7 +84,7 @@ Both `repo` and `project` scopes are required. If either is missing: `gh auth re
 
 **A regular dev does nothing here.** Consumers receive nothing globally — every kit command, `/work` included, arrives per-project when the maintainer syncs the project. Skip to P2.
 
-The kit maintainer copies `_claude-maintainer/` into `~/.claude/` and writes `~/.claude/dev-kit-config.json`, by hand, following `handbook.md` §0.1. There is no installer: it happens twice in the kit's life, and a command run that rarely cannot be trusted to deliver a change.
+The kit maintainer copies `_claude-maintainer/` into `~/.claude/` and writes `~/.claude/dev-kit-config.json`, by hand, following `kitmaintainer-handbook.md` §0.1. There is no installer: it happens twice in the kit's life, and a command run that rarely cannot be trusted to deliver a change.
 
 **Verify:**
 
@@ -229,7 +229,7 @@ From the **project root** (not inside the kit), run `/sync-dev-kit`. First-run f
    - `GITFLOW_PROJECT_ID` + the four `GITFLOW_STATUS_*` IDs (field, In Progress, Staged, the deploy status) — only if you use a GitHub Project board (Claude can run the `gh api graphql` discovery for you). With a board, all five are required. Leave all five empty / `_intentionally_empty` to skip board integration. Either way, pick how issues close — `github-project-board-setup.md` §3.
    - `DEPLOY_BACKEND` + `DEPLOY_WORKFLOWS` + `CODEBUILD_PROJECT_PREFIX` — the deploy pipeline; see step 7. A repo that deploys by its own procedure sets `DEPLOY_BACKEND=custom` and leaves the other two empty; a repo that does not deploy at all sets `none`.
 
-   > Three states per key (handbook §9.7): **missing** = undecided, marker survives, re-nags every sync; **empty string** = intentionally disabled; **populated** = normal value. `_intentionally_empty` distinguishes "informed disable" from "deferred."
+   > Three states per key (kitmaintainer-handbook.md §9.7): **missing** = undecided, marker survives, re-nags every sync; **empty string** = intentionally disabled; **populated** = normal value. `_intentionally_empty` distinguishes "informed disable" from "deferred."
 3. **Per-file review (Steps 2–5)** — accept the kit files (`.claude/`, `.github/workflows/`, `.gemini/`, `.mcp.json`, `.commitlintrc.json`, `biome.json`, `.semgrepignore`) and the `.gitignore` additions.
 4. **Finalize (Step 6)** — stamps the lockfile. Sync does **not** commit or push; the synced files are left uncommitted in the working tree. Land them with `/ship-main` (commits + pushes straight to `main`).
 
@@ -604,4 +604,5 @@ When all nine boxes are checked and every verify block passes: the project has t
 - `gitflow-cheatsheet.md` — the day-to-day command flow once setup is done
 - `gemini-code-review-setup.md` — full Gemini Code Assist install (step 5)
 - `kit-repo-github-config.md` — repo / GitHub config reference
-- `handbook.md` — §0 kit layout, §9 sync workflow, §9.7 substitutions, §11 workflow templates, §6.5 deploy direct-push, §9.4.1 sync does no git
+- `pipeline.md` — the deploy procedure (§2.1) and the CI and repository templates (Part 3)
+- `kitmaintainer-handbook.md` — §0 kit layout, §9 sync workflow, §9.7 substitutions, §9.4.1 sync does no git

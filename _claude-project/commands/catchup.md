@@ -101,6 +101,6 @@ If you genuinely need a rebase (e.g. linearizing history before opening a PR), d
 
 ## Cross-reference
 
-- handbook §4.6 (catchup workflow) — full design walkthrough.
+- kitmaintainer-handbook.md §4.6 (catchup workflow) — full design walkthrough.
 - gitflow-cheatsheet — troubleshooting entry for "PR mergeable=CONFLICTING".
 - `.claude/rules/git.md` — git operation policy.

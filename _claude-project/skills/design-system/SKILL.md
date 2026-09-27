@@ -84,7 +84,7 @@ After making changes that affect tokens (added a color, added an atom variant, e
 npm run lint:design
 ```
 
-This runs the `@google/design.md` spec linter. It must be wired as a project dev tool — `@google/design.md` in `devDependencies` plus a `"lint:design": "design.md lint design.md"` script (see kit handbook §12a.4). Use the declared script, **not** an ad-hoc `npx @google/design.md …`: declaring it keeps the lint reproducible and avoids agent sandboxes blocking an undeclared external download. If the script is missing, add the devDependency + script first, then run it.
+This runs the `@google/design.md` spec linter. It must be wired as a project dev tool — `@google/design.md` in `devDependencies` plus a `"lint:design": "design.md lint design.md"` script (see kit kitmaintainer-handbook.md §12a.4). Use the declared script, **not** an ad-hoc `npx @google/design.md …`: declaring it keeps the lint reproducible and avoids agent sandboxes blocking an undeclared external download. If the script is missing, add the devDependency + script first, then run it.
 
 If `design.md` was not modified, skip this step. If it was, the lint MUST pass before changes are committed. Fix lint findings before declaring the task done.
 
@@ -277,8 +277,10 @@ taught first. The producer must fail the sync on a construct it does not know,
 because the design tool never does: it drops what it cannot read, and a colour
 missing from the dark theme silently inherits the light one.
 
-**Every token carries a comment saying what it is for.** One line, above or
-beside the declaration: "the border of a field", "a hover fill inside a card".
+**Every token carries a comment saying what it is for.** One line, directly
+above the declaration or trailing it on the same line: "the border of a field",
+"a hover fill inside a card". No blank line between comment and token. Group
+headers use the `/* ─── name ─── */` form, which belongs to no token.
 The sync copies it as the token's usage note, so it is what the design agent
 reads when it picks a colour. It is also the context any reader gets at the
 point of use, where a separate design doc is one file too far away. A token with

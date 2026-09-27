@@ -2,9 +2,8 @@
 
 Reference for Claude Code hook patterns. Covers async vs sync decisions and a token-based pattern for secure bypass mechanisms that AI cannot easily circumvent.
 
-For how hooks are tested — the `X.sh` / `X.test.sh` sibling convention, why the suites
-run on edit rather than in CI, and the failure modes that make an untested hook fail
-silently open — see `hook-testing.md`.
+How hooks are tested is the kit rule `.claude/rules/project/hook-testing.md`; why they
+are tested that way is `kitmaintainer-handbook.md`, "Testing the kit's hooks".
 
 ---
 

@@ -31,7 +31,7 @@ t(){ n=$((n+1)); d=$(decision "$2" "s$n-$RANDOM" "${4:-Write}")
 echo "MUST ALLOW — surfaces the skill has nothing to say about:"
 t allow "/repo/.claude/skills/gitflow/scripts/commit.sh" 'shell script inside a skill dir'
 t allow "/repo/.claude/hooks/git-guard.sh"               'a hook'
-t allow "/repo/project-documentation/handbook.md"        'ordinary project doc'
+t allow "/repo/project-documentation/kitmaintainer-handbook.md"        'ordinary project doc'
 t allow "/repo/README.md"                                'repo README'
 t allow "/repo/src/rules/pricing.md"                     'app dir that merely contains "rules"'
 t allow "/repo/.claude/settings.json"                    'settings json'

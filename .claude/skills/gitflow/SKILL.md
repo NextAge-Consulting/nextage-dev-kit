@@ -184,7 +184,7 @@ To ship the accumulated commits to production, run `/deploy`:
 
 `/deploy` is the changelog's only writer — `/open-pr` never touches it. See `commands/deploy.md`.
 
-**Deploy trigger contract (MANDATORY):** a deploy starts only when `/deploy` dispatches it, after pushing the bump commit + tag, so it builds post-bump HEAD with the correct version. A CodeBuild deploy project carries no webhook and no schedule; a GitHub deploy workflow's only trigger is `workflow_dispatch:`. A push trigger races the bump; a tag trigger double-fires. See handbook §11.4.
+**Deploy trigger contract (MANDATORY):** a deploy starts only when `/deploy` dispatches it, after pushing the bump commit + tag, so it builds post-bump HEAD with the correct version. A CodeBuild deploy project carries no webhook and no schedule; a GitHub deploy workflow's only trigger is `workflow_dispatch:`. A push trigger races the bump; a tag trigger double-fires. See pipeline.md §2.5.
 
 ## Reference files
 

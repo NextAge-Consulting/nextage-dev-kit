@@ -125,7 +125,7 @@ The terminal Claude Code runs in, and the recommended option on macOS.
 `/dev` needs **either iTerm2 or tmux** to open each dev server in its own tab, and on a Mac
 iTerm2 is the better of the two rather than a matter of taste. From an Agents-view session
 the host shell is spawned by launchd and carries no `$TMUX`, while `osascript` reaches
-iTerm2 over Apple Events and needs no environment at all (handbook §12.2.3). tmux still
+iTerm2 over Apple Events and needs no environment at all (kitmaintainer-handbook.md §12.2.3). tmux still
 works there — `/dev` asks tmux which session has a client attached rather than trusting
 `$TMUX` — but iTerm2 needs no such recovery.
 

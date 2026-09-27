@@ -38,7 +38,7 @@
 # omitted, the script reads `MIGRATE_PATHS` from `.claude/sync-substitutions.json`;
 # if that is also empty the workflow ALWAYS fires (prior behavior). The reference
 # is the PREVIOUS deploy's tag (LAST_TAG), so a failed-then-recovered migration is
-# unaffected — see the skip block at step 10 and handbook §6.5.
+# unaffected — see the skip block at step 10 and pipeline.md §2.1.
 #
 # ─── Design ─────────────────────────────────────────────────────────────
 # /deploy is a HUMAN-SERIALIZED release boundary, not an auto-bump-on-merge.
@@ -47,7 +47,7 @@
 # the moment after the bump lands on main) match by construction. No skew.
 #
 # The bump commit is pushed DIRECTLY to main (the pipeline uses no branch
-# protection; require-PR is off — see pipeline.md §1.1 / handbook §6.5). No
+# protection; require-PR is off — see pipeline.md §1.1 / pipeline.md §2.1). No
 # release branch, no PR, no admin-merge — the bump commit + the tag ARE the
 # release record. This is the same direct-to-main mechanism as ship-main.sh.
 #
@@ -173,7 +173,7 @@ CHANGELOG_FILE=""
 # WORKFLOWS: empty after arg parse means "read DEPLOY_WORKFLOWS from
 # .claude/sync-substitutions.json at runtime; fall back to deploy.yml if
 # unset". --workflow flags accumulate (repeatable) and override the
-# substitution. See handbook §6.5 for split-deploy consumer pattern.
+# substitution. See pipeline.md §2.1 for split-deploy consumer pattern.
 WORKFLOWS=()
 # Bare positional service names (e.g. `worker`) → deploy-<name>.yml, resolved +
 # validated against DEPLOY_WORKFLOWS after arg parse. Accumulate with --workflow.
@@ -711,7 +711,7 @@ if [ -n "$MIGRATE_WF" ]; then
     # deploy is unaffected: that deploy's tag exists, so re-running /deploy hits
     # the "no commits since tag" gate and stops — the operator's documented manual
     # recovery applies the migration, and the migration workflow stays idempotent
-    # as the backstop. See handbook §6.5.
+    # as the backstop. See pipeline.md §2.1.
     SKIP_MIGRATE=0
     if [ -n "$MIGRATE_PATHS" ] && [ -n "$LAST_TAG" ]; then
         # shellcheck disable=SC2086 # intentional word-splitting: MIGRATE_PATHS is a space-separated pathspec list

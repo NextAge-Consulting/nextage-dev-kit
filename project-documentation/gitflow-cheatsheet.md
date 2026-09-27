@@ -1,6 +1,6 @@
 # Gitflow Cheat Sheet
 
-One-page reference for day-to-day work in a kit-enabled project. For internals and architecture, see `handbook.md`.
+One-page reference for day-to-day work in a kit-enabled project. The role guide it belongs to is `developer-handbook.md`.
 
 ---
 
@@ -81,7 +81,7 @@ No new branch, no stash. Just link and keep working.
                 #   confirmed first ("Opening this PR marks #42 as Staged. Proceed?"); no → no PR
                 # transitions every linked issue → "Staged" on the project board, and posts
                 #   the Staged comment on each that has not had one
-                # does NOT touch changelog.md — single-writer model, /deploy owns it (handbook §6.4)
+                # does NOT touch changelog.md — single-writer model, /deploy owns it (pipeline.md §2.3)
 /catchup      # on main: fast-forward local main from origin/main (just want latest code)
                 # on a feature branch: merge updated origin/main INTO the feature branch
 /e2e          # behavioral E2E via agent-browser (asks a scope question — see next section)
@@ -105,7 +105,7 @@ No new branch, no stash. Just link and keep working.
                 #   stay parked on main
 ```
 
-`/catchup` is the single "refresh from origin" command — behavior depends on the branch you're on. On main, it fast-forwards local main (use this when starting a session after someone else has merged + deployed and you want your local code current). On a feature branch, it merges `origin/main` INTO the branch via `--no-ff` (use when `gh pr view <N>` reports `mergeable: CONFLICTING`). On conflicts: edit the affected files, then `/catchup --continue` — or `/catchup --abort` to back the merge out entirely. See handbook §4.6.
+`/catchup` is the single "refresh from origin" command — behavior depends on the branch you're on. On main, it fast-forwards local main (use this when starting a session after someone else has merged + deployed and you want your local code current). On a feature branch, it merges `origin/main` INTO the branch via `--no-ff` (use when `gh pr view <N>` reports `mergeable: CONFLICTING`). On conflicts: edit the affected files, then `/catchup --continue` — or `/catchup --abort` to back the merge out entirely. See kitmaintainer-handbook.md §4.6.
 
 **Project board lifecycle:**
 
@@ -251,6 +251,6 @@ Picking up tomorrow on unfinished work: same launch, just `/work` (no args). You
 | Issue closed too early, or never closed | GitHub configuration, not gitflow: the repository's auto-close setting and the board's "Auto-close issue" workflow. See `github-project-board-setup.md` §3. |
 | `/work` says it could not refresh main | The fast-forward failed (usually `gh` auth scope or network) or the tree was dirty. `/work` does not block — you stay on local `main` and it tells you. Fix `gh auth status`, then `/catchup`. |
 | `/catchup` aborts: "local main is AHEAD" or "DIVERGED" | Local main has commits not on origin/main. Anomalous under gitflow: work lands on `main` only through `/merge` or `/ship-main`. Inspect with `git log origin/main..HEAD`. Most likely cause is a `/ship-main` commit that has not been pushed, or a commit made outside gitflow. Inspect, push or resolve manually, then retry `/catchup`. |
-| `/sync-dev-kit` keeps flagging `.claude/settings.json` as `kit-only` (or `conflict`) every sync even though you haven't touched it | settings.json is compared as jq-canonicalized JSON (handbook §9.6), so key order and indentation should never surface as a diff. If it still flags with no real difference, the canonicalization in `sync-dev-kit.sh` (`canonicalize_settings` / `sha256_settings_kit`) is broken — open a kit bug. |
-| `/commit` succeeded at commit but failed at push with "upstream branch ... does not match the name of your current branch" | The branch is tracking `origin/main` rather than its own remote ref. Re-trigger just the push: `.claude/skills/gitflow/scripts/commit.sh --push-only`. `safe_push` (in `branch_helpers.sh`) corrects the upstream and pushes. See handbook §4.5. |
-| `gh pr view <N>` reports `mergeable: CONFLICTING` after another PR shipped | Run `/catchup` on the affected branch. It merges `origin/main` in via an explicit merge commit and pushes. On conflicts, edit the affected files, then `/catchup --continue`. See handbook §4.6. |
+| `/sync-dev-kit` keeps flagging `.claude/settings.json` as `kit-only` (or `conflict`) every sync even though you haven't touched it | settings.json is compared as jq-canonicalized JSON (kitmaintainer-handbook.md §9.6), so key order and indentation should never surface as a diff. If it still flags with no real difference, the canonicalization in `sync-dev-kit.sh` (`canonicalize_settings` / `sha256_settings_kit`) is broken — open a kit bug. |
+| `/commit` succeeded at commit but failed at push with "upstream branch ... does not match the name of your current branch" | The branch is tracking `origin/main` rather than its own remote ref. Re-trigger just the push: `.claude/skills/gitflow/scripts/commit.sh --push-only`. `safe_push` (in `branch_helpers.sh`) corrects the upstream and pushes. See kitmaintainer-handbook.md §4.5. |
+| `gh pr view <N>` reports `mergeable: CONFLICTING` after another PR shipped | Run `/catchup` on the affected branch. It merges `origin/main` in via an explicit merge commit and pushes. On conflicts, edit the affected files, then `/catchup --continue`. See kitmaintainer-handbook.md §4.6. |

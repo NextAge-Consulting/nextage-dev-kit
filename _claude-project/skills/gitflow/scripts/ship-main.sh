@@ -113,7 +113,9 @@ fi
 # ALWAYS `@biomejs/biome`, NEVER a bare `biome`, and always `--no-install` —
 # see the note on the same gate in commit.sh. A bare `npx biome` runs an
 # unrelated package that exits 0, so this gate passed without linting.
-if [ -f "biome.json" ] || [ -f "biome.jsonc" ]; then
+# Gated on a root package.json too, like CI's `biome` job and commit.sh's gate:
+# without one there is no Node stack to install Biome into.
+if { [ -f "biome.json" ] || [ -f "biome.jsonc" ]; } && [ -f "package.json" ]; then
     echo "gitflow: running biome lint..." >&2
     if ! npx --no-install @biomejs/biome --version >/dev/null 2>&1; then
         echo "" >&2

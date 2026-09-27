@@ -16,7 +16,7 @@
 #
 # ONCE PER SESSION, then allows everything after. The hook cannot see whether the skill
 # is loaded, so a permanent deny would block every rule edit forever — and a guard that
-# false-blocks gets routed around within a day (`hook-testing.md`). One nudge, capped.
+# false-blocks gets routed around within a day. One nudge, capped.
 #
 # Markdown only. A shell script under .claude/skills/<name>/scripts/ is code, not prose
 # that binds, and rule-authoring has nothing to say about it.

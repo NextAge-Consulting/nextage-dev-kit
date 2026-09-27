@@ -1,6 +1,6 @@
 # Claude Code Setup
 
-Installing Claude Code itself, managing plugins, and LSP configuration. Complementary to `handbook.md` — the handbook covers kit architecture and project-level config; this doc covers the Claude Code CLI install and plugin ecosystem.
+Installing Claude Code itself, managing plugins, and LSP configuration. Part of a developer's setup; `developer-handbook.md` is the role guide it belongs to.
 
 ---
 
@@ -35,12 +35,10 @@ CLI toolchain, editors and the GUI apps — and ends where this list begins. The
 are the kit-specific tail of it.
 
 1. Install Claude Code (above).
-2. Clone the dev kit.
-3. Install the maintainer surface by hand, following `handbook.md` §0.1 — this copies `~/.claude/commands/sync-dev-kit.md` + its script and writes `~/.claude/dev-kit-config.json` pointing at the kit path.
-4. Optional: set `EXA_API_KEY` in your shell rc (see handbook Section 10) — research works without it.
-5. Optional: `/install-statusline` from the kit repo — installs the custom statusline to `~/.claude/statusline.sh`.
-6. Optional: `/install-cpl` from the kit repo — builds and installs CPL launcher.
-7. Open any project and run `/sync-dev-kit` to set up its `.claude/` from the kit.
+2. Clone your project. Its `.claude/` is committed, so the kit's rules, skills and commands come with it — there is nothing else to install. `developer-onboarding.md` walks the rest.
+3. Optional: set `EXA_API_KEY` in your shell rc — it adds the `research` skill's non-English and primary-source tier; research works without it.
+
+Setting up the kit maintainer's machine is different, and is `kitmaintainer-handbook.md` §0.1.
 
 ---
 
@@ -199,16 +197,12 @@ Restart Claude Code after adding or modifying skills. Skills metadata is scanned
 - Ensure Claude Code was restarted after adding the file
 - Command name on disk must match the slash invocation (case-sensitive on filesystems that enforce it)
 
-### Kit not syncing
-
-If `/sync-dev-kit` reports "kit path invalid" or similar, your `~/.claude/dev-kit-config.json` is wrong. Rewrite it per `handbook.md` §0.1 — it is a two-key JSON file.
-
 ---
 
 ## What this doc does NOT cover
 
-- Kit architecture (`_claude-project/`, `_claude-maintainer/`, `.claude/`) — see `handbook.md`
-- Git workflow via gitflow — see `handbook.md` Sections 3-6
-- MCP server config (Ref, Exa) — see `handbook.md` Section 10
+- How you work day to day — see `developer-handbook.md`
+- Git workflow via gitflow — see `gitflow-cheatsheet.md`
 - Second-dev onboarding path — see `developer-onboarding.md`
+- How the kit itself is built — see `kitmaintainer-handbook.md`
 - Hook authoring patterns (async, token-based enforcement) — see `hook-patterns.md`

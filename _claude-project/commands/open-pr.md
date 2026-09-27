@@ -184,9 +184,9 @@ On PR open:
 - `ci.yml` runs typecheck + Biome + Semgrep + tests (if installed)
 - `commitlint.yml` validates the PR title format (if installed)
 
-`changelog.md` is **not** modified on the feature branch. It receives one consolidated release entry at `/deploy` time, covering every commit since the last `v*.*.*` tag — see handbook §6.5.
+`changelog.md` is **not** modified on the feature branch. It receives one consolidated release entry at `/deploy` time, covering every commit since the last `v*.*.*` tag — see pipeline.md §2.1.
 
-Post-merge, **nothing fires automatically**. To ship to production, run `/deploy` — it bumps version, writes the consolidated changelog entry, tags, pushes, and dispatches the deploy (CodeBuild projects by default), which nothing else may start — see handbook §11.4.
+Post-merge, **nothing fires automatically**. To ship to production, run `/deploy` — it bumps version, writes the consolidated changelog entry, tags, pushes, and dispatches the deploy (CodeBuild projects by default), which nothing else may start — see pipeline.md §2.5.
 
 ## Blocking conditions
 

@@ -29,9 +29,9 @@ git clone https://github.com/youruser/nextage-dev-kit.git
 cd nextage-dev-kit
 ```
 
-**If you are a developer, you are done** — nothing is installed into `~/.claude/`. Every kit command arrives inside your project when the maintainer syncs it.
+**If you are a developer, designer or DevOps engineer, you are done** — nothing is installed into `~/.claude/`. Every kit command arrives inside your project when the maintainer syncs it. Start with `project-documentation/overview.md`, which points you to your role's guide.
 
-**If you are the kit maintainer**, follow `project-documentation/handbook.md` §0.1 to copy the maintainer surface into `~/.claude/`, which is what makes `/sync-dev-kit` available from any project.
+**If you are the kit maintainer**, follow `project-documentation/kitmaintainer-handbook.md` §0.1 to copy the maintainer surface into `~/.claude/`, which is what makes `/sync-dev-kit` available from any project.
 
 ### For New/Existing Projects
 
@@ -116,7 +116,7 @@ project/
 
 The kit does NOT manage `.git/hooks/`. Git hooks cannot be tracked in git and do
 not survive a clone, so enforcement lives entirely in the Claude Code hooks under
-`.claude/hooks/` (which do sync) plus the CI gates. See handbook §3.
+`.claude/hooks/` (which do sync) plus the CI gates. See kitmaintainer-handbook.md §3.
 
 ### Global `~/.claude/` (minimal)
 
@@ -235,7 +235,7 @@ See `.claude/rules/project/dev-kit-workflow.md` for details.
 
 | Doc | Purpose |
 |-----|---------|
-| `project-documentation/handbook.md` | Full architecture, sync flow, three-surface layout. The authoritative reference. |
+| `project-documentation/kitmaintainer-handbook.md` | Full architecture, sync flow, three-surface layout. The authoritative reference. |
 | `project-documentation/gitflow-cheatsheet.md` | Day-to-day developer reference for `/work`, `/checkpoint`, `/commit`, `/open-pr`, `/merge`. |
 | `project-documentation/analysis-and-discussions.md` | Analysis and discussion pages: when to build one, what readers see, and the `/work --discussion` pull-back into an action plan. |
 | `project-documentation/kit-repo-github-config.md` | How THIS repo is configured on GitHub and why it differs from consumer projects. Pre-flight sanity checklist before changes that might need GitHub-side config. |

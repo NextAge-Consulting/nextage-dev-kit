@@ -48,7 +48,7 @@ without import means the hook yields but nothing tells you the routing rules.
 
 ## Setting up a maintainer machine
 
-**The full procedure is `handbook.md` §0.1 — prose, not a command.** There is no
+**The full procedure is `kitmaintainer-handbook.md` §0.1 — prose, not a command.** There is no
 installer. Setting up a maintainer machine happens twice in the kit's life (a new
 machine, or someone taking over a fork), and a command run that rarely cannot be
 trusted to deliver anything — the temptation to reach for it as a propagation step
@@ -95,7 +95,7 @@ branch or half-finished edit the kit working tree happens to be sitting on.
   before non-trivial kit work: `.claude/rules/project/dev-kit-workflow.md`
   (source surfaces, dogfood manifest, propagation),
   `.claude/rules/project/sync-design-pre-read.md` (read before touching
-  substitution/template behavior), `project-documentation/handbook.md`.
+  substitution/template behavior), `project-documentation/kitmaintainer-handbook.md`.
 
 ## The routing decision — make it before editing any `.claude/**` file
 
