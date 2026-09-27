@@ -5,6 +5,7 @@ All notable changes to the NextAge Dev Kit will be documented here.
 ### September 27, 2026
 
 - **📝 Guides by role** - The docs are split by who reads them: `overview.md` ties the build-and-ship loop together, and `developer-handbook.md`, `designer-handbook.md` and `devops-handbook.md` each give one role the short version with pointers to reference. `pipeline.md` is now the DevOps reference — the deploy procedure, CI and repository templates — and `testing.md` the test-scaffolding and `/e2e` reference. `handbook.md` is renamed `kitmaintainer-handbook.md` and holds only what the kit maintainer needs.
+- **♻️ `/ui-design` actions renamed, plus `work`** - `prototype` is now `create-design` and runs once per design; `refresh-design` is now `apply-system`. The new `work` reopens a design from its folder and keeps changing it in conversation, and `feedback` is `work` with the reviewers' comments as its agenda.
 - **📝 Designing in Claude Design** - `designer-handbook.md` explains what Claude Design is, when to reach for it, the `/ui-design` loop, and how two people — including one in another organization — work on one design.
 - **📝 Rule authoring covers path-scoped rules** - The `rule-authoring` skill says when and how to scope a rule to paths.
 
