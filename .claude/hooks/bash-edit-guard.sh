@@ -14,6 +14,12 @@
 # The change is already on disk, so nothing is refused: every objection is returned to
 # Claude as a PostToolUse block, to fix or undo.
 #
+# A file exactly as `/sync-dev-kit` delivered it (kit-delivered.sh) is the kit's own
+# content, judged in the kit, and is not replayed. Skipping it here, where the change is
+# known to be on disk, also leaves each
+# guard's once-per-session stop unspent for the edit that follows. A real Edit cannot
+# be skipped this way: its guards run before the change lands.
+#
 # Claude Code records the changed files in auto and bypassPermissions mode, and in
 # every mode when the user setting `bashEditDiffEnabled` is true. With no list, this
 # hook does nothing; bash-edit-diff-check.sh warns at session start when that is so.
@@ -26,7 +32,9 @@ INPUT=$(cat)
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(printf '%s' "$INPUT" | jq -r '.cwd // ""' 2>/dev/null)}"
 [ -n "$PROJECT_DIR" ] || exit 0
 
-printf '%s' "$INPUT" | PROJECT_DIR="$PROJECT_DIR" python3 -c '
+KIT_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/kit-delivered.sh"
+
+printf '%s' "$INPUT" | PROJECT_DIR="$PROJECT_DIR" KIT_LIB="$KIT_LIB" python3 -c '
 import json, os, re, subprocess, sys
 
 try:
@@ -45,6 +53,19 @@ project = os.environ["PROJECT_DIR"]
 try:
     settings = json.load(open(os.path.join(project, ".claude", "settings.json"), encoding="utf-8"))
 except Exception:
+    sys.exit(0)
+
+kit_lib = os.environ["KIT_LIB"]
+
+def kit_delivered(path):
+    if not os.path.isfile(kit_lib):
+        return False
+    r = subprocess.run(["bash", "-c", "source \"$0\"; is_kit_delivered \"$1\" \"$2\"", kit_lib, project, path],
+                       capture_output=True)
+    return r.returncode == 0
+
+files = [f for f in files if not kit_delivered(f)]
+if not files:
     sys.exit(0)
 
 def edit_hooks(event_name):

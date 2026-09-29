@@ -41,6 +41,10 @@ new_repo; printf 'more\n' >> "$repo/.claude/rules/a.md"
 t 0 "$( (cd "$repo" && SKIP_RULE_REVIEW=1 STUB_MODE=findings STUB_LOG="$tmp/log" RULE_REVIEW_CLAUDE="$tmp/claude" "$S" HEAD 2>/dev/null); echo $?)" 'SKIP_RULE_REVIEW=1: exit 0'
 new_repo; git -C "$repo" rm -q .claude/rules/a.md; rm -f "$tmp/log"
 t 0 "$(gate findings)" 'a deleted rule file is not reviewed'
+new_repo; printf 'kit rule\n' > "$repo/.claude/rules/a.md"; rm -f "$tmp/log"
+printf '{"files":{".claude/rules/a.md":{"sha":"%s","mode":"owned"}}}' "$(shasum -a 256 "$repo/.claude/rules/a.md" | cut -d' ' -f1)" > "$repo/.claude/.kit-sync.json"
+t 0 "$(gate findings)" 'a rule file exactly as /sync-dev-kit delivered it is not reviewed'
+[ ! -f "$tmp/log" ] && echo "  ✓ …and the reviewer is never called" || { echo "  ✗ FAIL — reviewer called for kit-delivered content"; fail=1; }
 
 echo "FAILS:"
 new_repo; printf 'more\n' >> "$repo/.claude/rules/a.md"
@@ -48,6 +52,10 @@ t 1 "$(gate findings)" 'findings: exit 1'
 grep -q 'written after the "incident"' "$tmp/err" && echo "  ✓ …and the finding is printed" || { echo "  ✗ FAIL — finding not printed"; fail=1; }
 t 1 "$(gate error)" 'reviewer exits non-zero: exit 1 (a gate that cannot run fails)'
 t 1 "$(gate garbage)" 'reviewer returns unparseable output: exit 1'
+new_repo; printf 'kit rule\n' > "$repo/.claude/rules/a.md"
+printf '{"files":{".claude/rules/a.md":{"sha":"%s","mode":"owned"}}}' "$(shasum -a 256 "$repo/.claude/rules/a.md" | cut -d' ' -f1)" > "$repo/.claude/.kit-sync.json"
+printf 'edited here\n' >> "$repo/.claude/rules/a.md"
+t 1 "$(gate findings)" 'a kit-delivered rule file edited after delivery is reviewed'
 t 1 "$( (cd "$repo" && RULE_REVIEW_CLAUDE="$tmp/no-such-cli" "$S" HEAD 2>/dev/null); echo $?)" 'CLI missing: exit 1'
 mkdir -p "$tmp/lone/scripts" && cp "$S" "$tmp/lone/scripts/rule-review.sh"
 t 1 "$( (cd "$repo" && STUB_MODE=clean STUB_LOG="$tmp/log" RULE_REVIEW_CLAUDE="$tmp/claude" "$tmp/lone/scripts/rule-review.sh" HEAD 2>/dev/null); echo $?)" 'classifier missing beside the script: exit 1'

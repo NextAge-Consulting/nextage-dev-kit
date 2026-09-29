@@ -82,6 +82,21 @@ printf 'x\n' > "$repo/src/broken.sh"
 t block "$(event "$repo/src/broken.sh")" 'a PostToolUse hook exiting 2 is reported'
 t block "$(event "$repo/src/clean.ts" "$repo/src/forbidden.ts")" 'one bad file among clean ones'
 
+echo "KIT DELIVERY (content matches .claude/.kit-sync.json):"
+lock="$repo/.claude/.kit-sync.json"
+printf 'kit content\n' > "$repo/src/forbidden-kit.md"
+sha=$(shasum -a 256 "$repo/src/forbidden-kit.md" | cut -d' ' -f1)
+printf '{"files":{"src/forbidden-kit.md":{"sha":"%s","mode":"owned"}}}' "$sha" > "$lock"
+t allow "$(event "$repo/src/forbidden-kit.md")" 'a file exactly as the kit delivered it is not replayed'
+t block "$(event "$repo/src/forbidden-kit.md" "$repo/src/forbidden.ts")" 'the other files in the same command are still replayed'
+printf '{"files":{"src/forbidden-kit.md":"%s"}}' "$sha" > "$lock"
+t allow "$(event "$repo/src/forbidden-kit.md")" 'a legacy bare-string lockfile entry is recognised'
+printf 'edited here\n' >> "$repo/src/forbidden-kit.md"
+t block "$(event "$repo/src/forbidden-kit.md")" 'the same file edited after delivery is replayed'
+printf 'not json' > "$lock"
+t block "$(event "$repo/src/forbidden-kit.md")" 'an unreadable lockfile never disables the guards'
+rm -f "$lock"
+
 echo "ONLY EDIT-MATCHED HOOKS ARE REPLAYED:"
 if run "$(event "$repo/src/forbidden.ts")" | grep -q "BASH-ONLY HOOK RAN"; then
   echo "  ✗ FAIL — a Bash-matched hook was replayed"; fail=1

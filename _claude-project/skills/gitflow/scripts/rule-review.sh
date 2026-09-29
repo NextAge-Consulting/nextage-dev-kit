@@ -4,7 +4,8 @@
 # Every rule-prose file (.claude/hooks/rule-prose.sh defines the set) changed since
 # <base-ref> — committed checkpoints, the working tree and untracked files alike — is
 # reviewed by a headless Claude against the rule-authoring standard. A finding fails
-# the gate.
+# the gate. A file exactly as `/sync-dev-kit` delivered it (hooks/kit-delivered.sh) is
+# not reviewed: the kit's review covered it where it was authored.
 #
 # The reviewer sees only the diff and the criteria below: no tools, no settings, no
 # CLAUDE.md. It judges added lines only, against three violations, and reports nothing
@@ -33,10 +34,18 @@ if [ ! -f "$LIB" ]; then
 fi
 # shellcheck source=/dev/null
 source "$LIB"
+# Without it every file is reviewed, which is the safe direction.
+KIT_LIB="$(dirname "$LIB")/kit-delivered.sh"
+if [ -f "$KIT_LIB" ]; then
+    # shellcheck source=/dev/null
+    source "$KIT_LIB"
+else
+    is_kit_delivered() { return 1; }
+fi
 
 FILES=()
 while IFS= read -r f; do
-    [ -n "$f" ] && is_rule_prose "$f" && FILES+=("$f")
+    [ -n "$f" ] && is_rule_prose "$f" && ! is_kit_delivered "$ROOT" "$f" && FILES+=("$f")
 done < <(cd "$ROOT" && { git diff --name-only --diff-filter=d "$BASE" 2>/dev/null; git ls-files --others --exclude-standard; } | sort -u)
 
 [ ${#FILES[@]} -eq 0 ] && exit 0
