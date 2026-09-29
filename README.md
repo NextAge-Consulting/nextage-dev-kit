@@ -1,17 +1,24 @@
 # NextAge Dev Kit
 
-A developer workflow blueprint for AI-assisted development. This repository contains standardized configurations for Claude Code — rules, hooks, skills, commands, and settings — that can be synced across multiple projects.
+An opinionated operating standard for AI-driven development with Claude Code: the rules, hooks, skills, commands and settings that every project it runs in shares, synced from this one source.
 
-> **macOS only.** The kit is built and tested on Apple Silicon macOS and assumes it
-> throughout: Homebrew paths under `/opt/homebrew`, hooks written for the bash 3.2 that
-> Apple ships, BSD `sed` and `awk` rather than the GNU ones, `osascript` to drive iTerm2,
-> and iTerm2 dynamic profiles for `/dev` tabs and the launcher.
->
-> On **Linux** expect the shell tooling to mostly work and the terminal integration not to —
-> `/dev` and the launcher are macOS-specific, and GNU/BSD differences cut the other way from
-> the ones the hooks guard against. On **Windows** it does not apply at all; even under WSL
-> the terminal and launcher pieces have no equivalent. Porting either is real work nobody
-> has done. See `project-documentation/macbook-setup.md` for the machine this expects.
+## Who it is for
+
+The kit is shared with our clients and development partners, so everyone working on a project together works inside the same Claude Code harness — the same rules, the same guards, the same git workflow. It encodes one way of working, deliberately.
+
+It is also open source under the [MIT License](LICENSE). Anyone may use it, fork it, and change it to suit how they work.
+
+## How changes reach the kit
+
+The rules the kit owns are the same in every project that uses it. A project receives them through `/sync-dev-kit`, and they are changed only here, in the kit — Claude Code blocks edits to kit-owned files inside a project, so no project drifts from the others.
+
+**Clients and partners propose changes through [GitHub issues](https://github.com/NextAge-Consulting/nextage-dev-kit/issues).** Suggestions from anyone are welcome and read. A suggestion that does not fit our way of working will not land here; fork the kit and make it yours. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Platform support
+
+- **macOS — supported.** Built and tested on Apple Silicon macOS: Homebrew under `/opt/homebrew`, hooks written for the bash 3.2 Apple ships, BSD `sed` and `awk`, iTerm2 for `/dev` tabs and the launcher profiles. `project-documentation/macbook-setup.md` describes the machine it expects.
+- **Linux — limited.** `/dev` opens servers in tmux. The hooks and gitflow scripts are plain bash and expected to run, but are not tested there, and GNU `sed`/`awk` differ from the BSD ones they target. The iTerm2 launcher profiles have no equivalent.
+- **Windows — not supported.** Untested, including under WSL.
 
 ## What This Is
 
@@ -25,7 +32,7 @@ A developer workflow blueprint for AI-assisted development. This repository cont
 
 ```bash
 # 1. Clone this dev kit
-git clone https://github.com/youruser/nextage-dev-kit.git
+git clone https://github.com/NextAge-Consulting/nextage-dev-kit.git
 cd nextage-dev-kit
 ```
 
