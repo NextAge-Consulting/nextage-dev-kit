@@ -51,15 +51,17 @@ start ──► create-design ──► work / feedback ⟲ ──► implement
    `prototyped`). It runs once; on a folder that already has a design it runs `work`.
 3. **work** — opens the design from its folder's link and watches it, warns if its design system is out
    of date, reads it and says where it stands, then holds the conversation: each change
-   agreed is published to the design and added to `brief.md` under `## Decisions`.
+   agreed is published to the design and added to `brief.md` under `## Decisions`. A
+   missing design-system piece becomes a gap tweak, and Claude tells you when it creates
+   one; you flip it to Approved or System as is whenever you choose, and approvals land in
+   the design system together. All are decided before implement.
 4. **feedback** — `work` with the reviewers' comments as the agenda. Share the design,
    reviewers comment, then run it. Comments are shaped into items, discussed one at a time
    with a cost and a recommendation each, settled (change it, skip it, or a design-system
    candidate), published, and recorded like any `work` change (status `in feedback`).
-5. **implement** — exports the design into the folder's `export/`, records the version
-   built from (status `implementing`), decides with you what each hand-built piece of the
-   design becomes (an existing component, a new one, a UI pattern, or page-local), builds
-   the screens under the project's UI rules,
+5. **implement** — refuses while any design-system gap is undecided or not yet landed;
+   then exports the design into the folder's `export/`, records the version built from
+   (status `implementing`), builds the screens under the project's UI rules,
    writes the design's link and the decisions worth keeping into the feature's permanent
    doc, then removes the folder.
 

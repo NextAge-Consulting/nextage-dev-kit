@@ -61,9 +61,8 @@ too: "let's redesign this screen", "build the design", "work the comments".
 4. **Take feedback.** Share the design, let reviewers comment on it, then work through
    their comments one at a time. Each one is discussed, then changed, skipped, or marked
    as something the design system itself should gain.
-5. **Implement.** The design is exported, and for every piece that was drawn by hand you
-   decide what it becomes: an existing component, a new component, a UI pattern, or
-   something local to that one page. Then the real screens are built, and the folder is
+5. **Implement.** It starts only once every design-system gap is approved and landed, or
+   rejected. The design is exported, the real screens are built from it, and the folder is
    removed.
 
 Two further actions look after the design system rather than any one design:
@@ -101,12 +100,75 @@ decides what goes where: which components appear, in what order, and in which co
 never sets the spacing inside a component, and it never redefines what a recurring piece
 looks like. A card's padding comes from the card, not from the page wrapped around it.
 
-When the design needs something the system doesn't have, that piece is marked as a
-design-system candidate rather than drawn from scratch, and implement decides what it
-becomes. This rule was learned the hard way: a design that hand-draws its pieces looks
-right in the prototype and has to be taken apart to be built.
+**When the design needs something the system doesn't have, Claude shows you the gap
+instead of quietly drawing it.** A design that hand-draws its pieces looks right in the
+prototype, has to be taken apart to be built, and leaves you with a design system that no
+longer describes what you see. A check runs before every publish, so a hand-drawn piece
+stops the publish rather than slipping through. How you decide a gap is the next section.
+
+### Design-system gaps: how you approve them
+
+A gap is anything the design needs that the design system doesn't have yet: a menu row, a
+tab bar, spacing inside a card that the card doesn't give. Every gap is on the canvas as a
+tweak, so you judge it by looking, never from a description of pixels.
+
+**Where to find them.** Open the Tweaks panel. The **Design system** section holds one
+setting per gap, under a short name (`menu`, `tabBar`, `contact`). The panel cuts labels
+short and can't be widened, which is why the names are short.
+
+**Claude tells you the moment it creates one.** In the same reply as the change, it says
+what it added, what the design system lacks, and the tweak's name: "I added the account
+switcher's options with the address beneath; the system's select has no second line, so
+there's a new tweak, `acctList`." Nothing appears in the panel without that.
+
+**Decide them whenever you like.** Now, or when you review that part of the page — the
+only deadline is implement. As a part of the page wraps up, Claude asks for a decision on
+that part's gaps, since that's when you've just looked at it closely. The design's `brief.md` records which parts you've reviewed.
+
+**What the options mean.** Each gap's options say where your decision stands:
+
+- **Undecided — X:** shown on the page, not approved. Every gap starts here.
+- **Approved — X:** shown the same way, and approved. With more than one option, each has
+  its own Approved entry.
+- **System as is:** you don't want the addition. The page shows what the design system
+  gives today.
+
+**Flipping the setting is the decision.** Each flip saves the design, and Claude reads your
+choice from it, so there's nothing to repeat in chat.
+
+**Design system only** (`systemOnly`) is the master switch at the top of the section. Turn
+it on and every gap's override disappears at once: you see the page exactly as the design
+system builds it today. Turn it off to see the proposals again. It's the quickest way to
+see how much of a screen is still proposal.
+
+**What happens after you decide.**
+
+- **Approved:** Claude works out with you what it becomes (a new component, a variant of
+  an existing one, or a pattern), builds it into the design system, publishes the system
+  and applies it to the design. The tweak then disappears, because it's no longer a gap.
+  Approvals are usually landed together, once a review is finished, so the system is
+  published once rather than for every decision.
+- **System as is:** the addition comes out of the design, and the tweak goes with it.
+
+**Implement waits for every gap.** `/ui-design implement` won't start while any gap is
+undecided, approved but not yet in the design system, or rejected but still in the
+design. It lists the ones in the way.
 
 ### Tweaks: flip a switch to judge a change
+
+**Still working out what the options even are? Ask for a mockup, not tweaks.** Claude
+builds a quick throwaway page with the ideas side by side, in the design system's real
+colours and a light/dark switch, and opens it on your machine — no waiting on a design
+publish, and nothing left on claude.ai to tidy. Saying "let me see it" gets you the same
+before anything is built. Tweaks come once
+you've narrowed it to a few real candidates.
+
+**Handing Claude a run to finish while you're away? The options come back as real pages.**
+In an autonomous run nobody is there to look at a quick mockup, so Claude builds each
+option into the design as its own page with full visuals, named as an option ("Order
+history — A: one list"), and adds a page comparing them where a big choice is still open.
+You review them on the canvas when you're back, and every gap they raised is in the run's
+report.
 
 **Whenever you're choosing between options, ask for tweaks:** "give me a tweak for each
 option". A tweak is a switch on the design, in the canvas's Tweaks panel. Flip it, and the
@@ -123,8 +185,9 @@ pages for other comparisons.
   once, so you see the change at full size with instant on/off. Play itself has no Tweaks
   panel; for themes alone, you can also leave Theme on System and switch your device
   between light and dark.
-- **Say which option won.** Claude makes the winner real in the design system, applies it
-  to the design and deletes the tweak. The Theme tweak is the one that stays.
+- **Say which option won** — or, for a design-system gap, flip it to Approved. Claude makes
+  the winner real, applies it to the design and deletes the tweak. The Theme tweak is the
+  one that stays, and Design system only stays while any gap is open.
 
 How Claude builds tweaks is in the `claude-design` skill's
 `references/working-with-claude-design.md`, for Claude rather than for you.

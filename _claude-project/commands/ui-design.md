@@ -13,6 +13,10 @@ $ARGUMENTS
 
 Route on the first word. None given: list the actions with a line each, and ask which.
 
+**Every publish to a design runs `scripts/check-design.mjs` on the pages it sends first,
+and publishes only when it passes** (the skill's "Building a design"). Report its open
+decisions — previews and candidates — with the publish.
+
 ## The design folder
 
 Every design has one folder, `project-documentation/temporary/design-<name>/`, from
@@ -22,8 +26,9 @@ Every design has one folder, `project-documentation/temporary/design-<name>/`, f
 - `README.md` — the pointer: the feature, the lead (`git config user.name`), the status
   (`shaping`, `prototyped`, `in feedback`, `implementing`), the design's link once it
   exists, and the design version `implement` built from.
-- `brief.md` — the shape agreed in conversation, and under `## Decisions` every change
-  settled since, each with its reason. It is the design's history, kept on purpose: the
+- `brief.md` — the shape agreed in conversation, under `## Reviewed` each part of the page
+  the person has reviewed, and under `## Decisions` every change settled since, each with
+  its reason. It is the design's history, kept on purpose: the
   folder is transient, and `implement` carries what is worth keeping into permanent docs.
 - The source screenshots and other material, copied in.
 - `export/` — the design's pages and assets, written by `implement` only.
@@ -84,11 +89,18 @@ Create the design from the conversation. It runs once per design; every later ch
 conversation.
 
 1. **Open it** (Opening an existing design), then say where it stands: the status, the
-   brief's shape, and the latest decisions.
+   brief's shape, the latest decisions, which parts are reviewed, and the gaps the check
+   reports — each with where it is on the page.
 2. **Work through changes with the user.** New screenshots or material go into the
    folder. Each change agreed is published to the design by the Design type's revise
    rules — group changes that land together into one publish.
-3. **Record each settled change** and its reason in `brief.md` under `## Decisions`, as
+3. **Say so the moment a change creates a gap** — what you added, what the design system
+   lacks, and the tweak's key — in the same reply as the change. The person decides it
+   whenever they choose. When a part of the page is wrapping up, push for a decision on
+   that part's undecided gaps. Land approved gaps together, not one publish per decision
+   (the reference's Tweaks section). When the person finishes reviewing a part of the page, add
+   it to `## Reviewed`.
+4. **Record each settled change** and its reason in `brief.md` under `## Decisions`, as
    it is settled. A change the design system should take — a new token, a new component
    — is recorded there as a design-system candidate the UI package takes before the next
    `publish-system`.
@@ -116,23 +128,22 @@ agenda.
 
 `/ui-design implement [name or url]` — build the real screens from the design.
 
+**Gate: every gap is settled first.** Run `check-design.mjs --implement` on the design's
+pages. It fails while any gap is undecided, approved but not landed in the design system,
+or rejected but not removed — refuse to start, and list them. Land and remove them
+(`work`), then run implement again.
+
 1. **Export** the design into the folder's `export/`: its `project/canvas.json`, every
    artboard, the support files they link, and each uploaded image they use (read by id).
    Record in `README.md` the design's version — the version id a `read` of the design
    reports — and set the status to `implementing`.
-2. **Decide what the page built by hand becomes.** Go through every piece the design
-   drew itself instead of mounting a design-system component, and the design-system
-   candidates in `brief.md`, one at a time with the user, against the UI inventory and
-   the `ui-patterns` skill: an existing component the design should have used, a new
-   component for the UI package, a UI pattern, or genuinely page-local. New components
-   and patterns are built first, in the UI package, and published with `publish-system`.
-3. **Build the screens** in the app from the export and `brief.md`, under the project's
+2. **Build the screens** in the app from the export and `brief.md`, under the project's
    UI rules — the `design-system` skill, the real components, one route per screen. The
    export is the reference for layout and behaviour, not markup to transcribe.
-4. **Record what outlives the folder** in the doc under `project-documentation/` that
+3. **Record what outlives the folder** in the doc under `project-documentation/` that
    describes the feature, writing one when none exists: the design's link, the version
    built from, and the decisions from `brief.md` worth keeping.
-5. **Remove the folder.**
+4. **Remove the folder.**
 
 ## publish-system
 
@@ -228,8 +239,8 @@ shared without edit access cannot be updated: name it and its owner instead.
 - **work:** the changes published, and the decisions added to `brief.md`.
 - **feedback:** each item and what was settled, the threads still open and why, the
   design-system candidates, and the link to send round for the next round.
-- **implement:** what each hand-built piece became, the screens built, the permanent doc
-  that now carries the link, and that the folder is gone.
+- **implement:** the gate's result, the screens built, the permanent doc that now carries
+  the link, and that the folder is gone.
 - **publish-system:** what changed since the last publish (counts from the build line),
   the system's address, and the apply's result.
 - **apply-system:** the designs updated, and any that could not be.

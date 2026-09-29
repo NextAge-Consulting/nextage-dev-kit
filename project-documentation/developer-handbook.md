@@ -15,8 +15,8 @@ first; then hand `developer-onboarding.md` to Claude and it walks you through th
 **Start with `/work`.** On `main` it pulls the latest and stays there; on a branch it picks
 up where you left off. `/work 42` links issue #42 to what you're doing, assigns it to you
 and moves it to In Progress, and Claude reads the issue before proposing anything.
-`/work` reads the last session's handoff, so you start where the previous session
-stopped.
+`/work` reads your last session's handoff and lists the issues assigned to you, so you start
+where you stopped. "Where work is tracked" below says what goes where.
 
 **Save as you go with `/checkpoint`.** It is a local save point: no checks, nothing pushed.
 The next real commit folds checkpoints away, so they never reach `main`.
@@ -39,6 +39,26 @@ shipped, and fast-forwards `main` when you're on it.
 
 **Small infra fix straight to `main`?** `/ship-main` commits and pushes directly: no
 branch, no PR. You have to ask for it by name; a plain "commit" on `main` always branches.
+
+## Where work is tracked
+
+**Issues are the task list.** Anything with an owner — a feature, a fix, something for a
+teammate — is a GitHub issue assigned to someone. Everyone can see it, and it closes when
+it's done.
+
+**Your handoff is your own messy middle.** `/handoff` writes
+`project-documentation/temporary/handoff-<your-github-login>.md` at the end of a session,
+and your next `/work` reads it back: what you were in the middle of, where you left it,
+what's next, and what you're waiting on from someone else. It is yours alone — not a
+baton to pass, and not a shared to-do list. Items you're waiting on stay listed but are
+never nagged about, since no session of yours can move them.
+
+**To reach a teammate at the start of their next session, tell Claude.** "Ask Sam to
+look at the import brief" puts a signed, dated note under *From others* in Sam's
+handoff, and their next `/work` raises it. It is quicker than an issue for a nudge, a
+question or a pointer. Anything that is real work with an owner still wants an issue.
+The note travels through git, so Sam sees it once it's committed and on their branch.
+Claude never writes in someone else's handoff unless you ask.
 
 ## Running the app
 
@@ -66,7 +86,7 @@ a component or a stylesheet. When a screen should be worked out visually first, 
 - **`/autonomous <what>`** hands Claude a body of work while you step away. It runs to the
   end without check-ins, saves checkpoints as it goes, and reports what was done,
   verified and blocked.
-- **`/handoff`** writes the session's state for the next one to pick up.
+- **`/handoff`** writes your session's state for your next one to pick up.
 - **An analysis to share** gets published as a page people comment on;
   `/work --discussion <name>` turns the discussion into a plan. `analysis-and-discussions.md`
   has the detail.

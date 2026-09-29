@@ -1,14 +1,30 @@
 # /handoff
 
-Write the session handoff at `project-documentation/temporary/handoff.md`, and sweep the temporary folder while you are there.
+Write your session handoff at `project-documentation/temporary/handoff-<login>.md`, and sweep the temporary folder while you are there.
 
 This command only WRITES. The next session's `/work` reads the file — there is no read mode here.
 
 $ARGUMENTS
 
+## Whose document it is
+
+**The handoff is one developer's continuity between their own sessions — never a baton passed between people.** Each developer has their own file, named by their GitHub login:
+
+```bash
+LOGIN=$(gh api user --jq .login) && echo "project-documentation/temporary/handoff-$LOGIN.md"
+```
+
+Resolve it every time; never guess a login from a name, an email or the machine. If `gh` cannot answer — offline, signed out — stop and say so. A handoff written under the wrong name is read by nobody, or by the wrong person.
+
+**This command writes only your own file.** It never edits another developer's on its own initiative — not to correct it, not to tidy it, not because an item looks like theirs. Tell the human instead.
+
+**When the human directs it, another developer's handoff is how you reach them next session.** "That's Sam's", "ask Sam to look at xyz", "put this in their handoff" — add it to their file under **From others**, signed with who sent it and the date, plus any index row it needs. Change nothing else there. If they have no file yet, create it with the standard header and only what was sent. Resolve their login with `gh api users/<login>` or from an issue they are assigned to; never guess it from their name. An item handed over leaves your handoff in the same pass.
+
+**Tasks live in GitHub issues, not here.** Work someone else owns is an issue assigned to them. It never becomes an item in your handoff — at most, your work *waits on* it (Step 3). Project-level context lives in the topic docs the index points at. What is left for the handoff is the messy middle: what you were doing, where you left it, and what you are waiting on.
+
 ## What the document is
 
-One page, written for the next session's AI. It is **rewritten in full every time** — never appended to, never a running log, never a changelog. The human gets a TLDR in the conversation and can open the file if they want more.
+One page, written for your next session's AI. It is **rewritten in full every time** — never appended to, never a running log, never a changelog. The human gets a TLDR in the conversation and can open the file if they want more.
 
 It carries no git state and no machine state.
 
@@ -22,32 +38,44 @@ The test for both: **if the next session can get the answer by running one comma
 
 ### Step 1: Read the outgoing handoff
 
-Before writing anything, read the existing `project-documentation/temporary/handoff.md` if there is one. Every open item in it gets classified in Step 3.
+Before writing anything, read your existing `handoff-<login>.md` if there is one. Every open item in it gets classified in Step 3.
+
+If yours does not exist but an unsuffixed `handoff.md` does, that is the single-file handoff from before handoffs were per developer: read it as your outgoing handoff, and delete it once yours is written.
 
 **Building the new document blind to the old one is the failure this command exists to prevent.** A session that worked three of four outstanding items must not drop the fourth by never mentioning it.
 
 ### Step 2: Sweep the temporary folder
 
-List every file in `project-documentation/temporary/`. For each one other than `handoff.md`, decide spent or live:
+List every file in `project-documentation/temporary/`. **First set aside every file that belongs to someone else** — they are never yours to sweep:
+
+- a file named in another developer's `handoff-*.md`, or
+- a file whose own header names another person as its reader or owner ("For Sam").
+
+Your handoff not mentioning a file is not evidence that it is spent; it may be another developer's live work. For each remaining file other than a `handoff-*.md`, decide spent or live:
 
 - **Spent** — the work it describes has landed. Follow `rules/development-guidelines.md`: write the durable facts present-tense into the right permanent doc under `project-documentation/`, then delete the file. Not everything needs promoting; a fact the code states plainly needs no doc. Never write what something *was*, what replaced it, or that it was removed (constitution §XV).
 - **Live** — leave it. If its own state header no longer matches what actually happened, correct the header.
 
 The outgoing handoff from Step 1 gets the same treatment before it is overwritten. It is the file most likely to hold a durable fact that was never written down anywhere else.
 
-`handoff.md` itself is never swept and never retired. It lives in `temporary/` permanently and is replaced each session.
+`handoff-*.md` files are never swept and never retired — yours is replaced each session, and everyone else's is theirs to write.
 
 A `discussion-<slug>/` folder is live until `/work --discussion` pulls it back — the analysis skill wrote it, and it is waiting on other people's comments. Never sweep one.
 
 ### Step 3: Classify every open item from the outgoing handoff
 
-Three resolutions. There is no fourth, and silence is not one of them.
+Four resolutions. There is no fifth, and silence is not one of them. Items under **From others** are classified like any other; one you carry keeps its signature.
 
 | Resolution | Requires | Carry-over |
 |---|---|---|
 | **Done** | Evidence from this session — the work happened, or it is visible in the tree. Not "it looks finished." | None. Documented per Step 2 where durable. |
-| **Carried** | Nothing. This is the default. | The item, with any completed portion recorded and the remainder stated as what is left. |
-| **Dropped** | A stated reason — superseded by X, overtaken, no longer wanted. If you cannot justify it in a clause, you cannot drop it. | None. |
+| **Carried** | The item is still true — checked below. This is the default. | The item, with any completed portion recorded and the remainder stated as what is left. |
+| **Waiting on** | An event outside your sessions releases it — another person's work, a vendor, a client — and you can name where that event is tracked: an issue number or a doc. | The item, the event that releases it, and where it is tracked. |
+| **Dropped** | A stated reason — superseded by X, overtaken, no longer wanted, or someone else's work that belongs in an issue. If you cannot justify it in a clause, you cannot drop it. | None. |
+
+**Check an item against its source before carrying it.** The source is whatever the item's claim rests on: the tree, the topic doc, the issue. A carried line is repeated to the human as fact next session, so a claim that has gone false — a step already done, a file that does not exist, a blocker held by someone else — is corrected at its source and in the handoff, never copied forward. When the source doc is what went stale, fix the doc; the handoff only copied it.
+
+**Waiting on is not a to-do.** No session of yours can move it, so it is never counted as unmoved and never raised as a question. An item that is someone else's work and does not block yours is not waiting — it is dropped, because it belongs in their issue. When no issue tracks the event yet, say so in the TLDR.
 
 **An item carried unchanged into a third consecutive handoff gets flagged IN THE DOCUMENT**, as `open since <date>, unmoved across N handoffs`. `/work` reads it at the start of the next session and raises it there, when there is a session to spend on the answer.
 
@@ -65,7 +93,7 @@ Applying that test is the real trimming pressure. A backlog of questions nobody 
 
 ### Step 4: Write the file
 
-Replace `project-documentation/temporary/handoff.md` entirely.
+Replace your `handoff-<login>.md` entirely.
 
 Three sections are mandatory — the date stamp, what happened, and the document index. Everything else is present only when it has real content.
 
@@ -85,6 +113,14 @@ Three sections are mandatory — the date stamp, what happened, and the document
 ## Next steps
 
 <The first concrete action, not a backlog.>
+
+## From others
+
+<Each signed — who sent it, and the date. Written by another developer at their human's direction.>
+
+## Waiting on
+
+<Each with the event that releases it and where that is tracked — `#N` or a doc.>
 
 ## Blockers
 
@@ -137,10 +173,11 @@ A few lines: what the document now says, what the sweep promoted and deleted, an
 ## Blocking conditions
 
 - No `project-documentation/` directory — this project has not adopted the convention. Say so rather than creating one silently.
+- `gh api user` fails — the file name cannot be resolved. Say so; never write under a guessed name.
 
 ## Related
 
 - `rules/development-guidelines.md` — where documents live, and the rule that a spent plan is rewritten present-tense and deleted.
 - `constitution.md` §XV — present-tense documentation.
-- `/work` — reads this file at session start.
+- `/work` — reads your file at session start.
 - `/autonomous` — ends by running this command.

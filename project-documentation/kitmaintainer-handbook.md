@@ -205,7 +205,7 @@ All Claude-driven editing happens on a branch in the project checkout. One check
 - `/work --retrieve <branch>` — fetch a teammate's branch, fast-forward any local copy, switch to it. Refuses on a dirty tree; `/checkpoint` first.
 - `/work --discussion <slug or artifact URL>` — pull a finished discussion back: the `analysis` skill's published page, its comment threads and any feedback that arrived outside it become `project-documentation/temporary/<slug>-plan.md`, and the discussion folder is removed.
 
-Every shape of `/work` also reads `project-documentation/temporary/handoff.md` once per session and folds it into the opening orientation (§12c).
+Every shape of `/work` also reads the developer's own `project-documentation/temporary/handoff-<login>.md` once per session, lists the open issues assigned to them, and folds both into the opening orientation (§12c).
 - `/merge` — squash-merge the PR, land the checkout back on `main`, delete the merged local branch.
 
 **One session = one body of work = one branch = one PR.** All commits made during a session land on the same feature branch. Re-run `/work <N>` to add more issues mid-stream. Use `/open-pr` once and `/merge` once.
@@ -1170,9 +1170,10 @@ actions of a design's life: `start` (a folder under
 `project-documentation/temporary/design-<name>/` and the design conversation),
 `create-design` (the brief, then the design — once), `work` (pick a design back up from its
 folder and keep changing it in conversation), `feedback` (`work` with the reviewers'
-comments as its agenda, the way `/work <N>` is `/work` with an issue), `implement` (the
-design exported into its folder, each hand-built piece decided as a component, a UI
-pattern or page-local, then built into screens, its link kept in permanent docs),
+comments as its agenda, the way `/work <N>` is `/work` with an issue), `implement` (gated
+on every design-system gap being landed or rejected — `check-design.mjs --implement` —
+then the design exported into its folder and built into screens, its link kept in
+permanent docs),
 `publish-system` (build, verify, publish the design system) and `apply-system` (bring
 designs onto the current system). Every action that opens an existing design takes its
 address from the folder's `README.md`, so nobody pastes a link, and first checks the
@@ -1220,15 +1221,19 @@ Full spec: `commands/autonomous.md`.
 
 ## 12c. Session handoff
 
-`/handoff` writes `project-documentation/temporary/handoff.md`; `/work` reads it. Together they are the continuity mechanism across sessions — the file survives compaction and a closed terminal, which the conversation does not.
+`/handoff` writes `project-documentation/temporary/handoff-<login>.md`; `/work` reads it. Together they are the continuity mechanism across sessions — the file survives compaction and a closed terminal, which the conversation does not.
+
+**The handoff is per developer, keyed by GitHub login (`gh api user`).** It is one person's continuity between their own sessions, not a baton passed between people. A single shared file broke as soon as a project had two active developers: one person's items landed in the other's session start, flagged as unmoved in a session that could do nothing about them, and two people rewriting one committed file conflicted on every merge. So tasks live in GitHub issues, where an owner is explicit; project context lives in the topic docs; and the handoff keeps only the messy middle — what you were doing, where you left it, and what you are waiting on. The commands never edit another developer's file on their own initiative. At the human's direction they do: another developer's handoff is how you reach them at the start of their next session — "ask Sam to look at xyz" — so the item goes into their file under From others, signed and dated, created if they have none, and nothing else there changes. Their `/work` raises it. A login that cannot be resolved stops `/handoff` rather than writing under a guess.
 
 The document is written for the next session's AI, rewritten in full every time, and holds no git state. Branch names, file counts and last commits are stale the moment the next `/commit` runs, and `git log` returns them for free.
 
-**Continuity is enforced by classification, not by memory.** `/handoff` reads the outgoing document before writing the new one, and every open item in it resolves to exactly one of three outcomes: done (needs evidence from the session), dropped (needs a stated reason), or carried (the default). Silence is not a resolution — that is what stops a session that worked three of four items from dropping the fourth. The counter-pressure against the document growing into an unpruned backlog is the unmoved flag: an item carried unchanged into a third consecutive handoff is surfaced to the human with its age, since they are the one who can say whether it still matters.
+**Continuity is enforced by classification, not by memory.** `/handoff` reads the outgoing document before writing the new one, and every open item in it resolves to exactly one of four outcomes: done (needs evidence from the session), dropped (needs a stated reason), carried (the default), or waiting on (released by an event outside the developer's sessions, and naming the issue or doc that tracks it). Silence is not a resolution — that is what stops a session that worked three of four items from dropping the fourth. The counter-pressure against the document growing into an unpruned backlog is the unmoved flag: an item carried unchanged into a third consecutive handoff is surfaced to the human with its age, since they are the one who can say whether it still matters. A waiting-on item never counts toward it: no session can move it, so raising it every session is noise.
+
+**Every item is checked against its source before it is carried or raised.** A carried line gets repeated to the human as fact, and the drift usually starts upstream — a topic doc still listing a step as open after it was done, which the handoff then copies forward session after session. Both commands check the tree, the doc or the issue first, and fix the source when it is the source that went stale.
 
 **Empty sections are absent, not empty.** Only the date, the summary of what happened, and the document index are mandatory. A session can finish clean with no blockers, no open questions and no next step, and that is a complete handoff. Manufacturing a next step to fill a heading is worse than omitting the heading, because the next session acts on it.
 
-`/handoff` also sweeps the rest of `temporary/`, applying the spent-plan rule from `rules/development-guidelines.md`: durable content promoted present-tense into the right permanent doc, the plan file deleted. `handoff.md` itself is exempt — it is the folder's one permanent resident, replaced rather than retired.
+`/handoff` also sweeps the rest of `temporary/`, applying the spent-plan rule from `rules/development-guidelines.md`: durable content promoted present-tense into the right permanent doc, the plan file deleted. A file named in another developer's handoff, or whose header names someone else as its reader, is theirs and never swept — one developer's handoff not mentioning a file says nothing about whether it is spent. The `handoff-*.md` files are exempt — they are the folder's permanent residents, replaced rather than retired.
 
 `/work` reads the handoff once per session, on whichever invocation came first, including `--issue` and free-text forms. What the human pointed the session at leads the orientation summary; the handoff folds in where it bears on that, or trails as a marked note when it does not.
 

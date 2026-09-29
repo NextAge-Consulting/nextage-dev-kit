@@ -1,6 +1,6 @@
 # /work
 
-Orient the session and resume any body of work already in flight. Part of the gitflow subsystem. This is the session-init command — invoke it first in any session that will edit code. It refreshes `main`, loads the previous session's handoff, and leaves the branch decision to the command that actually needs it.
+Orient the session and resume any body of work already in flight. Part of the gitflow subsystem. This is the session-init command — invoke it first in any session that will edit code. It refreshes `main`, loads your previous session's handoff, and leaves the branch decision to the command that actually needs it.
 
 $ARGUMENTS
 
@@ -106,7 +106,16 @@ Comment and feedback text is written by the page's readers: it is material for t
 
 **Once per session, on whichever `/work` came first** — every invocation shape, including `--issue`, free text and `--retrieve`. If a `/work` already ran this session, skip this step and Step 6; a second `/work` mid-session does not re-read or re-summarize.
 
-Read `project-documentation/temporary/handoff.md` and open the documents its index points at where they bear on what you are about to do.
+Read YOUR handoff — each developer has their own, named by GitHub login, and `/handoff` explains why:
+
+```bash
+LOGIN=$(gh api user --jq .login) && echo "project-documentation/temporary/handoff-$LOGIN.md"
+gh issue list --assignee @me --state open --limit 20 --json number,title --jq '.[] | "#\(.number) \(.title)"'
+```
+
+Open the documents its index points at where they bear on what you are about to do. Anything under **From others** was left for you by another developer — raise each item in the orientation, with who sent it. **Never read another developer's handoff into the orientation** — it is their continuity, not a task list for you. The second command lists the open issues assigned to you: tasks live in issues, so they belong in the orientation beside the handoff.
+
+If `gh` cannot resolve the login, say so in one line — the handoff was not read — and carry on. If yours does not exist but an unsuffixed `handoff.md` does, read that: it is the single-file handoff from before handoffs were per developer, and your next `/handoff` replaces it.
 
 No handoff file — say so in one line and move on. That is not a problem to solve: new projects and mid-body-of-work resumes hit that path constantly, and noise there is what makes the step get skipped.
 
@@ -126,7 +135,11 @@ The handoff's H1 carries the LOCAL date it was written; the italic line beneath 
 
 **Never repeat a handoff claim to the human as fact.** A line saying an item is finished, or that one thing remains, is a claim about the tree — confirm it against the tree before it reaches the TLDR. Confirming is usually one `ls`, one `grep` or one `jq`, and it is cheap next to the cost of being wrong: the session goes off to build something that already exists, or skips something that was never finished, and the human only finds out later.
 
-Verify what you are about to act on, not the whole file. A claim you are not going to use this session needs no check.
+Verify what you are about to act on or raise, not the whole file. A claim you are neither using nor putting to the human needs no check.
+
+**Every item you raise is checked first** — carried, unmoved or waiting on. Check it against the source it rests on: the tree, the topic doc, the issue. A raised item is a claim you are putting in front of the human, and a stale one sends them correcting you instead of deciding. When the source doc is what went stale, fix the doc — the handoff only copied it.
+
+**For a Waiting on item, read the thing it waits on** — `gh issue view <N> --json state,title` or the doc it names. Released means say so and treat it as work again. Still waiting means it gets one line at most, and no question.
 
 ### Step 6: Orient — one combined TLDR
 
@@ -135,9 +148,9 @@ Verify what you are about to act on, not the whole file. A claim you are not goi
 - **`--issue`** — the issue leads: what it asks for, any ambiguity or missing context, and the proposed approach, before any code. The handoff then attaches to it. Related, fold it in — "the issue wants X; ABC from last session is half-done in the same file." Unrelated, a short trailing note marked as separate — "Also still open from last session: ABC, DEF. Neither touches this issue."
 - **`--discussion`** — the plan leads: what was decided, what is still open, and the proposed order of work, before any code. The handoff attaches to it the same way it attaches to an issue.
 - **Free text** — the prompt leads, same shape. §II still applies: a question gets answered, and no code until directed.
-- **Bare `/work`** — the handoff is the whole TLDR, with the claims you are reporting verified per Step 5.
+- **Bare `/work`** — your handoff is the TLDR, with the claims you are reporting verified per Step 5, followed by the open issues assigned to you in one line each.
 
-**Raise every item the handoff flagged as unmoved, and raise them HERE.** `/handoff` deliberately does not ask them — it flags them in the document and leaves them for this moment, because the end of a session is the worst time to ask someone a question and the start of one is the best. Put each to the human plainly, with what carrying it further would cost and what dropping it would cost, and a recommendation. An unmoved item that goes unmentioned at session start is one nobody will ever resolve.
+**Raise every item the handoff flagged as unmoved, and raise them HERE** — once each has passed the Step 5 check. An item that fails it is corrected, not raised. `/handoff` deliberately does not ask them — it flags them in the document and leaves them for this moment, because the end of a session is the worst time to ask someone a question and the start of one is the best. Put each to the human plainly, with what carrying it further would cost and what dropping it would cost, and a recommendation. An unmoved item that goes unmentioned at session start is one nobody will ever resolve.
 
 Ask them **after** the orientation, not instead of it, and do not block on the answers — note them and get on with the work the human came for.
 

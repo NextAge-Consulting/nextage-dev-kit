@@ -97,6 +97,23 @@ branch or half-finished edit the kit working tree happens to be sitting on.
   `.claude/rules/project/sync-design-pre-read.md` (read before touching
   substitution/template behavior), `project-documentation/kitmaintainer-handbook.md`.
 
+## First: who is it for? — decide before choosing any file
+
+Before a single kit edit, name the reader. It decides the file, and the `.claude/**`
+routing below only covers one of the answers.
+
+| The information is… | Home |
+|---|---|
+| An instruction to Claude — what to do, what to avoid | A rule, skill or command (then the routing below) |
+| For a person — the why, how to use something, a tip they will act on | The kit's `project-documentation/`: that role's `<role>-handbook.md` or cheatsheet |
+| Both | Split it: the person's version in the handbook, Claude's instruction in the skill; neither restates the other |
+
+**When the user hands you something "a human should know", it goes to a human doc,
+never into a skill or rule** — nobody reads those but Claude. Which handbook is the
+"Doc audiences" section of the kit's `.claude/rules/project/dev-kit-workflow.md`;
+open it before writing. That rule only loads inside the kit repo, so from a consumer
+session this pointer is the only way you learn it exists.
+
 ## The routing decision — make it before editing any `.claude/**` file
 
 Is this change project-specific, or kit-shared?

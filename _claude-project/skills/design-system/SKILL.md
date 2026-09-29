@@ -298,6 +298,19 @@ design system's feed stays inside what React 18 and 19 share: no `use()`, no
 `useFormStatus`, no form actions, no ref cleanup functions — each breaks inside a
 design, and the render check fails on it when the component has a preview. Ref as
 a prop is handled by the bundle.
+
+**A component's look never depends on its neighbours or on how its children are
+nested.** Inside a design every mounted component sits in its own wrapper, so no two
+are ever adjacent siblings, none is its parent's first or last child, and none is a
+direct child of the component it sits in. An adjacent-sibling, `:first-child`,
+`:last-child` or direct-child (`>`, `*:`) rule silently stops matching — a divider
+disappears, a row loses its line, an icon renders at full size. Reach content with a
+descendant rule (`[&_svg]`), draw a thing as an element of its own (a separator), or
+give it a slot of its own that places itself (`AlertIcon`). Direct-child rules are
+fine only on elements the component renders itself. The render check fails a
+component whose render inside those wrappers differs from its plain render by a single
+pixel.
+
 An app's own composites never enter the design system and may use anything. The
 `claude-design` skill carries the bundle and the check.
 

@@ -6,7 +6,13 @@
  * or an overlay that opens detached from its trigger. Each preview also renders
  * the way a Design canvas mounts components: children always handed over as an
  * array, and every mounted component wrapped in the editor's display:contents
- * host element. Run after build.mjs:
+ * host element — and fails when that render differs from the plain one by a single
+ * pixel. A component whose look depends on its siblings or its position (an
+ * adjacent-sibling selector, a :first-child or :last-child rule) loses it inside those
+ * wrappers without any error: a divider, a row line, a rounded corner quietly goes. A
+ * design would then show something the app does not, so it fails here, before any
+ * design sees it. Animations and transitions are frozen, so a frame caught mid-spin
+ * is never a difference. Run after build.mjs:
  *
  *   node .claude/skills/claude-design/scripts/render-check.mjs <path/to/design-system.config.mjs>
  *
@@ -18,6 +24,7 @@ import { execFileSync, execSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import zlib from 'node:zlib'
 
 const configPath = process.argv[2]
 if (!configPath) {
@@ -62,6 +69,60 @@ const PROBE = `JSON.stringify({
   })()
 })`
 
+// A screenshot's pixels, for comparing two renders. Chromium writes 8-bit RGB or RGBA,
+// non-interlaced; anything else is a failure to read, never a silent pass.
+function decodePng(file) {
+  const b = fs.readFileSync(file)
+  const idat = []
+  let p = 8, w, h, depth, type
+  while (p < b.length) {
+    const len = b.readUInt32BE(p)
+    const kind = b.toString('ascii', p + 4, p + 8)
+    const d = b.subarray(p + 8, p + 8 + len)
+    if (kind === 'IHDR') { w = d.readUInt32BE(0); h = d.readUInt32BE(4); depth = d[8]; type = d[9] }
+    if (kind === 'IDAT') idat.push(d)
+    p += 12 + len
+  }
+  const ch = { 2: 3, 6: 4 }[type]
+  if (depth !== 8 || !ch) throw new Error(`${path.basename(file)}: unsupported PNG (depth ${depth}, colour type ${type})`)
+  const raw = zlib.inflateSync(Buffer.concat(idat))
+  const stride = w * ch
+  const px = Buffer.alloc(h * stride)
+  let prev = Buffer.alloc(stride)
+  for (let y = 0; y < h; y++) {
+    const filter = raw[y * (stride + 1)]
+    const line = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1))
+    const cur = px.subarray(y * stride, (y + 1) * stride)
+    for (let x = 0; x < stride; x++) {
+      const a = x >= ch ? cur[x - ch] : 0, up = prev[x], c = x >= ch ? prev[x - ch] : 0
+      let v = line[x]
+      if (filter === 1) v += a
+      else if (filter === 2) v += up
+      else if (filter === 3) v += (a + up) >> 1
+      else if (filter === 4) {
+        const e = a + up - c, pa = Math.abs(e - a), pb = Math.abs(e - up), pc = Math.abs(e - c)
+        v += pa <= pb && pa <= pc ? a : pb <= pc ? up : c
+      }
+      cur[x] = v & 255
+    }
+    prev = cur
+  }
+  return { w, h, ch, px }
+}
+
+// The pixels two screenshots disagree on. Colour channels only; alpha is always opaque.
+function pixelsDiffering(fileA, fileB) {
+  const A = decodePng(fileA), B = decodePng(fileB)
+  if (A.w !== B.w || A.h !== B.h) return A.w * A.h
+  let n = 0
+  for (let i = 0; i < A.w * A.h; i++) {
+    for (let k = 0; k < 3; k++) {
+      if (A.px[i * A.ch + k] !== B.px[i * B.ch + k]) { n++; break }
+    }
+  }
+  return n
+}
+
 // How a canvas hands components their children, and the host it wraps them in.
 const CANVAS_H =
   'h = function (t, p) { var k = [].slice.call(arguments, 2); var el = k.length ? React.createElement(t, Object.assign({}, p, { children: k })) : React.createElement(t, p); return typeof t === "string" ? el : React.createElement("div", { className: "sc-host-x", "data-dc-tpl": "t", style: { display: "contents" }, key: p && p.key }, el) }'
@@ -82,6 +143,7 @@ try {
         `<!doctype html><html data-theme="${mode === 'dark' ? 'dark' : 'light'}"><head><meta charset="utf-8">
 <script>window.__errors=[];addEventListener('error',function(e){__errors.push(String(e.message))});var ce=console.error;console.error=function(){__errors.push([].slice.call(arguments).join(' '));ce.apply(console,arguments)};</script>
 <link rel="stylesheet" href="../project/components/bundle.css"><style>${style}</style>
+<style>*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}</style>
 <script src="${REACT}"></script><script src="${REACT_DOM}"></script>
 <script src="../project/components/bundle.js"></script>
 </head><body>${mount}</body></html>`,
@@ -95,6 +157,9 @@ try {
       else if (c.cardMode === 'overlay' && report.overlay === 0) failures.push(`${c.name} (${mode}): the overlay did not open`)
       else if (report.detached) failures.push(`${c.name} (${mode}): the overlay is not attached to its trigger`)
     }
+    const differing = pixelsDiffering(path.join(RENDER, `${c.name}.light.png`), path.join(RENDER, `${c.name}.canvas.png`))
+    if (differing)
+      failures.push(`${c.name} (canvas): ${differing} pixels differ between the plain render and the one inside the design tool's wrappers — part of its look depends on its siblings or position, which a design changes. Compare ${c.name}.light.png with ${c.name}.canvas.png in render/`)
   }
 } finally {
   try {

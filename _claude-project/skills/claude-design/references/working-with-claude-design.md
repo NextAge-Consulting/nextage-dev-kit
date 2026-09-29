@@ -96,7 +96,10 @@ behind.
   `display: contents` wrapper; the bundle gives it a box under a trigger, so overlays
   anchor to their trigger instead of the corner.
 - **Verification.** The render check mounts every preview in light, dark and canvas mode
-  and fails on errors, empty renders, overlays that do not open or open detached.
+  and fails on errors, empty renders, overlays that do not open or open detached, and a
+  preview whose canvas render differs from its plain render by a single pixel — a
+  component whose look leans on its neighbours or its position, which a design's
+  wrappers take away. Animations are frozen for the comparison.
 - **Provenance.** Each sync is dated in the config's `timeZone` and records the commit it
   was built from, flagged when the working tree was uncommitted.
 
@@ -132,6 +135,51 @@ design", above).
 A tweak is a `data-props` entry on an artboard's `<script data-dc-script>`, shown as a
 control in the canvas's Tweaks panel and read as `this.props.<name>`.
 
+- **Every gap in the design system is a tweak, under one master switch.** A design with
+  any open gap carries a `Design system` section holding a `boolean` `systemOnly`, and one
+  `enum` per gap. One class per chosen option goes on the document root
+  (`document.documentElement`, set in `componentDidMount` and `componentDidUpdate`, as the
+  Theme tweak sets `data-theme`) — none at all while Design system only is on — and each
+  gap's rules in the PREVIEW block are keyed `html.<class> …`. The document root, not the
+  page's own, because overlays such as a select's list render outside the page. So one
+  flip shows the system exactly as it stands, every override off, and nothing about a gap
+  renders without its tweak.
+- **A gap's options carry their state, because the person's choice is also their
+  approval.** For each option X: `Undecided — X` (shown, not yet approved) and
+  `Approved — X` (shown, approved); then `System as is` (rejected — the person does not
+  want the addition). Undecided and Approved render the same; only the approval differs.
+  The default is `Undecided — <the option you recommend>`. `check-design.mjs` reads the
+  states from the saved defaults and reports them; an option without one of these
+  prefixes fails it.
+- **Tell the person the moment you create a gap** — in the same reply as the change that
+  needed it: what you added, what the design system lacks, and the tweak's key. "I added
+  the account switcher's options with the address beneath; the system's select option
+  has no second line, so there is a new tweak, `acctList`." A person cannot find a gap
+  from its key alone, and a gap nobody was told about is never decided. They decide it
+  whenever they choose; the only deadline is `implement`. **When the review of a part of
+  the page is wrapping up, push for a decision on its gaps** — name each one still
+  undecided there and ask. That is when the person has just looked at it closely.
+- **Keys are ten characters or fewer** (`menu`, `tabBar`, `histTable`). The panel shows
+  the key as the label in a fixed-width column that does not grow with the panel, and
+  there is no separate label field.
+- **Exploring is a mockup; choosing is a tweak.** While the options are still being
+  invented — "what could this badge be?" — build a throwaway HTML page instead: the
+  candidates side by side, in the project's real tokens, with a light/dark switch. Write
+  it into the design's folder (`design-<name>/mockups/`) and open it locally — never an
+  artifact, which is for sharing and leaves something on claude.ai to clean up. The
+  folder is transient, so the mockup goes with it. No design publish, nobody waits.
+  Tweaks are for the end of that: two or three settled options, judged in place on the
+  real screen. **"Let me see it" means before anything is built or published** — show
+  the change as a mockup (or the render check's screenshot of a local build) and wait;
+  landing it first and showing the result afterwards spends a design-system publish on
+  something the person may not want.
+  **That is for working interactively. In an autonomous run, build the options as real
+  design pages** — nobody is waiting to look at a local mockup, and a page with full
+  visuals is what the person reviews when they come back. Give each option its own page,
+  named so it reads as an option ("Order history — A: one list"), and link them into
+  Play. Where a big choice cannot be settled from the brief and the plan, add a page that
+  compares the options, named for what it compares. Anything those pages need that the
+  system lacks is still a gap tweak, listed in the run's final report.
 - **Offer one per independent option** whenever a design choice is a judgement between
   options — never one tweak bundling several. When you offer them, tell the person to flip
   them on the canvas with full-screen Play open in a second tab; the Play tab follows.
@@ -139,13 +187,21 @@ control in the canvas's Tweaks panel and read as `this.props.<name>`.
   `color`; `section` groups them. `default` seeds the control only — read it with
   `this.props.x ?? <default>` in `renderVals()`.
 - **Apply a preview through a class on the page root,** computed in `renderVals()`, with
-  every preview rule in ONE block marked `/* PREVIEW — <what> … removed when decided */`.
+  every preview rule in ONE block marked `/* PREVIEW — <what> … removed when decided */`
+  and closed by `/* END PREVIEW */`. `check-design.mjs` lists what is inside as open
+  decisions and fails anything drawn outside it.
   An inline `style` beats the class: move an inline value into a class before previewing it.
 - **Preview only what the change will reach.** A design-system change is previewed by
   overriding the component's `data-slot` parts, never the page's own wrappers.
 - **The person's flips are saves.** Each publishes a new version, and the editor rewrites
   `data-props` double-quoted and HTML-entity encoded. Re-read the page before every publish,
   parse `data-props` in either quoting, and keep the values the person saved as defaults.
-- **When the person decides,** make the winner real in the design system, apply it to the
-  design, and delete the preview block and the tweak in the same change. A theme tweak
-  (System / Light / Dark) stays.
+- **Land what the person approves; remove what they reject.** Read their states from the
+  design — each flip is a save — rather than asking. An approved gap is decided with them
+  into what it becomes (an existing component it should have used, a new component, a UI
+  pattern), built in the UI package, published with `publish-system` and applied to the
+  design; then its tweak, preview rules and candidate mark come out in the same change. A
+  rejected gap's tweak, preview and candidate markup come out. The Theme tweak stays, and
+  `systemOnly` stays while any gap is open.
+- **Implement waits for every gap.** `check-design.mjs --implement` fails while any gap is
+  undecided, approved but not landed, or rejected but not removed.
