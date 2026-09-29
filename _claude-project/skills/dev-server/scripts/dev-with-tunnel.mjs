@@ -4,15 +4,17 @@
  * Cloudflare named tunnel + Vite dev server in one tab.
  *
  * Invoked by `/dev <app> --tunnel` via the package.json script
- * `dev:tunnel:<app>` → `node .claude/skills/dev-server/scripts/dev-with-tunnel.mjs <app>`.
+ * `dev:tunnel:<app>` → `node .claude/skills/dev-server/scripts/dev-with-tunnel.mjs <app> [<subdomain>]`.
  *
  * Spawns:
  *   1. cloudflared tunnel run    (reads ~/.cloudflared/config.yml — user-machine)
- *   2. npm run dev:<app>         (with PORT propagated from /dev's lsof pick)
+ *   2. npm run dev:<app>         (with the port /dev picked propagated)
  *
  * Hostname convention:
- *   `<app>.thenextage.com` — fixed across all consumer projects. This shop's
- *   standard tunnel parent domain. Not configurable.
+ *   `<subdomain>.thenextage.com`, where <subdomain> defaults to <app>. The
+ *   parent domain is this shop's standard and is not configurable. Pass a
+ *   subdomain when the app's folder name is not unique across projects — two
+ *   projects with an `apps/web` cannot both own `web.thenextage.com`.
  *
  * Per-user-machine values:
  *   Tunnel UUID + ingress rules live in ~/.cloudflared/config.yml. The user
@@ -20,12 +22,13 @@
  *   there, and points the wildcard `*.thenextage.com` DNS record at the
  *   tunnel UUID once in the Cloudflare dashboard.
  *
- * PORT propagation:
- *   /dev runs lsof first, picks a free port, exports PORT=<n> when invoking
- *   `npm run dev:tunnel:<app>`. This script reads PORT from env and surfaces
- *   it to the user. The inner `npm run dev:<app>` inherits PORT, and vite
- *   honors it via `port: Number(process.env.PORT) || <default>` in
- *   vite.config.ts (the convention /dev itself encourages).
+ * Port propagation:
+ *   /dev runs lsof first, picks a free port, and invokes
+ *   `npm run dev:tunnel:<app>` with the app's own port var set (`WEB_PORT=<n>`,
+ *   or `PORT` by default) plus `DEV_PORT=<n>`. The inner `npm run dev:<app>`
+ *   inherits the port var, which vite.config.ts reads via
+ *   `port: Number(process.env.<ENV>) || <default>`. DEV_PORT is only for the
+ *   "Local:" line below, since this script cannot know the app's var name.
  */
 
 import { spawn } from "node:child_process";
@@ -51,13 +54,13 @@ const ROOT_DIR = findProjectRoot(__dirname);
 
 const APP = process.argv[2];
 if (!APP) {
-  console.error("Usage: node dev-with-tunnel.mjs <app>");
+  console.error("Usage: node dev-with-tunnel.mjs <app> [<subdomain>]");
   process.exit(1);
 }
 
-const HOSTNAME = `${APP}.thenextage.com`;
-const PORT = process.env.PORT || "(default)";
-const APP_DIR = join(ROOT_DIR, "apps", APP);
+const SUBDOMAIN = process.argv[3] || APP;
+const HOSTNAME = `${SUBDOMAIN}.thenextage.com`;
+const PORT = process.env.DEV_PORT || process.env.PORT || "(default)";
 
 let tunnelProcess = null;
 let devProcess = null;
@@ -185,9 +188,6 @@ function cleanup() {
 process.on("SIGINT", cleanup);
 process.on("SIGTERM", cleanup);
 process.on("exit", cleanup);
-
-// Silence unused-var lint for APP_DIR; reserved for future per-app cwd if needed.
-void APP_DIR;
 
 (async () => {
   try {

@@ -114,10 +114,10 @@ The +10 pattern leaves room for adjacent apps. No collision between shop's hops 
 
 `/dev <app> --tunnel` swaps the staged command to `npm run dev:tunnel:<app>`, which the kit ships at `_claude-project/skills/dev-server/scripts/dev-with-tunnel.mjs`. That script:
 
-1. Builds the public hostname as `<app>.thenextage.com` — this shop's standard tunnel parent domain, hardcoded.
+1. Builds the public hostname as `<subdomain>.thenextage.com`. The subdomain is the script's optional second argument and defaults to `<app>`; the parent domain is this shop's standard and fixed.
 2. Spawns `cloudflared tunnel run` (reads `~/.cloudflared/config.yml`) + `npm run dev:<app>` in the same tab.
-3. Propagates the `PORT` chosen by `/dev`'s `lsof` pre-check into vite via env.
-4. Injects `BETTER_AUTH_URL` + `VITE_BETTER_AUTH_URL` = `https://<app>.thenextage.com` so better-auth's cookie domain + redirect URLs use the tunnel origin, not `localhost`. Apps without better-auth ignore these.
+3. Propagates the port chosen by `/dev`'s `lsof` pre-check into vite, through the env var the app's `vite.config.ts` reads.
+4. Injects `BETTER_AUTH_URL` + `VITE_BETTER_AUTH_URL` = the tunnel's `https://` origin so better-auth's cookie domain + redirect URLs use the tunnel origin, not `localhost`. Apps without better-auth ignore these.
 
 ### One-time per-project setup
 
@@ -126,6 +126,12 @@ The +10 pattern leaves room for adjacent apps. No collision between shop's hops 
 ```json
 "dev:tunnel:shop":   "node .claude/skills/dev-server/scripts/dev-with-tunnel.mjs shop",
 "dev:tunnel:dealer": "node .claude/skills/dev-server/scripts/dev-with-tunnel.mjs dealer"
+```
+
+**Pass a subdomain when the app folder's name is generic.** The parent domain is shared by every project, so two projects with an `apps/web` cannot both own `web.thenextage.com`. Keep the script named after the folder, so `/dev web` finds `apps/web/vite.config.ts`, and name the product in the second argument:
+
+```json
+"dev:tunnel:web": "node .claude/skills/dev-server/scripts/dev-with-tunnel.mjs web myproduct"
 ```
 
 ### One-time per-user-machine setup

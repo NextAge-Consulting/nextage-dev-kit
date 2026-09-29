@@ -928,7 +928,7 @@ Solving #1 by adjusting iTerm settings is impossible — Agents view doesn't upd
 |------|---------|
 | `_claude-project/skills/dev-server/SKILL.md` | Natural-language routing layer (same shape as gitflow skill). |
 | `_claude-project/skills/dev-server/scripts/dev.sh` | Implementation: project-root detection, port probing, and the tab-launch backend ladder (§12.2.2). Supports `--tunnel` flag (§12.3.2). |
-| `_claude-project/skills/dev-server/scripts/dev-with-tunnel.mjs` | Implementation for `--tunnel`: spawns `cloudflared tunnel run` + `npm run dev:<app>` in one tab. Hostname hardcoded as `<app>.thenextage.com` (shop standard). Byte-identical across consumer projects. See §12.3.2. |
+| `_claude-project/skills/dev-server/scripts/dev-with-tunnel.mjs` | Implementation for `--tunnel`: spawns `cloudflared tunnel run` + `npm run dev:<app>` in one tab. Hostname `<subdomain>.thenextage.com`, subdomain defaulting to `<app>` (shop-standard parent). Byte-identical across consumer projects. See §12.3.2. |
 | `_claude-project/skills/dev-server/templates/DevServer.json` | iTerm DynamicProfile template. Installed once per dev machine to `~/Library/Application Support/iTerm2/DynamicProfiles/DevServer.json`. Applies to the iTerm backend only. See §12.2.1. |
 | `_claude-project/commands/dev.md` | `/dev` slash command spec. |
 | `_claude-project/rules/dev-server.md` | The 5 lifecycle rules (check first, use occupied, never kill, leave running). Updated with `/dev` canonical-path declaration. |
@@ -993,7 +993,7 @@ An Agents-view session's host is spawned by launchd (`LAUNCHCTL_ENV_REEXEC`, `XP
 | `/dev` | List `dev*` scripts from the resolved project's `package.json`. Await user choice. |
 | `/dev <app>` | Stage `npm run dev:<app>` at the project root on the detected port (auto-bumped on collision). |
 | `/dev <app1> <app2>` | One iTerm tab per app. |
-| `/dev <app> --tunnel` | Stage `npm run dev:tunnel:<app>` — cloudflared + vite in one tab, public at `<app>.thenextage.com`. Mutually exclusive with `--main`. See §12.3.2. |
+| `/dev <app> --tunnel` | Stage `npm run dev:tunnel:<app>` — cloudflared + vite in one tab, public at `<subdomain>.thenextage.com` (default `<app>`). Mutually exclusive with `--main`. See §12.3.2. |
 | `/dev --status` | List listening processes on `:3000-:3099` (pid, port, cwd, cmd). Never kills. |
 
 ### 12.3.2. Cloudflare tunnel mode (`--tunnel`)
@@ -1005,7 +1005,7 @@ An Agents-view session's host is spawned by launchd (`LAUNCHCTL_ENV_REEXEC`, `XP
 "dev:tunnel:dealer": "node .claude/skills/dev-server/scripts/dev-with-tunnel.mjs dealer"
 ```
 
-The kit ships `dev-with-tunnel.mjs` at `_claude-project/skills/dev-server/scripts/dev-with-tunnel.mjs`. **Byte-identical across all consumer projects.** Hostname convention is `<app>.thenextage.com` — this shop's standard tunnel parent domain, hardcoded. Not configurable per project: every consumer's apps live under the same parent.
+The kit ships `dev-with-tunnel.mjs` at `_claude-project/skills/dev-server/scripts/dev-with-tunnel.mjs`. **Byte-identical across all consumer projects.** Hostname convention is `<subdomain>.thenextage.com`. The parent is this shop's standard tunnel domain and is fixed: every consumer's apps live under it. The subdomain is the script's optional second argument, defaulting to `<app>`; a project whose app folder has a generic name (`web`) passes its product name there, because the script name must match the folder for `/dev` to find the app's `vite.config.ts` while the hostname must be unique across projects.
 
 `~/.cloudflared/config.yml` (per-user-machine, not in the repo) carries per-app ingress rules:
 

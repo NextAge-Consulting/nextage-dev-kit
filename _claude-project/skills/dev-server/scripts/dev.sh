@@ -283,6 +283,8 @@ stage_app() {
   # (WEB_PORT, API_PORT); defaults to PORT, which TanStack Start / Nitro /
   # Next.js / Astro honor out of the box when the config adds no override.
   local cmd="$port_env=$port npm run $script_key"
+  # dev-with-tunnel.mjs reports the local URL but cannot know $port_env.
+  [ -n "$tunnel" ] && cmd="$port_env=$port DEV_PORT=$port npm run $script_key"
   local title_suffix=""
   [ -n "$tunnel" ] && title_suffix=" [tunnel]"
   local title
