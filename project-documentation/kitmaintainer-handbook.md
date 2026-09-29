@@ -275,7 +275,7 @@ Any of:
 6. The command calls `skills/gitflow/scripts/commit.sh` with the message
 7. Script stages all changes, commits with `--no-verify`, pushes to origin (if on non-main branch)
 8. `git-guard.sh` never fires on that commit — the script's `git commit` is a subprocess, not a top-level tool call (§3.1). No token is involved.
-9. Before staging, the script runs the gates that MIRROR CI so a failure costs a second here rather than a round trip after the PR is open: typecheck, Biome lint, and Semgrep over the files this commit touches (gated on CI declaring a `semgrep` job, and scoped to changed files so it stays seconds — CI still scans everything). Each exits 4. commitlint is the one gate that remains CI-only, because it validates the PR title, which does not exist yet at commit time.
+9. Before staging, the script runs the gates that MIRROR CI so a failure costs a second here rather than a round trip after the PR is open: typecheck, Biome lint, and Semgrep over the files this commit touches (gated on CI declaring a `semgrep` job, and scoped to changed files so it stays seconds — CI still scans everything). Then the rule review (`rule-review.sh`): every rule-prose file changed since the fold base — the set `hooks/rule-prose.sh` defines — goes to a headless `claude -p` with no tools, no settings and no CLAUDE.md, which reports history, justification and counted lists in added lines only. It runs on the developer's Claude subscription; a missing CLI or a failed call fails the gate. Each exits 4. commitlint is the one gate that remains CI-only, because it validates the PR title, which does not exist yet at commit time.
 
 ### 4.3. What the script does NOT do
 
@@ -473,7 +473,7 @@ See `commands/triage.md` for the full procedure and edge cases.
 
 **Never inferred.** Being on dirty `main` is often *accidental* — work started before `/work` — so a bare `/commit` on `main` still auto-branches — that's the safety. `/ship-main` is the opposite, on purpose, and only when invoked by name.
 
-- **Validation stays.** The script runs `check-types`, `biome lint` and `semgrep` over the files the commit touches — the same three gates as `/commit`, and they matter more here: a finding that slips through does not sit on a branch awaiting review, it lands on the default branch and breaks CI for everyone. `--skip-typecheck` is a true-emergency override for the TYPECHECK alone; biome and semgrep sit outside that guard and have no bypass.
+- **Validation stays.** The script runs `check-types`, `biome lint`, `semgrep` and the rule review over the files the commit touches — the same gates as `/commit`, and they matter more here: a finding that slips through does not sit on a branch awaiting review, it lands on the default branch and breaks CI for everyone. `--skip-typecheck` is a true-emergency override for the TYPECHECK alone; biome and semgrep sit outside that guard and have no bypass.
 - **Pushes straight to main.** If `origin/main` advanced, it rebases the commit onto it and re-pushes; conflict → stop and resolve.
 - **Feeds `/deploy` like any main commit.** `/ship-main` commits land on `main` and are read by the next `/deploy` (commit subjects since the last tag) to compute the bump level + changelog, exactly like a merged-PR squash commit. Conventional format is therefore required, not optional.
 - **Requires require-PR off** (the default — pipeline.md §1.1). With require-PR set, GitHub rejects the direct push.
@@ -1367,6 +1367,9 @@ Fully independent — can start anytime. None of the three pieces started.
 - `skills/gitflow/scripts/*.sh` — the scripts that actually do git operations
 - `.claude/rules/git.md` — git workflow rule (reminder layer)
 - `.claude/hooks/git-guard.sh` — raw-git blocker (commit + destructive ops)
+- `.claude/hooks/bash-edit-guard.sh` — replays every Edit-matched hook over the files a Bash command changed (`tool_response.bashEditDiff`)
+- `.claude/hooks/bash-edit-diff-check.sh` — SessionStart warning when `bashEditDiffEnabled` is not on. Only user or managed settings, or `CLAUDE_CODE_BASH_EDIT_DIFF` in the launch environment, turn it on; Claude Code ignores both from a project's settings
+- `.claude/hooks/rule-prose.sh` — the one definition of rule prose, shared by `rule-authoring-guard.sh` and `rule-review.sh`
 - `templates/settings.base.json` — settings.json starting point for new projects
 - `templates/.mcp.json` — MCP template for new projects
 - `developer-onboarding.md` — second-dev setup doc

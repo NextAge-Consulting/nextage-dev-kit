@@ -63,20 +63,41 @@ print("\n".join(out))
 ' "$COMMAND" 2>/dev/null) || SCAN_COMMAND="$COMMAND"
 [ -n "$SCAN_COMMAND" ] || SCAN_COMMAND="$COMMAND"
 
-# Strip leading VAR=value prefixes
-CLEAN_COMMAND=$(echo "$SCAN_COMMAND" | sed 's/^\([A-Za-z_][A-Za-z0-9_]*=[^ ]* *\)\+//')
+# Split into simple commands and normalize each git invocation to `git <subcommand> …`:
+# segments split on ; && || | & and newlines, subshell and group brackets dropped,
+# VAR=value prefixes dropped, and git's global options (-C <dir>, -c <k=v>, --no-pager,
+# --git-dir=…) dropped — so `(cd "/a b" && git -C x commit)` is judged as `git commit`.
+# One normalized command per output line; non-git segments are omitted.
+# Any failure in the normalizer falls back to scanning the raw command: fail closed.
+# shellcheck disable=SC2016 # the single-quoted body is Python source; "$(" in it is a Python string, not an expansion
+PARTS_TEXT=$(python3 -c '
+import re, shlex, sys
+GLOBAL_WITH_ARG = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--config-env"}
+for seg in re.split(r"\|\||&&|[;|&\n]", sys.argv[1]):
+    try:
+        toks = shlex.split(seg)
+    except ValueError:
+        toks = seg.split()
+    toks = [t.strip("(){}`") if t not in ("(", ")", "{", "}") else "" for t in toks]
+    toks = [t for t in toks if t]
+    toks = [t[2:] if t.startswith("$(") else t for t in toks]
+    while toks and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", toks[0]):
+        toks.pop(0)
+    if not toks or toks[0] != "git":
+        continue
+    i = 1
+    while i < len(toks) and toks[i].startswith("-"):
+        i += 2 if toks[i] in GLOBAL_WITH_ARG else 1
+    print(" ".join(["git"] + toks[i:]))
+' "$SCAN_COMMAND" 2>/dev/null) || PARTS_TEXT="$SCAN_COMMAND"
 
-# Parse compound commands (;, &&, ||, |)
-# nosemgrep: bash.lang.security.ifs-tampering.ifs-tampering - intentional: splitting on newlines for the next line's word-split; IFS is unset immediately after
-IFS=$'\n'
-PARTS=($(echo "$CLEAN_COMMAND" | sed 's/;/\n/g; s/&&/\n/g; s/||/\n/g; s/|/\n/g'))
-unset IFS
+PARTS=()
+while IFS= read -r PART_LINE; do
+    PARTS+=("$PART_LINE")
+done <<< "$PARTS_TEXT"
 
 for PART in "${PARTS[@]}"; do
-    PART=$(echo "$PART" | xargs 2>/dev/null || echo "$PART")
     [ -z "$PART" ] && continue
-
-    PART=$(echo "$PART" | sed 's/^\([A-Za-z_][A-Za-z0-9_]*=[^ ]* *\)\+//')
 
     echo "$PART" | grep -q "^git " || continue
 

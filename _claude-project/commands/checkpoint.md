@@ -30,7 +30,7 @@ A checkpoint that was already pushed is never folded; rewriting it would need a 
 
 ## What this command skips
 
-- Typecheck, lint and semgrep — the real commit runs them over the folded content
+- Typecheck, lint, semgrep and the rule review — the real commit runs them over the folded content
 - Changelog — checkpoints never appear in the changelog
 - Version bump — only main branch merges trigger bumps
 - The code-complete question — a checkpoint is partway by definition; issue links stay on the branch until `/commit` or `/ship-main` carries them

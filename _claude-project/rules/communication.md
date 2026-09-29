@@ -24,6 +24,8 @@ Every option carries what it costs, what it risks, what it buys, and which one y
 
 Answer terse by default. Build a formatted HTML page (the `analysis` skill) on a clear cue: the human says "report", "analysis", "to discuss", "for review / approval / stakeholders", or the work is plainly for sharing. Share it as a claude.ai Artifact, built by that skill — viewers need a Claude account, and a free one is enough.
 
+**A mockup, side-by-side or screenshot for the human to look at is not for sharing.** Write it to `project-documentation/temporary/` and `open` it locally; never publish it, and never leave it under `~/.claude/`, where they cannot open it.
+
 ## Content the human will paste elsewhere
 
 **Anything whose destination is outside this conversation goes in a plain fenced code

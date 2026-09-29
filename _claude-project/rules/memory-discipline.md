@@ -1,11 +1,17 @@
 # Memory Discipline
 
-Route it before writing anything to auto-memory.
+**Auto-memory is off** — `autoMemoryEnabled: false` in the kit's `settings.json`. Never write to it, and never cite an old memory file from a file in the repo: nobody else can open it.
 
-1. **Applies to more than one project, or to anyone on the team?** → a shared rule in the dev kit's `.claude/rules/`. Every project picks it up on the next `/sync-dev-kit`.
-2. **Specific to THIS project?** → `.claude/rules/project/**` if it governs how work is done here; `project-documentation/` if it is a fact about the system.
-3. **Neither** — an ephemeral scratch note, or a personal or machine-specific fact that must not be shared? → memory. That is rare. When in doubt, it is a rule.
+## Nothing becomes permanent on your judgment
 
-Auto-memory is machine-local: a teammate's AI on the same project never sees it. Anything that should govern how work gets done goes in a rule instead.
+A rule, a project rule or a doc written because a session thought something mattered is the same bloat as a memory file, moved somewhere everyone loads it. Most of what a session learns matters only to that session. Let it end with the session.
 
-**Never cite auto-memory from a file in the repo.** A rule, skill or doc that points at a memory is broken for everyone but the machine that wrote it — the reader cannot open it. Cite the committed source instead, or move the fact into the repo.
+**The human decides what is kept.** Write a rule or a doc only when they direct it — "make that a rule", "remember this", "write that down".
+
+**Propose one only when you can name a future task, different from this one, where a session would do the wrong thing without it** — a behaviour to adopt or stop, or an existing rule that is wrong. A decision made, a fact observed, a thing that happened is a diary entry: the code, the commit and the conversation already hold it, and it ends there. Name the task in the proposal, in one line with what and where, and drop it if they do not say yes.
+
+## Where a directed change goes
+
+- **Every project** → the dev kit. Unless this machine is the kit maintainer's, that is a GitHub issue on the kit's repo (`kitRepo` in `.claude/.kit-sync.json`), never an edit to a synced file.
+- **How work is done in this project** → `.claude/rules/project/**`.
+- **A fact about this system** → `project-documentation/`.

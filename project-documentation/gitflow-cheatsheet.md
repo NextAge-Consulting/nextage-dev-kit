@@ -56,7 +56,7 @@ Use `/checkpoint` freely for in-progress snapshots. Use `/commit` when a unit of
 
 **Checkpoints stay local.** A checkpoint commits on the branch you are standing on, `main` included, and pushes nothing. `/commit` and `/ship-main` fold every unpushed checkpoint into the one commit they make, so a `🔖 wip:` subject never reaches `main` for `/deploy` to read.
 
-`/commit` runs check-types, biome and semgrep itself before staging, so the CI equivalents of all three fire locally first — semgrep scoped to the files the commit touches, where CI scans the whole repo. `/checkpoint` deliberately does not: it is the fast WIP save, and a scan on every snapshot is friction on the one path built to have none.
+`/commit` runs check-types, biome and semgrep itself before staging, so the CI equivalents of all three fire locally first — semgrep scoped to the files the commit touches, where CI scans the whole repo. It also sends any changed rule, skill, command or pattern reference to a headless Claude reviewer, which stops the commit on history, justification or a counted list; `SKIP_RULE_REVIEW=1` overrides a finding you judge wrong. `/ship-main` runs the same gates. `/checkpoint` deliberately does not: it is the fast WIP save, and a scan on every snapshot is friction on the one path built to have none.
 
 ---
 

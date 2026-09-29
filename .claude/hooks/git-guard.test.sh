@@ -42,6 +42,23 @@ t deny 'git commit'                        'bare commit'
 t deny 'npm test && git reset --hard'      'destructive in a compound command'
 t deny 'cd /tmp; git clean -fd'            'destructive after a semicolon'
 
+echo "MUST DENY — the shapes Claude actually writes:"
+t deny 'git -C /repo commit -m x'          'global -C before the subcommand'
+t deny 'git -C "/a b" reset --hard'        'quoted -C path'
+t deny 'git -c user.name=x commit -m y'    'global -c before the subcommand'
+t deny 'git --no-pager reset --hard'       'flag-only global option'
+t deny 'cd "/a b" && git commit -m x'      'quoted cd, then commit'
+t deny '(cd /repo && git commit -m x)'     'inside a subshell'
+t deny '{ git reset --hard; }'             'inside a group'
+t deny 'FOO=1 git clean -fd'               'env prefix'
+t deny 'npm test & git reset --hard'       'after a background &'
+
+echo "MUST ALLOW — the same shapes on safe commands:"
+t allow 'git -C /repo status'              '-C read-only'
+t allow 'git -C /repo checkout -b feat/x'  '-C branch create'
+t allow '(cd /repo && git log -1)'         'subshell read-only'
+t allow 'git commit-tree abc && git -C /r diff' 'compound of safe commands'
+
 echo "MUST ALLOW — branch ops gitflow depends on:"
 t allow 'git checkout -b feat/thing'       'checkout -b'
 t allow 'git checkout -B feat/thing'       'checkout -B'

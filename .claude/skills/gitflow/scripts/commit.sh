@@ -271,6 +271,10 @@ if [ -f ".github/workflows/ci.yml" ] && grep -qE '^[[:space:]]*semgrep:[[:space:
     fi
 fi
 
+# Rule-prose review: every rule, skill, command or pattern reference changed since
+# FOLD_BASE, reviewed by a headless Claude against the rule-authoring standard.
+"$SCRIPT_DIR/rule-review.sh" "$FOLD_BASE" || exit 4
+
 # Every gate passed — fold the checkpoints, then stage everything.
 fold_checkpoints "$FOLD_BASE"
 git add -A

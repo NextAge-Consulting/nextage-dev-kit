@@ -196,7 +196,8 @@ How Claude builds tweaks is in the `claude-design` skill's
 
 **Reviewers who don't design** get the design from its Share menu, either by link or by
 invite with view, comment or edit access. Every invitee needs a Claude account, and a free
-one is enough. They leave comments on the design, and a feedback round works through them.
+one is enough. Tell them to open it in Chrome: in Firefox the design loads but every frame
+stays blank. They leave comments on the design, and a feedback round works through them.
 A comment is never deleted, only resolved, and only open comments come up in the next
 round, so resolve each one the round dealt with.
 

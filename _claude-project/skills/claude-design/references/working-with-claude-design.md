@@ -26,6 +26,10 @@ edit access, people outside your organization included. A viewer with the link c
 through the prototype without signing in; anything the prototype saves needs a signed-in
 viewer. Every invitee needs a Claude account, on any plan including free.
 
+**Viewers open a design in Chrome.** In Firefox the design's shell loads — page list,
+frame titles, Play — but every frame renders blank white. Say so whenever a design's link
+is handed to someone to share, and name it first when a viewer reports blank frames.
+
 ## Driving a design
 
 A design is driven from Claude Code or from its chat in claude.ai. Each side sees the

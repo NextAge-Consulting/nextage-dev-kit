@@ -26,8 +26,8 @@ then reaches every branch by the normal path: dev now, prod at deploy, and a
 reset cannot destroy it.
 
 Running that same SQL by hand against dev looks identical and is not. The reset
-erases it, prod never receives it, and the gap surfaces at deploy — which is
-exactly how a seeded lookup table shipped empty.
+erases it, prod never receives it, and the gap surfaces at deploy — a seeded
+lookup table reaches prod empty.
 
 **The one exception is a fix SQL alone cannot express** — one that needs
 scripting, parsing, or per-row judgement. That is a human-gated action, the same

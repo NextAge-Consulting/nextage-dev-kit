@@ -103,6 +103,16 @@ emergency override is `SKIP_GIT_GUARD=1 <command>`, and only with a reason.
 `~/.claude/settings.json` (`developer-onboarding.md` §3). The guard still blocks it
 either way.
 
+**`/commit` stopped on the rule review.** A change to a rule, skill, command or pattern
+reference carries history, a justification, or a counted list. Have Claude fix the text
+and commit again. If you judge a finding wrong, commit with `SKIP_RULE_REVIEW=1`.
+
+**A session opens with "Shell edits are not being checked".** Claude Code reports which
+files a shell command changed only in auto mode unless you add
+`"bashEditDiffEnabled": true` to `~/.claude/settings.json`, and a project cannot set it
+for you. Add it and restart; the project's file guards then cover shell edits in every
+mode, and the warning stops.
+
 **A cloud session doesn't see the project's hooks.** Cloud loads only what's committed:
 check `.claude/settings.json` is in the repo.
 

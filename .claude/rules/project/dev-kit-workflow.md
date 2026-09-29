@@ -10,7 +10,7 @@ The kit is a project like any other, with its own `.claude/` of rules, hooks, sk
 
 **`_claude-maintainer/`** holds `kit-maintainer.md`, `commands/sync-dev-kit.md`, `commands/review-stack.md` and their scripts, copied to `~/.claude/` by hand when setting up a maintainer machine (`kitmaintainer-handbook.md` §0). Only the maintainer's machine gets this tier. `sync-dev-kit` must run from any project directory, so it is global by necessity — and a consumer machine that could sync would clobber projects the maintainer syncs ahead of them. Withholding the script beats guarding it: absent tooling has nothing to bypass.
 
-**There is no global tier for consumers.** Every kit command ships per-project via `_claude-project/commands/`, `/work` included. A command file in `~/.claude/commands/` outranks the project's copy of the same name, so a global command cannot be updated by `/sync-dev-kit` and silently shadows the project's copy forever — which is exactly what a retired global `/work` did. `work.sh` now refuses to run when it finds one, and that guard is the only reliable place to catch it: nothing else runs on every invocation.
+**There is no global tier for consumers.** Every kit command ships per-project via `_claude-project/commands/`, `/work` included. A command file in `~/.claude/commands/` outranks the project's copy of the same name, so a global command cannot be updated by `/sync-dev-kit` and silently shadows the project's copy forever. `work.sh` refuses to run when it finds one, and that guard is the only reliable place to catch it: nothing else runs on every invocation.
 
 `kit-maintainer.md` is inert unless `~/.claude/CLAUDE.md` imports it (`@kit-maintainer.md`), and the separate `~/.claude/kitmaster` marker is what makes `block-kit-edit.sh` inert. Both are per-machine and deliberately unshipped; `--maintainer` warns when either is missing and never creates them.
 
@@ -70,13 +70,9 @@ The kit dogfoods only what it actually uses. Everything below ships to consumers
 
 Anything in `_claude-project/` not listed above IS dogfooded. Kit-custom items (listed under "The kit's own `.claude/`") live only in the kit's `.claude/` and are governed by the propagation table, not this one.
 
-### Present but unwired: three guards the kit tests without running
+### The kit's `settings.json` is the template's
 
-`hooks/block-kit-edit.sh`, `hooks/dev-server-guard.sh` and `hooks/npm-guard.sh` are mirrored into the kit's `.claude/hooks/` but deliberately **absent from the kit's `settings.json`**, so the kit never executes them. They are there as test subjects: the sibling-suite convention (`rules/project/hook-testing.md`) locates `X.test.sh` next to `X`, and a guard cannot be tested unless the file is present.
-
-Their behaviour still makes no sense inside the kit, which is why they are not wired. `block-kit-edit.sh` guards a consumer against editing kit-synced files, and the kit IS the source with no `.kit-sync.json` to read; the other two guard a dev server and a `package.json` the kit does not have.
-
-**So for these three the dogfood test is the `settings.json` wiring, not presence in `.claude/hooks/`.** Adding a wiring for any of them changes a decision rather than fixing a bug.
+**The kit's `.claude/settings.json` matches `_claude-project/settings.json`, every hook wired.** A guard with nothing to guard here stands down on its own: `block-kit-edit.sh` under the `~/.claude/kitmaster` marker, `dev-server-guard.sh` and `npm-guard.sh` with no dev server or lockfile. Wire the kit differently only when a hook would break the kit itself.
 
 ### Every new kit item needs a conscious dogfood decision
 

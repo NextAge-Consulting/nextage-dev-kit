@@ -50,7 +50,14 @@ if (!fs.existsSync(path.join(COMPONENTS_DIR, 'bundle.js'))) {
 fs.rmSync(RENDER, { recursive: true, force: true })
 fs.mkdirSync(RENDER, { recursive: true })
 
-const browser = (...args) => execFileSync('agent-browser', ['--session', SESSION, ...args], { encoding: 'utf8' })
+// On Windows npm installs agent-browser as a `.cmd` shim, which only a shell can
+// start; each argument is quoted for cmd.exe, and the probe travels as base64 so
+// nothing inside it needs quoting at all.
+const WINDOWS = process.platform === 'win32'
+const browser = (...args) =>
+  WINDOWS
+    ? execFileSync('agent-browser.cmd', ['--session', SESSION, ...args].map((a) => `"${a}"`), { encoding: 'utf8', shell: true })
+    : execFileSync('agent-browser', ['--session', SESSION, ...args], { encoding: 'utf8' })
 const failures = []
 const components = CONFIG.components ?? []
 
@@ -148,9 +155,9 @@ try {
 <script src="../project/components/bundle.js"></script>
 </head><body>${mount}</body></html>`,
       )
-      browser('open', `file://${harness}`)
+      browser('open', pathToFileURL(harness).href)
       browser('wait', '600')
-      const report = JSON.parse(JSON.parse(browser('eval', PROBE)))
+      const report = JSON.parse(JSON.parse(browser('eval', '-b', Buffer.from(PROBE).toString('base64'))))
       browser('screenshot', path.join(RENDER, `${c.name}.${mode}.png`))
       if (report.errors.length) failures.push(`${c.name} (${mode}): ${report.errors[0].slice(0, 200)}`)
       else if (report.drawn === 0) failures.push(`${c.name} (${mode}): drew nothing`)

@@ -119,6 +119,7 @@ npm run check:design-system    # renders every component in light, dark and canv
 - **Share from the design's Share menu:** by link, or by invite with view, comment or
   edit access. Every invitee needs a Claude account; a free one is enough. A signed-out
   viewer can click through, but anything the prototype saves needs a signed-in viewer.
+- **Viewers open it in Chrome.** In Firefox the design loads but every frame is blank.
 - **A comment is never deleted, only resolved,** and a thread stays on the design
   through every later version.
 - **A feedback round reads open threads only.** Resolving is what takes a thread out of
@@ -166,5 +167,6 @@ Share the design with **edit** access; each person drives their own turns.
 | A design shows the system's colours but no components | The system has never been edited on its page. Make one small edit there, then run `apply-system` on the design. |
 | Publish refused because someone saved meanwhile | The action re-reads and redoes the edit once; a second refusal stops and says so. |
 | A collaborator's change landed in a copy, not your design | Their browser chat can't write to a design shared from another organization. They drive it from Claude Code, by link. |
+| A viewer sees the page list but every frame is blank white | They are in Firefox. Open it in Chrome. |
 | The design system isn't in someone's picker | It was shared from another organization. Name its link in the prompt. |
 | Old comments come back every feedback round | They were never resolved. Resolve each thread a round dealt with, in the design view. |

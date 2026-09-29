@@ -63,11 +63,9 @@ nothing about a row whose click opens nothing.
 **The rules most likely to be misquoted are the ones ALREADY IN CONTEXT.** A
 reference you have to go and open triggers the reflex above. A path-targeted rule
 that auto-loaded on the file you are editing never does: it is right there, it
-feels known, and familiarity quietly replaces reading. Every one of the
-misreadings this section was extended for came from an auto-loaded rule, and each
-took one `grep` to correct once somebody pushed back.
+feels known, and familiarity quietly replaces reading.
 
-The recurring shape, in all of them: a rule scoped by a clause gets remembered as
+The shape is always the same: a rule scoped by a clause gets remembered as
 a blanket ban, and the invented breadth then generates work — a "violation" to
 fix, a "gap" to fill, a question put to the human about a pattern that already
 had a written reference. **The cost is never the misreading; it is the task it
@@ -85,8 +83,6 @@ what you were about to claim, you have just found the error for free.
 
 **Check the claim against reality before repeating it OR contradicting it.** A
 reference asserting "every project already does X" is a measurement that was
-true once. Verify it. This rule was written after a session spent re-deciding a
-question `deployment.md` had already settled — reached by reading a
-`vite.config.ts` comment that pointed straight at it, and never opening it. The
-same session then over-corrected, declaring the settled answer wrong on the
-strength of the same unread reasoning. Both directions cost the same hour.
+true once. Verify it. A comment that cites a reference is not the reference:
+acting on the comment alone re-decides a settled question, or declares the
+settled answer wrong on reasoning you never read. Both cost the same.

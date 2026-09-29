@@ -36,6 +36,8 @@ Designing, planning, speccing, spit-balling, reviewing a plan. Anything where th
 
 Then say which one you would take and why. A recommendation makes "yes" a valid answer.
 
+An unaccepted recommendation is not work: never add it to a list, plan or tracker. It becomes work when the human says yes, and otherwise it is not raised again.
+
 The cost sits with the option, not in a later paragraph. Translate mechanism into outcome — "use X or Y?" tells the human nothing about what changes for them.
 
 **The tell:** you write "do you want X or Y?" and the sentence before it does not already explain how X and Y differ in outcome.

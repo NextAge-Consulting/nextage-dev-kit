@@ -77,24 +77,19 @@ _claude-project/
 │   ├── (other rules)
 │   ├── integrations/      # MCP-dependent rules
 │   └── project/           # Empty — project-specific rules go here
-├── hooks/                 # Claude Code enforcement hooks
-│   ├── git-guard.sh       # Blocks dangerous git commands
-│   ├── block-db-commands.sh
-│   ├── dev-server-guard.sh
-│   ├── block-console-log.sh
-│   ├── pre-gitpro.sh
-│   └── architect_enforcer.sh
+├── hooks/                 # Claude Code enforcement hooks, each with a sibling X.test.sh
+│   ├── git-guard.sh       # Blocks destructive git commands and raw commits
+│   ├── bash-edit-guard.sh # Runs the Edit guards over files a shell command changed
+│   ├── rule-authoring-guard.sh
+│   └── (other guards)
 ├── skills/                # Claude Code skills
-│   ├── gitpro/            # Conventional commits, changelog, versioning
-│   ├── shadcn/            # shadcn/ui component management
-│   ├── agent-browser/     # Browser automation
-│   └── mfing-bible-of-tanstack/
-├── commands/              # Slash commands
-│   ├── sync-dev-kit.md  # Shared (syncs to all projects + global)
-│   ├── install-cpl.md       # Kit-only
-│   └── install-statusline.md # Kit-only
-└── scripts/
-    └── sync-dev-kit.sh   # Shared
+│   ├── gitflow/           # Work sessions, commits, PRs, merges, deploys
+│   ├── rule-authoring/    # How rules, skills and commands are written
+│   └── (other skills)
+├── commands/              # Slash commands (/work, /commit, /ship-main, …)
+├── output-styles/
+├── lib/
+└── templates/             # Seeds for files the project owns
 ```
 
 ### Consumer Project (after sync)
@@ -180,7 +175,9 @@ The `project/` subfolder is created automatically by `/sync-dev-kit` if it doesn
 | `dev-server-guard.sh` | Prevents AI from killing a dev server it did not start |
 | `block-console-log.sh` | Enforces structured logging |
 | `npm-guard.sh` | Blocks bare `npm install` when a lockfile exists |
-| `rule-authoring-guard.sh` | Routes rule/skill/CLAUDE.md authoring through the `rule-authoring` skill |
+| `rule-authoring-guard.sh` | Stops the first change to each rule, skill, command or CLAUDE.md in a session and hands Claude the `rule-authoring` rules |
+| `bash-edit-guard.sh` | Runs every Edit guard over the files a shell command changed |
+| `bash-edit-diff-check.sh` | Warns at session start when Claude Code will not report shell-changed files |
 | `test-on-edit.sh` | Runs the relevant tests after an edit |
 
 ### Skills

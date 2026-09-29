@@ -146,10 +146,10 @@ Zero external callers still gets a line, naming the file. List only sites you ac
 
 ## XV. Documentation Is Present-Tense (Zero Tolerance)
 
-Reference and operational docs describe only what is true right now. Before writing any sentence naming a workflow, script, field, flag or pattern, ask whether it exists and behaves that way today.
+Reference and operational docs describe only what is true right now, and so does every rule, skill and pattern reference. Before writing any sentence naming a workflow, script, field, flag or pattern, ask whether it exists and behaves that way today.
 
 When you remove or change something, scrub every reference to zero. Never leave a note about what the thing was, what replaced it, or that it was deleted — naming a dead thing to say it is dead resurrects it, because a skimmer reads the name as live and acts on it. Silence is strictly safer.
 
 Cut a removed feature's section rather than keeping it for reference; git history is the archive. Mark planned work explicitly as not-yet-built rather than describing it as live behaviour.
 
-The carve-out is a doc whose purpose is to explain a decision's evolution — an ADR, a `changelog.md`, a deferred-work spec. There the history is the current content. Everywhere else, present tense only.
+The carve-out is a doc whose purpose is to explain a decision's evolution — an ADR, a `changelog.md`, a deferred-work spec. There the history is the current content. A rule or skill is never that doc: why it exists goes in its commit message. Everywhere else, present tense only.

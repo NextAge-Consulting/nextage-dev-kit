@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Regression suite for rule-authoring-guard.sh.
 #
-# The guard denies ONCE per session and allows everything after, so every case here
+# The guard denies ONCE per file per session and allows everything after, so every case here
 # runs under its own session id. A shared id would make case order decide the result,
 # which is the bug most likely to hide a real regression.
 set -uo pipefail
@@ -48,19 +48,25 @@ t deny "/repo/CLAUDE.md"                              'root CLAUDE.md'
 t deny "/repo/.claude/CLAUDE.md"                      'nested CLAUDE.md'
 t deny "/repo/_claude-project/rules/git.md"           'kit source rule'
 t deny "/repo/_claude-project/skills/gitflow/SKILL.md" 'kit source skill'
+t deny "/repo/.claude/commands/commit.md"             'a command'
+t deny "/repo/.claude/agents/reviewer.md"             'an agent'
+t deny "/repo/_claude-project/commands/commit.md"     'kit source command'
+t deny "/repo/_claude-project/templates/ui-inventory.md" 'kit inventory template'
+t deny "/repo/_claude-maintainer/kit-maintainer.md"   'kit maintainer surface'
 t deny ".claude/rules/git.md"                         'relative path'
 t deny "/repo/.claude/rules/constitution.md" 'Edit tool'      Edit
 t deny "/repo/.claude/rules/constitution.md" 'MultiEdit tool' MultiEdit
 
-echo "ONCE PER SESSION — the cap that stops it false-blocking:"
+echo "ONCE PER FILE PER SESSION — the cap that stops it looping:"
 S="repeat-$RANDOM"
 d1=$(decision "/repo/.claude/rules/git.md" "$S" Write)
-d2=$(decision "/repo/.claude/rules/git.md" "$S" Write)
+d2=$(decision "/repo/.claude/rules/git.md" "$S" Edit)
 d3=$(decision "/repo/.claude/skills/research/SKILL.md" "$S" Write)
-if [ "$d1" = "deny" ] && [ "$d2" = "allow" ] && [ "$d3" = "allow" ]; then
-  echo "  ✓ first write denied, subsequent writes allowed in the same session"
+d4=$(decision "/repo/.claude/skills/research/SKILL.md" "$S" Write)
+if [ "$d1" = "deny" ] && [ "$d2" = "allow" ] && [ "$d3" = "deny" ] && [ "$d4" = "allow" ]; then
+  echo "  ✓ each file denied once, then allowed, within one session"
 else
-  echo "  ✗ FAIL (got $d1/$d2/$d3, want deny/allow/allow) — once-per-session cap"; fail=1
+  echo "  ✗ FAIL (got $d1/$d2/$d3/$d4, want deny/allow/deny/allow) — per-file cap"; fail=1
 fi
 d4=$(decision "/repo/.claude/rules/git.md" "other-$RANDOM" Write)
 if [ "$d4" = "deny" ]; then echo "  ✓ a different session is nudged independently"
@@ -80,6 +86,28 @@ for p in "/repo/.claude/rules/it's \"quoted\" \\ weird.md" "/repo/.claude/skills
     echo "  ✗ FAIL — unparseable or non-deny payload: ${p##*/}"; fail=1
   fi
 done
+
+echo "DENY REASON CARRIES THE RULES:"
+reason=$(raw "/repo/.claude/rules/git.md" "r$RANDOM" Write | python3 -c 'import json,sys; print(json.load(sys.stdin)["hookSpecificOutput"]["permissionDecisionReason"])' 2>/dev/null)
+if printf '%s' "$reason" | grep -q "A rule is an instruction" && ! printf '%s' "$reason" | grep -q "^name: rule-authoring"; then
+  echo "  ✓ the skill body is in the reason, frontmatter stripped"
+else
+  echo "  ✗ FAIL — reason does not carry the rule-authoring text"; fail=1
+fi
+
+echo "FULL TEXT ONCE PER SESSION, AGAIN AFTER COMPACTION:"
+reason_of(){ raw "$1" "$2" Write | python3 -c 'import json,sys; print(json.load(sys.stdin)["hookSpecificOutput"]["permissionDecisionReason"])' 2>/dev/null; }
+S="full-$RANDOM"
+r1=$(reason_of "/repo/.claude/rules/a.md" "$S"); r2=$(reason_of "/repo/.claude/rules/b.md" "$S")
+printf '{"hook_event_name":"PostCompact","session_id":"%s"}' "$S" | "$H" >/dev/null 2>&1
+r3=$(reason_of "/repo/.claude/rules/c.md" "$S")
+if printf '%s' "$r1" | grep -q "A rule is an instruction" \
+   && ! printf '%s' "$r2" | grep -q "A rule is an instruction" && printf '%s' "$r2" | grep -q "given in full earlier" \
+   && printf '%s' "$r3" | grep -q "A rule is an instruction"; then
+  echo "  ✓ full / reminder / full after PostCompact"
+else
+  echo "  ✗ FAIL — full-text cadence wrong"; fail=1
+fi
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

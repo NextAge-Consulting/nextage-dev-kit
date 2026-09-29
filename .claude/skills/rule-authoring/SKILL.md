@@ -1,6 +1,6 @@
 ---
 name: rule-authoring
-description: Use when writing or editing any rule, skill, output style, or CLAUDE.md — `.claude/rules/**`, `.claude/skills/**`, `.claude/output-styles/**`, or a project's own `rules/project/**`. Also use when auditing existing rules for size or overlap. Covers how a rule is written so that it binds.
+description: Use when writing or editing any rule, skill, output style, or CLAUDE.md — `.claude/rules/**`, `.claude/skills/**` (including a UI pattern reference), `.claude/output-styles/**`, or a project's own `rules/project/**` (including the UI inventory) — whatever tool writes the file. Also use when auditing existing rules for size or overlap. Covers how a rule is written so that it binds.
 user-invocable: false
 ---
 
@@ -30,7 +30,7 @@ not "these four options". The count tells the reader nothing they cannot see, an
 goes stale silently the moment someone appends — the new entries simply fall outside
 the instruction.
 
-**Put the reasoning in the commit message.** It did its work while you were deciding. In the file it competes with the instruction for attention, and costs context on every load.
+**Put the reasoning and the history in the commit message.** They did their work while you were deciding. In the file they compete with the instruction for attention, and cost context on every load.
 
 **Leave out what the repo already says.** Anything learnable by reading the code does not need restating.
 
@@ -60,6 +60,6 @@ paths:
 
 ## Before it ships
 
-Has violating this actually cost someone something? A rule with no incident behind it is a preference, and preferences do not earn always-loaded context.
+Has violating this actually cost someone something? A rule with no incident behind it is a preference, and preferences do not earn always-loaded context. The incident earns the rule its place; it goes in the commit message, never in the file.
 
 **Have a fresh agent read it and say what it requires.** Give them the file alone — no context, no explanation of intent, no yardstick — and one question: what does this require you to do? What they cannot state back, you have not written. You cannot run this check on yourself; the meaning is already in your head.
