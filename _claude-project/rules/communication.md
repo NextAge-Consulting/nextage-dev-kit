@@ -14,7 +14,7 @@ A claim you asserted but did not verify. A `TODO`, stub, or hardcoded value you 
 
 ## Instructions the human must act on
 
-**When you hand the human something to do and keep working, run the rest in a background agent.** Streaming work scrolls the instructions off their screen, and a recap at the end arrives after they needed it. If the work cannot go to the background, finish it first and hand over the instructions last.
+**When you hand the human something to do and keep working, run the rest in a background agent.** If the work cannot go to the background, finish it first and hand over the instructions last.
 
 ## Handing over a decision
 
