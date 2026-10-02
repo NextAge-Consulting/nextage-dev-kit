@@ -51,7 +51,7 @@ nested under `skills/project/`.
 > **Would another competent developer plausibly have built this differently, and
 > would that difference show up to the user as inconsistency?**
 
-Yes → it is a pattern. Write it down after sign-off (below).
+Yes → it is a pattern. Write its reference (below).
 No → it is craft. Build it and move on.
 
 | Craft — build it | A pattern — settle it |
@@ -68,32 +68,25 @@ codebase does not belong in one.
 
 1. **Look in `references/`** — one file per pattern, named for the pattern, first
    line summarising it. Read the matching one **before** implementing.
-2. **No reference for what you need? STOP and research primary sources first.**
+2. **No reference for what you need? Research primary sources first.**
    Real design systems — GitHub Primer, Nielsen Norman, GitLab Pajamas, Material,
-   PatternFly, Oracle's grid guidance — not model memory. Agree the approach,
-   *then* implement, *then* **wait for the human to review the built UI and call
-   it good** — and only then write the reference (below).
+   PatternFly, Oracle's grid guidance — not model memory. Then build it, write its
+   reference marked pending (below), and carry on.
 3. **Patterns still obey the visual layer.** Invoke the `design-system` skill for
    any styling the pattern needs; `rules/a11y-baseline.md` auto-loads on JSX and is
    authoritative for accessibility.
 
-## Write it ONCE, after sign-off, describing only the approved result (Zero Tolerance)
+## A new pattern is written pending; only the human approves it (Zero Tolerance)
 
-**A pattern becomes a pattern when the human has looked at the running UI and
-called it one.** Until then, write nothing in `references/`. Keep the research and
-the discarded options in the build's own code comments.
+**Write the reference when you build the pattern, with `ui-status: pending` in its
+frontmatter, and add its line to `rules/project/ui-inventory.md` as pending in the
+same pass.** The human approves it at the review (the `design-system` skill's Step
+2), and it becomes `approved` in both places. If they ask for changes, change the
+build and rewrite the reference to match.
 
-When you finish building something that deserves to be a pattern, say so in the
-report — *"new potential UI pattern, please review"* — point at the screen, and say
-the reference is still owed. When the human blesses it, document the approved
-behaviour as it now stands.
-
-This holds in autonomous sessions too: stop at built-and-flagged. Never write the
-reference to close your own loop.
-
-The order: research → agree the approach → build → **human reviews and approves**
-→ write the reference, once — **and add its line to `rules/project/ui-inventory.md`
-in the same pass.**
+**Never mark a pattern approved yourself** — not in an autonomous session, not to
+close your own loop. Keep the research and the discarded options in the build's own
+code comments.
 
 ## What a reference holds
 
@@ -130,5 +123,5 @@ cut it.
 ## Adding a reference
 
 One file per pattern in this project's `references/`, which the kit ships empty
-and a sync never overwrites. Lead with a one-line summary of the rule, then the
-rules themselves. Keep it short.
+and a sync never overwrites. Open with frontmatter carrying its `ui-status`, lead
+with a one-line summary of the rule, then the rules themselves. Keep it short.

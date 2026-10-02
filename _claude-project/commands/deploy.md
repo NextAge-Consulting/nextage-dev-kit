@@ -31,7 +31,8 @@ If the script exits non-zero, surface the message and STOP. State gates are fail
 - exit 6: HEAD has failed CI checks → surface which checks failed
 - exit 7: no commits since last tag → nothing to deploy
 - exit 8: required CLI missing (`gh`, or `aws` under the default `codebuild` backend)
-- exit 21: AWS session not authenticated (`codebuild` backend) — the script prints the exact `aws login --profile <hub>` to run (resolved from `source_profile`, never the role profile itself — cli-utilities.md). This is caught here, before anything mutates; hand the login command to the user and wait, then re-run `/deploy` from the top
+- exit 21: the deploy-trigger AWS key in `.env` is missing or invalid (`codebuild` backend) — it is re-provisioned per `new-project-setup.md` §7c, or the typo in `.env` fixed. Caught here, before anything mutates; hand it to the user and wait, then re-run `/deploy` from the top
+- exit 22: UI awaiting the human's approval, or out of step with the UI inventory — surface the list the check printed and walk the pending items with the user (the `design-system` skill's review). Nothing pending ships
 
 ### Step 2: Determine bump level from commits since last tag
 
@@ -111,7 +112,7 @@ The direct push to `main` requires require-PR to be OFF on the consumer repo's `
 |---|---|
 | Success | Report `v<NEW>` deployed; link to the build (CodeBuild console, or the workflow run under `github`) |
 | Push to main rejected | Usually require-PR is still ON on `main` — turn it off (pipeline.md §1.1) then retry. Other cause: `origin/main` advanced and the rebase hit a conflict; resolve and re-push. |
-| Exit 21 (AWS session not authenticated) | Caught as a state gate before any mutation — nothing bumped, committed, or tagged. Hand the user the exact `aws login --profile <hub>` the script printed, wait for it to complete, then re-run `/deploy` from Step 1. |
+| Exit 21 (deploy-trigger key missing or invalid) | Caught as a state gate before any mutation — nothing bumped, committed, or tagged. The user re-provisions the key per `new-project-setup.md` §7c or fixes the typo in `.env`; then re-run `/deploy` from Step 1. |
 | Exit 17 (tag push failed) | Tag-protection rules may be present; check `gh api repos/{owner}/{repo}/tags/protection` |
 | Exit 18 (migration trigger failed) | The migration dispatch failed — under `codebuild`, check the project named by `CODEBUILD_MIGRATE_PROJECT` (or the prefix-derived name) exists and the role can start it; under `github`, check the workflow exists, has `workflow_dispatch:`, and is on main. Tag is already pushed; re-run the migrate + deploys manually (see Recovery) or fix and re-invoke. |
 | Exit 19 (migration run failed) | The migration workflow ran and failed (or its run id couldn't be resolved) — deploy aborted BEFORE any app deploy. Surface the run URL; fix the migration, then trigger `MIGRATE_WORKFLOW` + the `DEPLOY_WORKFLOWS` manually (Recovery) — do NOT deploy apps against a failed migration. |

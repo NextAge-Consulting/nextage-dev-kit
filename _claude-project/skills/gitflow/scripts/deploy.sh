@@ -68,6 +68,8 @@
 #   - HEAD's required check-runs are not 'failure' (read-only snapshot,
 #     not a wait — see /merge for pre-merge wait logic)
 #   - Commits exist since the last v* tag (nothing to deploy otherwise)
+#   - No UI awaiting the human's approval: the ui-patterns status check passes
+#     (rules/ui-design.md, "One app, one look and feel")
 #
 # --check-only: runs all gates without mutating, exits 0 if clean.
 #
@@ -145,6 +147,8 @@
 #  21  deploy-trigger AWS credential missing from .env or invalid (codebuild
 #      backend) — checked as a state gate before any mutation, so this never
 #      fires after the bump/tag
+#  22  UI awaiting the human's approval, or out of step with the UI inventory
+#      (check-ui-status.mjs) — checked as a state gate before any mutation
 #
 # ─── Recovery ────────────────────────────────────────────────────────────
 # The bump commit and the push to main happen together (steps 3–4). If the
@@ -467,10 +471,26 @@ if [ -n "$LAST_TAG" ]; then
     fi
 fi
 
+# --- UI status: nothing the human has not approved ships ----------------
+# Pending components, patterns and tokens are built but not yet reviewed; they
+# may live on main, never in production.
+UI_STATUS_CHECK=".claude/skills/ui-patterns/scripts/check-ui-status.mjs"
+if [ -f "$UI_STATUS_CHECK" ]; then
+    if ! command -v node >/dev/null 2>&1; then
+        echo "deploy.sh: node is required to run the UI status check ($UI_STATUS_CHECK)" >&2
+        exit 22
+    fi
+    if ! node "$UI_STATUS_CHECK" >&2; then
+        echo "deploy.sh: UI awaiting approval or out of step with the UI inventory. Refusing to deploy." >&2
+        echo "  Walk the pending items with the human (the design-system skill's review), then deploy." >&2
+        exit 22
+    fi
+fi
+
 # --- Check-only: state gates pass, exit without mutating ----------------
 
 if [ "$CHECK_ONLY" -eq 1 ]; then
-    echo "deploy.sh: state gates OK (on main, clean, in-sync, checks green, ${COMMITS_SINCE:-?} commits since ${LAST_TAG:-no-tag})" >&2
+    echo "deploy.sh: state gates OK (on main, clean, in-sync, checks green, UI approved, ${COMMITS_SINCE:-?} commits since ${LAST_TAG:-no-tag})" >&2
     exit 0
 fi
 

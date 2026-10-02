@@ -45,3 +45,4 @@ vite.config.ts.*
 # CPL compiled binaries (built by sync-cpl.sh)
 _cpl/bin/cpl-picker
 _cpl/bin/cpl-close-zed
+project-documentation/temporary/design-system-map.md

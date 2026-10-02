@@ -20,6 +20,21 @@ The project's look is defined once, in code, and everything else reads from it:
 Claude won't style a screen in a project that has no `design.md`. That refusal is what
 stops a design from drifting one screen at a time.
 
+### Nothing new ships until you approve it
+
+Claude builds screens from what the system already has. When a screen needs something
+the system lacks (a component, a variant, a token, a pattern), Claude builds it and keeps
+going, marking it **pending** rather than stopping to ask. You review everything pending
+together, at the end of the work: each piece is approved, swapped for an existing part, or
+folded back into its one screen.
+
+- `/work` lists what is pending at the start of each session, and `/handoff` tells you how
+  many are left when you finish.
+- `/deploy` refuses while anything is pending, so pending UI can sit on `main` for days
+  but never reaches production.
+- A change you ask for in conversation ("make Save wider") is made to the part, with a
+  warning of what else it changes. Your yes is its approval.
+
 ## Claude Design
 
 ### What it is

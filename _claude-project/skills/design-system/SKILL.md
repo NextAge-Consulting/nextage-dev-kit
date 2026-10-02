@@ -32,7 +32,7 @@ Before writing or editing ANY UI / styling code, **read `design.md` at the proje
 If `design.md` is absent, **HARD STOP**:
 
 - Do not proceed with the UI task
-- Surface to the user verbatim: *"This project has no `design.md` at the project root. Per the kit-canonical design-system discipline, UI work cannot proceed without a project-level design system spec. Either (a) generate one from the codebase first, or (b) explicitly authorize ad-hoc styling for this task (rare; treat as tech debt)."*
+- Surface to the user verbatim: *"This project has no `design.md` at the project root, and UI work cannot proceed without a project-level design system spec. Shall I generate one from the codebase first?"*
 - Wait for direction
 
 Why hard-stop: ad-hoc styling without a design system spec is how token drift starts. The skill exists to prevent that.
@@ -48,13 +48,35 @@ This is a search you run every time. No hardcoded paths, no per-project list —
 3. **Read the top 1–3 matches in full.** Extract the *real* patterns: every class they use for elevation, hover, transition/animation, borders, and spacing — not just the color tokens. This is the step that carries the feel.
 4. **Build from those patterns** — the tokens, the construction (how a card/row/chip is assembled), the status language, the motion idioms. Where exemplars differ, take the most polished one, never the average or the oldest.
 
-If **no analog exists**, say so explicitly — it's a genuinely new pattern. Research primary-source design systems, propose the approach, and get sign-off (the same bar the `ui-patterns` skill sets for new interaction patterns). **Never** fill the gap by inventing from `design.md` prose alone — that is exactly what produces on-spec-but-off-brand, ho-hum output.
+**Where the system covers the piece, use it as it is.** An improvement you would make to how it looks is a proposal to the human, never a local restyle at this one site.
 
-**Where the system covers the piece, compose it and never restyle it.** Use the component and variant as they are. An improvement you would make to how it looks is a proposal to change that component, raised with the person — never a local restyle at this one site.
+**Where nothing fits, build the new piece and keep going.** Research how primary-source design systems handle it — never invent from `design.md` prose alone. Build it from the existing tokens and components as a real part — a token, a component or variant, a pattern reference — and mark it pending. Never stop the work to ask about each one; the review below is where the human sees them.
 
-**Where the system is silent, propose the piece, then make it the system.** Once the person agrees, build it as a component or variant, and write it into `design.md` as present-tense fact, the same as everything already there — so the next screen finds it covered.
+**A token, a variant, a pattern, or anything a second screen uses is a part.** A layout block only one screen uses stays in that screen's file and is not a part; it still takes every value from a token. When a second screen needs it, it becomes a part.
 
-**Build a one-off only for a functional need** the system cannot meet and no other screen shares, and say so in the build-from citation.
+**Adding to or changing an approved part — a new variant included — sets it to pending**, unless the human asked for that change.
+
+#### Each kind of work
+
+- **Converting a legacy screen** — rebuild what it does, not how it looked, from the parts that exist. Values come from the scale, never measured from the old app ("Converting a legacy app" below).
+- **Tweaking an existing screen** — change the part, never the screen. Tell the human what else uses it and make the change once they agree; their yes is the approval, so the part stays approved.
+- **A new screen or feature, in code or as a mockup in Claude Design** — the same work in a different medium: use what exists, build only what does not. In Claude Design a new piece is a gap shown on the page, settled through the `claude-design` skill.
+- **Bringing a Claude Design into the code** — each gap the human approved in the design lands approved. Anything else new the build needs is pending.
+
+#### Marking a part pending or approved
+
+The same words everywhere, so one search finds them all:
+
+- a component — `// ui-status: pending` as its first line;
+- a pattern reference — `ui-status: pending` in its frontmatter;
+- a token — in its comment: `/* a hover fill inside a card · ui-status: pending */`;
+- the UI inventory — the same status on a component's or pattern's line, added in the same change as the part.
+
+Every component and pattern carries one, `approved` or `pending`; an approved token carries none.
+
+#### The review
+
+**At the end of a body of work — a feature, a conversion, a mockup session, and at the latest before `/deploy` — walk the human through every pending part.** List them with `node .claude/skills/ui-patterns/scripts/check-ui-status.mjs`, each with the screens that use it. Each one the human approves becomes `approved`, in its file and on its inventory line. One they reject is replaced by an existing part, or folded back into the screens that use it. `/deploy` refuses while anything is pending.
 
 ### Step 3: Identify the right tokens for the task
 
@@ -66,7 +88,7 @@ If **no analog exists**, say so explicitly — it's a genuinely new pattern. Res
 - **Spacing**: use the project's spacing scale; never reach for raw px values when a scale token fits
 - **Component atoms**: if the task is adding/editing a button, card, input, alert, etc., copy the property tokens from the relevant `components.<name>` entry as your starting point
 
-**Never invent token values.** Every color, radius, padding number must trace back to a token in `design.md` or a Tailwind utility that maps to one of those tokens. If a needed value doesn't exist, surface that as a design-system gap (add a Known Gaps entry; don't ad-hoc it).
+**Never invent token values.** Every color, radius, padding number must trace back to a token in `design.md` or a Tailwind utility that maps to one of those tokens. If a needed value doesn't exist, add the token, marked pending (Step 2) — never a raw value.
 
 ### Step 4: Apply universal styling discipline
 
@@ -94,7 +116,7 @@ If the lint fails for a reason that isn't your edit (pre-existing issue), surfac
 
 **Stateful atoms and computed tokens go in prose, not the YAML.** The `components:` YAML accepts only the spec's fixed property set (`backgroundColor`, `textColor`, `typography`, `rounded`, `padding`, `size`, `height`, `width`). Stateful atoms (tone maps, rings, variant escalation) and computed tokens don't fit those and will fail `lint:design` — describe them in `design.md` prose instead.
 
-**Don't run checks during pre-approval UI iteration.** While iterating on layout, don't run tsc / biome / screenshots / `lint:design` after each tweak — the human inspects live via HMR. Do the reconciliation pass and run the checks once, after the design is approved. The reconciliation pass is: tokenize raw values, document new patterns in `design.md`, **and if the work produced a reusable component, add it to `design.md`'s component section AND to the project's UI inventory rule — in that same pass,** with the `rule-authoring` skill invoked for the inventory line. A component that exists but is listed nowhere that auto-loads is invisible at the moment someone needs it, which is how it gets hand-rolled a second time.
+**Don't run checks during pre-approval UI iteration.** While iterating on layout, don't run tsc / biome / screenshots / `lint:design` after each tweak — the human inspects live via HMR. Do the reconciliation pass and run the checks once, when the iteration settles. The reconciliation pass is: tokenize raw values, document new patterns in `design.md`, **and if the work produced a reusable component, add it to `design.md`'s component section AND to the project's UI inventory rule, with its status — in that same pass,** with the `rule-authoring` skill invoked for the inventory line.
 
 ## The build-from gate (non-negotiable)
 
@@ -105,9 +127,9 @@ Built from: <path(s) to the existing component(s)/screen(s) you matched in Step 
 ```
 
 - Matched an analog → cite the exact path(s).
-- Proposed and landed a piece the system was silent on → cite where it now lives: `Built from: <path> (new to the system: <component or variant>)`.
-- Built a one-off for a functional need → `Built from: <path> (one-off: <the need>)`.
-- Genuinely new pattern → write `Built from: none — new pattern` and confirm you researched primary sources + got sign-off per Step 2.
+- Built a new part → cite the analog and name the part: `Built from: <path> (new, pending: <token, component, variant or pattern>)`.
+- Kept a piece in its one screen → `Built from: <path> (in-screen: <the piece>)`.
+- Nothing similar exists → `Built from: none — new, pending: <the part>`, naming the primary sources researched.
 
 No citation means Step 2 didn't happen and the work is **incomplete** — the same standard as shipping a signature change without the caller scan. This gate exists because "ground in the real components" only sticks when it's *cited*, not merely encouraged: the constitution's caller-scan attestation (§XIV) works for exactly this reason. An uncited UI change is presumed to have been invented from prose, and prose produces off-brand output.
 
@@ -333,7 +355,7 @@ An app's own composites never enter the design system and may use anything. The
 - User flow patterns (auth flows, multi-step wizards)
 - Code organization (shared constants, file structure)
 
-Everything on that list is exactly what **Step 2 (Ground in the existing implementation)** handles: the project's own codebase is the authoritative cookbook for composites, interaction, flows, and look-and-feel. That is not an optional fallback for "harder" tasks — it is the mandatory, cited step for *every* composite UI task (see the build-from gate above). `design.md` owns tokens and atoms; the real components own everything else. Do not invent compositions that don't already exist in the project; find the analog and build from it, or raise a genuinely-new pattern with the user first.
+Everything on that list is exactly what **Step 2 (Ground in the existing implementation)** handles: the project's own codebase is the authoritative cookbook for composites, interaction, flows, and look-and-feel. That is not an optional fallback for "harder" tasks — it is the mandatory, cited step for *every* composite UI task (see the build-from gate above). `design.md` owns tokens and atoms; the real components own everything else. Find the analog and build from it; where none exists, Step 2 says how the new piece is built and approved.
 
 ## Brand voice and tone
 

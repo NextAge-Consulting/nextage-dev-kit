@@ -105,7 +105,7 @@ Radio groups, checkbox groups and button-groups acting as a picker use `<fieldse
 
 ```tsx
 <fieldset>
-  <legend className="block text-sm font-medium mb-2">Export Format</legend>
+  <legend className="type-field-caption mb-2">Export Format</legend>
   <div className="flex gap-2">
     <button type="button" onClick={() => setFormat("pdf")}>PDF</button>
     <button type="button" onClick={() => setFormat("csv")}>CSV</button>

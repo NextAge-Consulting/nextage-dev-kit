@@ -16,13 +16,21 @@ When the file you are editing *is* `design.md`, run `npm run lint:design` before
 
 This rule is path-targeted because JSX and TSX consume tokens, CSS and SCSS hold the `@theme` definitions, and `design.md` is the spec itself. Server functions, tests, config and other prose don't touch the design system.
 
+## One app, one look and feel
+
+**Reuse what exists.** Sizes, spacing and colours come only from tokens — never a value picked because it looks better. No tweaking for its own sake.
+
+**A change the human asks for is made in the part** — the token, component or pattern — never on one screen, and you tell them what else it changes before you make it.
+
+**Nothing new becomes part of the system until the human has looked at it and approved it.** Build what the work needs and mark it pending; `/deploy` refuses while anything is. How that plays out when converting a screen, tweaking one, building a new screen or mockup, or bringing a Claude Design back is the `design-system` skill's Step 2.
+
 ## Adding a component means adding it in two places
 
 `design.md` is the authority for what the design system contains, and it is not auto-loaded — this rule is. So a component can exist, be specified, and still get hand-rolled, because nothing put its name in front of whoever wrote the screen.
 
 The project's `rules/project/ui-inventory.md` — path-targeted to the same globs — carries the list of components that exist, one line each on what they are for. `design.md` keeps the spec; the inventory answers "does this already exist", which is the question actually being got wrong.
 
-Add a new component to both, in the same change as the component itself.
+Add a new component to both, in the same change as the component itself, with its status.
 
 ## Authority chain
 
@@ -48,13 +56,9 @@ A component picks a role. **A screen writes no raw value at all** — it uses a
 component, and the component names the role. That is what stops the same thing
 rendering at four sizes across four screens.
 
-**What the system covers, compose and never restyle; where it is silent, propose the
-piece and make it the system; build a one-off only for a functional need** — the
-`design-system` skill's Step 2.
-
 Adding a role happens when a thing exists that none of the current roles names —
 not when an existing role looks slightly wrong on one screen. If two roles compete
-for one element, the naming is wrong and that is a conversation, not a new token.
+for one element, the naming is wrong: settle on the better name, mark the change pending, and raise it at the review.
 
 **Back it with a check that fails the build.** A raw `text-sm` or `px-[10px]` is
 valid Tailwind and valid TSX, so no ordinary linter objects; without a gate this
@@ -109,7 +113,3 @@ It also holds the rule every wall depends on: a tier is recognised by its packag
 Read its success line: it names what it actually enforced. Fewer tiers listed than you expect means a tier was not detected, not that it was checked and found clean.
 
 It detects the UI home as the `packages/ui` workspace. A single-app UI home living in `apps/<app>/src/components/ui/` is a directory, not a workspace, so the guard does not see it and that wall is yours to hold by hand until the project grows a second front-end.
-
-## The one carve-out
-
-If the human explicitly authorizes ad-hoc styling for a single one-shot task — a debugging UI, say — you may proceed without the skill. Document the exception in the change and treat it as tech debt to reconcile.

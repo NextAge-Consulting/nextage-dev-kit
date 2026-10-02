@@ -168,6 +168,8 @@ The index is the highest-value section. The handoff points at the durable docs r
 
 A few lines: what the document now says, what the sweep promoted and deleted, and any item flagged as unmoved. Not a recital of the file.
 
+When `.claude/skills/ui-patterns/scripts/check-ui-status.mjs` exists, run it and state how many UI parts await the human's approval — `/work` lists them next session, and `/deploy` refuses until they are approved. The list stays out of the document: the check rebuilds it in one command.
+
 **State, never ask.** `/handoff` is a shutdown command, so the TLDR ends the session — it does not open a conversation. An unmoved item is reported as a fact ("`packages/web` is unmoved across three handoffs; `/work` will raise it next session"), never as a question. If a question genuinely needed asking, the moment for it was during the work.
 
 ## Blocking conditions

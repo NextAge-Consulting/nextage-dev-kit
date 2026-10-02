@@ -16,47 +16,20 @@ Skill({skill: "ui-patterns"})
 
 ## The project keeps an inventory
 
-Every project maintains `rules/project/ui-inventory.md`, with the same `paths:` frontmatter as this file. The kit syncs it in `merge` mode: the project owns everything inside its `project:begin` / `project:end` regions, and the kit owns the text around them. It holds:
-
-- **The pattern index** — every pattern the project has, one line each, and what it governs.
-- **The component inventory** — atoms, composites and hooks, enumerated from the filesystem, one line on what each is for.
-- **The standing prohibitions** — the things never to hand-roll, each naming what to use instead.
-
-Update it in the same change that adds a pattern or a component.
-
-## Every UI change states what it was built from (Zero Tolerance)
-
-**End the reply that delivers UI with a `Built from:` line naming the existing file you matched.**
-
-```
-Built from: packages/ui/src/components/record-header.tsx
-Built from: src/components/ui/dialog.tsx (new to the system: the divided-regions variant)
-Built from: src/components/ui/table.tsx (one-off: the print layout the export needs)
-Built from: none — new pattern, researched and agreed first
-```
-
-Open the named file beside what you built and make them match. No line means the work is not done.
+Every project maintains `rules/project/ui-inventory.md`, with the same `paths:` frontmatter as this file: the list of every pattern, component and hook the project has, one line each, with each pattern's and component's status. Read it before composing a screen, and update it in the same change that adds a pattern or a component.
 
 ## Name the pattern while agreeing the work
 
 **Name a screen's pattern in the plan document, in the sentence that agrees the screen.** A plan deliverable that produces a screen, dialog, panel or report names its pattern.
 
 - **Writing a plan** → name the pattern in the same sentence that agrees the screen.
-- **Reading a plan before executing it** → raise a screen step with no named pattern before that step starts.
-
-**No pattern fits? Stop and discuss.** Never invent one mid-build.
-
-## A pattern names roles, never values
-
-A pattern describing a composite — a row, a card, a field block — names which token role each part uses and states no sizes. "A row carries a `row-title`, a `row-subtitle` and a `metadata` line", never "13.5px, semibold".
-
-A part no role names is a missing role: raise it with the design system rather than inventing a size in a pattern.
+- **Reading a plan before executing it** → a screen step with no named pattern gets one before it starts: an existing pattern, or a new one built pending.
 
 ## Is it even a pattern?
 
 It is a pattern if another competent developer would plausibly have built it differently and the difference would show to the user as inconsistency. Otherwise it is craft — build it and move on. The skill carries the test and the examples.
 
-**A pattern with no reference yet is researched, never improvised from training data.** Research primary design-system sources — the published guidelines of a major system such as Material, Apple's HIG, or the docs of the library you are building on — agree the approach with the human, build it, and write the reference as the skill directs.
+**A pattern with no reference yet is researched, never improvised from training data.** Research primary design-system sources — the published guidelines of a major system such as Material, Apple's HIG, or the docs of the library you are building on — build it, and write its reference marked pending. The human approves it at the review (the `design-system` skill's Step 2).
 
 **Patterns are project-owned.** The kit ships this rule and the skill; `references/` arrives empty and a sync never writes into it. To use another project's pattern, copy it across by hand or re-decide it here.
 

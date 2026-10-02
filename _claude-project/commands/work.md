@@ -111,9 +111,10 @@ Read YOUR handoff — each developer has their own, named by GitHub login, and `
 ```bash
 LOGIN=$(gh api user --jq .login) && echo "project-documentation/temporary/handoff-$LOGIN.md"
 gh issue list --assignee @me --state open --limit 20 --json number,title --jq '.[] | "#\(.number) \(.title)"'
+[ -f .claude/skills/ui-patterns/scripts/check-ui-status.mjs ] && node .claude/skills/ui-patterns/scripts/check-ui-status.mjs
 ```
 
-Open the documents its index points at where they bear on what you are about to do. Anything under **From others** was left for you by another developer — raise each item in the orientation, with who sent it. **Never read another developer's handoff into the orientation** — it is their continuity, not a task list for you. The second command lists the open issues assigned to you: tasks live in issues, so they belong in the orientation beside the handoff.
+Open the documents its index points at where they bear on what you are about to do. Anything under **From others** was left for you by another developer — raise each item in the orientation, with who sent it. **Never read another developer's handoff into the orientation** — it is their continuity, not a task list for you. The second command lists the open issues assigned to you: tasks live in issues, so they belong in the orientation beside the handoff. The third lists the UI awaiting the human's approval, and anything out of step with the UI inventory.
 
 If `gh` cannot resolve the login, say so in one line — the handoff was not read — and carry on. If yours does not exist but an unsuffixed `handoff.md` does, read that: it is the single-file handoff from before handoffs were per developer, and your next `/handoff` replaces it.
 
@@ -153,6 +154,8 @@ Verify what you are about to act on or raise, not the whole file. A claim you ar
 **Raise every item the handoff flagged as unmoved, and raise them HERE** — once each has passed the Step 5 check. An item that fails it is corrected, not raised. `/handoff` deliberately does not ask them — it flags them in the document and leaves them for this moment, because the end of a session is the worst time to ask someone a question and the start of one is the best. Put each to the human plainly, with what carrying it further would cost and what dropping it would cost, and a recommendation. An unmoved item that goes unmentioned at session start is one nobody will ever resolve.
 
 Ask them **after** the orientation, not instead of it, and do not block on the answers — note them and get on with the work the human came for.
+
+**Raise the UI awaiting approval in the same place**, each pending component, pattern and token with the screens that use it, and offer to walk them now (the `design-system` skill's review). `/deploy` refuses while any is pending. A status problem the check reports is work, not a question: fix it.
 
 The handoff never displaces what the human pointed at, and it never silently disappears into it.
 

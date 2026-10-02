@@ -1152,12 +1152,9 @@ The skill then reads the project's `design.md` and applies the universal discipl
 
 ### 12a.3. Hard stop when `design.md` is missing
 
-The skill REFUSES to proceed if `<project-root>/design.md` is not present. Surfaces the gap to the user verbatim and waits for direction. Two valid resolutions:
+The skill REFUSES to proceed if `<project-root>/design.md` is not present. It surfaces the gap to the user verbatim and offers to **generate `design.md`** from the codebase — a one-time bootstrap per project. The CSS `@theme` block is the source data; the resulting `design.md` is its documented superset.
 
-1. **Generate `design.md`** from the codebase (a one-time bootstrap per project). The CSS `@theme` block is the source data; the resulting `design.md` is its documented superset.
-2. **Explicit single-task authorization** for ad-hoc styling — rare, treated as tech debt to reconcile later.
-
-The hard stop exists because ad-hoc styling without a design system spec is how token drift starts. Refusing forces the project to either commit to the discipline or explicitly opt out per-task.
+The hard stop exists because ad-hoc styling without a design system spec is how token drift starts. There is no per-task opt-out.
 
 ### 12a.4. Spec-compliance validation
 

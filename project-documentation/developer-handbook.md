@@ -81,6 +81,10 @@ root, and the components listed in the UI inventory rule. Claude loads both when
 a component or a stylesheet. When a screen should be worked out visually first, that's
 `designer-handbook.md`.
 
+Anything new Claude adds to the design system is marked pending until a human approves it,
+and `/deploy` refuses while anything is pending — `designer-handbook.md`, "Nothing new ships
+until you approve it".
+
 ## Longer runs
 
 - **`/autonomous <what>`** hands Claude a body of work while you step away. It runs to the
