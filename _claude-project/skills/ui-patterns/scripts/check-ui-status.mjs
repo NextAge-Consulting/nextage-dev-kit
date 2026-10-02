@@ -51,8 +51,10 @@ export function isComponent(file) {
   return parts.includes('components') && !parts.includes('node_modules')
 }
 
+/** A pattern reference: any .md directly under references/ except the kit's own README. */
 export function isPattern(file) {
-  return file.startsWith(REFERENCES) && file.endsWith('.md') && !file.slice(REFERENCES.length).includes('/')
+  const name = file.slice(REFERENCES.length)
+  return file.startsWith(REFERENCES) && name.endsWith('.md') && !name.includes('/') && name !== 'README.md'
 }
 
 /** The name a catalogue line uses for a file: `IconButton`, `icon-button.tsx` and `icon-button` all match. */

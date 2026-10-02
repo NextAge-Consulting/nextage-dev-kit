@@ -114,6 +114,7 @@ test('component and pattern recognition, and name keys', () => {
   assert.ok(!isComponent('apps/web/src/components/x.ts'))
   assert.ok(isPattern(BROWSE))
   assert.ok(!isPattern('.claude/skills/ui-patterns/references/sub/x.md'))
+  assert.ok(!isPattern('.claude/skills/ui-patterns/references/README.md'))
   assert.equal(key('IconButton'), key('icon-button.tsx'))
   assert.deepEqual(catalogueRows('| `a` | b | **Pending** |\n|---|---|---|\n| plain | x |'), [{ name: 'a', status: 'pending', line: 1 }])
 })
