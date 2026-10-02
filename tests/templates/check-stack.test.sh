@@ -88,4 +88,29 @@ expect "UI package with build:design-system pointing elsewhere fails" "$r" 1 "pa
 r=$(repo ui-wrong-arg "$TOKENS" "packages/ui"); ui "$r" "node ../../.claude/skills/claude-design/scripts/build.mjs other.config.mjs"
 expect "UI package with build:design-system on the wrong config fails" "$r" 1 "packages/ui/package.json: \"build:design-system\""
 
+# ci <name> <workflow line> — a repo whose pyrightconfig.json makes the CI-installed
+# pyright pin apply, with .github/workflows/ci.yml carrying <workflow line>.
+ci() {
+    local r
+    r=$(repo "$1" "" OFF)
+    jq '.packages.pyright = {version:"1.1.409",applies:{whenFile:["pyrightconfig.json"]},severity:"required",installedBy:"ci",ciWorkflow:".github/workflows/ci.yml"}' \
+        "$r/.claude/stack-manifest.json" > "$r/m.json" && mv "$r/m.json" "$r/.claude/stack-manifest.json"
+    echo '{}' > "$r/pyrightconfig.json"
+    mkdir -p "$r/.github/workflows"
+    printf '%s\n' "$2" > "$r/.github/workflows/ci.yml"
+    echo "$r"
+}
+
+r=$(ci pip-pin 'uv run --with pyright==1.1.409 pyright --stats')
+expect "a CI-installed tool pinned the pip way (name==version) passes" "$r" 0 "✓"
+
+r=$(ci npm-pin 'npx --yes pyright@1.1.409')
+expect "a CI-installed tool pinned the npm way (name@version) passes" "$r" 0 "✓"
+
+r=$(ci unpinned 'uv run --with pyright pyright --stats')
+expect "a CI-installed tool the workflow does not pin fails" "$r" 1 "installs pyright without the blessed version 1.1.409"
+
+r=$(ci other-pin 'uv run --with pyright==1.1.400 pyright --stats')
+expect "a CI-installed tool pinned at another version fails" "$r" 1 "installs pyright without the blessed version 1.1.409"
+
 exit $fail

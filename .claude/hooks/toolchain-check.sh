@@ -7,9 +7,9 @@
 #      every guard refuses the actions it covers (guard-lib.sh require_tools), so the
 #      warning names the tool, this platform's install line, and that Claude Code must
 #      be restarted: hooks use the PATH Claude Code started with.
-#   2. The commit gate can typecheck: a package.json carries a `check-types` script,
-#      and a project with a root pyproject.toml or pyrightconfig.json has pyright or
-#      mypy on PATH.
+#   2. The commit gate can typecheck: a package.json in a repository with TypeScript
+#      sources carries a `check-types` script, and a project with a root
+#      pyproject.toml or pyrightconfig.json has pyright or mypy on PATH.
 #   3. Windows only, once per change to .gitattributes: every tracked file the
 #      attributes want LF, whose disk copy is CRLF and otherwise identical to Git's, is
 #      rewritten from Git. A file with real edits is listed and left alone. The marker
@@ -34,11 +34,21 @@ check_tools() {
     done
 }
 
+# Whether <root> holds TypeScript of its own, as the commit gate asks it (gitflow
+# gates.sh has_typescript_sources). Outside a git repository the answer is yes.
+has_typescript_sources() {
+    local files own
+    files=$(git -C "$1" ls-files --cached --others --exclude-standard -- '*.ts' '*.tsx' '*.mts' '*.cts' 2>/dev/null) || return 0
+    own=$(printf '%s\n' "$files" | grep -vE '(^|/)(node_modules|\.claude|dist)/' | grep -vxF 'knip.config.ts')
+    [ -n "$own" ]
+}
+
 # Prints one line per gap in what the commit gate needs to typecheck <root>. Node and
 # Python are checked independently, as the gate checks them (gitflow gates.sh).
 check_typecheck() {
     local root="$1"
-    if [ -f "$root/package.json" ] && ! grep -q '"check-types"' "$root/package.json" 2>/dev/null; then
+    if [ -f "$root/package.json" ] && ! grep -q '"check-types"' "$root/package.json" 2>/dev/null &&
+        has_typescript_sources "$root"; then
         printf '%s\n' "package.json has no \"check-types\" script, so /commit and /ship-main fail their typecheck. Add one, e.g. \"check-types\": \"tsc --noEmit\"."
     fi
     if { [ -f "$root/pyproject.toml" ] || [ -f "$root/pyrightconfig.json" ]; } &&

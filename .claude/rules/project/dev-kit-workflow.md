@@ -67,7 +67,6 @@ The kit dogfoods only what it actually uses. Everything below ships to consumers
 | `rules/dependencies.md` | Kit has no `package.json` — nothing to install, no lockfile to protect. |
 | `skills/dependency-triage/**` | Kit has no `package.json` and no `.github/dependabot.yml` — no dependency PRs are ever opened here. |
 | `templates/knip.config.ts` | The kit's unused-code configuration. It reads a root `package.json` and the workspaces it declares; the kit has neither, and no JavaScript to analyse. |
-| `templates/knip.config.ts` | Kit has no `package.json` — knip has no import graph to analyse. |
 | `templates/scripts/**` | Seeds for a consumer's `scripts/` — `check-dep-alignment.mjs`, `check-workspace-tiers.mjs`, `check-stack.mjs`, `db-branch.mjs`. The first three read a `package.json` / workspace graph the kit does not have; the fourth resolves a Neon branch, and the kit has no database. |
 | `rules/project/README.md` | Consumer scaffolding placeholder; the kit has its own `rules/project/` content. |
 

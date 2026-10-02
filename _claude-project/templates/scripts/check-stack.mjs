@@ -123,6 +123,11 @@ const formLib = manifest.form_library ?? "@tanstack/react-form";
 const lockPath = resolve(repoRoot, "package-lock.json");
 const lock = existsSync(lockPath) ? readJson(lockPath) : null;
 
+// A workflow pins a tool the way its installer spells it: npm as name@version,
+// pip and uv as name==version.
+const pinnedIn = (workflow, name, version) =>
+  workflow.includes(`${name}@${version}`) || workflow.includes(`${name}==${version}`);
+
 // --- 1. blessed packages, each under its own trigger -----------------------
 // Counted when the trigger fires — a pin whose condition never holds here was
 // not checked, and the summary must not say it was.
@@ -148,7 +153,7 @@ for (const [name, spec] of Object.entries(blessed)) {
           `${present} is present but ${spec.ciWorkflow} is not — nothing installs ${name}, so the\n` +
             `      check the config is for never runs. Restore the workflow with /sync-dev-kit.${why}`,
         );
-      } else if (wf && !readFileSync(wf, "utf8").includes(`${name}@${spec.version}`)) {
+      } else if (wf && !pinnedIn(readFileSync(wf, "utf8"), name, spec.version)) {
         report(
           severity,
           `${spec.ciWorkflow}: installs ${name} without the blessed version ${spec.version}.\n` +

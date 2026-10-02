@@ -49,7 +49,14 @@ has 'python3 is missing'       "$out" 'names python3 when it is the Windows Stor
 
 echo "TYPECHECK — what the commit gate needs:"
 out=$(run "$tmp/ts-bad" "$PATH")
-has 'no "check-types" script'  "$out" 'package.json without check-types'
+has 'no "check-types" script'  "$out" 'package.json without check-types, outside a git repository'
+mkdir -p "$tmp/js-only/static"; git -C "$tmp/js-only" init -q
+printf '{"scripts":{"lint":"biome lint"}}' > "$tmp/js-only/package.json"
+: > "$tmp/js-only/static/app.js"; : > "$tmp/js-only/knip.config.ts"
+[ "$(run "$tmp/js-only" "$PATH")" = SILENT ] && ok 'package.json without check-types and no TypeScript sources' || bad 'warned where check-types does not apply'
+: > "$tmp/js-only/static/app.ts"
+out=$(run "$tmp/js-only" "$PATH")
+has 'no "check-types" script'  "$out" 'package.json without check-types once a TypeScript source exists'
 out=$(run "$tmp/py" "$(path_without pyright mypy)")
 has 'neither pyright nor mypy' "$out" 'pyproject.toml without pyright or mypy'
 mkdir -p "$tmp/fakepy"; printf '#!/bin/sh\nexit 0\n' > "$tmp/fakepy/mypy"; chmod +x "$tmp/fakepy/mypy"

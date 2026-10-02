@@ -11,21 +11,42 @@
 #
 # Each gate runs from the repository root, as the scripts that source this do.
 
+# has_typescript_sources — whether the repository holds TypeScript of its own: a
+# .ts, .tsx, .mts or .cts file git sees, outside node_modules, .claude and dist. The
+# root knip.config.ts is the kit's, read by knip, not the project's source. When
+# git cannot answer, the answer is yes: the check then applies, as it always did.
+# CI's `check-types` job asks the same question the same way.
+has_typescript_sources() {
+    local files own
+    files=$(git ls-files --cached --others --exclude-standard -- '*.ts' '*.tsx' '*.mts' '*.cts' 2>/dev/null) || return 0
+    own=$(printf '%s\n' "$files" | grep -vE '(^|/)(node_modules|\.claude|dist)/' | grep -vxF 'knip.config.ts')
+    [ -n "$own" ]
+}
+
+# pyright_pin — the pyright version the stack manifest pins, or nothing.
+pyright_pin() {
+    [ -f .claude/stack-manifest.json ] || return 0
+    jq -r '.packages.pyright.version // "" | strings' .claude/stack-manifest.json 2>/dev/null
+}
+
 # run_typecheck_gate <skip 0|1> <action>
 #
 # Node and Python are independent: a repo with both checks both.
 #
-# A root package.json without a `check-types` script FAILS. CI's `check-types` job
-# runs `npm run check-types` on every repo with a root package.json, so a missing
-# script fails there; passing here would only move that failure to the open PR.
+# A root package.json applies when it declares a `check-types` script or the
+# repository has TypeScript sources; then a missing script FAILS, as CI's
+# `check-types` job does — passing here would only move that failure to the open
+# PR. With neither, the check does not apply, and the gate says so.
 #
 # A root pyproject.toml or pyrightconfig.json runs pyright, else mypy — the second
 # is the root config of a repo whose Python lives in services/*/ (python-rules.md).
 # With neither checker installed it FAILS,
 # like the biome and semgrep gates below: this gate is the only Python typecheck
-# gitflow has, and a gate that cannot run must not report success.
+# gitflow has, and a gate that cannot run must not report success. An installed
+# pyright other than the stack manifest's pin warns, naming both: CI runs the pin,
+# so the two can disagree about the same code.
 run_typecheck_gate() {
-    local skip="$1" action="$2" ran=0 check_types
+    local skip="$1" action="$2" ran=0 check_types pin installed
     if [ "$skip" -eq 1 ]; then
         echo "gitflow: typecheck: skipped — --skip-typecheck was passed." >&2
         return 0
@@ -38,25 +59,34 @@ run_typecheck_gate() {
             echo "  A gate that cannot run must not report success, so this is a failure." >&2
             return 4
         fi
-        if [ -z "$check_types" ]; then
+        if [ -z "$check_types" ] && ! has_typescript_sources; then
+            echo "gitflow: check-types does not apply: no TypeScript sources." >&2
+        elif [ -z "$check_types" ]; then
             echo "" >&2
             echo "gitflow: package.json has no \"check-types\" script, and CI runs \`npm run check-types\`" >&2
             echo "  on every repository with a root package.json — the PR would fail there." >&2
             echo "  Fix: add a \"check-types\" script to package.json (for TypeScript: \"tsc --noEmit\")." >&2
             return 4
-        fi
-        echo "gitflow: running npm run check-types..." >&2
-        if ! npm run check-types >/dev/null 2>&1; then
-            echo "" >&2
-            echo "gitflow: TypeScript errors detected. Fix before $action." >&2
-            echo "  Run: npm run check-types" >&2
-            return 4
+        else
+            echo "gitflow: running npm run check-types..." >&2
+            if ! npm run check-types >/dev/null 2>&1; then
+                echo "" >&2
+                echo "gitflow: TypeScript errors detected. Fix before $action." >&2
+                echo "  Run: npm run check-types" >&2
+                return 4
+            fi
         fi
         ran=1
     fi
 
     if [ -f "pyproject.toml" ] || [ -f "pyrightconfig.json" ]; then
         if command -v pyright >/dev/null 2>&1; then
+            pin=$(pyright_pin)
+            installed=$(pyright --version 2>/dev/null | sed -nE 's/.*pyright ([0-9][^ ]*).*/\1/p' | head -1)
+            if [ -n "$pin" ] && [ "$installed" != "$pin" ]; then
+                echo "gitflow: warning: pyright ${installed:-of unknown version} is installed, but the stack manifest pins $pin, which CI runs." >&2
+                echo "  The two can report different errors on the same code. Install the pin: pip install pyright==$pin" >&2
+            fi
             echo "gitflow: running pyright..." >&2
             if ! pyright >/dev/null 2>&1; then
                 echo "" >&2

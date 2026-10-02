@@ -127,7 +127,7 @@ Unpushed `/checkpoint` commits are folded into this one: once every gate has pas
 
 The script will exit non-zero if:
 
-- TypeScript or Python typecheck fails, a root `package.json` has no `check-types` script, or a root `pyproject.toml` is present with neither pyright nor mypy installed
+- TypeScript or Python typecheck fails, a root `package.json` has no `check-types` script while the repository has TypeScript sources, or a root `pyproject.toml` is present with neither pyright nor mypy installed
 - Biome lint reports an error, or `biome.json` is present and `@biomejs/biome` is not installed
 - Semgrep reports a finding in a file this commit touches (`.semgrepignore` applies, as in CI), CI declares a `semgrep` job and semgrep is not installed locally, or the changed files cannot be listed
 - The rule review finds history, justification or a counted list in a changed rule, skill, command or pattern reference, or cannot run. Fix the text; the human may override a wrong finding with `SKIP_RULE_REVIEW=1`

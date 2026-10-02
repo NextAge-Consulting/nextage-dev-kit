@@ -72,7 +72,7 @@ The script:
 - An issue reaching Staged has no comment in `--notes`: exit 2, nothing committed.
 - A Staged comment did not post after the push: exit 13. The commit is live and the board updated; the script prints the exact `gh issue comment` to run.
 - Refused (not on main): tell the user they're on `<branch>`; use `/commit` for branch work.
-- Typecheck failure — including a root `package.json` with no `check-types` script, or a `pyproject.toml` with neither pyright nor mypy installed: surface the command to run; offer `--skip-typecheck` only if the user explicitly accepts shipping unverified.
+- Typecheck failure — including a root `package.json` with no `check-types` script while the repository has TypeScript sources, or a `pyproject.toml` with neither pyright nor mypy installed: surface the command to run; offer `--skip-typecheck` only if the user explicitly accepts shipping unverified.
 - Biome, semgrep or rule-review failure: surface the finding. `--skip-typecheck` does not apply — fix it, or ship the change through `/commit` and a PR instead. A rule-review finding the human judges wrong: they may re-run with `SKIP_RULE_REVIEW=1`.
 - Rebase conflict: surface the conflict; the user resolves then `git push origin main`.
 

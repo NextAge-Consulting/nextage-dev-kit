@@ -97,6 +97,8 @@ class UserCreate(BaseModel):
 
 Python 3.11+, with type hints on every function.
 
+**Put browser JavaScript that a Python server serves in a `static/` directory** — scripts its server-rendered pages load by path or inline. The kit's knip gate treats files under any `static/` directory as served assets; a script anywhere else reads to it as dead code.
+
 ## X. Setup and Commands
 
 Python LSP needs both Claude Code's official plugin and the pyright binary (constitution §IX). One-time per machine:
@@ -108,7 +110,7 @@ npm install -g pyright        # or: pip install pyright
 
 Verify with `which pyright-langserver` returning a path and `/plugin list` showing `pyright-lsp`. With either missing, LSP for Python is dead — fall back to the CLI. To verify end to end, run `documentSymbol`, `hover` and `findReferences` against a known-good file; `project-documentation/claude-code-setup.md` §Python holds the fixture and expected results.
 
-The CLI always works, and is what the gates run: `/commit` and `/ship-main` typecheck with `pyright` (or `mypy .` where pyright is not installed) whenever the root has a `pyproject.toml` or `pyrightconfig.json`, and CI's `python` job runs `ruff check .` and `pytest` in each `pyproject.toml` directory, then the same typecheck from the repository root — the project's pinned pyright, or `mypy .` where it declares only mypy. Run `ruff format .` yourself.
+The CLI always works, and is what the gates run: `/commit` and `/ship-main` typecheck with `pyright` (or `mypy .` where pyright is not installed) whenever the root has a `pyproject.toml` or `pyrightconfig.json`, and CI's `python` job runs `ruff check .` and `pytest` in each `pyproject.toml` directory, then the same typecheck from the repository root — pyright at the version `.claude/stack-manifest.json` pins, or `mypy .` where the root `pyproject.toml` declares only mypy. Run `ruff format .` yourself.
 
 ### Pyright configuration
 
@@ -129,6 +131,8 @@ Two kinds of dependency, two opposite rules — one is a library the code needs,
 **Runtime dependencies are per-service and independent.** One venv per service or package, each with its own `pyproject.toml` and lockfile. Services that do not import each other have no reason to agree on their libraries.
 
 **Shared dev tooling is pinned exact and identical in every service** — ruff, the type checker, the test runner, anything used by more than one.
+
+Pin pyright at the version `.claude/stack-manifest.json` names: CI runs that version whatever a service declares, and the commit gate warns when the installed one differs.
 
 Write `ruff==X.Y.Z`, never `>=`, for any linter, formatter or type checker: with a floor, each service locks whatever was current the day it last resolved, and a rule added in a patch release then fails untouched code in one service only. Bump the pin in every service in the same change, or the split silently re-opens.
 

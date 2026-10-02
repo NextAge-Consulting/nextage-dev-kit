@@ -48,10 +48,22 @@ has 'typecheck: skipped — no package.json, pyproject.toml or pyrightconfig.jso
 
 printf '{"name":"app","scripts":{"build":"x"}}\n' > package.json
 stub npm 0
-t 4 "$(gate run_typecheck_gate 0 committing)" 'package.json without check-types fails — CI runs it unconditionally'
+t 0 "$(gate run_typecheck_gate 0 committing)" 'package.json without check-types and no TypeScript sources passes'
+has 'check-types does not apply: no TypeScript sources' '…and says why'
+mkdir -p node_modules/x .claude dist
+touch knip.config.ts node_modules/x/a.ts .claude/a.ts dist/a.d.ts
+t 0 "$(gate run_typecheck_gate 0 committing)" '…the kit'"'"'s knip.config.ts and files under node_modules, .claude and dist are not sources'
+mkdir -p src; touch src/app.mts
+t 4 "$(gate run_typecheck_gate 0 committing)" 'package.json without check-types and a TypeScript source fails — CI runs it'
 has 'no "check-types" script' '…naming the missing script'
+rm -rf src node_modules .claude dist knip.config.ts
+mkdir -p web; touch web/page.tsx
 printf '{"name":"app","description":"\\"check-types\\" lives elsewhere"}\n' > package.json
 t 4 "$(gate run_typecheck_gate 0 committing)" 'the words "check-types" outside scripts do not count as the script'
+rm -rf web
+printf '{"name":"app","scripts":{"check-types":"tsc --checkJs"}}\n' > package.json
+t 0 "$(gate run_typecheck_gate 0 committing)" 'a declared check-types runs without TypeScript sources'
+t "run check-types" "$(tr '\n' ' ' < "$tmp/npm.args" | sed 's/ $//')" '…by running npm run check-types'
 printf '{"name":"app","scripts":{"check-types":"tsc --noEmit"}}\n' > package.json
 t 0 "$(gate run_typecheck_gate 0 committing)" 'check-types passing passes'
 t "run check-types" "$(tr '\n' ' ' < "$tmp/npm.args" | sed 's/ $//')" '…by running npm run check-types'
@@ -85,7 +97,15 @@ t 0 "$(gate run_typecheck_gate 0 committing)" 'pyrightconfig.json alone runs pyr
 has 'running pyright' '…and says so'
 stub pyright 1
 t 4 "$(gate run_typecheck_gate 0 committing)" '…and its errors fail'
-unstub pyright; rm pyrightconfig.json
+mkdir -p .claude
+printf '{"packages":{"pyright":{"version":"1.1.409"}}}\n' > .claude/stack-manifest.json
+stub pyright 0 '[ "${1:-}" = --version ] && echo "pyright 1.1.400"'
+t 0 "$(gate run_typecheck_gate 0 committing)" 'an installed pyright off the manifest pin still runs and passes'
+has 'pyright 1.1.400 is installed, but the stack manifest pins 1.1.409' '…warning with both versions'
+stub pyright 0 '[ "${1:-}" = --version ] && echo "pyright 1.1.409"'
+t 0 "$(gate run_typecheck_gate 0 committing)" 'the pinned pyright passes'
+if grep -q 'warning' "$tmp/err"; then t 'no warning' 'warned' '…without a warning'; else t x x '…without a warning'; fi
+unstub pyright; rm -rf pyrightconfig.json .claude
 
 echo "biome:"
 new_repo

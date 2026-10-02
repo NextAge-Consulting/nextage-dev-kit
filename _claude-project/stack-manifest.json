@@ -141,8 +141,7 @@
       "blessedAt": "2026-09-10",
       "ciWorkflow": ".github/workflows/commitlint.yml",
       "why": "commitlint.yml installs this at run time. Unpinned, that executes whatever the registry serves under the name, and --no-save leaves no record of what ran. This file owns the version and the guard asserts the workflow names it, so the two cannot drift apart."
-    }
-,
+    },
     "@google/design.md": {
       "version": "0.4.0",
       "applies": {
@@ -191,6 +190,20 @@
       "blessedAt": "2026-10-02",
       "ciWorkflow": ".github/workflows/ci.yml",
       "why": "The kit ships knip.config.ts and the CI knip job, so the kit owns the tool. The config is written against knip 5's schema and plugin behaviour: which entries a plugin contributes, how includeEntryExports treats a workspace's exports map, how ignoreIssues matches. Another version reads the same file differently and the gate reports a different set of findings with no change in the code. The job installs it at run time; this file owns the version and the guard asserts the workflow names it."
+    },
+    "pyright": {
+      "version": "1.1.409",
+      "applies": {
+        "whenFile": [
+          "pyrightconfig.json",
+          "pyproject.toml"
+        ]
+      },
+      "severity": "required",
+      "installedBy": "ci",
+      "blessedAt": "2026-10-02",
+      "ciWorkflow": ".github/workflows/ci.yml",
+      "why": "The CI python job typechecks from the repository root whenever a root pyrightconfig.json or pyproject.toml exists, so the kit owns the checker. Pyright adds and tightens checks in patch releases, so two versions report different errors on the same code. The job installs this version over whatever the project declares; the commit gate warns when the pyright installed locally differs. The guard asserts the workflow names it."
     }
   },
   "_packages_notes": {

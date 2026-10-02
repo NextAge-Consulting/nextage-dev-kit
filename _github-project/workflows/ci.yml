@@ -133,6 +133,10 @@ jobs:
           node-version: '24'
       - run: node scripts/check-stack.mjs
 
+  # Applies when package.json declares `check-types` or the repository has
+  # TypeScript sources of its own — then a missing script fails. The commit gate
+  # asks the same question (gitflow gates.sh has_typescript_sources); the root
+  # knip.config.ts is the kit's, not the project's.
   check-types:
     name: check-types
     needs: detect
@@ -140,12 +144,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+      - id: applies
+        name: does check-types apply
+        run: |
+          set -euo pipefail
+          ts=$(git ls-files -- '*.ts' '*.tsx' '*.mts' '*.cts' | { grep -vE '(^|/)(node_modules|\.claude|dist)/' || true; } | { grep -vxF knip.config.ts || true; })
+          if jq -e '.scripts["check-types"] | strings' package.json >/dev/null || [ -n "$ts" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::check-types does not apply: no TypeScript sources."
+          fi
+      - if: steps.applies.outputs.run == 'true'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
         with:
           node-version: '24'
           cache: npm
-      - run: npm ci
-      - run: npm run check-types
+      - if: steps.applies.outputs.run == 'true'
+        run: npm ci
+      - if: steps.applies.outputs.run == 'true'
+        run: npm run check-types
 
   biome:
     name: biome
@@ -204,18 +222,57 @@ jobs:
       NEON_ROLE_NAME: ${{ secrets.NEON_ROLE_NAME }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+      # A declared `test` script always runs. Without one, the job applies when
+      # the root package or a workspace holds a vitest config or a *.test.* /
+      # *.spec.* file — and then fails, because nothing would run them. A nested
+      # directory with its own package.json that is no workspace owns its tests
+      # (knip.config.ts treats it as its own package the same way).
+      - id: applies
+        name: does the test job apply
+        run: |
+          set -euo pipefail
+          if jq -e '.scripts.test | strings' package.json >/dev/null; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          workspaces=" "
+          while IFS= read -r glob; do
+            for dir in $glob; do
+              [ -f "$dir/package.json" ] && workspaces="$workspaces${dir%/} "
+            done
+          done < <(jq -r '(.workspaces | if type == "object" then .packages else . end) // [] | .[]' package.json)
+          foreign=$(mktemp)
+          git ls-files -- '*/package.json' | { grep -vE '(^|/)(node_modules|\.claude|dist)/' || true; } \
+            | while IFS= read -r manifest; do
+                dir=$(dirname "$manifest")
+                case "$workspaces" in *" $dir "*) ;; *) printf '%s/\n' "$dir" ;; esac
+              done > "$foreign"
+          found=$(git ls-files -- '*.test.*' '*.spec.*' 'vitest.config.*' '*/vitest.config.*' 'vitest.*.config.*' '*/vitest.*.config.*' \
+            | { grep -E '(^|/)vitest\.|\.(test|spec)\.[cm]?[jt]sx?$' || true; } \
+            | { grep -vE '(^|/)(node_modules|\.claude|dist)/' || true; } \
+            | awk -v foreign="$foreign" 'BEGIN { while ((getline d < foreign) > 0) owned[d] = 1 }
+                { for (d in owned) if (index($0, d) == 1) next; print }')
+          if [ -n "$found" ]; then
+            echo "::error::This repository has tests, but package.json declares no \"test\" script, so nothing runs them. Add one (testing.md §1)."
+            printf '%s\n' "$found"
+            exit 1
+          fi
+          echo "run=false" >> "$GITHUB_OUTPUT"
+          echo "::notice::The test job does not apply: package.json declares no \"test\" script and the repository has no vitest config or test files."
+      - if: steps.applies.outputs.run == 'true'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
         with:
           node-version: '24'
           cache: npm
-      - run: npm ci
+      - if: steps.applies.outputs.run == 'true'
+        run: npm ci
       # vitest.config.ts drops the integration project when the Neon secrets
       # are absent, and the run still passes — integration tests that exist
       # but never ran would read as green. Dependabot PRs are the one
       # exception: GitHub runs them without the repository's Actions secrets,
       # and their unit tests are still real signal.
       - name: integration tests have their database
-        if: github.event.pull_request.user.login != 'dependabot[bot]'
+        if: steps.applies.outputs.run == 'true' && github.event.pull_request.user.login != 'dependabot[bot]'
         run: |
           files=$(git ls-files '*.integration.test.ts')
           if [ -n "$files" ] && { [ -z "$NEON_API_KEY" ] || [ -z "$NEON_PROJECT_ID" ]; }; then
@@ -223,7 +280,8 @@ jobs:
             printf '%s\n' "$files"
             exit 1
           fi
-      - run: npm test
+      - if: steps.applies.outputs.run == 'true'
+        run: npm test
 
   # Unused code: files, exports, types and dependencies nothing uses, and imports
   # of packages a workspace never declares. The kit's knip.config.ts is the whole
@@ -321,8 +379,10 @@ jobs:
       # same choice: a root pyproject.toml or pyrightconfig.json runs pyright,
       # else mypy. From the root
       # because pyright reads its config only from the directory it is launched
-      # in (python-rules.md). The project's own pinned checker runs when it
-      # declares one; mypy runs only when it declares mypy and not pyright.
+      # in (python-rules.md). Pyright is always the stack manifest's pin,
+      # installed over whatever version the project declares, and stack-standard
+      # fails when this line names any other. mypy runs only when the root
+      # pyproject.toml declares mypy and not pyright.
       - name: typecheck (pyright, else mypy)
         if: ${{ !cancelled() }}
         run: |
@@ -336,16 +396,12 @@ jobs:
             exit 0
           fi
           has() { [ -f pyproject.toml ] && uv run python -c "import importlib.util, sys; sys.exit(importlib.util.find_spec('$1') is None)" >/dev/null 2>&1; }
-          if has pyright; then
-            echo "typecheck: pyright (the project's pinned version), from the repository root"
-            uv run pyright --stats
-          elif has mypy; then
+          if has mypy && ! has pyright; then
             echo "typecheck: mypy ., from the repository root"
             uv run mypy .
           else
-            echo "::warning::No root pyproject.toml declares pyright or mypy, so CI runs the latest pyright — pin one as a dev dependency (python-rules.md)."
-            echo "typecheck: pyright (latest), from the repository root"
-            "${run[@]}" --with pyright pyright --stats
+            echo "typecheck: pyright 1.1.409 (the stack manifest's pin), from the repository root"
+            PYRIGHT_PYTHON_IGNORE_WARNINGS=1 "${run[@]}" --with pyright==1.1.409 pyright --stats
           fi
 
   semgrep:

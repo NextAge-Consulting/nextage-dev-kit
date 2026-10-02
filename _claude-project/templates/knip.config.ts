@@ -10,6 +10,7 @@
 // finding that is not dead code is a gap in THIS file: raise it on the kit, never
 // silence it locally.
 
+import { execFileSync } from "node:child_process";
 import { type Dirent, existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, posix, relative, resolve } from "node:path";
 
@@ -45,14 +46,29 @@ const workspaceDirs = workspaceGlobs.flatMap((glob: string): string[] => {
     .filter((d: Dirent) => d.isDirectory() && existsSync(resolve(root, parent, d.name, "package.json")))
     .map((d: Dirent) => `${parent}/${d.name}`);
 });
+// A directory with its own package.json that is no root workspace — a test
+// harness, a tool — is analysed as a package of its own, so its imports are
+// attributed to the manifest that declares them. Candidates are the files git
+// sees, so nothing gitignored (a virtualenv's site-packages) is mistaken for one.
+const excludedDirs = /(^|\/)(node_modules|\.claude|dist|infra|project-documentation)\//;
+const nestedPackageDirs = execFileSync(
+  "git",
+  ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "*/package.json"],
+  { cwd: root, encoding: "utf8" },
+)
+  .split("\0")
+  .filter((f: string) => f !== "" && !excludedDirs.test(f) && existsSync(resolve(root, f)))
+  .map((f: string) => posix.dirname(toPosix(f)))
+  .filter((d: string) => !workspaceDirs.includes(d));
+const packageDirs = [...workspaceDirs, ...nestedPackageDirs];
 const workspaceOf = (file: string) =>
-  workspaceDirs.filter((d: string) => file.startsWith(`${d}/`)).sort((a: string, b: string) => b.length - a.length)[0] ?? ".";
+  packageDirs.filter((d: string) => file.startsWith(`${d}/`)).sort((a: string, b: string) => b.length - a.length)[0] ?? ".";
 
 // Drizzle configs are READ, never executed: they throw when their database URL
 // is unset, which is every CI run, and knip's drizzle plugin would execute them.
 // drizzle-kit consumes every export of the schema a config names.
 const drizzleConfigName = /^drizzle(\..+)?\.config\.(ts|js|mjs)$/;
-const drizzleConfigs = ["", ...workspaceDirs].flatMap((dir: string): string[] =>
+const drizzleConfigs = ["", ...packageDirs].flatMap((dir: string): string[] =>
   existsSync(resolve(root, dir))
     ? readdirSync(resolve(root, dir))
         .filter((f: string) => drizzleConfigName.test(f))
@@ -70,6 +86,11 @@ const schemaPaths = drizzleConfigs.flatMap((config: string): string[] => {
 const schemaGlobs = schemaPaths.map((p: string) => (/(^|\/)index\.(ts|js|mjs)$/.test(p) ? `${posix.dirname(p)}/**` : p));
 
 const knipDefaults = "{index,cli,main}.{js,mjs,cjs,jsx,ts,mts,cts,tsx}";
+// Browser scripts a non-JavaScript server reads by path and serves — a Python
+// app's server-rendered pages — live in a `static/` directory (python-rules.md).
+// Nothing knip can see imports them, and the page that loads one may call any of
+// its exports.
+const served = "**/static/**";
 const appEntries = [
   knipDefaults,
   `src/${knipDefaults}`,
@@ -78,8 +99,9 @@ const appEntries = [
   "src/{start,router}.{ts,tsx}",
   "design-system/**/*.{mjs,ts,css}",
   "public/**/*.js",
+  served,
 ];
-const packageEntries = [knipDefaults, `src/${knipDefaults}`, "design-system/**/*.{mjs,ts,css}"];
+const packageEntries = [knipDefaults, `src/${knipDefaults}`, "design-system/**/*.{mjs,ts,css}", served];
 const harness = "test/{globalSetup,integration-helpers,test-utils,auth-mocks}.ts";
 
 // Packages nothing imports by name: pino resolves its transport from a string
@@ -96,10 +118,11 @@ const workspaces: Record<string, Workspace> = {
     knipDefaults,
     `src/${knipDefaults}`,
     "scripts/*.{mjs,js,ts}",
-    ...(workspaceDirs.length === 0 ? appEntries : []),
+    ...(workspaceDirs.length === 0 ? appEntries : [served]),
   ]),
   "apps/*": workspace(appEntries),
   "packages/*": workspace(packageEntries),
+  ...Object.fromEntries(nestedPackageDirs.map((dir: string) => [dir, workspace(packageEntries)])),
 };
 // Knip takes the most specific workspace key and never merges, so a workspace
 // that needs its own entries starts from the ones its glob would have given it.
@@ -122,7 +145,7 @@ for (const file of [...drizzleConfigs, ...schemaPaths]) {
 }
 // A stylesheet a package script hands to the Tailwind CLI is an entry: nothing
 // imports it, the build reads it.
-for (const dir of [".", ...workspaceDirs]) {
+for (const dir of [".", ...packageDirs]) {
   const scripts: Record<string, string> = readJson(`${dir}/package.json`).scripts ?? {};
   for (const script of Object.values(scripts)) {
     for (const m of script.matchAll(/\btailwindcss\b[^&|;]*?(?:-i|--input)[ =]+([^\s&|;]+)/g)) {
@@ -135,7 +158,7 @@ if (sharedModule) entriesOf(sharedModule).push(harness);
 // A workspace that declares better-auth declares zod 4 beside it, imported by
 // nothing: it is there so the bundled auth code resolves zod 4 from the app, not
 // the zod 3 hoisted to the root (mfing-bible-of-tanstack, deployment.md).
-for (const dir of [".", ...workspaceDirs]) {
+for (const dir of [".", ...packageDirs]) {
   const manifest = readJson(`${dir}/package.json`);
   const declared: Record<string, string> = { ...manifest.dependencies, ...manifest.devDependencies };
   if (!("better-auth" in declared)) continue;
@@ -148,6 +171,7 @@ if (uiPackage && feedBarrel) entriesOf(uiPackage).push(feedBarrel);
 const consumedExports = [
   "**/src/server.ts",
   "**/design-system/design-system.config.mjs",
+  served,
   ...drizzleConfigs,
   ...schemaGlobs,
 ];
