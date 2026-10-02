@@ -165,7 +165,11 @@ export default {
   // unused export of shared code is never reported.
   includeEntryExports: true,
   // infra/ holds what the platform runs — buildspecs, handlers, images — under
-  // its own runtime, never imported by a workspace.
+  // its own runtime, never imported by a workspace. An ignored file still sits in
+  // the import graph; only its own findings are dropped. The generated route tree
+  // is the sole importer of every route's `Route` and of the router and start
+  // entries, so it must be committed, as TanStack Router's FAQ says — gitignored,
+  // knip never sees it and reports all of those as unused.
   ignore: [".claude/**", "project-documentation/**", "infra/**", "**/*.generated.*", "**/routeTree.gen.ts", "**/dist/**"],
   ignoreBinaries,
   ignoreDependencies,

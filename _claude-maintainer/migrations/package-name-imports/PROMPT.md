@@ -52,8 +52,9 @@ Compare with the baseline. A gate that passed before and fails now is this migra
 
 ## 3a. Server functions log and redact their failures
 
-Run `npx --no-install @biomejs/biome lint`. Any `lint/plugin/server-fn-logging` finding means
-this project's server functions are not yet at the kit standard. Read
+Run `npx --no-install @biomejs/biome lint --max-diagnostics=none` — without the flag Biome
+prints only the first 20 findings. Any `lint/plugin/server-fn-logging` finding means this
+project's server functions are not yet at the kit standard. Read
 `.claude/skills/mfing-bible-of-tanstack/references/server-functions.md`, sections "Every
 handler logs its own failure and redacts it" and "A server function's error message is never
 shown to the user", and follow them exactly:

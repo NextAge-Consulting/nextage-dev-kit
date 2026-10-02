@@ -21,6 +21,12 @@ We use a small Hono entry (`apps/<app>/server-start.mjs`) that:
 That file is **ours, not build output**. It is not bundled, it is not generated,
 and it must be copied into the image.
 
+**Name the file the deploy runs in the package's `start` script** —
+`"start": "node server-start.mjs"` — whether a Dockerfile `CMD` or a process
+manager starts it. Nothing imports a server entry, and knip reads package scripts
+but never a Dockerfile or service unit; an entry named nowhere else is reported
+as an unused file.
+
 ## Static files are not served for you
 
 Nothing serves `dist/client` unless you write it. The failure looks like the app
