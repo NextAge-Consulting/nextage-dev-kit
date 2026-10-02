@@ -21,8 +21,9 @@ The script:
 - Checks the PR against its base FIRST (exit 23): when `origin/main` has moved, a trial
   merge (`git merge-tree`) decides — a conflict refuses before any build or wait, and drift
   that merges cleanly is reported and the merge goes ahead.
-- Runs a **local production build gate** — `npm run build --workspaces --if-present` —
-  before the readiness wait and before the squash. CI does not build (it type-checks,
+- Runs a **local production build gate** — every workspace with a `build` script (or the
+  root, in a single-package repo), counted and printed; with none it says nothing was
+  built — before the readiness wait and before the squash. CI does not build (it type-checks,
   lints and tests), so a build-only break is invisible until here. This is the last
   moment the PR is still OPEN, so a failure is fixed on the branch that caused it rather
   than in a follow-up PR repairing the first. Not in CI on purpose: CI fires on every

@@ -114,5 +114,32 @@ jsonok 'git commit -m "wip"'
 jsonok 'git reset --hard'
 jsonok 'git clean -fd'
 
+echo "TOOL MISSING — the guard refuses, naming the tool, never allows:"
+tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+# shellcheck source=test-helpers.sh
+source "$(dirname "$H")/test-helpers.sh"
+pl='{"tool_name":"Bash","tool_input":{"command":"git status"}}'
+assert_refuses_without "$H" deny "$(path_without jq)" jq "$pl" 'no jq on PATH'
+assert_refuses_without "$H" deny "$(path_with_store_python)" python3 "$pl" 'python3 is the Windows Store stub'
+assert_refuses_without "$H" deny "$(path_without python3)" python3 "$pl" 'no python3 on PATH'
+
+echo "WINDOWS PYTHON (CRLF line ends) — a carriage return does not turn an allow into a deny:"
+mkdir -p "$tmp/crlf-python"
+real_py=$(command -v python3)
+printf '#!/bin/sh\n"%s" "$@" | sed "s/$/\\r/"\n' "$real_py" > "$tmp/crlf-python/python3"
+chmod +x "$tmp/crlf-python/python3"
+crlf(){ printf '{"tool_name":"Bash","tool_input":{"command":"%s"}}' "$2" \
+        | PATH="$tmp/crlf-python:$PATH" TMPDIR="$tmp" "$H" 2>/dev/null | python3 -c '
+import json,sys
+raw=sys.stdin.read().strip()
+if not raw: print("allow"); raise SystemExit
+try: print((json.loads(raw).get("hookSpecificOutput") or {}).get("permissionDecision") or "allow")
+except Exception: print("malformed")
+'; }
+for c in 'git checkout main' 'git checkout -b feat/x' 'git status'; do
+  d=$(crlf allow "$c"); [ "$d" = allow ] && echo "  ✓ allowed: $c" || { echo "  ✗ FAIL ($d) — $c"; fail=1; }
+done
+d=$(crlf deny 'git reset --hard'); [ "$d" = deny ] && echo "  ✓ denied: git reset --hard" || { echo "  ✗ FAIL ($d) — git reset --hard"; fail=1; }
+
 rm -f "$tmpout"
 exit "$fail"

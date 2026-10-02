@@ -67,3 +67,10 @@ Flag any new linter suppression (`// biome-ignore`, `// @ts-ignore`, `// @ts-exp
   bump is ever taken, `/review-stack` updates this entry with it.
 
 The full rule set is in `.claude/rules/`.
+
+## Project rules
+
+Rules specific to this repository. They carry the same weight as the hard rules above.
+
+<!-- project:begin project-rules -->
+<!-- project:end project-rules -->

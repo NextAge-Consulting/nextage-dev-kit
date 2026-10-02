@@ -18,7 +18,7 @@ The rules the kit owns are the same in every project that uses it. A project rec
 
 - **macOS — supported.** Built and tested on Apple Silicon macOS: Homebrew under `/opt/homebrew`, hooks written for the bash 3.2 Apple ships, BSD `sed` and `awk`, iTerm2 for `/dev` tabs and the launcher profiles. `project-documentation/macbook-setup.md` describes the machine it expects.
 - **Linux — limited.** `/dev` opens servers in tmux. The hooks and gitflow scripts are plain bash and expected to run, but are not tested there, and GNU `sed`/`awk` differ from the BSD ones they target. The iTerm2 launcher profiles have no equivalent.
-- **Windows — not supported.** Untested, including under WSL.
+- **Windows (Git Bash) — limited.** The hooks handle Windows paths, CRLF output and the Store `python3` stub, and keep checkouts on LF line endings; `project-documentation/windows-handbook.md` sets a machine up. Not yet tested on a Windows machine. WSL is untested.
 
 ## What This Is
 
@@ -245,5 +245,6 @@ See `.claude/rules/project/dev-kit-workflow.md` for details.
 | `project-documentation/kit-repo-github-config.md` | How THIS repo is configured on GitHub and why it differs from consumer projects. Pre-flight sanity checklist before changes that might need GitHub-side config. |
 | `project-documentation/dependency-management.md` | The monorepo "one stack" discipline + the `dep-alignment` CI gate: trust-but-verify on old workarounds, solid-version philosophy, the "logged-in not 200" verification standard, accepted-residuals handling. |
 | `project-documentation/macbook-setup.md` | Fresh Apple Silicon MacBook, end to end: Xcode CLT, Homebrew, shell, the CLI toolchain, editors, GUI apps, Parallels for legacy WINDEV work, launcher and statusline. |
+| `project-documentation/windows-handbook.md` | What a Windows machine needs before the kit's hooks run: Git Bash, `jq`, a real `python3`, line endings, the Defender exclusion. |
 | `project-documentation/zshrc.example` | Reference `~/.zshrc` — Homebrew ordering, Node LTS pin, the secrets pattern. |
 | `project-documentation/developer-onboarding.md` | Second-dev setup procedure, once the machine is ready. |

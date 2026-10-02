@@ -17,11 +17,15 @@
 # Override (user-authorized only): SKIP_RULE_AUTHORING=1.
 
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=guard-lib.sh
+source "$HOOK_DIR/guard-lib.sh"
 # shellcheck source=rule-prose.sh
 source "$HOOK_DIR/rule-prose.sh"
 
 INPUT=$(cat)
-EVENT=$(printf '%s' "$INPUT" | jq -r '.hook_event_name // ""' 2>/dev/null)
+# The event is read without jq, so PostCompact still knows itself when jq is missing.
+EVENT=$(hook_event_of "$INPUT")
+[ "$EVENT" = "PostCompact" ] || require_tools PreToolUse jq python3
 TOOL_NAME=$(printf '%s' "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
 FILE_PATH=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // ""' 2>/dev/null)
 SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // ""' 2>/dev/null)
@@ -30,13 +34,18 @@ CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // ""' 2>/dev/null)
 # Markers are per session. Without a session id, key on cwd so the caps still hold
 # rather than degrading to a deny on every change.
 KEY="$SESSION_ID"
-[ -n "$KEY" ] || KEY="cwd-$(printf '%s' "$CWD" | shasum -a 256 | awk '{print $1}')"
+[ -n "$KEY" ] || KEY="cwd-$(printf '%s' "$CWD" | sha256_stdin)"
 MARKER_DIR="${TMPDIR:-/tmp}/.claude-rule-authoring-files-${KEY}"
 FULL_SENT="$MARKER_DIR/full-text-sent"
 
 # Compaction may summarize the rules away, so the next deny carries them in full again.
+# Without jq the session id is unknown, so every session's full-text marker goes.
 if [ "$EVENT" = "PostCompact" ]; then
-    rm -f "$FULL_SENT" 2>/dev/null
+    if [ -n "$SESSION_ID" ]; then
+        rm -f "$FULL_SENT" 2>/dev/null
+    else
+        rm -f "${TMPDIR:-/tmp}"/.claude-rule-authoring-files-*/full-text-sent 2>/dev/null
+    fi
     exit 0
 fi
 
@@ -47,10 +56,12 @@ case "$TOOL_NAME" in
     *) exit 0 ;;
 esac
 
+# One spelling per file, so `C:\…` and `/c/…` share one marker and match the patterns.
+FILE_PATH=$(path_spelling "$FILE_PATH")
 is_rule_prose "$FILE_PATH" || exit 0
 
 # One deny per file per session.
-MARKER="$MARKER_DIR/$(printf '%s' "$FILE_PATH" | shasum -a 256 | awk '{print $1}')"
+MARKER="$MARKER_DIR/$(printf '%s' "$FILE_PATH" | sha256_stdin)"
 [ -f "$MARKER" ] && exit 0
 mkdir -p "$MARKER_DIR" 2>/dev/null && : > "$MARKER" 2>/dev/null || exit 0
 

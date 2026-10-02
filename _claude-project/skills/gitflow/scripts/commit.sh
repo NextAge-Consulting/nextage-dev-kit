@@ -41,6 +41,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/branch_helpers.sh"
 # shellcheck source=./issue_helpers.sh
 source "$SCRIPT_DIR/issue_helpers.sh"
+# shellcheck source=./gates.sh
+source "$SCRIPT_DIR/gates.sh"
 
 MESSAGE=""
 MODEL_NAME="Claude"
@@ -155,121 +157,11 @@ if is_protected_branch "$CURRENT_BRANCH"; then
     migrate_branch_linked_issues "$PREVIOUS_BRANCH" "$CURRENT_BRANCH"
 fi
 
-# Typecheck (script-level validation; hook layer is belt-and-suspenders)
-if [ "$SKIP_TYPECHECK" -eq 0 ]; then
-    if [ -f "package.json" ] && grep -q '"check-types"' package.json 2>/dev/null; then
-        echo "gitflow: running npm run check-types..." >&2
-        if ! npm run check-types >/dev/null 2>&1; then
-            echo "" >&2
-            echo "gitflow: TypeScript errors detected. Fix before committing." >&2
-            echo "  Run: npm run check-types" >&2
-            exit 4
-        fi
-    elif [ -f "pyproject.toml" ]; then
-        if command -v pyright >/dev/null 2>&1; then
-            echo "gitflow: running pyright..." >&2
-            if ! pyright >/dev/null 2>&1; then
-                echo "gitflow: Python type errors. Fix before committing (run: pyright)." >&2
-                exit 4
-            fi
-        elif command -v mypy >/dev/null 2>&1; then
-            echo "gitflow: running mypy..." >&2
-            if ! mypy . >/dev/null 2>&1; then
-                echo "gitflow: Python type errors. Fix before committing (run: mypy .)." >&2
-                exit 4
-            fi
-        fi
-    fi
-fi
-
-# Biome lint (if the project has adopted Biome — gated on biome.json presence
-# AND a root package.json). Mirrors the CI `biome` job so lint failures fire
-# locally in <1s instead of on the PR 30s later. CI runs that job only when a
-# root package.json exists (its `node` detection), and Biome can only be
-# installed as a devDependency of one — so a project with the kit's biome.json
-# but no Node stack skips this gate, exactly as CI does, rather than failing on
-# a linter it has no way to install. No-op in projects without Biome.
-#
-# ALWAYS `@biomejs/biome`, NEVER a bare `biome`, and always `--no-install`.
-# `npx biome` resolves to an UNRELATED package of that name on npm (an
-# environment-variable manager) which accepts `lint` as an unknown command and
-# EXITS 0 — so this gate reported success without linting anything. Without
-# `--no-install`, npx silently downloads whatever is latest, which is how a
-# project's pinned biome.json schema and the binary actually running it drift
-# apart with nothing to say so.
-if { [ -f "biome.json" ] || [ -f "biome.jsonc" ]; } && [ -f "package.json" ]; then
-    echo "gitflow: running biome lint..." >&2
-    if ! npx --no-install @biomejs/biome --version >/dev/null 2>&1; then
-        echo "" >&2
-        echo "gitflow: biome.json is present but @biomejs/biome is not installed." >&2
-        echo "  A gate that cannot run must not report success, so this is a failure." >&2
-        echo "  Fix: npm i -D @biomejs/biome@<the version biome.json's \$schema names>" >&2
-        exit 4
-    fi
-    if ! npx --no-install @biomejs/biome lint >/dev/null 2>&1; then
-        echo "" >&2
-        echo "gitflow: Biome lint errors detected. Fix before committing." >&2
-        echo "  Run: npx --no-install @biomejs/biome lint" >&2
-        exit 4
-    fi
-fi
-
-# Semgrep (mirrors the CI `semgrep` job), scoped to the files this commit touches.
-#
-# It is here because semgrep was the ONE CI gate with no local mirror, and that
-# gap has a shape: every other check fires in this script in about a second, so
-# a push is expected to reach CI green — which leaves semgrep as the only thing
-# that can surprise you, after the PR is already open and a review has been
-# triggered against a HEAD that is about to be replaced.
-#
-# Gated on CI actually declaring the job, so the local gate and the remote one
-# can never disagree about whether this repo is scanned at all.
-#
-# CHANGED FILES ONLY, and that limit is real: a rule that fires on a file this
-# commit does not touch still surfaces only in CI, which scans everything. This
-# catches what you are about to INTRODUCE — the case that costs the round trip —
-# and keeps the gate at seconds rather than the minute a full scan takes. It is
-# the same trade the biome gate above makes.
-if [ -f ".github/workflows/ci.yml" ] && grep -qE '^[[:space:]]*semgrep:[[:space:]]*$' .github/workflows/ci.yml 2>/dev/null; then
-    if ! command -v semgrep >/dev/null 2>&1; then
-        echo "" >&2
-        echo "gitflow: CI runs semgrep, but semgrep is not installed here." >&2
-        echo "  A gate that cannot run must not report success, so this is a failure." >&2
-        echo "  Fix: brew install semgrep   (or: pipx install semgrep)" >&2
-        exit 4
-    fi
-
-    # Tracked modifications plus untracked additions, minus deletions, measured from
-    # FOLD_BASE so content saved in checkpoints — which skipped every gate — is
-    # scanned too. `mapfile`
-    # is deliberately not used: macOS ships bash 3.2 as /bin/bash and does not
-    # have it, so this script would die on the shebang platform it most often
-    # runs on.
-    SEMGREP_FILES=()
-    while IFS= read -r semgrep_f; do
-        [ -n "$semgrep_f" ] && [ -f "$semgrep_f" ] && SEMGREP_FILES+=("$semgrep_f")
-    done < <(
-        {
-            git diff --name-only --diff-filter=d "$FOLD_BASE" 2>/dev/null
-            git ls-files --others --exclude-standard 2>/dev/null
-        } | sort -u
-    )
-
-    if [ ${#SEMGREP_FILES[@]} -gt 0 ]; then
-        echo "gitflow: running semgrep on ${#SEMGREP_FILES[@]} changed file(s)..." >&2
-        # Output is captured and REPLAYED on failure rather than suppressed with
-        # a "run it yourself" hint. A semgrep scan is tens of seconds; telling
-        # the user to pay that twice to find out what was wrong is the kind of
-        # small tax that gets a gate disabled.
-        if ! SEMGREP_OUT=$(semgrep scan --config auto --error "${SEMGREP_FILES[@]}" 2>&1); then
-            echo "" >&2
-            echo "gitflow: Semgrep findings in the files this commit touches. Fix before committing." >&2
-            echo "" >&2
-            printf '%s\n' "$SEMGREP_OUT" >&2
-            exit 4
-        fi
-    fi
-fi
+# Typecheck, biome and semgrep — gates.sh holds each gate and why it is shaped
+# the way it is.
+run_typecheck_gate "$SKIP_TYPECHECK" "committing" || exit $?
+run_biome_gate "committing" || exit $?
+run_semgrep_gate "$FOLD_BASE" "committing" || exit $?
 
 # Rule-prose review: every rule, skill, command or pattern reference changed since
 # FOLD_BASE, reviewed by a headless Claude against the rule-authoring standard.

@@ -44,11 +44,15 @@ start ──► create-design ──► work / feedback ⟲ ──► implement
 
 1. **start** — creates `project-documentation/temporary/design-<name>/` with its
    `README.md` (status `shaping`). Hand over screenshots of the screen being replaced;
-   they are copied in. Talk through what the screen keeps, who uses it and its shape.
-   Nothing is written to Claude Design yet.
-2. **create-design** — writes `brief.md` from the conversation, builds the design with the
-   project's design system installed, records the link in `README.md` (status
-   `prototyped`). It runs once; on a folder that already has a design it runs `work`.
+   they are copied in. Talk through what the screen keeps, who uses it and its shape,
+   and settle two things: the data it shows — the existing app's real records and labels
+   when the screen already exists, invented sample data only for a new one — and, when
+   the screen is used on phone and desktop, whether you want a phone preview beside each
+   screen. Nothing is written to Claude Design yet.
+2. **create-design** — writes `brief.md` from the conversation, including where its data
+   came from and whether it has phone previews, builds the design with the project's
+   design system installed, records the link and the design-system release in
+   `README.md` (status `prototyped`). It runs once; on a folder that already has a design it runs `work`.
 3. **work** — opens the design from its folder's link and watches it, warns if its design system is out
    of date, reads it and says where it stands, then holds the conversation: each change
    agreed is published to the design and added to `brief.md` under `## Decisions`. A
@@ -69,7 +73,7 @@ start ──► create-design ──► work / feedback ⟲ ──► implement
 
 | File | Holds |
 |---|---|
-| `README.md` | The pointer: feature, lead, status, the design's link, the version built from |
+| `README.md` | The pointer: feature, lead, status, the design's link, the design-system release it uses, the version built from |
 | `brief.md` | The agreed shape; under `## Decisions`, every change settled since — the design's history, gone with the folder |
 | screenshots | The source material, copied in |
 | `export/` | The design's pages and assets — written by `implement` only |
@@ -80,8 +84,9 @@ start ──► create-design ──► work / feedback ⟲ ──► implement
 
 **One interactive prototype, one page per screen, each screen a fluid page.** Screens
 link together in Play like the application. Each board and its preview open at
-1440×900, the browser-testing viewport; Play fills the window. A fixed-width preview is
-added only when a review asks for one.
+1440×900, the browser-testing viewport; Play fills the window. A phone preview — 390×844,
+beside each screen — is added when the brief or the designer asks for one. Without one,
+Play in a browser with device mode shows the same fluid page at phone size.
 
 A design is driven from Claude Code by anyone with edit access, or from its chat in
 claude.ai by the person who created it. Neither side is told of the other's changes, so
@@ -94,14 +99,21 @@ every `/ui-design` action reads the design before editing it.
 ```
 npm run build:design-system    # from the UI package: writes dist/design-system/
 npm run check:design-system    # renders every component in light, dark and canvas mounting
-/ui-design publish-system      # both of the above, then publish, then apply it to designs
+/ui-design publish-system      # numbers the release, both of the above, publish, apply to designs
 ```
+
+- **Every publish is a numbered release.** The system's README and cover open with
+  `Release 12 · built 2026-10-01 from 3f2a1c9`; a design's `README.md` records the
+  release it uses, so comparing the two says whether a design is behind.
 
 - **One design system per repo.** Its address is the `artifact:` line in the UI
   package's `design-system/design-system.config.mjs`, committed. Anyone who can edit it
   publishes to that one address.
 - **Change it in code, never on its page.** A token, a component, a usage note — edit the
   UI package and publish again.
+- **The config holds content; the paths are the project's `DESIGN_*` keys** in
+  `.claude/sync-substitutions.json`. The engine fails, naming the key, on anything it does
+  not read or anything missing.
 - **The config needs `timeZone`,** the project's IANA zone. Each sync is dated in it.
 - **A design keeps its own copy of the system** and never updates by itself.
   `apply-system` brings it onto the current version, and every action that opens a
@@ -164,6 +176,8 @@ Share the design with **edit** access; each person drives their own turns.
 |---|---|
 | Build fails naming tokens | A token has no usage comment, or uses a colour construct the engine can't translate. Fix the token in code — never drop it. |
 | Build fails asking for `timeZone` | Add the project's IANA zone to the config. |
+| Build fails: a key is "not a config key the engine reads" | A path belongs in the `DESIGN_*` key the message names, in `.claude/sync-substitutions.json`; anything else, check `config-example.mjs`. |
+| Build fails: the cover has no `<!-- ds-stamp -->` mark | Put the mark where the cover should show the release line. |
 | A design shows the system's colours but no components | The system has never been edited on its page. Make one small edit there, then run `apply-system` on the design. |
 | Publish refused because someone saved meanwhile | The action re-reads and redoes the edit once; a second refusal stops and says so. |
 | A collaborator's change landed in a copy, not your design | Their browser chat can't write to a design shared from another organization. They drive it from Claude Code, by link. |

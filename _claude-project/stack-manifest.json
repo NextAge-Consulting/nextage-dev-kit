@@ -142,6 +142,43 @@
       "ciWorkflow": ".github/workflows/commitlint.yml",
       "why": "commitlint.yml installs this at run time. Unpinned, that executes whatever the registry serves under the name, and --no-save leaves no record of what ran. This file owns the version and the guard asserts the workflow names it, so the two cannot drift apart."
     }
+,
+    "@google/design.md": {
+      "version": "0.4.0",
+      "applies": {
+        "whenFile": [
+          "design.md"
+        ]
+      },
+      "severity": "required",
+      "installedBy": "project",
+      "blessedAt": "2026-10-01",
+      "why": "The kit's design-system discipline makes design.md the spec, and CI runs `npm run lint:design` (`design.md lint design.md`) whenever it exists. The linter's rules change between pre-1.0 minors, so an unpinned one passes a spec on one machine and fails it on another."
+    },
+    "esbuild": {
+      "version": "0.28.2",
+      "applies": {
+        "whenFile": [
+          "{{DESIGN_UI_PACKAGE}}/design-system/design-system.config.mjs"
+        ]
+      },
+      "severity": "required",
+      "installedBy": "project",
+      "blessedAt": "2026-10-01",
+      "why": "The kit's claude-design engine bundles the design system with it, resolved from the UI package. A different version emits a different bundle for the same source, so the published system would change with no code change behind it."
+    },
+    "@tailwindcss/cli": {
+      "version": "4.3.3",
+      "applies": {
+        "whenFile": [
+          "{{DESIGN_UI_PACKAGE}}/design-system/design-system.config.mjs"
+        ]
+      },
+      "severity": "required",
+      "installedBy": "project",
+      "blessedAt": "2026-10-01",
+      "why": "The kit's claude-design engine builds the design system's stylesheet with it (the config's css.build), and the build fails when a class the system promises is missing from that output. Tailwind v4 is the stack the engine is built for."
+    }
   },
   "_packages_notes": {
     "@tanstack/react-table": "v9.0.0, GA 2026-08-04 after 54 alphas + 80 betas. v8 is NOT the conservative alternative \u2014 its last release was 8.21.3 on 2025-04-14. Do not use legacyCreateColumnHelper: open upstream TS issue (aggregationFn rejects built-in string identifiers).",

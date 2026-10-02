@@ -100,6 +100,11 @@
         "hooks": [
           {
             "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/toolchain-check.sh",
+            "timeout": 30
+          },
+          {
+            "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/bash-edit-diff-check.sh",
             "timeout": 5
           }

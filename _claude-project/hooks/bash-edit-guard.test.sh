@@ -107,6 +107,34 @@ if run "$(event "$repo/src/forbidden.ts")" | python3 -c 'import json,sys; d=json
   echo "  ✓ valid JSON naming the file, quotes intact"
 else echo "  ✗ FAIL — block payload unparseable or incomplete"; fail=1; fi
 
+echo "A GUARD THAT DOES NOT RUN IS A FINDING, NEVER AN ALLOW:"
+cp "$repo/.claude/settings.json" "$tmp/settings.saved"
+printf '#!/bin/bash\nsleep 5\n' > "$repo/.claude/hooks/slow.sh"; chmod +x "$repo/.claude/hooks/slow.sh"
+cat > "$repo/.claude/settings.json" <<'EOF'
+{"hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[
+  {"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/slow.sh"},
+  {"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/not-there.sh"}]}]}}
+EOF
+printf 'ok\n' > "$repo/src/fine.ts"
+reason=$(printf '%s' "$(event "$repo/src/fine.ts")" | BASH_EDIT_GUARD_TIMEOUT=1 CLAUDE_PROJECT_DIR="$repo" "$H" 2>/dev/null \
+         | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["decision"], d["reason"])' 2>/dev/null)
+case "$reason" in block*"slow.sh could not run"*"did not finish"*) echo "  ✓ a guard that times out is reported by name" ;;
+                  *) echo "  ✗ FAIL — timeout not reported: $reason"; fail=1 ;; esac
+case "$reason" in *"not-there.sh could not run"*"not found"*) echo "  ✓ a guard that is not found is reported by name" ;;
+                  *) echo "  ✗ FAIL — missing guard not reported: $reason"; fail=1 ;; esac
+cp "$tmp/settings.saved" "$repo/.claude/settings.json"
+
+echo "PROJECT DIR FROM THE PAYLOAD when CLAUDE_PROJECT_DIR is unset:"
+got=$(printf '%s' "$(event "$repo/src/forbidden.ts")" | env -u CLAUDE_PROJECT_DIR "$H" 2>/dev/null \
+      | python3 -c 'import json,sys; print(json.load(sys.stdin).get("decision"))' 2>/dev/null)
+[ "$got" = block ] && echo "  ✓ cwd in the payload locates the project" || { echo "  ✗ FAIL (got $got) — payload cwd ignored"; fail=1; }
+
+echo "TOOL MISSING — python3 that does not run is reported, never a silent pass:"
+# shellcheck source=test-helpers.sh
+source "$(dirname "$H")/test-helpers.sh"
+assert_refuses_without "$H" block "$(path_with_store_python)" python3 "$(event "$repo/src/forbidden.ts")" 'python3 is the Windows Store stub'
+assert_refuses_without "$H" block "$(path_without python3)" python3 "$(event "$repo/src/forbidden.ts")" 'no python3 on PATH'
+
 echo "DEGENERATE INPUT:"
 for p in '' 'not json' 'null' '[]' '{"tool_response":null}' '{"tool_response":{"bashEditDiff":{"changedFiles":"x"}}}' '{"tool_response":{"bashEditDiff":{"changedFiles":[null,3]}}}'; do
   out=$(run "$p"); rc=$?

@@ -12,7 +12,7 @@
 #   _claude-project/templates/ui-inventory.md, _claude-maintainer/**.md
 
 is_rule_prose() {
-    local p="$1"
+    local p="${1//\\//}"   # a Windows path's separators, so the patterns below match
     [ -n "$p" ] || return 1
     case "${p##*/}" in
         CLAUDE.md) return 0 ;;

@@ -49,8 +49,9 @@ The kit dogfoods only what it actually uses. Everything below ships to consumers
 | `skills/design-system/**`, `rules/ui-design.md`, `rules/a11y-baseline.md` | Kit has no UI — no JSX/TSX, no `design.md` (kitmaintainer-handbook.md §12a.7). |
 | `skills/claude-design/**`, `commands/ui-design.md` | Kit has no UI package and no design system to publish to Claude Design. |
 | `skills/ui-patterns/**`, `rules/ui-patterns.md` | Kit has no UI — nothing to compose and no interactions to pattern. |
-| `templates/dependency-policy.md` | Operating procedure for acting on Dependabot output. The kit has no `package.json` and no dependencies, so there is nothing to triage and no timelines to own. Syncs to consumers in `template` mode (pipeline.md §3.5). |
-| `templates/ui-inventory.md` | Seed for a consumer's `rules/project/ui-inventory.md` — an enumeration of that project's own components. Kit has no UI, so there is nothing to enumerate. |
+| `templates/dependency-policy.md` | Operating procedure for acting on Dependabot output. The kit has no `package.json` and no dependencies, so there is nothing to triage and no timelines to own. Syncs to consumers in `merge` mode: the owners, timelines and project-notes regions are the project's (pipeline.md §3.5). |
+| `templates/ui-inventory.md` | A consumer's `rules/project/ui-inventory.md`, synced in `merge` mode — the project's own components and patterns live in its regions. Kit has no UI, so there is nothing to enumerate. |
+| `templates/design-system/**` | Lands inside the consumer's UI package (`DESIGN_UI_PACKAGE`). Kit has no UI package — its `DESIGN_UI_PACKAGE` is empty. |
 | `skills/shadcn/**` | Kit has no `components.json` / shadcn install. |
 | `skills/mfing-bible-of-tanstack/**` | Kit has no TanStack code. |
 | `stack-manifest.json` | Every version the kit blesses, each with the condition it applies under — `whenDeclared` (the library standard), `whenFile` (a kit-shipped config implies its tool), `whenResolved` (a package the kit's own choices drag in, transitively). Plus vendored-reference provenance. Kit has no `package.json`, no lockfile and no TanStack dependency, so none of the triggers could fire here. Consumed by the (also template-only) `scripts/check-stack.mjs`. |
@@ -87,6 +88,7 @@ When any new command, skill, hook or rule is added to `_claude-project/`, make a
 | `overview.md` | Everyone — the build-and-ship loop and which guide is yours |
 | `developer-handbook.md`, `designer-handbook.md`, `devops-handbook.md` | One role each; short, the why and the loop, pointing to reference |
 | `*-cheatsheet.md` | One role's commands, one page |
+| `windows-handbook.md` | A developer on Windows — the machine setup the kit's hooks need |
 | Setup and pattern references (`new-project-setup.md`, `infrastructure.md`, …) | Handed to an AI to walk a human through; a rule may cite one |
 | `kitmaintainer-handbook.md`, `kit-repo-github-config.md`, `hook-patterns.md` | The kit maintainer |
 

@@ -15,3 +15,7 @@ A rule, a project rule or a doc written because a session thought something matt
 - **Every project** → the dev kit. Unless this machine is the kit maintainer's, that is a GitHub issue on the kit's repo (`kitRepo` in `.claude/.kit-sync.json`), never an edit to a synced file.
 - **How work is done in this project** → `.claude/rules/project/**`.
 - **A fact about this system** → `project-documentation/`.
+
+**File a kit issue only for a defect, a blocker, or a change a new feature or dependency forces** — never for "this could read better".
+
+**When a kit-owned file stands in the way of the work, follow the script in `block-kit-edit.sh`'s deny message:** put the reason to the human, and change the file only as the temporary patch it describes, after their yes.

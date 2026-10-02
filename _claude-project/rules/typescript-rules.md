@@ -8,7 +8,7 @@ Loaded when editing TypeScript. Universal rules live in `constitution.md`. Front
 
 ## I. TypeScript Quality (Zero Tolerance)
 
-**Commit no TypeScript errors.** The pre-commit hook enforces it, LSP diagnostics are authoritative (constitution §IX), and a TS error is a compilation failure rather than a suggestion.
+**Commit no TypeScript errors.** The commit gate enforces it, LSP diagnostics are authoritative (constitution §IX), and a TS error is a compilation failure rather than a suggestion.
 
 Delete dead code rather than renaming it `_unusedVar`. Give values real types rather than `: any` or `as any`, and fix the underlying issue rather than writing `// @ts-ignore`.
 

@@ -55,6 +55,13 @@ renders it, so the route guard is navigation UX, not the boundary. We do not use
 `createMiddleware` for auth — see `server-functions.md` for the evidence, which is
 stronger than a style preference.
 
+**Every handler logs its own failure and redacts it.** Start never logs a thrown
+server function server-side, and it ships the thrown message to the browser. Wrap
+every handler in `logFailures(name, fn)`, which logs the error and throws a
+generic one in its place; only a `UserFacingError`'s message crosses the wire
+intact. A caller shows that message or its own general statement. See
+`server-functions.md`.
+
 **The URL is the browse's state.** Filters, page and size are search params, so a
 screen can be bookmarked, pasted and refreshed.
 
@@ -74,7 +81,7 @@ Next.js; do not bring those assumptions.
 |---|---|
 | Route loaders, loaderDeps, router+query wiring, guards, selective SSR, deferred data | `data-loading.md` |
 | Filters, paging and sort as URL state; the all-digits coercion trap | `search-params.md` |
-| `createServerFn`, validation, auth, the session-helper factory, what runs where, why not middleware | `server-functions.md` |
+| `createServerFn`, failure logging, user-facing errors, validation, auth, the session-helper factory, what runs where, why not middleware | `server-functions.md` |
 | queryOptions, cache keys, scoped invalidation, optimistic updates, dead-session handling | `queries-and-mutations.md` |
 | Browses on Table v9 — column defs, server paging, selection, column control | `browse-tables.md` |
 | Record forms on TanStack Form — validation, field arrays, server validation | `forms.md` |

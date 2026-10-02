@@ -1,0 +1,12 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "incremental": false,
+    "rootDir": "..",
+    "outDir": "../dist/design-system-types"
+  },
+  "include": ["../{{DESIGN_FEED_BARREL}}", "../src/**/*.d.ts"]
+}

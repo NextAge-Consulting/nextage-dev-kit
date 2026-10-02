@@ -2,9 +2,12 @@
 # test-on-edit.sh — PostToolUse hook. Runs a file's test suite the moment the file changes.
 #
 # THE CONVENTION
-#   A file `X.<ext>` is tested by a sibling `X.test.sh`. Editing either one runs it.
-#   That is the whole contract — no registry, no config, no runner to keep in sync.
-#   Drop a `X.test.sh` next to anything and it is wired up from that moment.
+#   A file `X.<ext>` is tested by a sibling `X.test.sh`, or by a sibling `X.test.mjs`
+#   that imports `node:test` (run with `node --test`). Editing the subject or the suite
+#   runs it. That is the whole contract — no registry, no config, no runner to keep in
+#   sync. Drop either suite next to anything and it is wired up from that moment.
+#   A `.test.mjs` that does not import `node:test` belongs to another runner (vitest)
+#   and is left to it.
 #
 # WHY ON EDIT, AND NOT IN CI OR ON SYNC
 #   Both of the obvious alternatives test the wrong thing at the wrong time.
@@ -29,7 +32,11 @@ set -uo pipefail
 
 [ "${TEST_ON_EDIT:-on}" = "off" ] && exit 0
 
+# shellcheck source=guard-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/guard-lib.sh"
+
 payload=$(cat)
+require_tools PostToolUse python3
 
 file=$(python3 -c '
 import json, sys
@@ -37,22 +44,37 @@ try:
     d = json.load(sys.stdin)
 except Exception:
     sys.exit(0)
-print((d.get("tool_input") or {}).get("file_path") or "")
+print(((d.get("tool_input") or {}) if isinstance(d, dict) else {}).get("file_path") or "")
 ' 2>/dev/null <<<"$payload")
+file=${file%$'\r'}   # Python on Windows ends its line with CRLF
 
 [ -z "$file" ] && exit 0
+file=$(normalize_path "$file")
 
 # Editing the test itself re-runs it; editing the subject runs its sibling.
 case "$file" in
-  *.test.sh) suite="$file" ;;
-  *)         suite="${file%.*}.test.sh" ;;
+  *.test.sh|*.test.mjs) suite="$file" ;;
+  *)
+    suite="${file%.*}.test.sh"
+    [ -f "$suite" ] || suite="${file%.*}.test.mjs" ;;
 esac
 
 [ -f "$suite" ] || exit 0
-[ -x "$suite" ] || chmod +x "$suite" 2>/dev/null
 
-output=$("$suite" 2>&1)
-status=$?
+case "$suite" in
+  *.test.mjs)
+    grep -qE "from ['\"]node:test['\"]|require\(['\"]node:test['\"]\)" "$suite" 2>/dev/null || exit 0
+    if ! command -v node >/dev/null 2>&1; then
+      echo "🧪 $(basename "$suite") could not run: node is not on PATH. Install Node.js, or tell the human this suite is unchecked." >&2
+      exit 2
+    fi
+    output=$(node --test "$suite" 2>&1)
+    status=$? ;;
+  *)
+    [ -x "$suite" ] || chmod +x "$suite" 2>/dev/null
+    output=$("$suite" 2>&1)
+    status=$? ;;
+esac
 
 [ "$status" -eq 0 ] && exit 0
 

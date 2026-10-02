@@ -2,44 +2,56 @@
 /* Builds a Claude Design "Design System" artifact's files from a project's UI
  * package — the code is the source, the artifact a published view of it.
  *
- *   node .claude/skills/claude-design/scripts/build.mjs <path/to/design-system.config.mjs>
+ *   node .claude/skills/claude-design/scripts/build.mjs <path/to/design-system.config.mjs> [--release <n>]
  *
- * Everything project-specific lives in the config (see
- * references/config-example.mjs): where the tokens, type roles and components
- * are, which components get previews and where their guidelines come from.
+ * The project's paths come from .claude/sync-substitutions.json, its content from
+ * the config (references/config-example.mjs) — config.mjs reads both. `--release`
+ * is the number /ui-design publish-system gives this publish; the system's README,
+ * its cover and its index carry "Release <n> · built <date> from <sha>".
  *
- * Writes <package>/<out>/project/ — tokens.json, README.md, the cover, fonts,
- * asset-group READMEs, and the components: bundle.js (window.<namespace> on the
- * design page's React 18), bundle.css, index.d.ts, React 18 in components/lib,
- * and a preview and README per component — plus <out>/index-fields.json, the
- * keys of the artifact's index this build owns. Publishing is a separate,
- * interactive step (/ui-design publish-system): headless runs have no Artifact tool.
+ * Writes the generated safelist and class-merge files into the UI package
+ * (generate.mjs), then <package>/<out>/project/ — tokens.json, README.md, the
+ * cover, fonts, asset-group READMEs, and the components: bundle.js
+ * (window.<namespace> on the design page's React 18), bundle.css, index.d.ts,
+ * React 18 in components/lib, and a preview and README per component — plus
+ * <out>/index-fields.json, the keys of the artifact's index this build owns.
+ * Publishing is a separate, interactive step (/ui-design publish-system):
+ * headless runs have no Artifact tool.
  *
- * Fails with a non-zero exit, naming each offender, when a token has no usage
- * comment, a value cannot be translated, a token fits no family, or a component
- * has no guidelines — never a silent drop. */
+ * Fails with a non-zero exit, naming each offender, when a piece of the UI stack
+ * is missing, no colour token is read, a token has no usage comment, a value
+ * cannot be translated, a token fits no family, a promised class is not shipped,
+ * or a component has no guidelines — never a silent drop. */
 
 import { execSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import * as esbuild from 'esbuild'
-import { DEFAULT_THEME_SELECTORS, isColorValue, parseTokenBlocks, resolveColor } from './resolve.mjs'
+import { checkPrerequisites, iconsSpecifier, loadConfig, packageRequire } from './config.mjs'
+import { writeGenerated } from './generate.mjs'
+import { buildModel, promisedClasses, readText } from './model.mjs'
 
-const configPath = process.argv[2]
-if (!configPath) {
-  console.error('usage: build.mjs <path/to/design-system.config.mjs>')
+const args = process.argv.slice(2)
+const releaseAt = args.indexOf('--release')
+const RELEASE = releaseAt >= 0 ? Number(args[releaseAt + 1]) : null
+if (releaseAt >= 0 && !(Number.isInteger(RELEASE) && RELEASE > 0)) {
+  console.error('usage: build.mjs <path/to/design-system.config.mjs> [--release <n>]')
   process.exit(2)
 }
-const CONFIG_FILE = path.resolve(configPath)
-const CONFIG_DIR = path.dirname(CONFIG_FILE)
-const CONFIG = (await import(pathToFileURL(CONFIG_FILE).href)).default
-const REPO = execSync('git rev-parse --show-toplevel', { cwd: CONFIG_DIR }).toString().trim()
-const PKG = path.join(REPO, CONFIG.package)
-const OUT = path.join(PKG, CONFIG.out ?? 'dist/design-system')
+const ctx = await loadConfig(args.find((a, i) => releaseAt < 0 || (i !== releaseAt && i !== releaseAt + 1)), { tool: 'build.mjs' })
+const { CONFIG, CONFIG_DIR, REPO, PKG } = ctx
+const OUT = path.join(PKG, CONFIG.out)
 const PROJECT = path.join(OUT, 'project')
 const NS = CONFIG.namespace
+
+const missing = checkPrerequisites(ctx)
+if (missing.length) {
+  console.error(`design-system build: the UI stack is incomplete — nothing written.\n`)
+  for (const p of missing) console.error(`  ✗ ${p}`)
+  process.exit(1)
+}
+const esbuild = await import(pathToFileURL(packageRequire(PKG).resolve('esbuild')).href)
 
 // The sync is dated in the project's own zone: UTC would date an evening sync
 // in the Americas as tomorrow. Required — there is no safe default zone.
@@ -49,8 +61,8 @@ try {
 } catch {
   SYNC_DATE = null
 }
-if (!CONFIG.timeZone || !SYNC_DATE) {
-  console.error(`design-system build: the config needs \`timeZone\`, the project's IANA zone (e.g. 'America/Chicago') — got ${JSON.stringify(CONFIG.timeZone)}`)
+if (!SYNC_DATE) {
+  console.error(`design-system build: \`timeZone\` must be the project's IANA zone (e.g. 'America/Chicago') — got ${JSON.stringify(CONFIG.timeZone)}`)
   process.exit(2)
 }
 
@@ -79,8 +91,8 @@ const PAGE_REACT = [
  * pages and canvases run React 18, which strips it — so a Radix trigger rendered
  * through a component (`asChild`) loses its anchor and the overlay never opens.
  * REF_AS_PROP restores React 19's behaviour on 18, for this bundle only: a plain
- * function component given a ref is rendered through a cached forwardRef wrapper
- * that hands the ref back in as a prop. Used by the JSX runtime shim (the
+ * function component is rendered through a cached forwardRef wrapper that hands
+ * any ref back in as a prop. Used by the JSX runtime shim (the
  * bundle's own JSX) and by the footer (components the page mounts by name). */
 const REF_AS_PROP = `function refAsProp(R, cache, t) {
   var w = cache.get(t);
@@ -106,136 +118,16 @@ function soleChild(R, props) {
   return props;
 }`
 
-const problems = []
-const notCarried = []
-const families = {
-  radius: new RegExp(CONFIG.families?.radius ?? '^radius-'),
-  shadow: new RegExp(CONFIG.families?.shadow ?? '^shadow-'),
-  skip: new RegExp(CONFIG.families?.skip ?? '^$'),
-}
-
-// ─── token CSS → per-theme environments ────────────────────────────────────
-const blocks = CONFIG.tokens.flatMap((rel) => parseTokenBlocks(read(rel), CONFIG.themeSelectors ?? DEFAULT_THEME_SELECTORS))
-const lightDecls = blocks.filter((b) => b.theme === 'light').flatMap((b) => b.decls)
-const darkDecls = blocks.filter((b) => b.theme === 'dark').flatMap((b) => b.decls)
-const lightEnv = new Map(lightDecls.map((d) => [d.name, d.value]))
-const darkEnv = new Map([...lightEnv, ...darkDecls.map((d) => [d.name, d.value])])
-const usageOf = new Map(lightDecls.map((d) => [d.name, d.usage]))
-
-const colorNames = new Set(
-  lightDecls
-    .filter((d) => isColorValue(d.value) || (/^var\(--[\w-]+\)$/.test(d.value) && isColorValue(chase(d.value, lightEnv))))
-    .map((d) => d.name),
-)
-
-function chase(v, env, depth = 0) {
-  const ref = /^var\(--([\w-]+)\)$/.exec(v)
-  return ref && depth < 16 ? chase(env.get(ref[1]) ?? '', env, depth + 1) : v
-}
-
-const colorTokens = []
-for (const d of lightDecls) {
-  if (!colorNames.has(d.name)) continue
-  const value = {}
-  for (const [theme, env] of [
-    ['light', lightEnv],
-    ['dark', darkEnv],
-  ]) {
-    try {
-      value[theme] = resolveColor(env.get(d.name), env, colorNames)
-    } catch (e) {
-      problems.push(`--${d.name} (${theme}): ${e.message}`)
-    }
-  }
-  if (value.dark === value.light) delete value.dark
-  colorTokens.push({ name: d.name, value, usage: requireUsage(d.name) })
-}
-
-// Every other token lands in a family, or is one the config says the type roles
-// or spacing consume.
-const radius = []
-const shadow = []
-for (const d of lightDecls) {
-  if (colorNames.has(d.name) || families.skip.test(d.name)) continue
-  if (families.radius.test(d.name)) radius.push({ name: d.name, value: d.value, usage: requireUsage(d.name) })
-  else if (families.shadow.test(d.name)) {
-    const dark = darkEnv.get(d.name)
-    shadow.push({ name: d.name, value: dark === d.value ? d.value : { light: d.value, dark }, usage: requireUsage(d.name) })
-  } else problems.push(`--${d.name}: no design-system family for this token — map it in the config's families rather than dropping it`)
-}
-
-// Spacing: the framework's scale as named steps, plus named measurements the
-// styles expose as spacing aliases (`--spacing-control: var(--size-control)`).
-const stylesCss = CONFIG.styles ? read(CONFIG.styles) : ''
-const spacing = (CONFIG.spacing?.steps ?? []).map((n) => ({
-  name: `spacing-${n}`,
-  value: `${n * CONFIG.spacing.base}px`,
-  usage: `Step ${n} — \`p-${n}\`, \`gap-${n}\`, \`m-${n}\`.`,
-}))
-for (const m of stylesCss.matchAll(/--spacing-([\w-]+):\s*var\(--([\w-]+)\)/g)) {
-  spacing.push({ name: `spacing-${m[1]}`, value: lightEnv.get(m[2]), usage: requireUsage(m[2]) })
-}
-
-// ─── type roles ────────────────────────────────────────────────────────────
-const groups = []
-if (CONFIG.typeRoles) {
-  const typeCss = read(CONFIG.typeRoles.file)
-  const prefix = CONFIG.typeRoles.utilityPrefix ?? 'type-'
-  const scale = (v) => v?.replace(/var\(--([\w-]+)\)/, (_, n) => lightEnv.get(n))
-  let group = null
-  const items = [
-    ...[...typeCss.matchAll(/\/\*\s*─+\s*([^─*]+?)\s*─+\s*\*\//g)].map((m) => ({ at: m.index, header: m[1].trim() })),
-    ...[...typeCss.matchAll(new RegExp(`@utility ${prefix}([\\w-]+)\\s*\\{([\\s\\S]*?)\\n\\}`, 'g'))].map((m) => ({ at: m.index, name: m[1], body: m[2] })),
-  ].sort((a, b) => a.at - b.at)
-  for (const it of items) {
-    if (it.header) {
-      group = { name: it.header.charAt(0).toUpperCase() + it.header.slice(1), family: 'sans', styles: [] }
-      groups.push(group)
-      continue
-    }
-    const before = typeCss.slice(0, it.at).trimEnd()
-    const c = /\/\*((?:(?!\*\/)[\s\S])*)\*\/$/.exec(before)
-    const usage = c && !/─|={5}/.test(c[1]) ? c[1].replace(/\s+/g, ' ').trim() : ''
-    if (!usage) problems.push(`${prefix}${it.name}: no usage comment above it in ${CONFIG.typeRoles.file}`)
-    const base = it.body.replace(/@media[\s\S]*?\}/, '')
-    const declared = Object.fromEntries([...base.matchAll(/(?:^|\n)\s*([\w-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]))
-    const get = (k) => declared[k]
-    const style = {
-      name: it.name,
-      fontSize: scale(get('font-size')),
-      lineHeight: scale(get('line-height')),
-      fontWeight: Number(scale(get('font-weight'))),
-      usage,
-    }
-    const ls = get('letter-spacing')
-    if (ls) style.letterSpacing = scale(ls)
-    if (get('font-family')) style.family = 'mono'
-    if (!style.fontSize || !style.lineHeight || !style.fontWeight) problems.push(`${prefix}${it.name}: missing size, line height or weight`)
-    if (/@media/.test(it.body)) notCarried.push(`\`${prefix}${it.name}\` changes size at a breakpoint; the format holds one, so it carries the base size (its usage note names the other).`)
-    if (/font-variant-numeric/.test(it.body)) notCarried.push(`\`${prefix}${it.name}\` sets \`font-variant-numeric\`, which the format has no field for.`)
-    if (!group) problems.push(`${prefix}${it.name}: sits above the first group header in ${CONFIG.typeRoles.file}`)
-    else group.styles.push(style)
-  }
-}
-
-// ─── fonts: variable fonts the styles import from @fontsource-variable ─────
-const fonts = []
-for (const m of stylesCss.matchAll(/@import\s+"@fontsource-variable\/([\w-]+)"/g)) {
-  const pkg = m[1]
-  const file = `${pkg}-latin-wght-normal.woff2`
-  const src = path.join(REPO, 'node_modules/@fontsource-variable', pkg, 'files', file)
-  if (!fs.existsSync(src)) {
-    problems.push(`font @fontsource-variable/${pkg}: ${file} not found — run npm ci`)
-    continue
-  }
-  fonts.push({ src, entry: { family: `${pkg.charAt(0).toUpperCase()}${pkg.slice(1)} Variable`, file: `fonts/${file}`, weight: '100 900', style: 'normal' } })
-}
+// ─── the system, read from the UI package's CSS ─────────────────────────────
+const model = buildModel(ctx)
+const { problems, notCarried, colorTokens, radius, shadow, spacing, groups, fonts } = model
 
 // ─── components: guidelines, from their single source ──────────────────────
-const docSources = CONFIG.docSources ?? {}
+const docSources = CONFIG.docSources
 const inventory = docSources.inventory ? readRepo(docSources.inventory) : ''
 const designDoc = docSources.design ? readRepo(docSources.design) : ''
-const COMPONENTS = CONFIG.components ?? []
+const COMPONENTS = CONFIG.components
+if (!COMPONENTS.length) problems.push('components: none listed — a design system with no component previews has nothing for a design to mount')
 const componentDocs = new Map()
 for (const c of COMPONENTS) {
   const text = componentDoc(c)
@@ -251,6 +143,11 @@ if (problems.length) {
 
 // ─── write ─────────────────────────────────────────────────────────────────
 const ref = gitRef()
+// What the system's page shows of where it came from: the release the publish
+// step numbers (`--release`), the day it was built and the commit it was built
+// from. Each design's README records the same line for the system it uses.
+const STAMP = `${RELEASE ? `Release ${RELEASE} · built` : 'Built'} ${SYNC_DATE} from ${ref}`
+const generated = writeGenerated(ctx, model)
 const tokens = {
   name: CONFIG.title,
   version: 1,
@@ -260,7 +157,7 @@ const tokens = {
     ref,
     paths: {
       tokens: [...CONFIG.tokens, ...(CONFIG.typeRoles ? [CONFIG.typeRoles.file] : [])].map((r) => path.posix.join(CONFIG.package, r)),
-      docs: CONFIG.readme?.source ? [CONFIG.readme.source] : [],
+      docs: CONFIG.readme.source ? [CONFIG.readme.source] : [],
     },
     synced: SYNC_DATE,
   },
@@ -273,7 +170,7 @@ const tokens = {
   },
   type: {
     fonts: fonts.map((f) => f.entry),
-    families: Object.fromEntries(Object.entries(CONFIG.typeFamilies ?? {}).map(([k, token]) => [k, lightEnv.get(token)])),
+    families: Object.fromEntries(Object.entries(CONFIG.typeFamilies).map(([k, token]) => [k, model.lightEnv.get(token)])),
     groups,
   },
   spacing: { tokens: spacing },
@@ -286,8 +183,15 @@ fs.mkdirSync(path.join(PROJECT, 'fonts'), { recursive: true })
 fs.writeFileSync(path.join(PROJECT, 'tokens.json'), `${JSON.stringify(tokens, null, 2)}\n`)
 for (const f of fonts) fs.copyFileSync(f.src, path.join(PROJECT, f.entry.file))
 if (CONFIG.cover) {
+  // The cover carries the stamp where it marks `<!-- ds-stamp -->`; a cover without
+  // the mark would show no version, so it fails.
+  const cover = readText(path.join(CONFIG_DIR, CONFIG.cover))
+  if (!cover.includes('<!-- ds-stamp -->')) {
+    console.error(`design-system build: ${CONFIG.cover} has no <!-- ds-stamp --> mark — put it where the cover shows the system's release and build`)
+    process.exit(1)
+  }
   fs.mkdirSync(path.join(PROJECT, 'components/Cover'), { recursive: true })
-  fs.copyFileSync(path.join(CONFIG_DIR, CONFIG.cover), path.join(PROJECT, 'components/Cover/preview.html'))
+  fs.writeFileSync(path.join(PROJECT, 'components/Cover/preview.html'), cover.replaceAll('<!-- ds-stamp -->', STAMP))
 }
 // Asset-group READMEs are text files; the images they describe are uploads the
 // publish step names in the index.
@@ -302,7 +206,7 @@ fs.writeFileSync(
       title: CONFIG.title,
       namespace: NS,
       libraries: PAGE_REACT.map(({ name, global, file }) => ({ name, version: PAGE_REACT_VERSION, global, file })),
-      lastChange: { by: 'Claude', via: `Claude Code · ${CONFIG.package}@${ref}`, note: `Synced from ${CONFIG.package}@${ref}.` },
+      lastChange: { by: 'Claude', via: `Claude Code · ${CONFIG.package}@${ref}`, note: `${STAMP}.` },
     },
     null,
     2,
@@ -311,8 +215,9 @@ fs.writeFileSync(
 
 const styleCount = groups.reduce((n, g) => n + g.styles.length, 0)
 console.log(
-  `design-system build: ${colorTokens.length} colours, ${styleCount} type roles, ${spacing.length} spacing, ${radius.length} radii, ${shadow.length} shadow, ${fonts.length} font, ${COMPONENTS.length} components → ${path.relative(REPO, OUT)}`,
+  `design-system build: ${colorTokens.length} colours, ${styleCount} type roles, ${spacing.length} spacing, ${radius.length} radii, ${shadow.length} shadow, ${fonts.length} font, ${COMPONENTS.length} components → ${path.relative(REPO, OUT)} · ${STAMP}`,
 )
+if (generated.length) console.log(`design-system build: rewrote ${generated.map((g) => `${CONFIG.package}/${g}`).join(', ')} — commit them with the token change`)
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 async function buildComponents() {
@@ -333,10 +238,10 @@ async function buildComponents() {
   // page's attribute and @font-face removed (fonts come from tokens.json). A
   // prefers-color-scheme rule passes through, so a design follows the OS unless
   // it sets data-theme.
-  execSync(CONFIG.css.build, { cwd: PKG, stdio: 'ignore' })
-  let css = fs.readFileSync(path.join(PKG, CONFIG.css.file), 'utf8')
+  run(CONFIG.css.build, 'css.build')
+  let css = readText(path.join(PKG, CONFIG.css.file))
   css = css.replace(/@font-face\s*\{[^}]*\}/g, '')
-  for (const [theme, cls] of [['dark', CONFIG.css.darkClass ?? '.dark'], ['light', CONFIG.css.lightClass ?? '.light']]) {
+  for (const [theme, cls] of [['dark', CONFIG.css.darkClass], ['light', CONFIG.css.lightClass]]) {
     const escaped = cls.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     css = css.replace(new RegExp(`(^|[\\s,{}(])${escaped}(?=[\\s,{:)])`, 'g'), `$1[data-theme="${theme}"]`)
   }
@@ -346,14 +251,7 @@ async function buildComponents() {
   // only emits classes its own source uses, and a class a design uses that the
   // stylesheet lacks styles nothing and reports nothing — so a promised class
   // that is not shipped fails the build, naming each one.
-  const SPACING_UTILITIES = ['p', 'px', 'py', 'pt', 'pr', 'pb', 'pl', 'm', 'mx', 'my', 'mt', 'mr', 'mb', 'ml', 'gap', 'gap-x', 'gap-y']
-  const typePrefix = CONFIG.typeRoles?.utilityPrefix ?? 'type-'
-  const promised = [
-    ...(CONFIG.spacing?.steps ?? []).flatMap((n) => SPACING_UTILITIES.map((u) => `${u}-${n}`)),
-    ...colorTokens.flatMap((t) => ['bg', 'text', 'border'].map((u) => `${u}-${t.name}`)),
-    ...radius.map((t) => t.name.replace(families.radius, 'rounded-')),
-    ...groups.flatMap((g) => g.styles.map((st) => `${typePrefix}${st.name}`)),
-  ]
+  const promised = promisedClasses(model, CONFIG)
   // A class's selector escapes the dot in a half step (`.p-0\\.5`); a match must
   // end where the selector does, so `gap-2` is not found inside `gap-20`.
   const shipped = (cls) => {
@@ -366,7 +264,7 @@ async function buildComponents() {
   }
   const unshipped = promised.filter((cls) => !shipped(cls))
   if (unshipped.length) {
-    console.error(`design-system build: ${unshipped.length} class(es) the README promises are not in ${CONFIG.css.file} — add them to the package's CSS (Tailwind: an @source inline line in the feed stylesheet):\n  ${unshipped.join(' ')}`)
+    console.error(`design-system build: ${unshipped.length} class(es) the README promises are not in ${CONFIG.css.file} — the feed stylesheet imports ${CONFIG.generated.safelist}, which lists every one:\n  ${unshipped.join(' ')}`)
     process.exit(1)
   }
   fs.writeFileSync(path.join(dir, 'bundle.css'), css)
@@ -374,7 +272,7 @@ async function buildComponents() {
   // bundle.js: one classic script assigning window.<namespace>, reading React
   // from the page. The entry is generated: the feed barrel, plus the icon set.
   const entry = path.join(OUT, 'entry.mjs')
-  const icons = CONFIG.icons
+  const icons = iconsSpecifier(CONFIG.icons, CONFIG_DIR)
   fs.writeFileSync(
     entry,
     `export * from ${JSON.stringify(path.join(PKG, CONFIG.feed))}\n${
@@ -393,7 +291,7 @@ async function buildComponents() {
     minify: true,
     write: false,
     jsx: 'automatic',
-    tsconfig: path.join(PKG, CONFIG.tsconfig ?? 'tsconfig.json'),
+    tsconfig: path.join(PKG, CONFIG.tsconfig),
     define: { 'process.env.NODE_ENV': '"production"' },
     // An image a component imports travels inside the bundle: a design copies the
     // system's files but cannot load a picture by path, so a component pointing at
@@ -439,18 +337,18 @@ ${NS} = (function (ns) {
 
   // index.d.ts: the package's own declarations, concatenated — documentation only.
   if (CONFIG.types) {
-    execSync(CONFIG.types.build, { cwd: PKG, stdio: 'ignore' })
+    run(CONFIG.types.build, 'types.build')
     const decls = []
     const feedDir = path.dirname(CONFIG.feed)
     const srcRoot = path.join(PKG, feedDir)
-    for (const mod of fs.readFileSync(path.join(PKG, CONFIG.feed), 'utf8').matchAll(/from ["']\.\/([\w/.-]+)["']/g)) {
+    for (const mod of readText(path.join(PKG, CONFIG.feed)).matchAll(/from ["']\.\/([\w/.-]+)["']/g)) {
       const rel = mod[1].replace(/\.(tsx?|jsx?)$/, '')
       const file = path.join(PKG, CONFIG.types.dir, path.relative(srcRoot, path.join(srcRoot, rel)) + '.d.ts')
       if (!fs.existsSync(file)) throw new Error(`no declarations emitted for ${rel}`)
-      decls.push(`// ─── ${rel} ───\n${fs.readFileSync(file, 'utf8').replace(/^import .*$/gm, '').trim()}`)
+      decls.push(`// ─── ${rel} ───\n${readText(file).replace(/^import .*$/gm, '').trim()}`)
     }
     if (icons) {
-      decls.push(`// ─── icons ───\n/** Any icon from ${icons} by name: <Icon name="Search" />. */\nexport declare function Icon(props: { name: string; className?: string }): JSX.Element;\n/** The whole icon set, for an \`icon\` prop: icon={${NS}.icons.Search}. */\nexport declare const icons: Record<string, unknown>;`)
+      decls.push(`// ─── icons ───\n/** Any icon from ${path.isAbsolute(icons) ? path.relative(REPO, icons).split(path.sep).join('/') : icons} by name: <Icon name="Search" />. */\nexport declare function Icon(props: { name: string; className?: string }): JSX.Element;\n/** The whole icon set, for an \`icon\` prop: icon={${NS}.icons.Search}. */\nexport declare const icons: Record<string, unknown>;`)
     }
     fs.writeFileSync(path.join(dir, 'index.d.ts'), `${decls.join('\n\n')}\n`)
   }
@@ -475,6 +373,10 @@ ${NS} = (function (ns) {
 <script>
   var U = window.${NS}, h = React.createElement;
   function icon(name) { return U.icons[name]; }
+  var noop = function () {};
+  function stateful(initial, render) {
+    return h(function Preview() { var s = React.useState(initial); return render(s[0], s[1]); });
+  }
   ReactDOM.createRoot(document.getElementById('root')).render(${c.render.replace(/\n\s*/g, ' ')});
 </script>
 </body>
@@ -493,7 +395,9 @@ function pageReact() {
     'react-dom/client': 'module.exports = window.ReactDOM',
     'react/jsx-runtime': `var R = window.React, cache = new WeakMap(); ${REF_AS_PROP}
 function j(t, p, k) {
-  if (p && p.ref != null && isPlainComponent(t)) t = refAsProp(R, cache, t);
+  // Every plain component, not only one created with a ref: Radix's \`asChild\` adds the
+  // ref later, by cloning the element, and a clone of a plain component drops it on 18.
+  if (isPlainComponent(t)) t = refAsProp(R, cache, t);
   return R.createElement(t, k === undefined ? p : Object.assign({}, p, { key: k }));
 }
 module.exports = { jsx: j, jsxs: j, Fragment: R.Fragment };`,
@@ -526,7 +430,7 @@ function componentDoc(c) {
     return designDoc.slice(start + 1, next < 0 ? undefined : start + 1 + next).replace(/^### .*\n/, '').trim()
   }
   if (c.doc?.source) {
-    const src = fs.readFileSync(path.join(PKG, docSources.sourceRoot ?? 'src', c.doc.source), 'utf8')
+    const src = readText(path.join(PKG, docSources.sourceRoot ?? 'src', c.doc.source))
     const at = functionAt(src, c.name)
     const m =
       (at >= 0 ? /\/\*\*((?:(?!\*\/)[\s\S])*)\*\/\s*(?:export\s+)?$/.exec(src.slice(0, at)) : null) ??
@@ -546,29 +450,36 @@ function functionAt(src, name) {
   return -1
 }
 
-function read(rel) {
-  return fs.readFileSync(path.join(PKG, rel), 'utf8')
+/** Run one of the config's build commands in the UI package; on failure, stop
+ * with the command's own output. */
+function run(cmd, key) {
+  try {
+    execSync(cmd, { cwd: PKG, stdio: 'pipe' })
+  } catch (e) {
+    const out = `${e.stdout ?? ''}${e.stderr ?? ''}`.trim().split('\n').slice(-30).join('\n    ')
+    console.error(`design-system build: ${key} failed — ${cmd} (in ${CONFIG.package})\n    ${out}`)
+    process.exit(1)
+  }
 }
 
 function readRepo(rel) {
-  return fs.readFileSync(path.join(REPO, rel), 'utf8')
-}
-
-function requireUsage(name) {
-  const u = usageOf.get(name)
-  if (!u) problems.push(`--${name}: no usage comment — every token says what it is for`)
-  return u ?? ''
+  return readText(path.join(REPO, rel))
 }
 
 function gitRef() {
-  const sha = execSync('git rev-parse --short HEAD', { cwd: REPO }).toString().trim()
-  const watched = [CONFIG.package, ...(CONFIG.readme?.source ? [CONFIG.readme.source] : [])].join(' ')
+  let sha
+  try {
+    sha = execSync('git rev-parse --short HEAD', { cwd: REPO, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
+  } catch {
+    return 'no commit yet'
+  }
+  const watched = [CONFIG.package, ...(CONFIG.readme.source ? [CONFIG.readme.source] : [])].join(' ')
   const dirty = execSync(`git status --porcelain -- ${watched}`, { cwd: REPO }).toString().trim()
   return dirty ? `${sha}+uncommitted` : sha
 }
 
 function readme() {
-  const cfg = CONFIG.readme ?? {}
+  const cfg = CONFIG.readme
   let sections = []
   if (cfg.source) {
     const doc = readRepo(cfg.source)
@@ -586,5 +497,5 @@ function readme() {
   const notPreviewed = Object.entries(CONFIG.notPreviewed ?? {}).map(([n, why]) => `\`${n}\` is in the bundle but has no preview: ${why}.`)
   const all = [...notCarried, ...notPreviewed]
   const notes = all.length ? `\n\n## Not carried by the format\n\n${all.map((n) => `- ${n}`).join('\n')}` : ''
-  return `# ${CONFIG.title}\n\n${CONFIG.tagline ?? ''}\n\nSynced from the repository's UI package (\`${CONFIG.package}\`, ${ref}). The code is the source: change a token there and re-sync, never here.\n\n${vocab}${vocab ? '\n\n' : ''}${sections.join('\n\n')}${notes}\n`
+  return `# ${CONFIG.title}\n\n${CONFIG.tagline ?? ''}\n\n${STAMP}, from the repository's UI package (\`${CONFIG.package}\`). The code is the source: change a token there and re-sync, never here.\n\n${vocab}${vocab ? '\n\n' : ''}${sections.join('\n\n')}${notes}\n`
 }

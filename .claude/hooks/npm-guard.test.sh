@@ -70,4 +70,12 @@ jsonok 'npm install && echo "hi"'
 jsonok 'npm install'
 
 rm -f "$tmpout"
+echo "TOOL MISSING — the guard refuses, naming the tool, never allows:"
+# shellcheck source=test-helpers.sh
+source "$(dirname "$H")/test-helpers.sh"
+pl='{"tool_name":"Bash","tool_input":{"command":"npm ci"},"cwd":"'"$tmp/locked"'"}'
+assert_refuses_without "$H" deny "$(path_without jq)" jq "$pl" 'no jq on PATH'
+assert_refuses_without "$H" deny "$(path_with_store_python)" python3 "$pl" 'python3 is the Windows Store stub'
+assert_refuses_without "$H" deny "$(path_without python3)" python3 "$pl" 'no python3 on PATH'
+
 exit "$fail"

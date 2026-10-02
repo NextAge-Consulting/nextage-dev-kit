@@ -65,8 +65,8 @@ wrong.
 **`invalidateQueries` is the LAST answer, not the first.** Ask what the mutation
 does on success in this order: the server returned the saved row, so write it into
 the cache; the change is predictable, so apply it optimistically; only then, the
-server computes a value you cannot, so invalidate — and say in a comment which value
-that is.
+server computes a value you cannot, so invalidate — and say in a comment why
+neither writing the returned row nor an optimistic update can serve here.
 
 The framing matters. Written the other way round — "reach for optimism when
 something should feel instant" — it reads as a special case, and the default that
@@ -92,8 +92,8 @@ only shows up under load: a refetch started before the mutation resolves after
 it, and silently restores the old value.
 
 **Rolling back is not enough.** The user must be told it failed, or they will
-believe the optimistic value (constitution §X). Surface `mutation.error` in the
-UI, not just the log.
+believe the optimistic value (constitution §X). Show the failure in the UI as a
+general statement, or the message of a `UserFacingError` (`server-functions.md`).
 
 ## Not against a write the client cannot predict the outcome of
 

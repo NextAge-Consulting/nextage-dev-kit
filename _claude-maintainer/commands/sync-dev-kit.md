@@ -29,6 +29,9 @@ Parse the JSON output. Top-level fields:
 - `kit_commit` — the kit HEAD SHA at scan time. This becomes the new lockfile baseline after `--finalize`.
 - `files` — array of per-file state entries.
 - `gitignore_additions_missing` — array of `.gitignore` lines the kit wants present in the project that are not yet.
+- `unmapped_templates` — kit files under `_claude-project/templates/` with no destination mapping. Non-empty is a kit defect: tell the user the kit is missing a `dest_for_kit_path` entry for each.
+- `skipped_unconfigured` — `{kit_path, key}` for each kit file skipped because its destination key (`SHARED_MODULE_DIR`, `DESIGN_UI_PACKAGE`) is empty. List them once, so the user knows what an empty key costs.
+- `stale_patches` — patch register entries that sanction nothing, each with the file's `current_state` (Step 2.2).
 
 The scan also bootstraps `.claude/sync-substitutions.json` from the kit template if it doesn't exist. Look for `sync-dev-kit.sh: bootstrapped .claude/sync-substitutions.json` on stderr — that's the signal that this is a first-time sync and Step 1.5 is going to have work to do.
 
@@ -98,23 +101,26 @@ For each file entry, the `state` field is one of:
 | `clean-first` | First-ever sync; project and kit already match | Silent skip — establish baseline only |
 | `clean-converged` | Both changed from baseline to the same content | Silent skip — establish new baseline |
 | `kit-only` | Kit changed, project did not | Recommend apply |
-| `project-only` | Project changed, kit did not | Inform user of project customization; do NOT apply. If the change is kit-shared, make it in the kit and re-sync |
-| `conflict` | Both changed to different content from baseline | Three-way diff; compare `kit_sha`, `project_sha`, `baseline_sha`; recommend merge or pick. **Then ACK it** — a merged conflict that is not acked re-reports forever (Step 2.05) |
+| `project-only` | `template` file: project changed, kit did not | Silent skip — the project owns it |
+| `patched` | `owned` or `merge` file: the project changed kit-owned text, and `.claude/.kit-patches.json` sanctions it | Report every sync with both issues and the `patch.recommendation` (Step 2.2) |
+| `unsanctioned` | `owned` or `merge` file: the project changed kit-owned text with no register entry | Report loudly every sync. Recommend reverting to the kit (`--apply-file`) or registering it as a patch (Step 2.2) |
+| `conflict` | `owned` file, no register entry: both changed to different content from baseline | Three-way diff; compare `kit_sha`, `project_sha`, `baseline_sha`; recommend taking the kit's version. A project change that must stay is a patch: register it, then ACK (Step 2.2) |
 | `conflict-first` | First-ever sync; project and kit differ | Show both, ask user which direction |
 | `new-kit` | Kit has a new file not in project | Recommend apply. If the user does not want it, **decline it** (below) — never leave it unanswered |
 | `declined` | The project refused this file at its current content | Silent skip — do not list |
 | `removed-kit` | Kit deleted a file that still exists in project | Ask: delete from project or keep as project-owned? |
 | `project-deleted` | Baseline + kit still have file, but project deleted it | Ask: re-add from kit, or accept deletion? |
 | `template-drift` | Template file; kit and project both changed | The project OWNS this file. Show the kit's delta as information, recommend nothing. Never reconcile toward the kit. |
+| `merge-unmarked` | `merge` file whose project copy has no region markers | Never apply — it would discard the project's content. Move the project's content into the kit's regions by hand (Step 2.3), then re-scan |
+| `merge-invalid` | `merge` file whose project markers are malformed, or that has a region the kit lacks | Show `detail`. Fix the markers or move the orphan region's content into a kit region, then re-scan. Apply refuses until then |
 
-### Step 2.05: file modes — `owned` vs `template`
+### Step 2.05: file modes — `owned`, `merge`, `template`
 
 Every entry also carries a `mode` field, declared kit-side by `mode_for_kit_path()` and copied into the consumer's lockfile on apply:
 
-- **`owned`** (default, nearly everything) — the kit owns the content. `block-kit-edit.sh` denies consumer edits, and a two-sided divergence is a `conflict` to reconcile toward the kit.
-- **`template`** — the kit ships a STARTING POINT; the project owns the file and has final say. The hook permits consumer edits, and a two-sided divergence reports as `template-drift` rather than `conflict`.
-
-Only the two-sided-divergence state changes. `kit-only` still recommends apply (the project has not customized), and `project-only` is still a silent skip.
+- **`owned`** (default, nearly everything) — the kit owns the content. `block-kit-edit.sh` denies consumer edits. A project edit is `patched` or `unsanctioned`, never a silent skip; a two-sided divergence with no register entry is a `conflict` to reconcile toward the kit.
+- **`merge`** — owned, except inside the file's named project regions. Sync writes the kit's text around the project's region bodies, so `kit-only` is always safe to apply and a region edit is never a conflict. An edit outside the regions is `patched` or `unsanctioned`.
+- **`template`** — the kit ships a STARTING POINT; the project owns the file and has final say. The hook permits consumer edits, a two-sided divergence reports as `template-drift`, and `project-only` is a silent skip.
 
 **Presenting a `template-drift` is a different conversation.** Do NOT recommend applying, and do NOT frame the project's content as something to reconcile. Show what the kit changed and let the user decide whether any of it is worth adopting; "keep ours" is a perfectly good answer that needs no justification. Applying is still available via `--apply-file`, but it overwrites a file the project owns — so it happens only on an explicit request, never on your recommendation.
 
@@ -126,16 +132,14 @@ Only the two-sided-divergence state changes. `kit-only` still recommends apply (
 
 This records the kit's current content as the new baseline WITHOUT touching the project file, so the file reports `project-only` (a silent skip) from then on. Skip it and the baseline stays behind the kit, the identical drift re-reports on **every** subsequent sync forever, and the user learns to scroll past a signal that was supposed to mean something. Ack is not a permanent mute: the next time the kit changes that file, drift surfaces again — which is exactly the behaviour wanted.
 
-Offer three outcomes on a template-drift, in this order: **keep ours** (ack), **take the kit's version** (`--apply-file`, overwrites), or **merge by hand** (the user edits, then ack). Never present it as a two-way apply/skip choice — "skip" without an ack is the option that quietly creates the recurring noise.
+On a template-drift, offer in this order: **keep ours** (ack), **take the kit's version** (`--apply-file`, overwrites), or **merge by hand** (the user edits, then ack). Never present it as a two-way apply/skip choice — "skip" without an ack is the option that quietly creates the recurring noise.
 
-**Acking an `owned` file — the test is whether the kit's current content has been INCORPORATED, not what mode the file is in.** `--ack-file` deliberately accepts any file. All it does is advance the baseline to what the kit ships today while leaving the project file untouched; it asserts *"this kit version has been seen, and our copy still differs on purpose."* Whether that assertion is true is the whole question.
+**Acking an `owned` file — the test is whether the kit's current content has been INCORPORATED.** `--ack-file` accepts any file: it advances the baseline to what the kit ships today and leaves the project file untouched.
 
-- **Forbidden — ack INSTEAD of applying.** The project never took the kit's change, and the ack makes the reminder disappear. That is a real enforced update, silenced. This is the failure the rule exists to prevent.
-- **Required — ack AFTER resolving an `owned` conflict by hand.** The kit's changes are now in the file, and what still differs is the project's own legitimate customization. Without the ack the identical conflict re-reports on **every** future sync forever, which is precisely the noise ack was built to stop — and the next genuine kit change to that file arrives buried in a signal the user has been trained to scroll past.
+- **Forbidden — ack INSTEAD of applying.** The project never took the kit's change, and the ack hides it.
+- **Right — ack AFTER hand-merging the kit's change into a registered patch** (`patch.recommendation` `merge-kit-keep-patch`). The kit's change is in the file and the register sanctions what still differs, so the file reports `patched` with `kit_changed: false` until the kit moves again.
 
-So an `owned` conflict is a **two-step** resolution: merge (or apply), **then** ack. The forbidden move is acking on its own, never acking as the second step. Reading this as a blanket "never ack an `owned` file" turns every per-project customization into a permanent per-sync nag — the exact outcome this whole mechanism was designed to eliminate.
-
-The guard lives here in the walkthrough, where the user can see what they are choosing, not in the script.
+An ack never sanctions an edit. An `owned` file that still differs from the kit after an ack is `unsanctioned` unless the register lists it.
 
 The lockfile tolerates both schemas: a legacy bare-string value means `owned`. Entries are upgraded to `{sha, mode}` as each file is applied; there is no migration step.
 
@@ -146,6 +150,38 @@ The lockfile tolerates both schemas: a legacy bare-string value means `owned`. E
 The helpers live in `sync-dev-kit.sh` (`canonicalize_settings` + `sha256_settings_kit` + `sha256_settings_proj`). Every field — hooks, permissions, env — flows through normal 3-way state; the kit owns them all. The lockfile baseline SHA tracks the canonicalized content, matching subsequent scans.
 
 You (Claude) don't need to invoke anything special — the script handles it. See kitmaintainer-handbook.md §9.6.
+
+### Step 2.2: patches — `patched`, `unsanctioned`, stale entries
+
+`.claude/.kit-patches.json` is the project's register of sanctioned edits to kit-owned text: `{"patches":[{"path","kitIssue","projectIssue","reason"}]}`, keyed by destination path. Sync reads it and never writes it, except through `--remove-patch`.
+
+Present every `patched` entry, every sync, with its `reason`, both issues and their states (`kit_issue_state`, `project_issue_state`; `unknown` means `gh` could not answer — say so). Then follow `patch.recommendation`:
+
+| Recommendation | Means | Offer |
+|---|---|---|
+| `keep` | The kit has not moved; the kit issue is still open | Nothing to do — the patch stands |
+| `merge-kit-keep-patch` | The kit changed the file, but its issue is still open | Hand-merge the kit's change into the patched file, then `--ack-file` |
+| `take-kit` | The kit changed the file and its issue is closed | Take the kit's version (`--apply-file`), then remove the entry and close the project issue |
+| `kit-issue-closed-file-unchanged` | The kit issue closed without changing this file | Ask whether the fix landed elsewhere or was declined; the patch stays until the user decides |
+
+Present every `unsanctioned` file loudly, every sync, with its diff against the kit. Offer: **revert to the kit** (`--apply-file`; on a `merge` file this keeps the regions), or **register it as a patch** — file a kit issue and a project issue, then add the entry. Never leave it unanswered.
+
+For each `stale_patches` entry, and after a `take-kit` apply:
+
+```bash
+~/.claude/scripts/sync-dev-kit.sh --remove-patch <dest_path>
+gh issue close <projectIssue number> --comment "Kit fix landed via /sync-dev-kit; the temporary patch is removed."
+```
+
+`--remove-patch` prints the removed entry, which names the project issue to close. Close it only once the user agrees.
+
+### Step 2.3: `merge` files — regions
+
+A `merge` file marks each project region in its own comment syntax: `<!-- project:begin <name> -->` … `<!-- project:end <name> -->` in Markdown, `# project:begin <name>` … `# project:end <name>` in YAML and `.gitattributes`. Names are unique per file and regions do not nest.
+
+**`merge-unmarked`** — the project's copy predates the regions. Show the user the kit file and the project file side by side, move each piece of project content into the kit region that matches it, take the kit's text everywhere else, and re-scan. Content that fits no region is either kit-shared (raise a kit issue) or a patch (register it) — never invent a region the kit does not have.
+
+**`merge-invalid`** — read `detail`: an unclosed or nested region, a duplicate name, or a region the kit does not have. Fix it by hand and re-scan.
 
 ### Step 3: Present each non-clean file
 
@@ -197,6 +233,8 @@ For each `y` response, invoke the script:
 ```
 
 The `kit_path` field comes from the file entry (e.g., `_claude-project/hooks/git-guard.sh`). The script copies the file to the correct destination and updates the lockfile's per-file SHA entry.
+
+On a `merge` file the script writes the kit's text around the project's region bodies, so applying never costs the project its regions. It refuses (exit 4) on `merge-unmarked` and `merge-invalid`.
 
 For `removed-kit` state accepted, pass the entry's **`dest_path`** instead. The kit file is gone, so `kit_path` is empty in the report and there is nothing else to name it by:
 

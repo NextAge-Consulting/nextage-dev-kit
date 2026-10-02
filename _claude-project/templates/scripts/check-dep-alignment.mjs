@@ -24,6 +24,10 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
+if (!existsSync(resolve(repoRoot, "package.json"))) {
+  console.log("✓ dependency alignment: no package.json — not a Node repo, so it does not apply.");
+  process.exit(0);
+}
 const rootPkg = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf8"));
 
 // npm workspaces is either an array of patterns or `{ packages: [...] }`.
@@ -34,17 +38,21 @@ const rawWorkspaces = Array.isArray(rootPkg.workspaces)
 // Expand workspace patterns to concrete `<dir>/package.json` manifest paths.
 // Supports literal dirs ("apps/shop") and a trailing-glob ("apps/*", the common
 // npm form) — dependency-free, works on any Node version. A globbed dir that has
-// no package.json is simply skipped; a *literal* entry that can't be read fails
-// loud below (it's a declared workspace that's broken).
+// no package.json is not a workspace; a *literal* entry that can't be read fails
+// loud below (it's a declared workspace that's broken). A declared glob that
+// matches no workspace at all fails too: the folder moved, and every manifest
+// under it has silently left the check.
 const workspaceDirs = [];
+const emptyGlobs = [];
 for (const pattern of rawWorkspaces) {
   if (pattern.endsWith("/*")) {
     const parent = pattern.slice(0, -2);
-    let entries;
+    const before = workspaceDirs.length;
+    let entries = [];
     try {
       entries = readdirSync(resolve(repoRoot, parent), { withFileTypes: true });
     } catch {
-      continue; // parent dir absent — nothing to expand
+      // parent dir absent — reported below with every other empty glob
     }
     for (const ent of entries) {
       if (!ent.isDirectory()) continue;
@@ -53,12 +61,22 @@ for (const pattern of rawWorkspaces) {
         readFileSync(resolve(repoRoot, dir, "package.json"));
         workspaceDirs.push(dir);
       } catch {
-        // globbed dir without a package.json is not a workspace — skip silently
+        // globbed dir without a package.json is not a workspace
       }
     }
+    if (workspaceDirs.length === before) emptyGlobs.push(pattern);
   } else {
     workspaceDirs.push(pattern);
   }
+}
+
+if (emptyGlobs.length > 0) {
+  console.error(
+    `✗ dependency alignment: ${emptyGlobs.length} declared workspace pattern(s) match no package — ` +
+      `fix or remove them in package.json "workspaces", or their manifests go unchecked:\n`,
+  );
+  for (const g of emptyGlobs) console.error(`      ${g}`);
+  process.exit(1);
 }
 
 // Single-root-lockfile invariant. In an npm-workspaces monorepo the root
@@ -112,7 +130,9 @@ for (const [name, byRange] of seen) {
 }
 
 if (skewed.length === 0) {
-  console.log("✓ dependency alignment: every shared dependency is a single version across all workspaces.");
+  console.log(
+    `✓ dependency alignment: ${manifests.length} manifest(s), ${seen.size} dependency name(s) — every shared dependency is a single version across all workspaces.`,
+  );
   process.exit(0);
 }
 

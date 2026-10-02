@@ -32,7 +32,13 @@
  * let the biome hole live.
  *
  * SELF-GATING: no package.json, or no manifest and no TanStack dependency, exits
- * 0 in silence — the same marker-file cascade the gitflow scripts use.
+ * 0 — saying which, so a skipped gate never reads as a passed one.
+ *
+ * DESIGN WIRING: when design.md exists, the root's lint:tokens and lint:design
+ * scripts run the kit's checks; when the UI package (DESIGN_UI_PACKAGE) holds a
+ * claude-design config, its build:design-system and check:design-system scripts
+ * run the kit's engine. A script that points anywhere else is a check CI thinks
+ * it ran.
  *
  * HERMETIC: reads package.json files, the lockfile, the manifest, CI workflow
  * text and sync-substitutions.json. Never the network, so it is safe in CI and
@@ -56,7 +62,10 @@ const report = (severity, message) =>
 
 // --- marker-file gate: is this even a Node repo? ---------------------------
 const rootPkgPath = resolve(repoRoot, "package.json");
-if (!existsSync(rootPkgPath)) process.exit(0);
+if (!existsSync(rootPkgPath)) {
+  console.log("✓ stack: no package.json — not a Node repo, so the stack standard does not apply.");
+  process.exit(0);
+}
 const rootPkg = readJson(rootPkgPath);
 
 // --- collect every workspace manifest (root included) ----------------------
@@ -96,7 +105,10 @@ if (!existsSync(manifestPath)) {
   const usesTanStack = manifests.some((m) =>
     Object.keys(depsOf(m.pkg)).some((d) => d.startsWith("@tanstack/")),
   );
-  if (!usesTanStack) process.exit(0);
+  if (!usesTanStack) {
+    console.log("✓ stack: no .claude/stack-manifest.json and no TanStack dependency — this repo has not adopted the stack standard, so it does not apply.");
+    process.exit(0);
+  }
   console.error(
     "✗ stack: this repo uses TanStack but .claude/stack-manifest.json is missing.\n" +
       "  The manifest ships with this script via /sync-dev-kit — run a sync.",
@@ -112,6 +124,9 @@ const lockPath = resolve(repoRoot, "package-lock.json");
 const lock = existsSync(lockPath) ? readJson(lockPath) : null;
 
 // --- 1. blessed packages, each under its own trigger -----------------------
+// Counted when the trigger fires — a pin whose condition never holds here was
+// not checked, and the summary must not say it was.
+let evaluated = 0;
 for (const [name, spec] of Object.entries(blessed)) {
   const severity = spec.severity ?? "required";
   const why = spec.why ? `\n      ${spec.why}` : "";
@@ -121,12 +136,19 @@ for (const [name, spec] of Object.entries(blessed)) {
   if (typeof applies === "object" && Array.isArray(applies.whenFile)) {
     const present = applies.whenFile.find((f) => existsSync(resolve(repoRoot, f)));
     if (!present) continue; // no config, no opinion
+    evaluated++;
 
     // Installed by a workflow at run time: this file owns the version so the
     // workflow has one thing to read. A project declaration is not expected.
     if (spec.installedBy === "ci") {
       const wf = spec.ciWorkflow ? resolve(repoRoot, spec.ciWorkflow) : null;
-      if (wf && existsSync(wf) && !readFileSync(wf, "utf8").includes(`${name}@${spec.version}`)) {
+      if (wf && !existsSync(wf)) {
+        report(
+          severity,
+          `${present} is present but ${spec.ciWorkflow} is not — nothing installs ${name}, so the\n` +
+            `      check the config is for never runs. Restore the workflow with /sync-dev-kit.${why}`,
+        );
+      } else if (wf && !readFileSync(wf, "utf8").includes(`${name}@${spec.version}`)) {
         report(
           severity,
           `${spec.ciWorkflow}: installs ${name} without the blessed version ${spec.version}.\n` +
@@ -150,6 +172,9 @@ for (const [name, spec] of Object.entries(blessed)) {
   }
 
   // -- declaration check, shared by whenDeclared and whenFile/installedBy:project.
+  if (applies === "whenDeclared" || applies === "whenResolved") {
+    if (manifests.some((m) => depsOf(m.pkg)[name] !== undefined) || lock?.packages?.[`node_modules/${name}`]) evaluated++;
+  }
   for (const { dir, pkg } of manifests) {
     const got = depsOf(pkg)[name];
     if (got === undefined) continue; // not used here — lockstep is not "must use"
@@ -306,6 +331,50 @@ if (missingRefs.length) {
   );
 }
 
+// --- 5. the design checks run the kit's scripts -----------------------------
+// CI runs `npm run lint:tokens` and `npm run lint:design` whenever design.md
+// exists. A script that is missing fails CI loudly; one that points somewhere
+// else passes it without running the kit's check, which is the case caught here.
+let designWiring = "no design.md";
+if (existsSync(resolve(repoRoot, "design.md"))) {
+  const subs = existsSync(subsPath) ? readJson(subsPath) : {};
+  const want = [
+    [".", rootPkg, "lint:tokens", "node .claude/skills/design-system/scripts/check-design-tokens.mjs"],
+    [".", rootPkg, "lint:design", "design.md lint design.md"],
+  ];
+  // DESIGN_UI_PACKAGE's three states: set, deliberately empty (listed in
+  // _intentionally_empty — no design system yet, so the engine's scripts are not
+  // required and lint:tokens says so itself), or undecided, which fails.
+  const uiPkg = String(subs.DESIGN_UI_PACKAGE ?? "").trim().replace(/\/$/, "");
+  const uiOff = subs.DESIGN_UI_PACKAGE !== undefined && !uiPkg && (subs._intentionally_empty ?? []).includes("DESIGN_UI_PACKAGE");
+  if (!uiPkg && !uiOff)
+    failures.push(
+      `.claude/sync-substitutions.json: DESIGN_UI_PACKAGE is ${subs.DESIGN_UI_PACKAGE === undefined ? "not set" : "empty and not listed in _intentionally_empty"} — design.md exists, so set it to the UI package that holds the design system, or set it to "" and list it in _intentionally_empty when the design system is not set up yet.`,
+    );
+  const uiConfig = uiPkg && existsSync(resolve(repoRoot, uiPkg, "design-system/design-system.config.mjs"));
+  if (uiConfig) {
+    const ui = manifests.find((m) => m.dir === uiPkg) ?? (existsSync(resolve(repoRoot, uiPkg, "package.json")) ? { dir: uiPkg, pkg: readJson(resolve(repoRoot, uiPkg, "package.json")) } : null);
+    if (!ui) failures.push(`${uiPkg}/package.json: missing — DESIGN_UI_PACKAGE names a package that holds the design-system config`);
+    else {
+      want.push([uiPkg, ui.pkg, "build:design-system", ".claude/skills/claude-design/scripts/build.mjs design-system/design-system.config.mjs"]);
+      want.push([uiPkg, ui.pkg, "check:design-system", ".claude/skills/claude-design/scripts/render-check.mjs design-system/design-system.config.mjs"]);
+    }
+  }
+  for (const [dir, pkg, script, target] of want) {
+    const got = pkg.scripts?.[script];
+    // A kit path is written relative to the package; resolve it before comparing.
+    const kitPath = target.match(/(\.claude\/\S+\.mjs)/)?.[1];
+    const runs = (cmd) => {
+      if (!kitPath) return cmd.includes(target);
+      const m = cmd.match(/node\s+(\S+\.mjs)(\s+.*)?$/);
+      return Boolean(m) && resolve(repoRoot, dir, m[1]) === resolve(repoRoot, kitPath) && (m[2] ?? "").trim() === target.slice(target.indexOf(kitPath) + kitPath.length).trim();
+    };
+    if (got === undefined) failures.push(`${where(dir)}: no "${script}" script — design.md exists, so it runs the kit's check: ${target}`);
+    else if (!runs(got)) failures.push(`${where(dir)}: "${script}" is "${got}" — it runs the kit's check: ${target}`);
+  }
+  designWiring = `${want.length} design script(s) checked${uiOff ? " (design system not set up: DESIGN_UI_PACKAGE is intentionally empty)" : ""}`;
+}
+
 // --- report ----------------------------------------------------------------
 // Advisories print whether or not anything failed. They name real problems the
 // fleet has not adopted a fix for, and a problem that only prints on a green
@@ -318,10 +387,9 @@ if (failures.length) {
   process.exit(1);
 }
 
-const counts = Object.keys(blessed).length;
 console.log(
-  `✓ stack: ${counts} blessed package(s) checked; ${Object.keys(banned).length} banned dep(s) absent; ` +
-    `form question answered; ${(manifest.references ?? []).length} reference doc(s) present` +
+  `✓ stack: ${evaluated} of ${Object.keys(blessed).length} blessed package(s) apply here and are checked; ${Object.keys(banned).length} banned dep(s) absent; ` +
+    `form question answered; ${(manifest.references ?? []).length} reference doc(s) present; ${designWiring}` +
     (advisories.length ? `; ${advisories.length} advisory(ies) above` : "") +
     ` (blessed ${manifest.blessed_at}).`,
 );

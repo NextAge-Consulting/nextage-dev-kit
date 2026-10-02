@@ -61,6 +61,31 @@ mkdir -p "$tmp/lone/scripts" && cp "$S" "$tmp/lone/scripts/rule-review.sh"
 t 1 "$( (cd "$repo" && STUB_MODE=clean STUB_LOG="$tmp/log" RULE_REVIEW_CLAUDE="$tmp/claude" "$tmp/lone/scripts/rule-review.sh" HEAD 2>/dev/null); echo $?)" 'classifier missing beside the script: exit 1'
 new_repo; rm -rf "$repo/.claude/hooks"; printf 'y\n' >> "$repo/src/app.ts"
 t 0 "$(gate clean)" 'a repo without .claude/hooks still passes when no rule prose changed'
+# python3 parses the reviewer's answer. Without a working one, every answer used to
+# read as "no findings".
+mkdir -p "$tmp/nopy" "$tmp/stubpy"
+printf '#!/bin/sh\nexit 127\n' > "$tmp/nopy/python3"
+printf '#!/bin/sh\necho "Python was not found; run without arguments to install from the Microsoft Store" >&2\nexit 9009\n' > "$tmp/stubpy/python3"
+chmod +x "$tmp/nopy/python3" "$tmp/stubpy/python3"
+new_repo; printf 'more\n' >> "$repo/.claude/rules/a.md"; rm -f "$tmp/log"
+t 1 "$(PATH="$tmp/nopy:$PATH" gate findings)" 'python3 missing: exit 1, not clean'
+grep -q 'python3' "$tmp/err" && echo "  ✓ …and the failure names python3" || { echo "  ✗ FAIL — python3 not named"; fail=1; }
+[ ! -f "$tmp/log" ] && echo "  ✓ …and the reviewer is never paid for" || { echo "  ✗ FAIL — reviewer called without a parser"; fail=1; }
+t 1 "$(PATH="$tmp/stubpy:$PATH" gate findings)" 'python3 present but not a real interpreter: exit 1'
+new_repo; printf 'more\n' >> "$repo/.claude/rules/a.md"
+t 1 "$(BASE=no-such-ref gate clean)" 'a base git cannot diff against: exit 1, not "nothing changed"'
+grep -q 'no-such-ref' "$tmp/err" && echo "  ✓ …and the failure names the base" || { echo "  ✗ FAIL — base not named"; fail=1; }
+
+echo "SAYS WHAT IT LOOKED AT:"
+new_repo; printf 'y\n' >> "$repo/src/app.ts"
+gate clean >/dev/null
+grep -q 'no rule-prose files changed' "$tmp/err" && echo "  ✓ nothing to review is said, not silent" || { echo "  ✗ FAIL — silent pass"; fail=1; }
+new_repo; printf 'more\n' >> "$repo/.claude/rules/a.md"
+gate clean >/dev/null
+grep -q 'clean — 1 rule-prose file(s) reviewed' "$tmp/err" && echo "  ✓ a clean review counts what it reviewed" || { echo "  ✗ FAIL — no count: $(cat "$tmp/err")"; fail=1; }
+new_repo; printf 'n\n' > "$repo/.claude/rules/sp ace.md"; rm -f "$tmp/log"
+gate clean >/dev/null
+grep -q 'sp ace.md' "$tmp/log" && echo "  ✓ a path with a space is reviewed" || { echo "  ✗ FAIL — spaced path dropped"; fail=1; }
 
 echo "WHAT THE REVIEWER IS SENT:"
 new_repo; printf 'more\n' >> "$repo/.claude/rules/a.md"; printf 'y\n' >> "$repo/src/app.ts"; printf 'n\n' > "$repo/.claude/rules/new.md"

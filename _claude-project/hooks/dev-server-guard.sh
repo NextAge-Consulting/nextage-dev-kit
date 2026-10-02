@@ -12,7 +12,11 @@
 # handles via "always check first" + "use an occupied port". Blocking
 # every start forced a permission ping-pong on every legitimate E2E run.
 
+# shellcheck source=guard-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/guard-lib.sh"
+
 INPUT=$(cat)
+require_tools PreToolUse jq python3
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name')
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // ""')
 

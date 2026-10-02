@@ -7,6 +7,7 @@
 # Maintainer-private planning notes. Single-maintainer repo; this holds
 # unsanitized working detail (account ids, client context) and the kit is public.
 project-documentation/kit-improvements-to-implement.md
+project-documentation/temporary/kit-hardening-plan.md
 
 # OS files
 .DS_Store

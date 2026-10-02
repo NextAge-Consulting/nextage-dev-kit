@@ -8,7 +8,7 @@ Loaded when editing Python. Universal rules live in `constitution.md`.
 
 ## I. Python Quality (Zero Tolerance)
 
-**Commit no type errors or lint violations.** The pre-commit hook enforces it, and Ruff and type-checker diagnostics are authoritative — quality failures, not suggestions.
+**Commit no type errors or lint violations.** The commit gate typechecks, and CI typechecks and runs Ruff; every diagnostic is authoritative — a quality failure, not a suggestion.
 
 Fix the type issue rather than writing `# type: ignore`, fix the lint issue rather than `# noqa`, and give values real types rather than `Any`.
 
@@ -108,7 +108,7 @@ npm install -g pyright        # or: pip install pyright
 
 Verify with `which pyright-langserver` returning a path and `/plugin list` showing `pyright-lsp`. With either missing, LSP for Python is dead — fall back to the CLI. To verify end to end, run `documentSymbol`, `hover` and `findReferences` against a known-good file; `project-documentation/claude-code-setup.md` §Python holds the fixture and expected results.
 
-The CLI always works, and is what CI and pre-commit run: `pyright` (or `mypy .` where the project standardizes on mypy), `ruff check .`, `ruff format .`, `python -m pytest`.
+The CLI always works, and is what the gates run: `/commit` and `/ship-main` typecheck with `pyright` (or `mypy .` where pyright is not installed) whenever the root has a `pyproject.toml` or `pyrightconfig.json`, and CI's `python` job runs `ruff check .` and `pytest` in each `pyproject.toml` directory, then the same typecheck from the repository root — the project's pinned pyright, or `mypy .` where it declares only mypy. Run `ruff format .` yourself.
 
 ### Pyright configuration
 

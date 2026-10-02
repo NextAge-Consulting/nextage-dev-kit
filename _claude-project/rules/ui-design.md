@@ -32,6 +32,8 @@ Add a new component to both, in the same change as the component itself.
 
 Where runtime and documented spec diverge, runtime wins: update `design.md` to match.
 
+**A settled UI decision lands in what the build uses** — a token, a component, `design.md`, a pattern reference, or a "never X, use Y" line in the UI inventory — never in a separate decisions document. UI still to build is a GitHub issue.
+
 ## A token names what a thing IS
 
 **Name the role, never the size.** `field-caption`, `row-title` and `card-inset`
@@ -46,13 +48,18 @@ A component picks a role. **A screen writes no raw value at all** — it uses a
 component, and the component names the role. That is what stops the same thing
 rendering at four sizes across four screens.
 
+**What the system covers, compose and never restyle; where it is silent, propose the
+piece and make it the system; build a one-off only for a functional need** — the
+`design-system` skill's Step 2.
+
 Adding a role happens when a thing exists that none of the current roles names —
 not when an existing role looks slightly wrong on one screen. If two roles compete
 for one element, the naming is wrong and that is a conversation, not a new token.
 
 **Back it with a check that fails the build.** A raw `text-sm` or `px-[10px]` is
 valid Tailwind and valid TSX, so no ordinary linter objects; without a gate this
-rule is a preference.
+rule is a preference. The kit ships the gate: `npm run lint:tokens`, the
+`design-system` skill's "Enforce it or it decays".
 
 **The two tests for a name** — can someone point at the element and name it
 without hesitating, and does one name cover many values in the existing code —

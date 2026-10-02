@@ -43,12 +43,37 @@ else
     is_kit_delivered() { return 1; }
 fi
 
-FILES=()
-while IFS= read -r f; do
-    [ -n "$f" ] && is_rule_prose "$f" && ! is_kit_delivered "$ROOT" "$f" && FILES+=("$f")
-done < <(cd "$ROOT" && { git diff --name-only --diff-filter=d "$BASE" 2>/dev/null; git ls-files --others --exclude-standard; } | sort -u)
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
 
-[ ${#FILES[@]} -eq 0 ] && exit 0
+# NUL-separated, so a path git would quote is read as itself. A failing diff —
+# a base that does not resolve — fails the gate rather than reading as "nothing
+# changed".
+if ! (cd "$ROOT" && git diff -z --name-only --diff-filter=d "$BASE" && git ls-files -z --others --exclude-standard) >"$WORK/changed" 2>"$WORK/err"; then
+    echo "gitflow: rule review cannot list the changed files (git diff against $BASE failed):" >&2
+    sed 's/^/  /' "$WORK/err" >&2
+    echo "  A gate that cannot run must not report success, so this is a failure." >&2
+    exit 1
+fi
+
+FILES=()
+while IFS= read -r -d '' f; do
+    [ -n "$f" ] && is_rule_prose "$f" && ! is_kit_delivered "$ROOT" "$f" && FILES+=("$f")
+done < <(sort -zu "$WORK/changed")
+
+if [ ${#FILES[@]} -eq 0 ]; then
+    echo "gitflow: rule review: no rule-prose files changed." >&2
+    exit 0
+fi
+
+# The reviewer's answer is parsed by python3. Without a working one every answer
+# would read as "no findings" — so a missing python3, or a stub that is not a real
+# interpreter, fails here, before the review is paid for.
+if [ "$(python3 -c 'print(1)' 2>/dev/null)" != "1" ]; then
+    echo "gitflow: ${#FILES[@]} rule-prose file(s) changed, and the rule review needs a working python3, which is missing or not a real interpreter." >&2
+    echo "  A gate that cannot run must not report success, so this is a failure." >&2
+    exit 1
+fi
 
 CLAUDE_BIN="${RULE_REVIEW_CLAUDE:-claude}"
 if ! command -v "$CLAUDE_BIN" >/dev/null 2>&1; then
@@ -84,8 +109,6 @@ EOF
 
 SCHEMA='{"type":"object","properties":{"findings":{"type":"array","items":{"type":"object","properties":{"file":{"type":"string"},"quote":{"type":"string"},"category":{"type":"string","enum":["HISTORY","JUSTIFICATION","COUNTED LIST"]},"fix":{"type":"string"}},"required":["file","quote","category","fix"]}}},"required":["findings"]}'
 
-WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"' EXIT
 OUT=$(cd "$WORK" && printf '%s\n' "$DIFF" | "$CLAUDE_BIN" -p \
     --model sonnet --tools "" --system-prompt "$SYSTEM" --json-schema "$SCHEMA" \
     --output-format json --no-session-persistence --disable-slash-commands \
@@ -101,19 +124,23 @@ try:
     findings = d["structured_output"]["findings"]
 except Exception:
     print("ERROR"); sys.exit(0)
+print("PARSED")
 for f in findings:
     print("  " + f["file"] + " — " + f["category"])
     print("    \"" + f["quote"].strip() + "\"")
     print("    → " + f["fix"].strip())
 ' 2>/dev/null)
 
-if [ "$STATUS" -ne 0 ] || [ "$REPORT" = "ERROR" ]; then
+# The first line is PARSED only when python3 read a well-formed answer; anything
+# else — ERROR, or nothing at all — is a review that did not happen.
+if [ "$STATUS" -ne 0 ] || [ "$(printf '%s\n' "$REPORT" | head -1)" != "PARSED" ]; then
     echo "gitflow: the rule review could not run (claude exited $STATUS)." >&2
     sed 's/^/  /' "$WORK/err" >&2
     echo "  A gate that cannot run must not report success, so this is a failure." >&2
     exit 1
 fi
 
+REPORT=$(printf '%s\n' "$REPORT" | sed '1d')
 if [ -n "$REPORT" ]; then
     echo "gitflow: rule review found text that does not belong in rule prose:" >&2
     printf '%s\n' "$REPORT" >&2
@@ -121,5 +148,5 @@ if [ -n "$REPORT" ]; then
     exit 1
 fi
 
-echo "gitflow: rule review clean." >&2
+echo "gitflow: rule review clean — ${#FILES[@]} rule-prose file(s) reviewed." >&2
 exit 0

@@ -5,9 +5,17 @@
 #                                           vitest
 #   - Python  (any `pyproject.toml`)      → ruff + pytest via uv, in each
 #                                           pyproject dir (monorepo layouts like
-#                                           services/<x>/ work with zero config)
+#                                           services/<x>/ work with zero config);
+#                                           pyright, else mypy, from the root
+#                                           when a root pyproject.toml or
+#                                           pyrightconfig.json exists
 #   - Semgrep (always)                    → language-agnostic security scan
-# A polyglot repo runs both stacks; a single-stack repo skips the other's jobs.
+# A polyglot repo runs both stacks; a single-stack repo skips the other's jobs,
+# and `detect` names every stack it skipped in a notice.
+#
+# The kit owns every line of this file outside the `project:begin` /
+# `project:end` markers. The `project` job's region holds this repo's own CI
+# steps; /sync-dev-kit carries them across kit updates.
 #
 # Detection runs in a fast `detect` job (it checks out and sets outputs); the
 # stack jobs gate on `needs.detect.outputs.*`. We do NOT gate on `hashFiles()`
@@ -20,8 +28,8 @@
 # it never blocks; there are no GitHub-required checks to wait forever on a
 # never-run job, and nothing to promote.
 #
-# NOTE: `/deploy` and `/sync-dev-kit` push DIRECTLY to main (no PR), so this
-# `pull_request`-triggered workflow never runs on a release or sync commit.
+# NOTE: `/deploy` and `/ship-main` push DIRECTLY to main (no PR), so this
+# `pull_request`-triggered workflow never runs on a release or ship-main commit.
 
 name: ci
 on:
@@ -58,6 +66,12 @@ jobs:
           echo "node=$node"     >> "$GITHUB_OUTPUT"
           echo "python=$python" >> "$GITHUB_OUTPUT"
           echo "detected: node=$node python=$python"
+          skipped=""
+          [ "$node" = true ]   || skipped="$skipped Node (no root package.json: dep-alignment, workspace-tiers, stack-standard, check-types, biome, vitest)"
+          [ "$python" = true ] || skipped="$skipped Python (no pyproject.toml: ruff, pytest, typecheck)"
+          if [ -n "$skipped" ]; then
+            echo "::notice::Stacks not detected, their jobs are skipped:$skipped"
+          fi
 
   # Monorepo invariant: every shared dependency is ONE version across all
   # workspaces. Dependabot bumps each manifest independently and cannot see
@@ -157,11 +171,18 @@ jobs:
       # Every design token family is set by a role (the design-system skill).
       # Biome cannot see this: a raw `text-sm` or `rounded-[6px]` is valid
       # Tailwind and valid TSX, and it is exactly how one thing ends up at four
-      # sizes. A project that enforces its tokens declares the check as
-      # `lint:tokens`, and `lint:design` validates design.md against its spec.
-      # `--if-present` skips a project that has not declared one.
-      - run: npm run lint:tokens --if-present
-      - run: npm run lint:design --if-present
+      # sizes. A repo with a design.md has a design system, so both checks are
+      # required and a missing script fails the job: `lint:tokens` runs the
+      # kit's token checker, `lint:design` validates design.md against its
+      # spec. Without a design.md neither applies, and the job says so.
+      - name: design checks
+        run: |
+          if [ -f design.md ]; then
+            npm run lint:tokens
+            npm run lint:design
+          else
+            echo "::notice::No design.md at the repository root, so the design checks (lint:tokens, lint:design) do not apply."
+          fi
 
   vitest:
     name: vitest
@@ -187,6 +208,20 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      # vitest.config.ts drops the integration project when the Neon secrets
+      # are absent, and the run still passes — integration tests that exist
+      # but never ran would read as green. Dependabot PRs are the one
+      # exception: GitHub runs them without the repository's Actions secrets,
+      # and their unit tests are still real signal.
+      - name: integration tests have their database
+        if: github.event.pull_request.user.login != 'dependabot[bot]'
+        run: |
+          files=$(git ls-files '*.integration.test.ts')
+          if [ -n "$files" ] && { [ -z "$NEON_API_KEY" ] || [ -z "$NEON_PROJECT_ID" ]; }; then
+            echo "::error::This repository has integration tests, but the NEON_API_KEY or NEON_PROJECT_ID secret is empty, so they would be skipped. Add both under Settings → Secrets and variables → Actions (testing.md §1)."
+            printf '%s\n' "$files"
+            exit 1
+          fi
       - run: npm test
 
   python:
@@ -215,14 +250,48 @@ jobs:
               cd "$dir"
               uv sync || exit 1
               uv run ruff check . || exit 1
-              # pytest exit 5 = "no tests collected" → treat as pass
+              # pytest exit 5 = "no tests collected": passes, and says so
               uv run pytest -q; rc=$?
-              [ "$rc" -eq 0 ] || [ "$rc" -eq 5 ] || exit 1
+              if [ "$rc" -eq 5 ]; then
+                echo "::warning::$dir: pytest collected no tests"
+              elif [ "$rc" -ne 0 ]; then
+                exit 1
+              fi
             ) || fail=1
             echo "::endgroup::"
           done < <(find . -name pyproject.toml \
                      -not -path '*/.venv/*' -not -path '*/node_modules/*' -print0)
           exit "$fail"
+      # The commit gate's typecheck (gates.sh run_typecheck_gate), same scope and
+      # same choice: a root pyproject.toml or pyrightconfig.json runs pyright,
+      # else mypy. From the root
+      # because pyright reads its config only from the directory it is launched
+      # in (python-rules.md). The project's own pinned checker runs when it
+      # declares one; mypy runs only when it declares mypy and not pyright.
+      - name: typecheck (pyright, else mypy)
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          if [ -f pyproject.toml ]; then
+            run=(uv run)
+          elif [ -f pyrightconfig.json ]; then
+            run=(uv run --no-project)
+          else
+            echo "::notice::No pyproject.toml or pyrightconfig.json at the repository root, so the Python typecheck does not apply — the commit gate skips it too."
+            exit 0
+          fi
+          has() { [ -f pyproject.toml ] && uv run python -c "import importlib.util, sys; sys.exit(importlib.util.find_spec('$1') is None)" >/dev/null 2>&1; }
+          if has pyright; then
+            echo "typecheck: pyright (the project's pinned version), from the repository root"
+            uv run pyright --stats
+          elif has mypy; then
+            echo "typecheck: mypy ., from the repository root"
+            uv run mypy .
+          else
+            echo "::warning::No root pyproject.toml declares pyright or mypy, so CI runs the latest pyright — pin one as a dev dependency (python-rules.md)."
+            echo "typecheck: pyright (latest), from the repository root"
+            "${run[@]}" --with pyright pyright --stats
+          fi
 
   semgrep:
     name: semgrep
@@ -246,9 +315,22 @@ jobs:
       # Project-specific `--exclude-rule` flags belong here when a finding is
       # addressed by a real config-level fix the rule's pattern matcher cannot
       # detect (constitution §XIII option 3). Document each exclusion at the fix
-      # site so the rule's concern can be re-verified. `.semgrepignore` (§11.8)
+      # site so the rule's concern can be re-verified. `.semgrepignore` (pipeline.md §3.2)
       # handles file-pattern excludes (binaries, design assets, lockfiles).
       - name: Run Semgrep
         if: github.actor != 'dependabot[bot]'
         run: |
           semgrep scan --config auto --error
+
+  # This repository's own CI steps. Everything between the markers belongs to
+  # the project and survives every kit sync; the job around them is the kit's.
+  # The checkout is done — a step that needs Node or Python sets it up first.
+  project:
+    name: project
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      # project:begin project-steps
+      - name: no project steps
+        run: echo "::notice::This repository adds no CI steps of its own."
+      # project:end project-steps

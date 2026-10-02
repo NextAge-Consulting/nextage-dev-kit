@@ -13,8 +13,12 @@
 # way to author a migration. Guarding the sanctioned path taught SKIP_DB_GUARD as
 # routine muscle memory, which is exactly what must stay exceptional.
 
+# shellcheck source=guard-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/guard-lib.sh"
+
 # Read input from Claude Code
 INPUT=$(cat)
+require_tools PreToolUse jq python3
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name')
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // ""')
 

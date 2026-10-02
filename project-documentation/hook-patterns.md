@@ -1,6 +1,6 @@
 # Hook Patterns
 
-Reference for Claude Code hook patterns. Covers async vs sync decisions and a token-based pattern for secure bypass mechanisms that AI cannot easily circumvent.
+Reference for the kit maintainer on Claude Code hook patterns. Covers async vs sync decisions, a token-based pattern for secure bypass mechanisms that AI cannot easily circumvent, and the kit's shared guard library.
 
 How hooks are tested is the kit rule `.claude/rules/project/hook-testing.md`; why they
 are tested that way is `kitmaintainer-handbook.md`, "Testing the kit's hooks".
@@ -134,8 +134,10 @@ hooks:
 ```bash
 #!/bin/bash
 # {hook-name}.sh
+source "$(dirname "${BASH_SOURCE[0]}")/guard-lib.sh"
 
 INPUT=$(cat)
+require_tools PreToolUse jq    # refuses, naming jq, when it does not run
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id')
 TOKEN_FILE="/tmp/.{skill-name}-token-${SESSION_ID}"
 
@@ -197,6 +199,35 @@ For even stronger security:
 1. **Cryptographic tokens** — Generate HMAC-signed tokens.
 2. **Process validation** — Check the token was created by the legitimate hook process.
 3. **One-time tokens** — Token deleted after first use.
+
+---
+
+## Part 3: The kit's guard library
+
+Every kit guard sources `hooks/guard-lib.sh`, plain bash with no `jq` or `python3`, and
+builds on three of its pieces.
+
+**A guard that cannot run refuses.** A guard allows by printing nothing, so a guard whose
+`jq` is missing reads an empty tool name and allows everything — silently. `require_tools
+<event> <tool>…` runs each tool (`jq .`, `python3 -c 'print(1)'`; on Windows a `python3`
+that exists can be the Store stub) and, when one fails, prints the event's refusal — a
+PreToolUse deny, a PostToolUse block, otherwise a warning — naming the tool and this
+platform's install line, then exits the hook. Call it before parsing the payload.
+
+**One spelling per path.** `normalize_path` and `path_rel_to` treat `\` and `/`, the
+drive-letter forms `C:/`, `c:\`, `/c/` and `/cygdrive/c/`, `.` and `..`, and symlinks as
+the same file. A guard comparing a payload's path against the project or a pattern uses
+them; a raw string comparison misses every Windows spelling.
+
+**Replayed shell edits.** Edit/Write guards never see a file a shell command changed.
+`bash-edit-guard.sh` (PostToolUse on Bash) replays each changed file through every Edit
+hook the project's `settings.json` registers, with `bash_edit_replay: true` in the payload.
+The change is already on disk, so objections come back as a block for Claude to fix or
+undo. A guard that needs the whole change, not just the added lines, reads the flag and
+compares the file on disk with its committed version.
+
+`hooks/toolchain-check.sh`, the first SessionStart hook, runs the same tool checks once
+per session and tells the human and Claude what is missing before any guard refuses.
 
 ---
 

@@ -9,7 +9,9 @@
 # or a project's own, covers shell edits without being changed.
 #
 # The payload's `new_string` is the file's lines added since HEAD (the whole file when
-# it is untracked; empty when deleted), which is what a content guard judges.
+# it is untracked; empty when deleted), which is what a content guard judges. It also
+# carries `bash_edit_replay: true`, so a guard that needs the whole change (the region
+# check in block-kit-edit.sh) knows the file on disk is already the new version.
 #
 # The change is already on disk, so nothing is refused: every objection is returned to
 # Claude as a PostToolUse block, to fix or undo.
@@ -24,17 +26,25 @@
 # every mode when the user setting `bashEditDiffEnabled` is true. With no list, this
 # hook does nothing; bash-edit-diff-check.sh warns at session start when that is so.
 #
+# A replayed guard that does not run — it times out, fails to start, or is not found —
+# has not passed the file, and is reported as a finding naming the guard.
+#
 # Override (user-authorized only): SKIP_BASH_EDIT_GUARD=1.
+# BASH_EDIT_GUARD_TIMEOUT sets the per-guard replay limit in seconds (default 60; the
+# suite shortens it).
 
 [ "${SKIP_BASH_EDIT_GUARD:-}" = "1" ] && exit 0
 
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=guard-lib.sh
+source "$HOOK_DIR/guard-lib.sh"
+
 INPUT=$(cat)
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(printf '%s' "$INPUT" | jq -r '.cwd // ""' 2>/dev/null)}"
-[ -n "$PROJECT_DIR" ] || exit 0
+require_tools PostToolUse python3
 
-KIT_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/kit-delivered.sh"
+KIT_LIB="$HOOK_DIR/kit-delivered.sh"
 
-printf '%s' "$INPUT" | PROJECT_DIR="$PROJECT_DIR" KIT_LIB="$KIT_LIB" python3 -c '
+printf '%s' "$INPUT" | PROJECT_DIR="${CLAUDE_PROJECT_DIR:-}" KIT_LIB="$KIT_LIB" python3 -c '
 import json, os, re, subprocess, sys
 
 try:
@@ -49,7 +59,9 @@ files = [f for f in (diff.get("changedFiles") or []) if isinstance(f, str) and f
 if not files:
     sys.exit(0)
 
-project = os.environ["PROJECT_DIR"]
+project = os.environ.get("PROJECT_DIR") or (event.get("cwd") if isinstance(event.get("cwd"), str) else "")
+if not project:
+    sys.exit(0)
 try:
     settings = json.load(open(os.path.join(project, ".claude", "settings.json"), encoding="utf-8"))
 except Exception:
@@ -103,20 +115,41 @@ MAX_FILES = 40
 unchecked = files[MAX_FILES:]
 files = files[:MAX_FILES]
 
+def guard_name(cmd):
+    toks = re.findall(r"[^\s\"\x27]+", cmd)
+    return os.path.basename(toks[-1]) if toks else cmd
+
+try:
+    timeout = max(1, int(os.environ.get("BASH_EDIT_GUARD_TIMEOUT") or 60))
+except ValueError:
+    timeout = 60
+
 env = dict(os.environ, CLAUDE_PROJECT_DIR=project)
 findings = []
 for path in files:
     base = {k: event.get(k) for k in ("session_id", "transcript_path", "cwd") if event.get(k)}
     tool_input = {"file_path": path, "old_string": "", "new_string": added_lines(path)}
     for event_name, commands in (("PreToolUse", pre), ("PostToolUse", post)):
-        payload = dict(base, hook_event_name=event_name, tool_name="Edit", tool_input=tool_input)
+        payload = dict(base, hook_event_name=event_name, tool_name="Edit", tool_input=tool_input,
+                       bash_edit_replay=True)
         if event_name == "PostToolUse":
             payload["tool_response"] = {"filePath": path, "success": True}
         for cmd in commands:
+            # A guard that did not run has not passed the file: say so, never count it an allow.
             try:
                 r = subprocess.run(["bash", "-c", cmd], input=json.dumps(payload), capture_output=True,
-                                   text=True, env=env, cwd=project, timeout=60)
+                                   text=True, env=env, cwd=project, timeout=timeout)
+            except subprocess.TimeoutExpired:
+                findings.append((path, "Guard " + guard_name(cmd) + " could not run on this file: it did not "
+                                 "finish within " + str(timeout) + " seconds. Check the file against that guard yourself."))
+                continue
             except Exception:
+                findings.append((path, "Guard " + guard_name(cmd) + " could not run on this file: it failed "
+                                 "to start. Check the file against that guard yourself."))
+                continue
+            if r.returncode in (126, 127):
+                findings.append((path, "Guard " + guard_name(cmd) + " could not run on this file: it was not "
+                                 "found or is not executable. Check the file against that guard yourself."))
                 continue
             reason = ""
             try:

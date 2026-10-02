@@ -16,7 +16,7 @@ Skill({skill: "ui-patterns"})
 
 ## The project keeps an inventory
 
-Every project maintains `rules/project/ui-inventory.md`, with the same `paths:` frontmatter as this file. The kit seeds it on first sync and the project owns every line from then on. It holds:
+Every project maintains `rules/project/ui-inventory.md`, with the same `paths:` frontmatter as this file. The kit syncs it in `merge` mode: the project owns everything inside its `project:begin` / `project:end` regions, and the kit owns the text around them. It holds:
 
 - **The pattern index** — every pattern the project has, one line each, and what it governs.
 - **The component inventory** — atoms, composites and hooks, enumerated from the filesystem, one line on what each is for.
@@ -30,7 +30,8 @@ Update it in the same change that adds a pattern or a component.
 
 ```
 Built from: packages/ui/src/components/record-header.tsx
-Built from: src/components/ui/dialog.tsx (leveled up: added the divided regions)
+Built from: src/components/ui/dialog.tsx (new to the system: the divided-regions variant)
+Built from: src/components/ui/table.tsx (one-off: the print layout the export needs)
 Built from: none — new pattern, researched and agreed first
 ```
 

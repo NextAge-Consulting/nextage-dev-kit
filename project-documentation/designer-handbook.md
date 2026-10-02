@@ -38,6 +38,13 @@ page, the pages link together, and Play clicks through them like the real applic
 Each page is fluid and reflows the way the app will, rather than being drawn once per
 device size.
 
+**Two ways to see a screen at phone size, and neither is preferred.** A phone preview
+puts a phone-sized frame beside each screen on the canvas, so desktop and phone sit side
+by side while you work. Or open the design in Play in your browser and switch on the
+browser's device mode, which shows the same fluid page at any size you pick. When a new
+design starts on a screen used on both, Claude asks whether you want phone previews, and
+you can ask for them later too.
+
 ### When to reach for it
 
 When a screen is worth seeing before anyone builds it: a redesign, a new feature with a
@@ -53,7 +60,9 @@ too: "let's redesign this screen", "build the design", "work the comments".
 
 1. **Start.** Hand over screenshots of what you're replacing and talk the screen through:
    what it keeps, who uses it, and roughly how it's laid out. Nothing is built yet. This
-   step opens the design's folder in the repo.
+   step opens the design's folder in the repo. A screen the app already has is designed
+   with its real records and labels; only a brand-new screen gets invented sample data.
+   The brief records which.
 2. **Create the design.** The conversation becomes a brief, and the brief becomes the
    design in Claude Design. This happens once.
 3. **Work on it.** Reopen the design at any time and keep changing it in conversation.
@@ -69,13 +78,20 @@ Two further actions look after the design system rather than any one design:
 **publish-system** publishes the system from code, and **apply-system** brings existing
 designs up to the current version.
 
+**Every publish is a numbered release.** The design system's cover in Claude Design
+shows a line like `Release 12 · built 2026-10-01 from 3f2a1c9`: the release number, the
+day it was built, and the commit it came from. Each design's folder records the release
+the design uses. When a design's release is lower than the system's, the design is
+looking at an older system than the code ships — its components may look or behave
+differently from what implement will build — and apply-system brings it up to date.
+
 ### The design folder
 
 While a design is in progress it has a folder in the repo,
 `project-documentation/temporary/design-<name>/`:
 
-- `README.md` holds the design's link and its status, so nobody has to paste the link
-  around.
+- `README.md` holds the design's link, its status and the design-system release it uses,
+  so nobody has to paste the link around.
 - `brief.md` holds the agreed shape and a log of every decision made since.
 - The screenshots you started from are copied in beside them.
 

@@ -46,7 +46,7 @@ writing any of the design's files.
   code only.
 - **Each design** — a Design artifact in Claude Design, plus one folder in the repo while
   it is in progress: `project-documentation/temporary/design-<name>/`, holding `README.md`
-  (feature, lead, status, the design's link, the version built from), `brief.md` (the
+  (feature, lead, status, the design's link, the design-system release it uses, the version built from), `brief.md` (the
   agreed shape and every change settled since), the source screenshots, and
   `export/` while `implement` runs. `start` creates it; `implement` records what outlives
   it in the feature's permanent doc and removes it. `/ui-design`'s "The design folder" has
@@ -59,7 +59,7 @@ page per screen, each screen one fluid web page.** This overrides the Design typ
 guide wherever it lays screens out as fixed-size artboards per device on one canvas.
 
 - **One page per screen.** Give each screen its own entry in the canvas's `pages` and
-  exactly one artboard on it (the board entry's `page`). Link screens with
+  draw the screen as one artboard on it (the board entry's `page`). Link screens with
   `<a href="Other.dc.html">` so Play clicks through like the application.
 - **Draw each screen once, as a fluid page.** Root at `width: 100%`, `"expand": "fill"` on
   its board entry, and the layout reflowing at breakpoints through container queries on
@@ -68,8 +68,9 @@ guide wherever it lays screens out as fixed-size artboards per device on one can
   (`rules/integrations/agent-browser.md`); Play fills the window.
 - **Open on the entry screen** — the one the brief names first:
   `"launch": {"view": "focused", "file": "<entry>.dc.html"}`.
-- **Add a fixed-width preview only when a review asks for one:** an extra artboard on that
-  screen's page that embeds the same screen with `<dc-import>`.
+- **Add a phone preview when the brief or the designer asks for one:** a second artboard
+  on the screen's page, 390×844 with a matching `$preview`, 80px to the right of the
+  screen, whose file does nothing but embed the screen with `<dc-import>`.
 - **Use the system's components.** `window.<namespace>.<Name>` is the real component the
   app ships, and `<namespace>.Icon` draws any icon in the project's set by name — so the
   design uses what the build will use.
@@ -89,11 +90,13 @@ guide wherever it lays screens out as fixed-size artboards per device on one can
   the canvas; an approved option lands in the design system and a rejected one comes out,
   and every gap is settled that way before `implement`.
 - **`scripts/check-design.mjs` runs on every page before every publish to a design, and
-  must pass:** `node <skill>/scripts/check-design.mjs <root>/project/*.dc.html`. It fails
-  on anything the page draws that the system owns — any inline style, colour or type in a
-  page rule, spacing inside or on a component — and lists every preview and candidate as an
-  open decision. A failure is a gap to raise. Moving the value somewhere the check does
-  not look is the same failure with extra steps.
+  must pass:** `node <skill>/scripts/check-design.mjs --config <the UI package's design-system.config.mjs> <root>/project/*.dc.html`.
+  It fails on anything the page draws that the system owns — any inline style, colour or
+  type in a page rule, spacing inside or on a component — on a component mounted without a
+  prop the config's `requiredProps` names, and on a page that mounts no component of the
+  system; it lists every preview and candidate as an open decision. A failure is a gap to
+  raise. Moving the value somewhere the check does not look is the same failure with
+  extra steps.
 - **On a mounted component, write `class-name`, never `class`.** The runtime maps `class`
   to `className` only on plain elements; on an `x-import` it passes `class` through, and it
   replaces every class the component sets — a card loses its border, fill and padding.
@@ -102,36 +105,57 @@ guide wherever it lays screens out as fixed-size artboards per device on one can
 
 ## Setting a project up
 
-1. Copy `references/config-example.mjs` into the UI package — conventionally
-   `<package>/design-system/design-system.config.mjs` — and fill it in. The example's
-   header carries every field and its path base.
-2. Add to the UI package's `package.json`, with `esbuild` as a dev dependency:
+1. Set the design keys in `.claude/sync-substitutions.json` — `DESIGN_UI_PACKAGE`,
+   `DESIGN_FEED_BARREL`, `DESIGN_TOKEN_FILES`, `DESIGN_TYPE_FILE` and `DESIGN_STYLES_FILE`
+   for the engine, and `DESIGN_SOURCE_DIRS` through `DESIGN_EXEMPT_COMPONENTS` for the
+   token checker. The catalog's `_placeholders_referenced_by_kit` says what each holds.
+   `/sync-dev-kit` then lands the type-emit `tsconfig.types.json` in
+   `<UI package>/design-system/`.
+2. Copy `references/config-example.mjs` to `<UI package>/design-system/design-system.config.mjs`,
+   fill in the content, and replace its header with the one-line pointer the example
+   shows.
+3. Wire the scripts, with `esbuild` and `@tailwindcss/cli` as dev dependencies of the UI
+   package at the versions `stack-manifest.json` pins — `check-stack.mjs` fails until
+   every piece is there. In the UI package:
 
    ```json
    "build:design-system": "node <repo-relative path>/.claude/skills/claude-design/scripts/build.mjs design-system/design-system.config.mjs",
    "check:design-system": "node <repo-relative path>/.claude/skills/claude-design/scripts/render-check.mjs design-system/design-system.config.mjs"
    ```
 
-3. Run both. The build fails, naming each offender, until every token is commented and
-   resolvable, every class the README promises a design (each spacing step, each colour
-   token as fill, text and border, each radius and type role) is in the package's CSS —
-   on Tailwind, an `@source inline` line in the feed stylesheet — and every previewed
-   component has a guidelines source — the design-system
-   skill's "Tokens must survive the trip to Claude Design" section is the rule. The check
-   needs `agent-browser` on the machine.
-4. Run `/ui-design publish-system` to create the system in Claude Design and record its
+   At the root, beside `lint:design`:
+   `"lint:tokens": "node .claude/skills/design-system/scripts/check-design-tokens.mjs"`.
+4. Run `build:design-system`, and commit the two files it generates in the UI package.
+   The feed stylesheet imports `design-system/safelist.generated.css`, so Tailwind ships
+   every class the README promises a design. The package's `cn()` passes
+   `designClassGroups` from `src/lib/design-tokens.generated.ts` to
+   `extendTailwindMerge<DesignClassGroupId>`, so two classes of one role merge to the
+   later one. The token checker fails while either file is out of date or not imported.
+5. Run both scripts until they pass. The build fails, naming each offender, until every
+   token is commented and resolvable, every promised class is in the package's CSS, and
+   every previewed component has a guidelines source — the design-system skill's
+   "Tokens must survive the trip to Claude Design" section is the rule. The check needs
+   `agent-browser` on the machine.
+6. Run `/ui-design publish-system` to create the system in Claude Design and record its
    address in the config.
 
 ## The engine
 
-`scripts/build.mjs <config>` writes the Design System's files; `scripts/render-check.mjs
-<config>` renders every preview in light, dark and canvas mounting; `scripts/resolve.mjs`
-translates token CSS into the format (tests: `node --test scripts/resolve.test.mjs`);
-`scripts/check-design.mjs <pages>` fails a design page that draws what the system owns
-(tests: `node --test scripts/check-design.test.mjs`).
-The config holds everything project-specific; the scripts hold nothing project-specific.
-A value, family or selector the engine does not know fails the build — extend the config
-or the engine, never drop the token.
+`scripts/build.mjs <config> [--release <n>]` writes the Design System's files and the two
+generated files (`scripts/generate.mjs <config>` writes only those);
+`scripts/render-check.mjs <config>` renders every preview in light, dark and canvas
+mounting; `scripts/resolve.mjs` translates token CSS into the format;
+`scripts/check-design.mjs --config <config> <pages>` fails a design page that draws what
+the system owns or leaves out a required prop. `scripts/config.mjs` reads the config for
+all of them. Tests: `node --test scripts/*.test.mjs`.
+
+**The engine is built for the kit's UI stack** — Tailwind v4, shadcn on Radix,
+`@fontsource-variable` fonts, an icon package or local module exporting `icons`, and
+React 18 on the design page — and resolves every package from the UI package, failing by
+name when a piece is missing. The project's paths are its design keys, its content is
+the config, and the scripts hold nothing project-specific. A value, family or selector
+the engine does not know fails the build — extend the config or the engine, never drop
+the token.
 
 ## Rules for a design-system component library
 

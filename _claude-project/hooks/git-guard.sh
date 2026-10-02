@@ -22,7 +22,11 @@
 #
 # Bypass: prefix the command with SKIP_GIT_GUARD=1 under explicit user authorization.
 
+# shellcheck source=guard-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/guard-lib.sh"
+
 INPUT=$(cat)
+require_tools PreToolUse jq python3
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name')
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // ""')
 
@@ -93,7 +97,8 @@ for seg in re.split(r"\|\||&&|[;|&\n]", sys.argv[1]):
 
 PARTS=()
 while IFS= read -r PART_LINE; do
-    PARTS+=("$PART_LINE")
+    # Python on Windows ends each line with CRLF; a stray CR defeats every `$` anchor below.
+    PARTS+=("${PART_LINE%$'\r'}")
 done <<< "$PARTS_TEXT"
 
 for PART in "${PARTS[@]}"; do

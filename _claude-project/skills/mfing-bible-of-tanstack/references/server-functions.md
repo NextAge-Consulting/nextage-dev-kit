@@ -9,10 +9,12 @@ business apps need — RPC from a component to the server, guarded and validated
 ```ts
 export const getItemBrowse = createServerFn({ method: 'GET' })
   .validator((raw: unknown) => browseSchema.parse(raw))
-  .handler(async ({ data }) => {
-    await requireSession()          // auth FIRST, always
-    return browseItems(data)
-  })
+  .handler(
+    logFailures('getItemBrowse', async ({ data }) => {
+      await requireSession()        // auth FIRST, always
+      return browseItems(data)
+    }),
+  )
 ```
 
 Call it as `getItemBrowse({ data: params })`. The `{ data }` wrapper is required
@@ -31,8 +33,8 @@ as its first statement.** No exceptions, including functions that "only read"
 oversight:
 
 - Middleware's only real capability over a plain call is that it can run code
-  *after* the handler, including on error. We have nothing that needs wrapping.
-  Everything else it offers is saved typing.
+  *after* the handler, including on error. The one thing we run there — failure
+  logging — is a plain function (below). Everything else it offers is saved typing.
 - It has cost real time. TanStack/router **#2783** — server-function middleware
   pulled server code into the client bundle — was open from Nov 2024 to Feb 2026.
 - Still open as of Aug 2026: **#7213** (a middleware calling a server function
@@ -43,10 +45,129 @@ Upstream's own docs use `authMiddleware` as their headline example. That is not
 a reason to adopt it — docs showing a pattern says nothing about whether it
 breaks in a given setup.
 
-If we ever genuinely need something wrapped around every server function, the
-answer is a plain higher-order function in our own code (`withAuth(handler)`),
-which runs before and after, composes fine, and cannot be broken by a framework
-release.
+Anything wrapped around every server function is a plain higher-order function
+in our own code, as `logFailures` is: it runs before and after, composes fine, and
+cannot be broken by a framework release.
+
+## Every handler logs its own failure and redacts it
+
+**TanStack Start never logs a handler's throw, and it sends the thrown message to
+the browser.** Its middleware runner catches the throw and returns it as a value,
+which is serialized into the response and rethrown by the caller — on SSR, in a
+loader and over the RPC endpoint alike. The endpoint's own `Server Fn Error!`
+console print fires only for failures outside the handler: an unparseable or
+oversize payload, or a result it cannot serialize. Unwrapped, a driver error, a
+constraint name or a hostname is readable by anyone who calls the endpoint, and
+the server log is empty.
+
+**Start serializes a thrown `Error` as its message alone; any other thrown value
+is serialized whole.** So the wrapper replaces what was thrown rather than editing
+it, and a `UserFacingError` crosses the wire through its adapter as its message
+and nothing else.
+
+**Wrap every handler in `logFailures(name, fn)`.** A failure is logged with the
+operation name and the error object, then replaced by a generic `Error`, so no
+internal text crosses the wire (constitution §III). Redirects, not-founds, thrown
+statuses and `UserFacingError`s pass through unchanged and unlogged:
+
+```ts
+// src/lib/log-failures.server.ts
+import { isNotFound, isRedirect } from '@tanstack/react-router'
+import { logger } from './logger'                 // the app's pino instance
+import { UserFacingError } from './user-facing-error'
+
+export function logFailures<A extends unknown[], R>(
+  op: string,
+  fn: (...args: A) => Promise<R>,
+): (...args: A) => Promise<R> {
+  return async (...args) => {
+    try {
+      return await fn(...args)
+    } catch (err) {
+      if (isOutcome(err)) throw err
+      logger.error({ err, op }, 'server function failed')
+      throw new Error('Something went wrong. Please try again.')
+    }
+  }
+}
+
+// A redirect, a not-found, a thrown status and a deliberate refusal are answers,
+// not failures: the client needs them intact, and logging them buries the real ones.
+function isOutcome(err: unknown): boolean {
+  return isRedirect(err) || isNotFound(err) || err instanceof Response
+    || err instanceof UserFacingError
+}
+```
+
+**The file keeps its `.server` suffix and lives beside the server functions that
+use it** — the app's `src/lib/`, or the web tier (`packages/web`) when shared server
+functions live there. The suffix is what makes TanStack Start's import protection
+fail the build if the logger ever reaches the client bundle.
+
+**Pass the error object under `err`, never `err.message`.** Pino's `err`
+serializer writes the type, the message and stack with every `cause` appended; a
+string loses the cause, which is usually the part that names the real fault.
+
+The name, `logFailures`, and the call shape `.handler(logFailures('opName', fn))`
+are fixed: the kit's Biome plugin `biome-plugins/server-fn-logging.grit` fails
+lint on any `createServerFn(…).handler(x)` whose `x` is not that call. A handler
+that genuinely must not be wrapped — and so is neither logged nor redacted —
+carries the suppression on the line above, with the reason:
+
+```ts
+  // biome-ignore lint/plugin/server-fn-logging: <why this one must not log>
+  .handler(async () => …)
+```
+
+## A server function's error message is never shown to the user
+
+**Only a `UserFacingError`'s message is written for the user.** Every other error
+reaching the client is `logFailures`' generic replacement or a framework error.
+A caller never renders `error.message` from those: it shows its own general
+statement naming the system and the impact (constitution §X), and the detail
+lives in the server log `logFailures` wrote.
+
+**A message written for the user is a `UserFacingError`, and the caller checks
+for that type.** Start rebuilds every other error as a plain `Error`, so the
+subclass survives the wire only through a serialization adapter registered in
+`src/start.ts`:
+
+```ts
+// src/lib/user-facing-error.ts — client-safe; the server throws it, the client checks it
+import { createSerializationAdapter } from '@tanstack/react-router'
+
+export class UserFacingError extends Error {
+  override name = 'UserFacingError'
+}
+
+export const userFacingErrorAdapter = createSerializationAdapter({
+  key: 'user-facing-error',
+  test: (v): v is UserFacingError => v instanceof UserFacingError,
+  toSerializable: (e) => e.message,
+  fromSerializable: (message) => new UserFacingError(message),
+})
+```
+
+```ts
+// src/start.ts — defining this file removes Start's default CSRF middleware,
+// so it is added back here (see "The CSRF middleware is not authentication")
+import { createCsrfMiddleware, createStart } from '@tanstack/react-start'
+import { userFacingErrorAdapter } from './lib/user-facing-error'
+
+export const startInstance = createStart(() => ({
+  serializationAdapters: [userFacingErrorAdapter],
+  requestMiddleware: [
+    createCsrfMiddleware({ filter: (ctx) => ctx.handlerType === 'serverFn' }),
+  ],
+}))
+```
+
+```ts
+// the caller
+const message = error instanceof UserFacingError
+  ? error.message
+  : "Couldn't save your changes — nothing was changed."
+```
 
 ## The route guard is not the security boundary
 

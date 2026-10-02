@@ -17,6 +17,7 @@ The kit is just another project — it has its own `.claude/` with project-custo
 | `_gemini-project/` | consumer `<project>/.gemini/` via `/sync-dev-kit` | Gemini Code Assist config + styleguide (PR-time AI reviewer) |
 | `_claude-maintainer/` | `~/.claude/`, copied by hand (§0.1) | The MAINTAINER surface — only the person who syncs the kit into projects: `scripts/sync-dev-kit.sh`, `commands/sync-dev-kit.md`, `scripts/review-stack.sh`, `commands/review-stack.md`, `kit-maintainer.md`. A consumer machine never receives the sync machinery, so it cannot run a sync. |
 | `_statusline/statusline.sh` | `~/.claude/statusline.sh` via `/install-statusline` (one-time) | The kit's custom statusline asset; referenced by `install-statusline.md`. |
+| `tests/` | Nowhere — sync reads only the `_*-project/` folders | Tests for kit-shipped files that must not ship with them, e.g. `tests/templates/check-workspace-tiers.test.sh`. Each case copies the real script into a throwaway repo where sync would put it. |
 | `.claude/` | This kit repo's own active config | Mirror of `_claude-project/` PLUS kit-custom commands and scripts that only make sense in this repo: `install-cpl`, `install-statusline` (commands + their helper scripts). These never propagate anywhere. |
 
 ### Why consumers get nothing globally
@@ -435,7 +436,7 @@ Note: `/open-pr` does NOT touch `changelog.md`; `/deploy` is the single changelo
 2. If multiple open PRs, list them and ask which
 3. Command calls `skills/gitflow/scripts/merge.sh`:
    - **Base drift gate** — first of all. When `origin/main` has moved past the branch, a trial merge (`git merge-tree`, which touches no file, index or ref) decides: a conflict refuses with exit 23 before any build or wait, and drift that merges cleanly is reported and the merge continues. The same drift report (`main_drift_report` in `branch_helpers.sh`) runs as a warning in `/work`, `/commit` and `/open-pr`, so a branch cut from a stale `main` is flagged when it is cut rather than at the squash. `--force-unchecked` bypasses it.
-   - **Local production build gate** — `npm run build --workspaces --if-present`, run before the readiness wait and before the squash (exit 15 on failure, nothing merged). CI type-checks, lints and tests but never builds, so a build-only break (bundler / Tailwind / an import alias a package's own tsconfig doesn't map) is invisible to every earlier gate. `/merge` is the last moment the PR is still OPEN — a failure here is fixed on the branch that caused it, inside the PR already under review, instead of needing a second PR to repair the first. Not in CI on purpose: CI fires on every push, so building there would tax every commit, `/open-pr` and triage fix; once per merge is the right frequency. `--workspaces` is added only when `package.json` actually declares a `workspaces` key (jq-tested — it errors on a single-package repo); a repo with no `package.json` skips the gate entirely. `--force-unchecked` bypasses it along with the CI gate.
+   - **Local production build gate** — every workspace that declares a `build` script (or the root, in a single-package repo) builds before the readiness wait and before the squash (exit 15 on failure, nothing merged). The gate counts the declared build scripts first and reports how many it built; with none it says so rather than reporting a build that never ran (`run_build_gate` in `gates.sh`). CI type-checks, lints and tests but never builds, so a build-only break (bundler / Tailwind / an import alias a package's own tsconfig doesn't map) is invisible to every earlier gate. `/merge` is the last moment the PR is still OPEN — a failure here is fixed on the branch that caused it, inside the PR already under review, instead of needing a second PR to repair the first. Not in CI on purpose: CI fires on every push, so building there would tax every commit, `/open-pr` and triage fix; once per merge is the right frequency. `--workspaces` is added only when `package.json` actually declares a `workspaces` key (jq-tested — it errors on a single-package repo); a repo with no `package.json` skips the gate entirely. `--force-unchecked` bypasses it along with the CI gate.
    - Invokes `wait-for-pr-ready.sh` (same poll as `/open-pr` step 5) — trigger-aware: catches the post-`/triage` case where the user invoked `/commit --review` and a fresh Gemini review is expected on the new HEAD. `/commit --no-review` posts no trigger and the wait proceeds CI-only. Bypassable via `--force-unchecked` for emergency hotfixes only (skips CI too).
    - On wait exit 0: `gh pr merge --squash` with the PR's own title and body as the commit message — explicit, because GitHub's default squash message depends on a per-repository setting, and its "commit messages" option drops the PR body and with it the `Closes #N` line `/deploy` reads (exit 22 if the title or body cannot be read, nothing merged). The remote branch is deleted afterwards as a separate, best-effort step.
    - **Post-merge cleanup**: switch this checkout to `main`, fast-forward it to the merged tip, delete the now-merged local branch, and reinstall dependencies if landing on the new `main` changed a package manifest.
@@ -545,37 +546,50 @@ Nothing is ever full-replaced. Every sync is a three-way comparison per file: ki
   "lastSyncedCommit": "<kit commit SHA at last sync>",
   "lastSyncedAt": "<ISO timestamp>",
   "files": {
-    ".claude/hooks/git-guard.sh": { "kitSha": "<kit file hash at last sync>" },
-    ".claude/rules/constitution.md": { "kitSha": "<kit file hash at last sync>" }
+    ".claude/hooks/git-guard.sh": { "sha": "<hash of what sync wrote>", "mode": "owned" },
+    ".claude/rules/project/ui-inventory.md": { "sha": "<hash of what sync wrote>", "mode": "merge", "skeleton": "<hash of the kit-owned text>" },
+    ".gemini/config.yaml": { "sha": "<kit hash at refusal>", "mode": "owned", "declined": true }
   }
 }
 ```
 
-Committed so every dev and every cloud session has the same baseline.
+Committed so every dev and every cloud session has the same baseline. `sha` is the hash of what sync wrote — substituted, canonicalized for `settings.json`, region-merged for a `merge` file. `skeleton` is recorded for `merge` files only (§9.10).
 
 ### 9.3. Sync states per file
 
-| Kit vs baseline | Project vs baseline | State | Action |
-|-----------------|---------------------|-------|--------|
-| unchanged | unchanged | Clean | Silent skip |
-| changed | unchanged | Kit-only | Show diff, recommend apply, ask |
-| unchanged | changed | Project-only | Inform the user of customization; no change |
-| changed | changed | Conflict | Three-way diff, Claude recommends merge, the user decides |
-| new file in kit | — | New kit file | Show, ask |
-| removed from kit | — | Removed kit file | Show, ask |
+| State | When | Action |
+|---|---|---|
+| `clean` | Kit and project both match the baseline | Silent skip |
+| `clean-first` | No baseline yet; project already matches the kit | Silent skip; finalize records the baseline |
+| `clean-converged` | Both moved to the same content (a `merge` file whose project changed only its regions lands here too) | Silent skip; finalize records the baseline |
+| `kit-only` | Kit changed, project did not | Show diff, recommend apply |
+| `project-only` | `template` file: project changed, kit did not | Silent skip — the project owns it |
+| `patched` | `owned`/`merge` file: project changed kit-owned text and the patch register sanctions it | Reported every sync with both issues and a recommendation (§9.10) |
+| `unsanctioned` | `owned`/`merge` file: project changed kit-owned text with no register entry | Reported loudly every sync; revert to the kit or register it |
+| `conflict` | `owned` file, no register entry: both changed, differently | Three-way diff; recommend the kit's version |
+| `conflict-first` | No baseline yet; project and kit differ | Show both, the user decides |
+| `template-drift` | `template` file: both changed, differently | Show the kit's delta as information; the project decides |
+| `merge-unmarked` | `merge` file whose project copy has no region markers | Never written; the content is moved into the regions by hand |
+| `merge-invalid` | `merge` file with malformed markers, or a project region the kit lacks | Never written until the markers are fixed |
+| `new-kit` | Kit file the project does not have | Show, recommend apply, or decline |
+| `declined` | The project refused this file at its current kit content | Silent skip |
+| `project-deleted` | Baseline and kit have it; the project deleted it | Ask: re-add or accept |
+| `removed-kit` | Kit deleted a file the project still has | Ask: delete or keep as project-owned |
+
+The scan also reports `unmapped_templates` (a `templates/` file with no destination mapping — a kit defect), `skipped_unconfigured` (files skipped because their destination key, `SHARED_MODULE_DIR` or `DESIGN_UI_PACKAGE`, is empty) and `stale_patches` (§9.10).
 
 ### 9.4. Sync procedure
 
 `/sync-dev-kit` (invoked from the project root, on whatever branch you are standing on):
 
-1. Clone or fetch kit at HEAD into a temp location
+1. Read the kit working tree at `devKitPath` (`~/.claude/dev-kit-config.json`); warn when it is dirty or behind its remote
 2. Load project lockfile (create empty if missing — first sync)
-3. Build file inventory from kit HEAD
+3. Build the file inventory from the kit working tree
 4. For each file:
    - Compute state per Section 9.3
    - Clean → skip silently
    - Any other state → present diff, recommend, await decision
-5. On each accepted change: write to project, update lockfile per-file SHA + timestamp
+5. On each accepted change: write to the project, update the lockfile entry
 6. At end (`--finalize`): **stamp the lockfile only** — set `lastSyncedCommit` to kit HEAD SHA + `lastSyncedAt` (per-file SHAs are already current from `--apply-file`). **Sync does not commit or push** — committing is gitflow's job, not sync's. The applied `.claude/` changes plus the lockfile bump are left as a normal uncommitted change in the working tree; the user lands them with `/ship-main` (or `/commit`). Sync runs **zero git mutations** (see §9.4.1).
 
 ### 9.4.1. Why sync does no git (the bootstrap problem)
@@ -599,7 +613,7 @@ The interactive review (steps 4–5) can stretch across multiple sessions:
 - Working tree has 3 uncommitted .claude/ changes between sessions. No commit yet.
 - User reopens `/sync-dev-kit` next session; Claude scans, picks up where left off, reviews remaining files.
 - When the review queue is empty (or the user explicitly stops with "finalize anyway"), Claude invokes `--finalize`.
-- `--finalize` detects the accumulated uncommitted changes, commits all of them in one commit pushed directly to `main`.
+- `--finalize` stamps the lockfile. The accumulated changes stay uncommitted until the user lands them with `/ship-main` or `/commit`.
 
 The user's UX is just `/sync-dev-kit`. Claude orchestrates the modes (`--scan` → `--apply-file` per accepted change → `--finalize`). The user never sees the internal mode flags.
 
@@ -655,6 +669,19 @@ Current kit-referenced placeholders (authoritative list is in `_claude-project/s
 | `AWS_REGION` | `_claude-project/rules/cli-utilities.md` (runtime-read via `jq`) | Default AWS region for this project's resources, e.g. `us-east-1`. Passed as an explicit `--region` on every AWS CLI command; never the shell default, which is per-machine and routinely points elsewhere. Empty → project has no AWS. See "Runtime-read placeholders" below |
 | `AWS_PROFILE` | `_claude-project/rules/cli-utilities.md` (runtime-read via `jq`) | Named AWS CLI profile for this project's account, e.g. `acme-prod`. Passed as an explicit `--profile` on every AWS CLI command. Empty → default profile / no AWS. See "Runtime-read placeholders" below |
 | `DB_ENGINE` | `_claude-project/rules/postgres-drizzle.md`, `rules/sqlserver-drizzle.md`, `skills/postgres-neon-drizzle/SKILL.md`, `rules/testing-verification.md` (runtime-read via `jq`) | Which engine the project runs on, and the single gate deciding which engine-specific guidance applies. Five exact, case-sensitive values: `PostgreSQL`, `SQLServer`, `Other` (has a DB, neither of those — the project supplies its own rule under `rules/project/`), `None` (no database at all), and empty (**not yet declared** — re-surfaced every sync; engine rules must not assume an engine). Empty NEVER means "no database"; that is `None`. Gating on the presence of a `drizzle.config.ts` is the bug this key replaces — a config file proves Drizzle, not the dialect. See "Runtime-read placeholders" below |
+| `DEPLOY_BACKEND`, `DEPLOY_WORKFLOWS`, `MIGRATE_WORKFLOW`, `MIGRATE_PATHS`, `CODEBUILD_PROJECT_PREFIX`, `CODEBUILD_MIGRATE_PROJECT` | `deploy.sh` (runtime-read) | The release path `/deploy` dispatches to, its services, and its gated migration phase — DevOps reference, `pipeline.md` §2.1 |
+| `FORM_LIB_EXEMPT_APPS` | `scripts/check-stack.mjs` (runtime-read) | Front-end apps that deliberately use no form library. An app neither declaring the library nor listed here fails the check until someone answers the question |
+| `SHARED_MODULE_DIR` | sync's destination mapping for `templates/testing/*` | The workspace holding the shared module and its test scaffolding, e.g. `apps/shared`. Empty → the testing templates are skipped (`skipped_unconfigured`). `testing.md` §1 |
+| `DESIGN_UI_PACKAGE` | sync's destination mapping for `templates/design-system/*`; `stack-manifest.json` (substituted); the `claude-design` engine, `check-design-tokens.mjs` and `check-stack.mjs` (runtime-read) | The UI package holding the design system, from the repository root, e.g. `packages/ui`. Its config sits at `<DESIGN_UI_PACKAGE>/design-system/design-system.config.mjs`. Empty → the project publishes no design system: the templates are skipped and the engine refuses to run |
+| `DESIGN_FEED_BARREL` | `templates/design-system/tsconfig.types.json` (substituted); the engine (runtime-read) | The module exporting every component a design may mount, relative to the UI package. Required whenever `DESIGN_UI_PACKAGE` is set |
+| `DESIGN_TOKEN_FILES` | the engine and the token checker (runtime-read) | Stylesheets declaring the tokens in light and dark blocks, relative to the UI package. Required whenever `DESIGN_UI_PACKAGE` is set |
+| `DESIGN_TYPE_FILE` | the engine and the token checker (runtime-read) | The stylesheet defining the `@utility type-*` roles. Empty → no type roles |
+| `DESIGN_STYLES_FILE` | the engine and the token checker (runtime-read) | The UI package's Tailwind entry stylesheet. Empty → none |
+| `DESIGN_SOURCE_DIRS` | the token checker (runtime-read) | Source trees, from the repository root, whose `.ts`/`.tsx` the checker reads. Required when the project has `design.md`; a listed folder that does not exist fails the check |
+| `DESIGN_VENDORED_DIR` | the token checker (runtime-read) | The vendored shadcn `components/ui` folder. Empty → nothing vendored |
+| `DESIGN_VENDORED_RESTYLED` | the token checker (runtime-read) | `"true"` when the vendored atoms are restyled onto the project's roles, so every class rule applies to them. Empty → they keep registry defaults and only the arbitrary-spacing rule applies |
+| `DESIGN_FIELD_LOOK_CLASSES` | the token checker (runtime-read) | Classes that paint a text field's look; a raw `<input>` or `<textarea>` carrying one fails. Empty → only `rounded-*` is checked |
+| `DESIGN_EXEMPT_COMPONENTS` | the token checker (runtime-read) | Headless primitives and `currentColor` glyphs a call site may style. Empty → none |
 
 The kit ships a template at `_claude-project/sync-substitutions.json` with empty values and inline docs of every placeholder kit templates currently reference. Consumer projects bootstrap automatically: `load_substitutions` in `sync-dev-kit.sh` copies the kit template to `.claude/sync-substitutions.json` on first run if absent. Population is then walked through interactively — see §9.8.
 
@@ -764,13 +791,29 @@ The orchestration is in the `/sync-dev-kit` slash command (`_claude-maintainer/c
 
 **How an improvement reaches a project.** A consumer that never touched its copy sees `kit-only` and is offered the update like any other file. A consumer that adapted its copy sees `template-drift`: the kit's delta is shown, nothing is reconciled, the project decides. When the user keeps theirs, the walkthrough runs `sync-dev-kit.sh --ack-file <kit-path>`, which advances the lockfile baseline to the kit's current content **without writing the project file**. That is what stops a declined drift from re-reporting on every subsequent sync — and it is not a permanent mute, since the next kit change to that file surfaces again.
 
-**Ack is not restricted to `template` files, and the test is not the mode — it is whether the kit's current content has been INCORPORATED.** An ack asserts "this kit version has been seen and our copy still differs on purpose." Acking *instead of* applying makes that assertion false and silences a real enforced update; that is the failure to prevent. Acking an `owned` file *after* resolving its conflict by hand is the opposite — the kit's changes are in the file, only the project's own customization still differs, and skipping the ack leaves the identical conflict re-reporting on every sync forever, burying the next genuine kit change in noise the user has learned to skip. So an `owned` conflict resolves in two steps: merge (or apply), then ack. The script deliberately does not enforce this; the guard lives in the `/sync-dev-kit` walkthrough where the user can see which of the two situations they are in.
-
-A consumer legitimately customizing an `owned` file is expected in at least one place the kit ships today — pipeline.md §3.7 tells projects to add domain rules to `.gemini/styleguide.md` — and the merge-then-ack cycle is what makes that work: quiet until the kit touches the file, one conflict when it does, hand-merge, ack, quiet again.
+**Ack is not restricted to `template` files, and the test is not the mode — it is whether the kit's current content has been INCORPORATED.** An ack asserts "this kit version has been seen." Acking *instead of* applying makes that false and hides a real enforced update. Acking an `owned` file *after* hand-merging the kit's change into a registered patch is the legitimate case: the kit's change is in the file, the register sanctions what still differs, and the file reports `patched` with `kit_changed: false` until the kit moves again. The script does not enforce the distinction; the `/sync-dev-kit` walkthrough does, where the user can see which situation they are in.
 
 **A file the project does not want at all is `--decline-file`.** A consumer that has no copy sees `new-kit`, and "skip" is not an answer — a skipped `new-kit` leaves no lockfile entry, so it is offered again on every sync forever. Declining records the kit's current content as a refusal without creating the file, and the entry reports `declined` (silent). Ack is the wrong tool here and the script refuses it in both directions: ack on a file you do not have would report `project-deleted` next scan, and decline on a file you DO have is rejected with a pointer to ack. Like ack, a refusal is per kit VERSION — change the file in the kit and it is offered again — and `--apply-file` undoes it by overwriting the entry.
 
 **TS LSP diagnostics on kit-side files**: the kit repo has no npm deps (see kit-repo-github-config §1), so any LSP scoped to the kit will flag `Cannot find module 'vitest'` / `Cannot find name 'process'` on the template `.ts` files. Expected — they aren't meant to compile in the kit, only in the consumer where the deps exist.
+
+### 9.10. Merge regions and the patch register
+
+**A `merge` file is kit-owned except inside named project regions.** The markers use the file's own comment syntax — `<!-- project:begin <name> -->` … `<!-- project:end <name> -->` in Markdown, `# project:begin <name>` … `# project:end <name>` in YAML and `.gitattributes`. Names are `[A-Za-z0-9_-]+`, unique per file, never nested. `mode_for_kit_path` declares which files are `merge`: `templates/ui-inventory.md`, `templates/dependency-policy.md`, `templates/.gitattributes`, `_github-project/workflows/ci.yml` (the `project` job's `project-steps` region) and `_gemini-project/styleguide.md` (the `project-rules` region).
+
+**What sync writes:** the substituted kit file, with each region's body replaced by the project's body for the same name. A region the project does not have yet takes the kit's body as its seed. A project region the kit does not have is `merge-invalid` — writing would lose it.
+
+**How the scan tells a region edit from an outside edit.** The lockfile records two hashes for a `merge` file: `sha`, of what was written, and `skeleton`, of that file with every region body removed. A project skeleton that matches neither the recorded skeleton nor the kit's current one means kit-owned text was edited in the project → `patched` or `unsanctioned`. Otherwise the scan compares the composed result with the project file: equal is `clean` (or `clean-converged` after a region edit), different is `kit-only`, which is always safe to apply. A file with no recorded skeleton yet (first merge-aware sync) reports `clean-first`, `kit-only` when only region seeds differ, or `conflict-first`.
+
+**First sync of an existing project file without markers is `merge-unmarked`**, and `--apply-file` refuses it. Someone moves the project's content into the kit's regions by hand, then the next scan proceeds normally.
+
+**The patch register.** `.claude/.kit-patches.json` is the project's record of sanctioned edits to kit-owned text:
+
+```json
+{"patches":[{"path":".claude/hooks/example.sh","kitIssue":"owner/repo#12","projectIssue":"#34","reason":"…"}]}
+```
+
+`path` is the destination path, the lockfile's key. `block-kit-edit.sh` allows an edit to a listed file once both issues are filled in. Its deny message for an owned file carries the script Claude puts to the human — the reason, whether it blocks the work, and the three steps of a temporary patch — so the register is reached only through the human's yes. On a `merge` file the hook allows an edit that changes only region bodies, comparing the file before and after with every region body removed; that check needs `python3`. Sync reads the register and never writes it, except `--remove-patch <dest>`, which drops one entry and prints it. A listed file that differs from the kit is `patched`, and the scan attaches the issues' states (via `gh issue view`; `unknown` when `gh` cannot answer) and a recommendation: `keep` (kit unchanged, issue open), `merge-kit-keep-patch` (kit changed, issue open), `take-kit` (kit changed, issue closed — apply, remove the entry, close the project issue) or `kit-issue-closed-file-unchanged`. An entry whose file no longer differs, or is not kit-owned, is listed under `stale_patches`.
 
 ## 10. Environment variables
 
@@ -804,7 +847,7 @@ Issue↔branch↔PR linking is first-class in the gitflow subsystem. Two command
 
 - **`/work <issue#>`** — links the issue to the current branch and cuts NO branch. An issue number says what the work is about, never which pipeline it belongs in: an issue can be a docs or infra change belonging straight on `main`, and in a repo with no CI and no deploy the PR round-trip buys nothing. Cutting a branch here would make `/ship-main` unreachable for the whole session. The link graph lives in git config (`branch.<name>.gitflow-issues`), so on `main` it simply parks under `branch.main.gitflow-issues`; `/commit` and `/checkpoint` carry it, and its code-complete marks, onto the branch they create (`migrate_branch_linked_issues`) and clear the source, while `/ship-main` consumes the complete ones as a `Closes #N` line. Issue numbers are NOT in any branch name — a branch may close several issues, so embedding one misleads. Moves the linked issue to `In Progress` on the configured project. Assigns to the current `gh`-authenticated user. Dumps issue body + comments to stdout so Claude reads them in-turn and responds with understanding + questions BEFORE any code is written.
 
-Board transition + assignment are **fail-loud when configured** — see the failure-semantics table in the gitflow-project-integration subsection below. `GITFLOW_PROJECT_ID` empty = feature off, silent skip. Any other broken state (missing scope, wrong option ID, issue not on the configured project) = script exits non-zero with the underlying cause.
+Board transition + assignment are **fail-loud when configured** — see the failure-semantics table in the gitflow-project-integration subsection below. `GITFLOW_PROJECT_ID` empty = feature off, silent skip. Any other broken state (missing scope, wrong option ID, an issue that cannot be added to the project) = script exits non-zero with the underlying cause. An issue not yet on the project is added to it, with a warning that the board's auto-add is not catching this repository.
 
 **Storage**: `git config --local branch.<name>.gitflow-issues = "23 25 26"` — git wipes on branch delete, no stray metadata files. Code-complete marks sit beside it in `branch.<name>.gitflow-complete = "23 25"`, and the issues whose Staged comment has been posted in `branch.<name>.gitflow-noted`.
 
@@ -844,7 +887,7 @@ With `GITFLOW_PROJECT_ID` set, all four are required.
 | `GITFLOW_PROJECT_ID` empty | Silent skip — feature disabled, kit default |
 | `GITFLOW_PROJECT_ID` set + `GITFLOW_STATUS_FIELD_ID` empty | ERROR + return 1 (config gap) |
 | `GITFLOW_PROJECT_ID` set + a specific status option ID empty | ERROR + return 1 — populate the key; every status is required once a board is configured |
-| Issue not on the configured project | ERROR + return 1 (auto-add workflow off, or wrong PROJECT_ID) |
+| Issue not on the configured project | Added with `addProjectV2ItemById`, then a WARNING that the board's auto-add workflow is not catching this repository's issues; the status is set as normal. A failed add → ERROR + return 1 (wrong PROJECT_ID, or missing scope) |
 | GraphQL mutation fails | ERROR + return 1 — almost always missing `project` scope on gh auth (`gh auth refresh -s project`) |
 
 Caller scripts run under `set -e`; a non-zero return from any helper propagates to script exit. All transitions are idempotent — retry after fixing the cause.
@@ -891,7 +934,7 @@ Kit ships a placeholder template at `_claude-project/gitflow-project.conf` with 
 
 ---
 
-### 11.3. UI inventory rule (synced as `template` mode)
+### 11.3. UI inventory rule (synced as `merge` mode)
 
 **What it is.** A per-project rule at `.claude/rules/project/ui-inventory.md`, path-targeted to `{**/*.tsx,**/*.jsx}` so it auto-loads on every UI edit. It enumerates, as content rather than as references: the project's list/detail patterns and which to use when, every pattern reference file and what it governs, the components that already exist, and the standing prohibitions.
 
@@ -899,7 +942,7 @@ Kit ships a placeholder template at `_claude-project/gitflow-project.conf` with 
 
 **Why it ships from `templates/`.** `is_skipped` excludes `_claude-project/rules/project/*` from the scan entirely — that tree is the consumer's own, and the kit never compares against it. So a seed placed there would reach nobody. `_claude-project/templates/ui-inventory.md` plus an explicit `dest_for_kit_path` entry is what lets the kit put one file into a directory it otherwise never writes to.
 
-**Mode is `template`, and `owned` would be incoherent.** The file's content IS this project's inventory; a consumer that has not replaced every line has not adopted it. It arrives once as `new-kit`, the project rewrites it, and later kit changes to the shape surface as `template-drift` — informational, never reconciled. Keep-ours is the expected answer, followed by an ack (§9.9) so the same drift does not re-report every sync.
+**Mode is `merge`.** Every enumeration — the list patterns, the pattern references, the components, the hooks, the prohibitions — is a project region; the headings, the instructions and "Keeping this file true" are the kit's. It arrives once as `new-kit`, the project fills its regions, and later kit changes to the text around them arrive as `kit-only` and apply without touching the project's lists (§9.10).
 
 **How it stays true.** Not by a note asking nicely — through the two skills that already gate on human sign-off. The `ui-patterns` skill's write-once step adds a pattern's line in the same pass that writes its reference; the `design-system` skill's reconciliation pass adds a component's line in the same pass that documents it in `design.md`. An inventory that lags is worse than none, because it is read as complete.
 
@@ -1125,7 +1168,7 @@ npm run lint:design
 
 The linter is wired as a **declared** dev tool, not run ad-hoc: each consumer adds `@google/design.md` to `devDependencies` and a `"lint:design": "design.md lint design.md"` script. Declaring it (rather than `npx @google/design.md …`) keeps the lint reproducible and avoids agent sandboxes blocking an undeclared external download. `package.json` is consumer-owned (not a kit-synced file), so this dep + script are added per project at setup.
 
-Lint must pass before the change is committed. The spec defines: optional YAML frontmatter token block (`colors`, `typography`, `rounded`, `spacing`, `components`), markdown body with required-order sections (Overview, Colors, Typography, Layout, Elevation & Depth, Shapes, Components, Do's and Don'ts), atom-level component definitions with property tokens.
+Lint must pass before the change is committed. In CI the `biome` job runs `lint:tokens` and `lint:design` whenever a `design.md` exists at the repository root, and a missing script fails the job. The spec defines: optional YAML frontmatter token block (`colors`, `typography`, `rounded`, `spacing`, `components`), markdown body with required-order sections (Overview, Colors, Typography, Layout, Elevation & Depth, Shapes, Components, Do's and Don'ts), atom-level component definitions with property tokens.
 
 ### 12a.5. Scope: atoms only
 
@@ -1186,9 +1229,38 @@ Two rules follow from it and live in the `design-system` skill: every token reso
 and commented ("Tokens must survive the trip to Claude Design"), and design-system
 components kept inside what React 18 and 19 share, because design pages run React 18.
 
-Project-specific values live in two places only: the UI package's
-`design-system.config.mjs` (including the Design System artifact's address) and each
-design's `project-documentation/temporary/design-<name>/` folder while it is in progress.
+Project-specific values live in three places only. The project's paths are the ten
+`DESIGN_*` substitution keys (§9.7). The content — title, namespace, the Design System
+artifact's address, components and previews, cover — is the UI package's
+`design-system/design-system.config.mjs`, which `scripts/config.mjs` validates on every
+run: an unknown key, a missing required key or an unset substitution fails by name, and
+a path key that belongs in the substitutions names the key it moved to. Each design's
+`project-documentation/temporary/design-<name>/` folder holds it while it is in progress.
+The engine's scripts hold nothing project-specific; `references/config-example.mjs`
+documents every key the engine reads, and a project's config carries a one-line pointer
+to it rather than a copied header.
+
+**The engine generates two files the UI package commits:**
+`design-system/safelist.generated.css`, which the feed stylesheet imports so Tailwind
+ships every class the README promises a design, and `src/lib/design-tokens.generated.ts`,
+whose `designClassGroups` the package's `cn()` passes to `extendTailwindMerge` so two
+classes of one role merge to the later one. The token checker fails while either is out
+of date or not imported.
+
+**Releases.** `publish-system` numbers each publish: the number after the one the
+system's `lastChange.note` opens with, or 1. `build.mjs --release <n>` stamps
+`Release <n> · built <date> from <sha>` on the system's README, on its cover where the
+cover marks `<!-- ds-stamp -->`, and in `lastChange.note`. Claude Design's own version
+ids are opaque, so this line is what a design's folder `README.md` records as the
+release it uses, and what tells a reader whether a design is behind the system.
+
+**The token checker** is kit-owned: `skills/design-system/scripts/check-design-tokens.mjs`,
+run as `npm run lint:tokens`. It reads its paths from the `DESIGN_*` keys, checks
+classes, call sites, token resolution and light/dark parity, `design.md`'s references,
+and the generated files, prints how many files and classes it inspected, and fails when
+that is nothing. A project's own extra checks go in
+`<DESIGN_UI_PACKAGE>/design-system/checks/*.mjs`, each a default-exported function the
+checker runs with the API its header documents.
 
 `skills/claude-design/references/working-with-claude-design.md` is the reference the
 skill reads before any design work: what Claude Design is for, what a design is (an
@@ -1280,6 +1352,16 @@ How: `.claude/rules/project/hook-testing.md`, which loads when a hook is edited.
 **Allow cases come first** because a guard that blocks legitimate work gets routed around within a day, and then protects nothing. **Deny payloads go through a JSON encoder** because four guards built theirs by interpolating the command into a heredoc; any command with a double quote produced unparseable JSON, which is discarded, and the command ran. **Escape hatches are tested from the command string** because two hooks checked `SKIP_X=1` in their own environment, where a command prefix never sets it — the documented override had never worked. **Environment-dependent hooks point at temp fixtures** because a `block-kit-edit.sh` suite inheriting the maintainer's `HOME` passes every case by doing nothing.
 
 Every one of those defects passed a reading. None survived a test.
+
+**The shared pieces:**
+
+| File | Role |
+|---|---|
+| `hooks/guard-lib.sh` | Sourced by every guard. `require_tools` refuses the action (deny, block or warning, by event) when `jq` or `python3` does not actually run, naming the tool and this platform's install line — a guard that cannot read its input never allows. A passing check is remembered per `PATH` for the session. `normalize_path` / `path_rel_to` give one spelling per file across `\`, drive letters (`C:/`, `/c/`, `/cygdrive/c/`) and symlinks. `sha256_file` uses `sha256sum` or `shasum`. On Windows it wraps `jq` in `--binary` mode (jq 1.7+) so output is LF. Plain bash 3.2, no `jq` or `python3`, because its first job is to report them missing. |
+| `hooks/toolchain-check.sh` | First `SessionStart` hook. Checks `jq` and `python3` run, that the commit gate can typecheck (a `check-types` script; pyright or mypy for a root `pyproject.toml` or `pyrightconfig.json`), and on Windows refreshes once per `.gitattributes` change every tracked file whose disk copy is CRLF and otherwise identical to Git's (marker `kit-eol-checked` in the git dir). It warns the human and tells Claude when something is missing. |
+| `hooks/test-helpers.sh` | Fixtures for the suites: `path_without <tool>` (a `PATH` missing a tool), `path_with_store_python` (the Windows Store `python3` stub) and `assert_refuses_without`, which proves a guard refuses rather than allows when its tool is gone. |
+
+**`bash_edit_replay`.** `bash-edit-guard.sh` replays a shell command's file changes through the Edit/Write guards, with `bash_edit_replay: true` in the payload. A guard that needs the whole change reads it from that flag: `block-kit-edit.sh` then compares the file on disk with its committed (`HEAD`) version, because the change has already landed. A guard that could not run on a replay is reported, not counted as an allow.
 
 ---
 

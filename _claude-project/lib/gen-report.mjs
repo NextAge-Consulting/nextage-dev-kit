@@ -17,7 +17,9 @@
 //                  { name, app, status:"pass|partial|fail", time, summary,
 //                    steps: [ ["text","pass|fail|deferred","observation"], … ],
 //                    shots: [ ["path/under/imageBase.png","caption"], … ] } ] }
-//               imageBase defaults to "logs/e2e".
+//               imageBase defaults to "logs/e2e". A flow status other than the
+//               three counts as failed and says what it was; a shot not on disk
+//               renders as a "Screenshot missing" placeholder naming the path.
 //
 //   Analysis mode — { title, subtitle, note?, stats?: [{value,label,color?}],
 //                     mode?: "discussion" | "report",
@@ -69,22 +71,41 @@ const embed = (p) => {
 };
 
 // One ordered gallery across the WHOLE document so lightbox arrows walk every image.
+// A screenshot the data names but the disk does not have renders as a placeholder
+// naming it, never as a gap: a report that drops it reads as if it was never taken.
 let _gi = 0;
 const allShots = [];
+const missingShots = [];
 const claimShots = (pairs) =>
-  (pairs || []).map(([p, c]) => ({ d: embed(p), c })).filter((x) => x.d).map((x) => ({ ...x, i: ++_gi }));
+  (pairs || []).map(([p, c]) => {
+    const d = embed(p);
+    if (!d) {
+      missingShots.push(p);
+      return { missing: p, c };
+    }
+    return { d, c, i: ++_gi };
+  });
 
+// A flow status the report does not know counts as failed, shown with what it said.
+const STATUSES = new Set(["pass", "partial", "fail"]);
 let flows = [], sections = [];
 if (isE2e) {
-  flows = data.flows.map((f) => ({ ...f, _shots: claimShots(f.shots) }));
-  flows.forEach((f) => f._shots.forEach((s) => allShots.push(s)));
+  flows = data.flows.map((f) => ({
+    ...f,
+    status: STATUSES.has(f.status) ? f.status : "fail",
+    _unknownStatus: STATUSES.has(f.status) ? null : String(f.status ?? "(none)"),
+    _shots: claimShots(f.shots),
+  }));
+  flows.forEach((f) => f._shots.forEach((s) => s.i && allShots.push(s)));
 } else {
   sections = (data.sections || []).map((s) => ({ ...s, _shots: claimShots(s.images) }));
-  sections.forEach((s) => s._shots.forEach((x) => allShots.push(x)));
+  sections.forEach((s) => s._shots.forEach((x) => x.i && allShots.push(x)));
 }
 const N = _gi;
 const wrapIdx = (i, delta) => ((i - 1 + delta + N) % N) + 1;
-const renderShot = (s) => `<figure class="fig" id="shot${s.i}">
+const renderShot = (s) => s.missing
+  ? `<figure class="fig missing"><div class="ph">Screenshot missing<br><code>${esc(s.missing)}</code></div><figcaption>${esc(s.c)}</figcaption></figure>`
+  : `<figure class="fig" id="shot${s.i}">
     <a class="open" href="#shot${s.i}"><img src="${s.d}" alt="${esc(s.c)}"></a>
     <figcaption>${esc(s.c)}</figcaption>
     <a class="lb-backdrop" href="#top" aria-label="Close"></a>
@@ -100,6 +121,7 @@ const stepBadge = (s) => (s === "pass" ? "✅" : s === "fail" ? "❌" : "⚠️"
 const flowHtml = flows.map((f) => `
   <section class="flow ${f.status}">
     <h2>${esc(f.name)} ${badge(f.status)} <span class="time">${esc(f.time || "")}</span></h2>
+    ${f._unknownStatus ? `<p class="sum">Reported status "${esc(f._unknownStatus)}" is not pass, partial or fail — counted as failed.</p>` : ""}
     <p class="sum">${esc(f.summary || "")}</p>
     <div class="steps"><table><thead><tr><th></th><th>Step</th><th>Observation</th></tr></thead><tbody>
     ${(f.steps || []).map(([t, s, o]) => `<tr class="${s}"><td>${stepBadge(s)}</td><td>${esc(t)}</td><td>${esc(o)}</td></tr>`).join("")}
@@ -228,7 +250,7 @@ h2{font-size:16px;margin:0 0 6px;display:flex;align-items:center;gap:10px;flex-w
 th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}
 th{color:var(--mut);font-weight:600}tr.fail td{color:var(--fail)}
 .gallery{display:flex;gap:12px;flex-wrap:wrap;margin-top:12px}
-.fig{margin:0;max-width:260px}
+.fig{margin:0;max-width:260px}.fig.missing .ph{display:flex;align-items:center;justify-content:center;text-align:center;min-height:140px;padding:12px;border:2px dashed var(--fail);border-radius:6px;color:var(--fail);font-size:13px}
 .open{display:block}.open img{max-width:100%;border:1px solid var(--line);border-radius:8px;display:block;cursor:zoom-in}
 figcaption{font-size:11px;color:var(--mut);margin-top:4px;text-align:center}
 .lb-backdrop,.lb-close,.lb-prev,.lb-next,.lb-count{display:none}
@@ -266,3 +288,4 @@ const out = resolve(process.argv[4] || resolve(root, isE2e ? e2eName : "report.h
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, html);
 console.log("wrote " + out + " (" + Math.round(html.length / 1024) + " KB, " + N + " images)");
+if (missingShots.length) console.error(`${missingShots.length} screenshot(s) named in the data are not on disk — shown as "Screenshot missing": ${missingShots.join(", ")}`);

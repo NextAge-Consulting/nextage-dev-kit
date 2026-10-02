@@ -46,13 +46,15 @@ This is a search you run every time. No hardcoded paths, no per-project list —
 1. **Name the role** of what you're building — card / table / list-row / form field / dashboard / modal / nav / status chip / empty-state, etc.
 2. **Find the nearest existing instance in the repo.** Glob the component and route trees; grep for the role and for the distinctive utilities it would use — e.g. `Grep "rounded-2xl" --glob "**/components/**/*.tsx"` for the card treatment, `Grep "border-l-" ...` / `Grep "hover:scale" ...` / `Grep "shadow-" ...` to see how the project *actually* does elevation and motion, `Glob "**/routes/**"` for the closest whole screen. **Do not ask the user for the path — find it yourself.**
 3. **Read the top 1–3 matches in full.** Extract the *real* patterns: every class they use for elevation, hover, transition/animation, borders, and spacing — not just the color tokens. This is the step that carries the feel.
-4. **Build from those patterns for _vocabulary_** — the tokens, the construction (how a card/row/chip is assembled), the status language, the motion idioms. Pick the **most-polished** existing exemplar as your baseline, never the average or the oldest. Then **level the execution UP toward the polish bar in `design.md`'s guideline** (the target feel — layered depth, real motion, hover / micro-interaction). The components are concrete *examples of the vocabulary, not a ceiling on quality.*
+4. **Build from those patterns** — the tokens, the construction (how a card/row/chip is assembled), the status language, the motion idioms. Where exemplars differ, take the most polished one, never the average or the oldest.
 
 If **no analog exists**, say so explicitly — it's a genuinely new pattern. Research primary-source design systems, propose the approach, and get sign-off (the same bar the `ui-patterns` skill sets for new interaction patterns). **Never** fill the gap by inventing from `design.md` prose alone — that is exactly what produces on-spec-but-off-brand, ho-hum output.
 
-**Strive up, never average down (critical).** `design.md` is the *guideline* — the intended bar, deliberately ahead of the current code. The components are *examples* of the vocabulary, and they will often be less polished than the bar. That is expected and fine. Match their vocabulary (tokens, structure, brand language) but **raise the execution toward the guideline** — depth, motion, hover, tactile feedback. **NEVER downgrade a new, more-polished component to match a plainer existing one, or to match sparse prose.** Grounding in components exists to carry brand *fidelity*, not to clamp *quality* to the least-common-denominator. When in doubt, build richer, not plainer. If you deliberately raised the bar above your exemplar, say so in the build-from citation.
+**Where the system covers the piece, compose it and never restyle it.** Use the component and variant as they are. An improvement you would make to how it looks is a proposal to change that component, raised with the person — never a local restyle at this one site.
 
-Why this step is mandatory and first-class (not a footnote): `design.md`'s "feel" prose is unenforceable on its own — every generator interprets it differently. Grounding in real components carries the *vocabulary* faithfully; striving toward the guideline carries the *quality*. Skipping the grounding produces off-brand output; averaging down to the components produces on-brand-but-mediocre output. You need both halves.
+**Where the system is silent, propose the piece, then make it the system.** Once the person agrees, build it as a component or variant, and write it into `design.md` as present-tense fact, the same as everything already there — so the next screen finds it covered.
+
+**Build a one-off only for a functional need** the system cannot meet and no other screen shares, and say so in the build-from citation.
 
 ### Step 3: Identify the right tokens for the task
 
@@ -103,7 +105,8 @@ Built from: <path(s) to the existing component(s)/screen(s) you matched in Step 
 ```
 
 - Matched an analog → cite the exact path(s).
-- Raised the execution above the exemplar (strove up toward the guideline per Step 2) → note it: `Built from: <path> (leveled up: <what you added — depth, motion, etc.>)`. This is encouraged, not an exception.
+- Proposed and landed a piece the system was silent on → cite where it now lives: `Built from: <path> (new to the system: <component or variant>)`.
+- Built a one-off for a functional need → `Built from: <path> (one-off: <the need>)`.
 - Genuinely new pattern → write `Built from: none — new pattern` and confirm you researched primary sources + got sign-off per Step 2.
 
 No citation means Step 2 didn't happen and the work is **incomplete** — the same standard as shipping a signature change without the caller scan. This gate exists because "ground in the real components" only sticks when it's *cited*, not merely encouraged: the constitution's caller-scan attestation (§XIV) works for exactly this reason. An uncited UI change is presumed to have been invented from prose, and prose produces off-brand output.
@@ -241,23 +244,30 @@ specification.
 
 A raw `text-sm` or `px-[10px]` is valid CSS and valid TSX, so no ordinary linter
 objects. A check that fails the build on any raw value outside the token layer is
-what makes the rule real; without one it is a preference. Vendored third-party
-components are a legitimate exemption — name them explicitly rather than leaving
-the check silent about them. The exemption covers the vendored file's insides,
-never a call site passing it a `className`.
+what makes the rule real; without one it is a preference.
 
-The same check enforces the variant rule: read the `className` on every element
-imported from the project's component tree and fail anything outside the placement
-allowlist, and fail a raw `<input>` or `<textarea>` that paints the field look
-itself instead of rendering the atom.
+**The kit ships that check: `npm run lint:tokens` runs
+`.claude/skills/design-system/scripts/check-design-tokens.mjs`, and CI runs it whenever
+`design.md` exists.** It reads the roles live from the stylesheets and the project's
+paths and named sets from the design keys in `.claude/sync-substitutions.json`, and
+fails on a class off a role, a call site repainting a component, a raw field painting
+the field look, a token that resolves to nothing or that nothing reaches, a light/dark
+mismatch, `design.md` naming what does not exist, and a stale generated file.
 
-**Exempt headless primitives and glyphs by name.** A Radix trigger, anchor or
-collapsible part renders an unstyled element with no look of its own, so the
-composite styling it is BUILDING a look, not repainting one — flagging it makes
-every composite a false positive and teaches people to ignore the check. A
-spinner or icon paints in `currentColor`, so its caller naming the colour is the
-design. List both sets explicitly in the check, the same way the vendored-atom
-exemption is named.
+- **Name the exemptions in the keys, never in code.** Vendored atoms are
+  `DESIGN_VENDORED_DIR`, with `DESIGN_VENDORED_RESTYLED` saying whether they are on the
+  roles yet; headless primitives and glyphs are `DESIGN_EXEMPT_COMPONENTS`. A Radix
+  trigger renders an unstyled element, so the composite styling it is BUILDING a look,
+  and a spinner paints in `currentColor`, so its caller naming the colour is the design.
+  The exemption covers the vendored file's insides, never a call site passing it a
+  `className`.
+- **A rule only this project has is a project check:** a `*.mjs` in
+  `<UI package>/design-system/checks/` default-exporting a function. The checker runs
+  each one with its API — `repo`, `pkg`, `design`, `css`, `sources`, the `roles` it read,
+  and `add(at, what, why)` to report a finding.
+- **A project with `design.md` and no design system set up yet** sets `DESIGN_UI_PACKAGE` to `""` and lists it in `_intentionally_empty`; the check then passes saying it does not apply, and fails while the key is missing or empty without that listing.
+- **A token for a screen not built yet says so on its line** —
+  `/* not-yet-built: <screen> */` — or the check reads it as one a rewrite left behind.
 
 ### Tokens must survive the trip to Claude Design
 

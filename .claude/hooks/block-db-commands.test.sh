@@ -118,4 +118,13 @@ for p in 'not json' '' '{"tool_name":"Bash"}' '{"tool_name":"Bash","tool_input":
   if [ $? -le 1 ]; then echo "  ✓ survives: ${p:-（empty）}"; else echo "  ✗ FAIL — crashed on: $p"; fail=1; fi
 done
 
+echo "TOOL MISSING — the guard refuses, naming the tool, never allows:"
+tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+# shellcheck source=test-helpers.sh
+source "$(dirname "$H")/test-helpers.sh"
+pl='{"tool_name":"Bash","tool_input":{"command":"ls"}}'
+assert_refuses_without "$H" deny "$(path_without jq)" jq "$pl" 'no jq on PATH'
+assert_refuses_without "$H" deny "$(path_with_store_python)" python3 "$pl" 'python3 is the Windows Store stub'
+assert_refuses_without "$H" deny "$(path_without python3)" python3 "$pl" 'no python3 on PATH'
+
 exit "$fail"

@@ -12,7 +12,10 @@
  * wrappers without any error: a divider, a row line, a rounded corner quietly goes. A
  * design would then show something the app does not, so it fails here, before any
  * design sees it. Animations and transitions are frozen, so a frame caught mid-spin
- * is never a difference. Run after build.mjs:
+ * is never a difference. A preview showing a popup trigger closed is clicked open
+ * with a real pointer in the canvas render, and fails when nothing opens or the
+ * popup opens away from its trigger. Fails, too, when the config lists no
+ * component. Run after build.mjs:
  *
  *   node .claude/skills/claude-design/scripts/render-check.mjs <path/to/design-system.config.mjs>
  *
@@ -20,21 +23,15 @@
  * light, dark and canvas screenshots of each preview to <out>/render/ for
  * review. */
 
-import { execFileSync, execSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import zlib from 'node:zlib'
+import { loadConfig } from './config.mjs'
 
-const configPath = process.argv[2]
-if (!configPath) {
-  console.error('usage: render-check.mjs <path/to/design-system.config.mjs>')
-  process.exit(2)
-}
-const CONFIG_FILE = path.resolve(configPath)
-const CONFIG = (await import(pathToFileURL(CONFIG_FILE).href)).default
-const REPO = execSync('git rev-parse --show-toplevel', { cwd: path.dirname(CONFIG_FILE) }).toString().trim()
-const OUT = path.join(REPO, CONFIG.package, CONFIG.out ?? 'dist/design-system')
+const { CONFIG, REPO, PKG } = await loadConfig(process.argv[2], { tool: 'render-check.mjs' })
+const OUT = path.join(PKG, CONFIG.out)
 const COMPONENTS_DIR = path.join(OUT, 'project/components')
 const RENDER = path.join(OUT, 'render')
 const SESSION = `${path.basename(REPO)}-design-system`
@@ -54,12 +51,22 @@ fs.mkdirSync(RENDER, { recursive: true })
 // start; each argument is quoted for cmd.exe, and the probe travels as base64 so
 // nothing inside it needs quoting at all.
 const WINDOWS = process.platform === 'win32'
-const browser = (...args) =>
+const browser = (args, opts = {}) =>
   WINDOWS
-    ? execFileSync('agent-browser.cmd', ['--session', SESSION, ...args].map((a) => `"${a}"`), { encoding: 'utf8', shell: true })
-    : execFileSync('agent-browser', ['--session', SESSION, ...args], { encoding: 'utf8' })
+    ? execFileSync('agent-browser.cmd', ['--session', SESSION, ...args].map((a) => `"${a}"`), { encoding: 'utf8', shell: true, ...opts })
+    : execFileSync('agent-browser', ['--session', SESSION, ...args], { encoding: 'utf8', ...opts })
+// The call that starts the session's browser daemon runs with no pipes attached. On
+// Windows a child process inherits every inheritable handle its parent holds
+// (rust-lang/rust#161158, #54760), so the daemon that first call starts keeps this
+// script's stdout pipe open for as long as it runs, and execFileSync never sees EOF.
+// Every later call reaches the running daemon and captures output as usual.
+const launch = () => browser(['open', 'about:blank'], { stdio: 'ignore' })
 const failures = []
-const components = CONFIG.components ?? []
+const components = CONFIG.components
+if (!components.length) {
+  console.error('render-check: the config lists no components — nothing to render means nothing was checked')
+  process.exit(1)
+}
 
 const PROBE = `JSON.stringify({
   errors: window.__errors,
@@ -75,6 +82,15 @@ const PROBE = `JSON.stringify({
     return gap > 24 || a.right < b.left || a.left > b.right;
   })()
 })`
+
+// The first closed popup trigger in a preview, marked so the check can click it with a
+// real pointer: a Radix menu opens on pointerdown, which a scripted .click() never sends.
+const MARK_TRIGGER = `(function () {
+  var t = document.querySelector('button[aria-haspopup]:not([aria-expanded=true])');
+  if (!t) return 'none';
+  t.setAttribute('data-rc-trigger', '');
+  return 'marked';
+})()`
 
 // A screenshot's pixels, for comparing two renders. Chromium writes 8-bit RGB or RGBA,
 // non-interlaced; anything else is a failure to read, never a silent pass.
@@ -135,7 +151,13 @@ const CANVAS_H =
   'h = function (t, p) { var k = [].slice.call(arguments, 2); var el = k.length ? React.createElement(t, Object.assign({}, p, { children: k })) : React.createElement(t, p); return typeof t === "string" ? el : React.createElement("div", { className: "sc-host-x", "data-dc-tpl": "t", style: { display: "contents" }, key: p && p.key }, el) }'
 
 try {
-  browser('set', 'viewport', '1200', '800')
+  try {
+    launch()
+  } catch (e) {
+    console.error(`render-check: could not start agent-browser (${e.code ?? e.status ?? 'failed'}) — it must be installed on this machine; see rules/integrations/agent-browser.md`)
+    process.exit(1)
+  }
+  browser(['set', 'viewport', '1200', '800'])
   for (const c of components) {
     const preview = fs.readFileSync(path.join(COMPONENTS_DIR, c.name, 'preview.html'), 'utf8')
     const body = /<body>([\s\S]*)<\/body>/.exec(preview)[1]
@@ -155,14 +177,27 @@ try {
 <script src="../project/components/bundle.js"></script>
 </head><body>${mount}</body></html>`,
       )
-      browser('open', pathToFileURL(harness).href)
-      browser('wait', '600')
-      const report = JSON.parse(JSON.parse(browser('eval', '-b', Buffer.from(PROBE).toString('base64'))))
-      browser('screenshot', path.join(RENDER, `${c.name}.${mode}.png`))
+      browser(['open', pathToFileURL(harness).href])
+      browser(['wait', '600'])
+      const report = JSON.parse(JSON.parse(browser(['eval', '-b', Buffer.from(PROBE).toString('base64')])))
+      browser(['screenshot', path.join(RENDER, `${c.name}.${mode}.png`)])
       if (report.errors.length) failures.push(`${c.name} (${mode}): ${report.errors[0].slice(0, 200)}`)
       else if (report.drawn === 0) failures.push(`${c.name} (${mode}): drew nothing`)
       else if (c.cardMode === 'overlay' && report.overlay === 0) failures.push(`${c.name} (${mode}): the overlay did not open`)
       else if (report.detached) failures.push(`${c.name} (${mode}): the overlay is not attached to its trigger`)
+      else if (mode === 'canvas' && c.cardMode !== 'overlay') {
+        // A preview that shows its trigger closed: open it as a person would, and fail
+        // when nothing opens or it opens away from the trigger. A trigger inside a
+        // component, cloned by Radix's `asChild`, only shows that defect once clicked.
+        if (browser(['eval', '-b', Buffer.from(MARK_TRIGGER).toString('base64')]).includes('marked')) {
+          browser(['click', '[data-rc-trigger]'])
+          browser(['wait', '400'])
+          const opened = JSON.parse(JSON.parse(browser(['eval', '-b', Buffer.from(PROBE).toString('base64')])))
+          if (opened.errors.length) failures.push(`${c.name} (opened): ${opened.errors[0].slice(0, 200)}`)
+          else if (opened.overlay === 0) failures.push(`${c.name} (opened): clicking its trigger opened nothing`)
+          else if (opened.detached) failures.push(`${c.name} (opened): it opens away from its trigger`)
+        }
+      }
     }
     const differing = pixelsDiffering(path.join(RENDER, `${c.name}.light.png`), path.join(RENDER, `${c.name}.canvas.png`))
     if (differing)
@@ -170,7 +205,7 @@ try {
   }
 } finally {
   try {
-    browser('close')
+    browser(['close'])
   } catch {}
 }
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { checkPage } from './check-design.mjs'
+import { checkPage, requiredFrom } from './check-design.mjs'
 
 const page = (css, body) => `<!doctype html><html><head></head><body><x-dc><helmet><style>
 ${css}
@@ -22,6 +22,33 @@ a:not([data-slot]){color:var(--primary-ink)}
 
 test('a provider does not count as a component the page sits inside', () => {
   const { fails } = checkPage(page('.pg-main{gap:24px}', '<main class="pg-main"></main>'))
+  assert.deepEqual(fails, [])
+})
+
+test('a shell does not count as a component the page sits inside', () => {
+  const { fails } = checkPage(page('.pg-cols{display:grid;gap:20px}',
+    '<x-import component-from-global-scope="NS.AppShell"><div class="pg-cols gap-4">x</div></x-import>'))
+  assert.deepEqual(fails, [])
+})
+
+test('a component inside a shell still owns its inside', () => {
+  const { fails } = checkPage(page('',
+    '<x-import component-from-global-scope="NS.AppShell">' + card('<div class="gap-4">x</div>') + '</x-import>'))
+  assert.equal(fails.length, 1)
+  assert.match(fails[0].msg, /inside NS.CardContent/)
+})
+
+test('a component missing a required prop fails; one given it passes', () => {
+  const required = requiredFrom({ namespace: 'NS', requiredProps: { DataTable: ['rowKey'] } })
+  const missing = checkPage(page('', '<x-import component-from-global-scope="NS.DataTable" rows="{{rows}}"></x-import>'), { required })
+  assert.equal(missing.fails.length, 1)
+  assert.match(missing.fails[0].msg, /NS\.DataTable is mounted without "row-key"/)
+  const given = checkPage(page('', '<x-import component-from-global-scope="NS.DataTable" row-key="{{rowKey}}"></x-import>'), { required })
+  assert.deepEqual(given.fails, [])
+})
+
+test('without a config no prop is required', () => {
+  const { fails } = checkPage(page('', '<x-import component-from-global-scope="NS.DataTable"></x-import>'))
   assert.deepEqual(fails, [])
 })
 
@@ -100,7 +127,7 @@ test('rules inside @media are checked like any other', () => {
 const withTweaks = (props, quote = "'") => {
   const json = JSON.stringify(props)
   const attr = quote === "'" ? `'${json}'` : `"${json.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`
-  return `<html><body><x-dc></x-dc><script type="text/x-dc" data-dc-script data-props=${attr}>class Component extends DCLogic {}</script></body></html>`
+  return `<html><body><x-dc><x-import component-from-global-scope="NS.Card"></x-import></x-dc><script type="text/x-dc" data-dc-script data-props=${attr}>class Component extends DCLogic {}</script></body></html>`
 }
 const gaps = {
   theme: { editor: 'enum', options: ['System', 'Light', 'Dark'], default: 'System', section: 'Preview' },
@@ -129,4 +156,45 @@ test('--implement fails on every gap still in the design, and on any open previe
   assert.deepEqual(clean.fails, [])
   const preview = checkPage(page('/* PREVIEW — x */\n.a{gap:1px}\n/* END PREVIEW */', ''), { implement: true })
   assert.equal(preview.fails.length, 1)
+})
+
+test('a page that mounts no component fails; one that only embeds another page passes', () => {
+  const bare = checkPage('<html><body><x-dc><main class="pg-main"><p>x</p></main></x-dc></body></html>')
+  assert.equal(bare.fails.length, 1)
+  assert.match(bare.fails[0].msg, /mounts no design-system component/)
+  const phone = checkPage('<html><body><x-dc><dc-import src="Orders.dc.html"></dc-import></x-dc></body></html>')
+  assert.deepEqual(phone.fails, [])
+})
+
+test('data-props that is not JSON fails, with or without --implement', () => {
+  const broken = '<html><body><x-dc><x-import component-from-global-scope="NS.Card"></x-import></x-dc><script type="text/x-dc" data-dc-script data-props=\'{"menu":\'>class Component extends DCLogic {}</script></body></html>'
+  for (const implement of [false, true]) {
+    const { fails } = checkPage(broken, { implement })
+    assert.equal(fails.length, 1)
+    assert.match(fails[0].msg, /data-props is not JSON/)
+  }
+})
+
+test('counts what it inspected', () => {
+  const { counts } = checkPage(page('.pg-main{display:grid}\n.pg-side{width:200px}', card('<p>x</p>')))
+  assert.deepEqual(counts, { elements: 10, components: 3, rules: 2 })
+})
+
+test('the command checks every page it is given, the first included, with or without --config', async () => {
+  const { execFileSync } = await import('node:child_process')
+  const fs = await import('node:fs')
+  const os = await import('node:os')
+  const path = await import('node:path')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'check-design-'))
+  const bare = path.join(dir, 'Bare.dc.html')
+  fs.writeFileSync(bare, '<html><body><x-dc><p>x</p></x-dc></body></html>')
+  const script = new URL('./check-design.mjs', import.meta.url).pathname
+  let out = ''
+  try {
+    execFileSync(process.execPath, [script, bare], { encoding: 'utf8' })
+  } catch (e) {
+    out = e.stdout
+  }
+  assert.match(out, /Bare\.dc\.html: 1 fail/)
+  assert.match(out, /check-design: 1 page\(s\)/)
 })

@@ -2,7 +2,7 @@
 /**
  * check-design.mjs — fails a design page that draws what the design system owns.
  *
- *   node check-design.mjs [--implement] <page.dc.html> [more pages…]
+ *   node check-design.mjs [--implement] [--config <design-system.config.mjs>] <page.dc.html> [more pages…]
  *
  * A design composes the system's components; it decides WHAT goes WHERE and
  * nothing else. Spacing inside a component, colour, type and shape belong to the
@@ -17,7 +17,13 @@
  *     on one — arrangement (display, columns, direction, width, grid position) is
  *     the page's, how far apart things sit is not;
  *   - a bare tag rule other than body, html and the plain-link colour;
- *   - spacing, fill, border or shape classes on plain markup inside a component.
+ *   - spacing, fill, border or shape classes on plain markup inside a component;
+ *   - a mounted component missing a prop the design system requires on every use
+ *     (the config's `requiredProps`, read with --config);
+ *   - a page that mounts no component of the system and embeds no other page;
+ *   - a `data-props` that is not JSON, since no gap on the page can then be read.
+ *
+ * Every run prints how many components, elements and style rules it inspected.
  *
  * OPEN (listed, not failed) — decisions in front of the person:
  *   - the rules inside a `/* PREVIEW — … *\/` block, each switched by a tweak;
@@ -43,6 +49,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { loadConfig } from './config.mjs'
 
 const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr'])
 
@@ -100,8 +107,9 @@ function* walk(n) { for (const c of n.children) { yield c; yield* walk(c) } }
 
 const isComponent = (el) => el.tag === 'x-import'
 const componentName = (el) => el.attrs['component-from-global-scope'] || 'component'
-// A provider wraps the page without drawing anything; it is not a component the page sits "inside".
-const isTransparent = (el) => /Provider$/.test(componentName(el))
+// A provider wraps the page without drawing anything, and a shell (`AppShell`, `DialogShell`) draws
+// chrome around content its caller composes: neither is a component the page sits "inside".
+const isTransparent = (el) => /(Provider|Shell)$/.test(componentName(el))
 
 /** The nearest drawing component enclosing an element, if any. */
 function enclosingComponent(el) {
@@ -147,17 +155,20 @@ export function parseCss(css, lineOffset = 0) {
   return rules
 }
 
-/** The gap tweaks in a page's data-props: [{ key, value }] for the "Design system" section's enums. */
+/** The gap tweaks in a page's data-props: { tweaks: [{ key, value }] for the "Design
+ * system" section's enums, error } — `error` set when data-props is there and is not
+ * JSON, because then no gap on the page can be read. */
 export function readGapTweaks(src) {
   const m = src.match(/data-dc-script[^>]*data-props=(?:'([^']*)'|"([^"]*)")/)
-  if (!m) return []
+  if (!m) return { tweaks: [], error: null }
   const raw = (m[1] ?? m[2])
     .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
   let props
-  try { props = JSON.parse(raw) } catch { return [] }
-  return Object.entries(props)
+  try { props = JSON.parse(raw) } catch (e) { return { tweaks: [], error: e.message } }
+  const tweaks = Object.entries(props)
     .filter(([, v]) => v && v.section === 'Design system' && v.editor === 'enum')
     .map(([key, v]) => ({ key, value: String(v.default ?? '') }))
+  return { tweaks, error: null }
 }
 
 /** A gap tweak's state from its chosen option. */
@@ -168,12 +179,23 @@ export function gapState(value) {
   return 'unlabelled'
 }
 
-/** Check one page's source; returns { fails, open, tweaks }. */
-export function checkPage(src, { implement = false } = {}) {
+/** Check one page's source; returns { fails, open, tweaks, counts }. `required` maps a mounted
+ * component (`NS.DataTable`) to the props it must always be given. */
+export function checkPage(src, { implement = false, required = {} } = {}) {
   const fails = []
   const open = []
   const tree = parseMarkup(src)
   const els = [...walk(tree)]
+
+  // Props the design system requires on every use of a component.
+  for (const el of els) {
+    if (!isComponent(el)) continue
+    for (const prop of required[componentName(el)] ?? []) {
+      const kebab = prop.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)
+      if (el.attrs[kebab] === undefined && el.attrs[prop.toLowerCase()] === undefined)
+        fails.push({ line: el.line, msg: `${componentName(el)} is mounted without "${kebab}" — the design system requires it on every ${componentName(el).split('.').pop()}.` })
+    }
+  }
 
   // Inline styles: none.
   for (const el of els) {
@@ -198,10 +220,13 @@ export function checkPage(src, { implement = false } = {}) {
   // The page's style rules.
   const styleRe = /<style[^>]*>([\s\S]*?)<\/style>/g
   let sm
+  let ruleCount = 0
   const previews = new Map()
   while ((sm = styleRe.exec(src))) {
     const lineOffset = src.slice(0, sm.index + sm[0].indexOf('>') + 1).split('\n').length
-    for (const rule of parseCss(sm[1], lineOffset)) {
+    const rules = parseCss(sm[1], lineOffset)
+    ruleCount += rules.length
+    for (const rule of rules) {
       if (rule.preview) { if (!previews.has(rule.preview)) previews.set(rule.preview, rule.line); continue }
       for (const sel of rule.selector.split(',').map((s) => s.trim())) {
         if (ALLOWED_TAG_SELECTORS.test(sel)) continue
@@ -243,7 +268,15 @@ export function checkPage(src, { implement = false } = {}) {
   }
   for (const [text, line] of previews) open.push({ line, msg: text })
 
-  const tweaks = readGapTweaks(src).map((t) => ({ ...t, state: gapState(t.value) }))
+  // A page that mounts no component of the system draws everything itself; a page
+  // that only embeds another (`<dc-import>`, a phone preview) draws nothing.
+  const components = els.filter(isComponent)
+  if (!components.length && !els.some((el) => el.tag === 'dc-import'))
+    fails.push({ line: 0, msg: 'the page mounts no design-system component — a design composes the system\'s components; one that mounts none is drawing the whole page itself.' })
+
+  const read = readGapTweaks(src)
+  if (read.error) fails.push({ line: 0, msg: `data-props is not JSON (${read.error}) — no gap on this page can be read, so none can be counted or gated.` })
+  const tweaks = read.tweaks.map((t) => ({ ...t, state: gapState(t.value) }))
   for (const t of tweaks) {
     if (t.state === 'unlabelled') fails.push({ line: 0, msg: `tweak "${t.key}" is set to "${t.value}" — every gap option starts "Undecided — ", "Approved — " or is "System as is".` })
   }
@@ -255,31 +288,45 @@ export function checkPage(src, { implement = false } = {}) {
     }
     for (const o of open) fails.push({ line: o.line, msg: `still open at implement: ${o.msg}` })
   }
-  return { fails, open, tweaks }
+  return { fails, open, tweaks, counts: { elements: els.length, components: components.length, rules: ruleCount } }
 }
 
-function main(args) {
+/** The config's `requiredProps`, keyed by the name a page mounts: `NS.DataTable`. */
+export function requiredFrom(config) {
+  const out = {}
+  for (const [name, props] of Object.entries(config.requiredProps ?? {})) out[`${config.namespace}.${name}`] = props
+  return out
+}
+
+async function main(args) {
   const implement = args.includes('--implement')
-  const files = args.filter((a) => a !== '--implement')
-  if (!files.length) {
-    console.error('usage: check-design.mjs [--implement] <page.dc.html> [more pages…]')
+  const at = args.indexOf('--config')
+  const configPath = at >= 0 ? args[at + 1] : null
+  const files = args.filter((a, i) => a !== '--implement' && (at < 0 || (i !== at && i !== at + 1)))
+  if (!files.length || (at >= 0 && !configPath)) {
+    console.error('usage: check-design.mjs [--implement] [--config <design-system.config.mjs>] <page.dc.html> [more pages…]')
     process.exit(2)
   }
+  const required = configPath ? requiredFrom((await loadConfig(configPath, { tool: 'check-design.mjs' })).CONFIG) : {}
+  if (!configPath) console.log('(no --config: props the design system requires are not checked)')
   let failed = 0
+  const total = { elements: 0, components: 0, rules: 0 }
   for (const f of files) {
-    const { fails, open, tweaks } = checkPage(fs.readFileSync(f, 'utf8'), { implement })
+    const { fails, open, tweaks, counts } = checkPage(fs.readFileSync(f, 'utf8').replace(/\r\n/g, '\n'), { implement, required })
     const name = path.basename(f)
     const count = (st) => tweaks.filter((t) => t.state === st).length
-    console.log(`${name}: ${fails.length} fail, ${open.length} open · gaps: ${count('undecided')} undecided, ${count('approved')} approved, ${count('rejected')} rejected`)
+    for (const k of Object.keys(total)) total[k] += counts[k]
+    console.log(`${name}: ${fails.length} fail, ${open.length} open · ${counts.components} components, ${counts.elements} elements, ${counts.rules} style rules · gaps: ${count('undecided')} undecided, ${count('approved')} approved, ${count('rejected')} rejected`)
     for (const t of tweaks) console.log(`  GAP  ${t.key}: ${t.value}`)
     for (const x of fails.sort((a, b) => a.line - b.line)) console.log(`  FAIL ${name}:${x.line}  ${x.msg}`)
     for (const x of open.sort((a, b) => a.line - b.line)) console.log(`  OPEN ${name}:${x.line}  ${x.msg}`)
     failed += fails.length
   }
+  console.log(`\ncheck-design: ${files.length} page(s) — ${total.components} components, ${total.elements} elements, ${total.rules} style rules inspected`)
   if (failed) {
     console.log(implement
-      ? `\n${failed} failure(s). Implement waits until every gap is decided and landed in the design system.`
-      : `\n${failed} failure(s). The page is drawing what the design system owns — each is a gap to raise, not a value to tune.`)
+      ? `${failed} failure(s). Implement waits until every gap is decided and landed in the design system.`
+      : `${failed} failure(s). The page is drawing what the design system owns — each is a gap to raise, not a value to tune.`)
     process.exit(1)
   }
 }

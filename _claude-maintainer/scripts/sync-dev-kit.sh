@@ -10,6 +10,9 @@
 #                           writing the project file — "seen it, keeping mine" for a
 #                           `template` file. Silences a declined `template-drift` until
 #                           the kit changes again.
+#   --remove-patch <dest>   Drop a destination's entry from .claude/.kit-patches.json once
+#                           the patch it sanctioned is gone. Prints the entry removed, so
+#                           the caller can close its project issue.
 #   --apply-gitignore       Append missing .gitignore-additions entries to project .gitignore.
 #   --finalize              Update lockfile kit commit SHA + timestamp after all decisions applied.
 #
@@ -29,6 +32,7 @@ while [[ $# -gt 0 ]]; do
         --apply-file)       MODE="apply"; APPLY_FILE="$2"; shift 2 ;;
         --ack-file)         MODE="ack"; APPLY_FILE="$2"; shift 2 ;;
         --decline-file)     MODE="decline"; APPLY_FILE="$2"; shift 2 ;;
+        --remove-patch)     MODE="remove-patch"; APPLY_FILE="$2"; shift 2 ;;
         --apply-gitignore)  MODE="apply-gitignore"; shift 1 ;;
         --finalize)         MODE="finalize"; shift 1 ;;
         *) echo "sync-dev-kit.sh: unknown option: $1" >&2; exit 2 ;;
@@ -36,7 +40,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$MODE" ]; then
-    echo "sync-dev-kit.sh: mode required (--scan | --apply-file <path> | --ack-file <path> | --decline-file <path> | --apply-gitignore | --finalize)" >&2
+    echo "sync-dev-kit.sh: mode required (--scan | --apply-file <path> | --ack-file <path> | --decline-file <path> | --remove-patch <dest> | --apply-gitignore | --finalize)" >&2
     exit 2
 fi
 
@@ -358,6 +362,197 @@ is_skipped() {
     return 1
 }
 
+# Destinations sync never writes, whatever a kit path maps to. The lockfile is
+# sync's own state; the patch register is the PROJECT's record of sanctioned
+# edits to owned files, written by the consumer and only ever read here.
+is_protected_dest() {
+    case "$1" in
+        .claude/.kit-sync.json|.claude/.kit-patches.json) return 0 ;;
+    esac
+    return 1
+}
+
+# ─── Patch register (`.claude/.kit-patches.json`) ──────────────────────────
+# A consumer edit to an `owned` file is either sanctioned — recorded here with
+# the kit issue that will fix it upstream and the project issue tracking the
+# temporary change — or it is unsanctioned. Schema, shared with
+# block-kit-edit.sh:
+#
+#   {"patches":[{"path":".claude/…","kitIssue":"owner/repo#N",
+#                "projectIssue":"#M","reason":"…"}]}
+#
+# `path` is the destination path relative to the project root, the same key
+# the lockfile uses.
+PATCHES_FILE=""
+PATCHES_JSON='{"patches":[]}'
+
+load_patches() {
+    PATCHES_FILE="${PROJECT_PATH}/.claude/.kit-patches.json"
+    PATCHES_JSON='{"patches":[]}'
+    [ -f "$PATCHES_FILE" ] || return 0
+    if ! PATCHES_JSON=$(jq -c '{patches: (.patches // [])} | if (.patches | type) == "array" then . else error("patches is not an array") end' "$PATCHES_FILE" 2>/dev/null); then
+        echo "sync-dev-kit.sh: .claude/.kit-patches.json is not valid — expected {\"patches\":[{\"path\",\"kitIssue\",\"projectIssue\",\"reason\"}]}. Fix it before syncing." >&2
+        exit 5
+    fi
+}
+
+# The register entry for a destination path, compact JSON, or empty.
+patch_entry_for() {
+    printf '%s' "$PATCHES_JSON" | jq -c --arg p "$1" 'first(.patches[] | select(.path == $p)) // empty'
+}
+
+# OPEN / CLOSED for "owner/repo#N" (or "#N" against the project's own repo),
+# `unknown` when gh is missing, unauthenticated, or the reference is malformed.
+# Unknown is reported as such — never read as either answer.
+issue_state() {
+    local ref="$1" repo="" num="" state
+    if [[ "$ref" =~ ^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([0-9]+)$ ]]; then
+        repo="${BASH_REMATCH[1]}"; num="${BASH_REMATCH[2]}"
+    elif [[ "$ref" =~ ^#?([0-9]+)$ ]]; then
+        num="${BASH_REMATCH[1]}"
+    else
+        echo "unknown"; return
+    fi
+    command -v gh >/dev/null 2>&1 || { echo "unknown"; return; }
+    if [ -n "$repo" ]; then
+        state=$(gh issue view "$num" --repo "$repo" --json state --jq .state 2>/dev/null) || state=""
+    else
+        state=$(cd "$PROJECT_PATH" && gh issue view "$num" --json state --jq .state 2>/dev/null) || state=""
+    fi
+    case "$state" in
+        OPEN|CLOSED) echo "$state" ;;
+        *) echo "unknown" ;;
+    esac
+}
+
+# ─── Merge regions ─────────────────────────────────────────────────────────
+# A `merge` file is kit-owned everywhere except inside named project regions,
+# marked in the file's own comment syntax:
+#
+#   Markdown          <!-- project:begin <name> -->  …  <!-- project:end <name> -->
+#   YAML, attributes  # project:begin <name>         …  # project:end <name>
+#
+# Sync writes the kit file with each region's body replaced by the project's
+# body for the same-named region; the kit's body is the seed for a region the
+# project does not have yet. Names are [A-Za-z0-9_-]+, unique per file, and
+# regions do not nest.
+region_syntax() {
+    case "$1" in
+        *.md) echo "md" ;;
+        *) echo "hash" ;;
+    esac
+}
+
+# region_awk <op> <syntax> <file> [<project-file>]
+#   names    — region names in file order, one per line
+#   blank    — the file with every region body removed, markers kept
+#   compose  — <file> (the kit) with each region body taken from <project-file>
+# Exit 3 with a reason on stderr when a file's markers are malformed; compose
+# also exits 3 when the project has a region the kit does not.
+region_awk() {
+    local op="$1" syn="$2" file="$3" proj="${4:-}"
+    awk -v op="$op" -v syn="$syn" -v projfile="$proj" '
+        function marker(line, kind,    m, re) {
+            if (syn == "md") re = "^[ \t]*<!-- project:" kind " [A-Za-z0-9_-]+ -->[ \t\r]*$"
+            else             re = "^[ \t]*# project:" kind " [A-Za-z0-9_-]+[ \t\r]*$"
+            if (line !~ re) return ""
+            m = line
+            sub("^[ \t]*(<!-- |# )project:" kind " ", "", m)
+            sub("( -->)?[ \t\r]*$", "", m)
+            return m
+        }
+        function fail(where, msg) {
+            printf "%s: %s\n", where, msg > "/dev/stderr"
+            bad = 1
+            exit 3
+        }
+        # Read a whole file into bodies[] keyed by region name, validating.
+        function readproj(f,    line, b, e, cur, n) {
+            cur = ""; n = 0
+            while ((getline line < f) > 0) {
+                n++
+                b = marker(line, "begin"); e = marker(line, "end")
+                if (b != "") {
+                    if (cur != "") fail(f ":" n, "region \"" b "\" opens inside region \"" cur "\"")
+                    if (b in pseen) fail(f ":" n, "region \"" b "\" appears twice")
+                    pseen[b] = 1; cur = b; pbody[b] = ""; continue
+                }
+                if (e != "") {
+                    if (e != cur) fail(f ":" n, "region end \"" e "\" does not close an open region")
+                    cur = ""; continue
+                }
+                if (cur != "") pbody[cur] = pbody[cur] line "\n"
+            }
+            close(f)
+            if (cur != "") fail(f, "region \"" cur "\" is never closed")
+        }
+        BEGIN {
+            cur = ""
+            if (op == "compose") readproj(projfile)
+        }
+        {
+            b = marker($0, "begin"); e = marker($0, "end")
+            if (b != "") {
+                if (cur != "") fail(FILENAME ":" NR, "region \"" b "\" opens inside region \"" cur "\"")
+                if (b in seen) fail(FILENAME ":" NR, "region \"" b "\" appears twice")
+                seen[b] = 1; cur = b
+                if (op == "names") { print b; next }
+                print
+                if (op == "compose" && (b in pbody)) printf "%s", pbody[b]
+                next
+            }
+            if (e != "") {
+                if (e != cur) fail(FILENAME ":" NR, "region end \"" e "\" does not close an open region")
+                cur = ""
+                if (op != "names") print
+                next
+            }
+            if (op == "names") next
+            if (cur == "") { print; next }
+            if (op == "blank") next
+            if (op == "compose" && (cur in pbody)) next
+            print
+        }
+        END {
+            if (bad) exit 3
+            if (cur != "") fail(FILENAME, "region \"" cur "\" is never closed")
+            if (op == "compose") {
+                for (n in pseen) if (!(n in seen)) fail(projfile, "the project has region \"" n "\", which the kit file does not — its content would be lost")
+            }
+        }
+    ' "$file"
+}
+
+# Does this file carry at least one region marker (well-formed or not)?
+has_region_markers() {
+    local syn="$1" file="$2"
+    if [ "$syn" = "md" ]; then
+        grep -Eq '^[[:space:]]*<!-- project:(begin|end) ' "$file"
+    else
+        grep -Eq '^[[:space:]]*# project:(begin|end) ' "$file"
+    fi
+}
+
+sha256_stdin() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum | awk '{print $1}'
+    else
+        shasum -a 256 | awk '{print $1}'
+    fi
+}
+
+# SHA of a file with its region bodies removed — the part of a merge file the
+# kit owns. Empty on malformed markers (reason on stderr).
+sha256_skeleton() {
+    local syn="$1" file="$2" out
+    out=$(mktemp)
+    if ! region_awk blank "$syn" "$file" > "$out"; then
+        rm -f "$out"; echo ""; return
+    fi
+    sha256_stdin < "$out"
+    rm -f "$out"
+}
+
 # Read one substitution value. Empty when the key is absent, null, or blank —
 # which is how a project says "this does not apply to me".
 subst_value() {
@@ -381,7 +576,22 @@ dest_for_kit_path() {
             echo ".commitlintrc.json"
             ;;
         _claude-project/templates/biome.json)
+            # The project's seed: it extends the kit base and adds what is
+            # this project's own (its plugins, its overrides).
             echo "biome.json"
+            ;;
+        _claude-project/templates/biome.base.json)
+            echo "biome.base.json"
+            ;;
+        _claude-project/templates/biome-plugins/*)
+            # The kit's GritQL plugins, named in biome.base.json's `plugins`,
+            # which Biome resolves against the base file's own folder — the
+            # repo root. A project's own plugins sit beside them, listed in
+            # its biome.json.
+            echo "biome-plugins/${kit_rel#_claude-project/templates/biome-plugins/}"
+            ;;
+        _claude-project/templates/.gitattributes)
+            echo ".gitattributes"
             ;;
         _claude-project/templates/.semgrepignore)
             echo ".semgrepignore"
@@ -401,8 +611,8 @@ dest_for_kit_path() {
         _claude-project/templates/dependency-policy.md)
             # Operating procedure for dependency + vulnerability work. Lands in
             # the consumer's docs, not .claude/ — it is read by humans, not
-            # loaded as a rule. Mode `template`: the timelines table and the
-            # owner names are each project's own.
+            # loaded as a rule. Mode `merge`: the owners and the timelines
+            # table are project regions.
             echo "project-documentation/dependency-policy.md"
             ;;
         _claude-project/templates/ui-inventory.md)
@@ -411,9 +621,18 @@ dest_for_kit_path() {
             # whole tree, by design, so nothing there ever reaches a consumer.
             # Shipping it from templates/ with an explicit destination is what
             # lets the kit seed one file into a directory it otherwise never
-            # touches. Mode `template`: every line of the content is the
-            # project's own inventory.
+            # touches. Mode `merge`: every enumeration is a project region.
             echo ".claude/rules/project/ui-inventory.md"
+            ;;
+        _claude-project/templates/design-system/*)
+            # The kit's design-system engine lands inside the UI package, which
+            # every project names differently. DESIGN_UI_PACKAGE supplies it;
+            # empty means the project publishes no design system and these
+            # files are skipped (reported under `skipped_unconfigured`).
+            local ui_pkg
+            ui_pkg=$(subst_value "DESIGN_UI_PACKAGE")
+            [ -z "$ui_pkg" ] && { echo ""; return; }
+            echo "${ui_pkg%/}/design-system/${kit_rel#_claude-project/templates/design-system/}"
             ;;
         _claude-project/templates/testing/vitest.config.ts)
             # Test scaffolding has no fixed home — it lands beside the shared
@@ -435,7 +654,8 @@ dest_for_kit_path() {
             echo ".gemini/${kit_rel#_gemini-project/}"
             ;;
         _claude-project/templates/*)
-            # README.md and other meta files — skipped via SKIP_LIST or unmapped.
+            # No mapping. The scan lists every such file under
+            # `unmapped_templates` so a new template cannot be skipped silently.
             echo ""
             ;;
         _claude-project/*)
@@ -478,19 +698,36 @@ kit_path_for_dest() {
     echo ""
 }
 
-# Sync mode for a kit file. Two values:
+# The substitution key a kit path's destination depends on, or empty. A path
+# whose key is empty in this project is skipped deliberately, not unmapped.
+dest_key_for_kit_path() {
+    case "$1" in
+        _claude-project/templates/testing/*)       echo "SHARED_MODULE_DIR" ;;
+        _claude-project/templates/design-system/*) echo "DESIGN_UI_PACKAGE" ;;
+        *) echo "" ;;
+    esac
+}
+
+# Sync mode for a kit file. Three values:
 #
 #   owned    — the kit owns the content. Consumers must not edit it
 #              (`block-kit-edit.sh` denies the write); divergence is a `conflict`
-#              reconciled toward the kit. Default, and the common case.
+#              reconciled toward the kit. A project edit with no kit change is
+#              `patched` when the patch register sanctions it and `unsanctioned`
+#              when it does not. Default, and the common case.
+#   merge    — owned, except inside named project regions (see "Merge regions"
+#              above). Kit text outside the regions always applies; the
+#              project's region bodies are always kept.
 #   template — the kit ships a STARTING POINT; the project owns the file and has
 #              final say. Consumers may edit it freely (the hook allows the
 #              write), and divergence reports as `template-drift`: the kit's delta
 #              is shown for the project to take or ignore, never reconciled.
 #
 # Use `template` only where content genuinely must vary per project — a value that
-# differs, not a preference that differs. When in doubt it is `owned`: a file
-# marked `template` stops receiving enforced updates, and that is hard to notice.
+# differs, not a preference that differs. When the variation is a few known
+# blocks inside otherwise-shared text, it is `merge`. When in doubt it is
+# `owned`: a file marked `template` stops receiving enforced updates, and that is
+# hard to notice.
 #
 # Mode is a property of the KIT file, not of the consumer, so it is declared here
 # and copied into each consumer's lockfile on apply — `block-kit-edit.sh` runs on
@@ -506,14 +743,17 @@ mode_for_kit_path() {
         # when adapted. Per-project deploy workflows are the other prospective
         # member; they are not synced at all yet.
         _claude-project/templates/testing/*) echo "template" ;;
-        # The UI inventory. `owned` is not even coherent here: the file's whole
-        # purpose is to enumerate THIS project's components and patterns, so a
-        # consumer that has not rewritten it entirely has not adopted it. The
-        # kit ships the shape; the content is the project's from first sync.
-        # Dependency policy. The timelines table is explicitly the dial each
-        # client tunes to its own risk appetite, and the owner names are theirs.
-        _claude-project/templates/dependency-policy.md) echo "template" ;;
-        _claude-project/templates/ui-inventory.md) echo "template" ;;
+        # The Biome seed: one line extending the kit-owned biome.base.json, plus
+        # whatever this project adds. The base is `owned`.
+        _claude-project/templates/biome.json) echo "template" ;;
+        # The UI inventory's enumerations, the dependency policy's owners and
+        # timelines, the project's own CI steps, review rules and attributes
+        # are project regions; every other line is the kit's.
+        _claude-project/templates/ui-inventory.md) echo "merge" ;;
+        _claude-project/templates/dependency-policy.md) echo "merge" ;;
+        _claude-project/templates/.gitattributes) echo "merge" ;;
+        _github-project/workflows/ci.yml) echo "merge" ;;
+        _gemini-project/styleguide.md) echo "merge" ;;
         *) echo "owned" ;;
     esac
 }
@@ -607,10 +847,21 @@ update_lockfile_declined() {
     mv "$tmp" "$LOCKFILE"
 }
 
+# The skeleton SHA recorded for a merge file: its kit-owned text, region bodies
+# removed, as last written. Empty for any other file or a legacy entry.
+load_baseline_skeleton() {
+    local dest_rel="$1"
+    [ -f "$LOCKFILE" ] || { echo ""; return; }
+    jq -r --arg k "$dest_rel" '
+        (.files[$k] // "") | if type == "object" then (.skeleton // "") else "" end
+    ' "$LOCKFILE"
+}
+
 update_lockfile_file() {
     local dest_rel="$1"
     local new_sha="$2"
     local mode="${3:-owned}"
+    local skeleton="${4:-}"
 
     mkdir -p "$(dirname "$LOCKFILE")"
     if [ ! -f "$LOCKFILE" ]; then
@@ -620,8 +871,8 @@ update_lockfile_file() {
     local tmp
     tmp=$(mktemp)
     if [ -n "$new_sha" ]; then
-        jq --arg k "$dest_rel" --arg v "$new_sha" --arg m "$mode" \
-            '.files[$k] = {sha: $v, mode: $m}' "$LOCKFILE" > "$tmp"
+        jq --arg k "$dest_rel" --arg v "$new_sha" --arg m "$mode" --arg s "$skeleton" \
+            '.files[$k] = ({sha: $v, mode: $m} + (if $s == "" then {} else {skeleton: $s} end))' "$LOCKFILE" > "$tmp"
     else
         jq --arg k "$dest_rel" 'del(.files[$k])' "$LOCKFILE" > "$tmp"
     fi
@@ -665,34 +916,114 @@ if [ "$MODE" = "scan" ]; then
     [ -d "${KIT_PATH}/_gemini-project" ] && KIT_DIRS+=("_gemini-project")
     KIT_FILES=$(cd "$KIT_PATH" && find "${KIT_DIRS[@]}" -type f ! -name ".DS_Store" 2>/dev/null | sort)
 
+    load_patches
+
     FILE_ENTRIES="[]"
+    UNMAPPED="[]"
+    UNCONFIGURED="[]"
     while IFS= read -r kit_rel; do
         [ -z "$kit_rel" ] && continue
         is_skipped "$kit_rel" && continue
 
         dest_rel=$(dest_for_kit_path "$kit_rel")
-        [ -z "$dest_rel" ] && continue
+        if [ -z "$dest_rel" ]; then
+            # Either the project deliberately has no home for it (its
+            # destination key is empty) or the kit forgot a mapping. Both are
+            # reported; neither is a silent skip.
+            dest_key=$(dest_key_for_kit_path "$kit_rel")
+            if [ -n "$dest_key" ]; then
+                UNCONFIGURED=$(jq -c --arg p "$kit_rel" --arg k "$dest_key" '. + [{kit_path: $p, key: $k}]' <<<"$UNCONFIGURED")
+            else
+                case "$kit_rel" in
+                    # Not a file: --apply-gitignore reads its lines.
+                    _claude-project/templates/.gitignore-additions) ;;
+                    _claude-project/templates/*)
+                        UNMAPPED=$(jq -c --arg p "$kit_rel" '. + [$p]' <<<"$UNMAPPED") ;;
+                esac
+            fi
+            continue
+        fi
+        is_protected_dest "$dest_rel" && continue
 
         kit_full="${KIT_PATH}/${kit_rel}"
         proj_full="${PROJECT_PATH}/${dest_rel}"
+        file_mode=$(mode_for_kit_path "$kit_rel")
+        baseline_sha=$(load_baseline_sha "$dest_rel")
+        declined_sha=$(load_declined_sha "$dest_rel")
+        state=""
+        detail=""
+        owned_edit=false
+        kit_changed=false
 
-        # kit_sha reflects content AFTER placeholder substitution, so a kit
-        # template with {{KEY}} matches a project file with the real value.
-        # proj_sha is the raw project file (already the real values).
-        # settings.json takes a separate path: both sides are canonicalized
-        # via jq before SHA. See kitmaintainer-handbook.md §9.6.
+        # kit_sha is what applying would write: the kit file after placeholder
+        # substitution — and, for a merge file, with the project's region
+        # bodies carried in. proj_sha is the raw project file. settings.json
+        # canonicalizes both sides via jq (kitmaintainer-handbook.md §9.6).
         if is_settings_json "$kit_rel"; then
             kit_sha=$(sha256_settings_kit "$kit_full")
             proj_sha=$(sha256_settings_proj "$proj_full")
+        elif [ "$file_mode" = "merge" ]; then
+            syn=$(region_syntax "$kit_rel")
+            tmp_kit=$(mktemp)
+            apply_substitutions < "$kit_full" > "$tmp_kit"
+            kit_skel=$(sha256_skeleton "$syn" "$tmp_kit")
+            if [ -z "$kit_skel" ]; then
+                rm -f "$tmp_kit"
+                echo "sync-dev-kit.sh: the kit's $kit_rel has malformed region markers — fix the kit before syncing" >&2
+                exit 5
+            fi
+            kit_sha=$(sha256 "$tmp_kit")
+            proj_sha=$(sha256 "$proj_full")
+            if [ -n "$proj_sha" ]; then
+                if ! has_region_markers "$syn" "$proj_full"; then
+                    # The project's content predates the regions. Applying would
+                    # discard it, so nothing is written until it is moved into
+                    # the regions by hand.
+                    state="merge-unmarked"
+                else
+                    tmp_merged=$(mktemp)
+                    tmp_err=$(mktemp)
+                    if region_awk compose "$syn" "$tmp_kit" "$proj_full" > "$tmp_merged" 2> "$tmp_err"; then
+                        kit_sha=$(sha256 "$tmp_merged")
+                        proj_skel=$(sha256_skeleton "$syn" "$proj_full")
+                        base_skel=$(load_baseline_skeleton "$dest_rel")
+                        if [ -z "$base_skel" ]; then
+                            # First merge-aware sync: no record of the kit text
+                            # this project last took, so an outside difference
+                            # cannot be attributed to either side.
+                            if [ "$proj_sha" = "$kit_sha" ]; then
+                                state="clean-first"
+                            elif [ "$proj_skel" = "$kit_skel" ]; then
+                                state="kit-only"
+                            else
+                                state="conflict-first"
+                            fi
+                        elif [ "$proj_skel" != "$base_skel" ] && [ "$proj_skel" != "$kit_skel" ]; then
+                            # The project changed kit-owned text outside its regions.
+                            owned_edit=true
+                            [ "$kit_skel" != "$base_skel" ] && kit_changed=true
+                        elif [ "$proj_sha" = "$kit_sha" ]; then
+                            if [ "$proj_sha" = "$baseline_sha" ]; then state="clean"; else state="clean-converged"; fi
+                        else
+                            # Kit text moved, or a region the project lacks takes
+                            # its kit seed. Region bodies are carried, so applying
+                            # never costs the project anything.
+                            state="kit-only"
+                        fi
+                    else
+                        state="merge-invalid"
+                        detail=$(cat "$tmp_err")
+                    fi
+                    rm -f "$tmp_merged" "$tmp_err"
+                fi
+            fi
+            rm -f "$tmp_kit"
         else
             kit_sha=$(sha256_substituted "$kit_full")
             proj_sha=$(sha256 "$proj_full")
         fi
-        baseline_sha=$(load_baseline_sha "$dest_rel")
 
         [ -z "$kit_sha" ] && continue
-
-        declined_sha=$(load_declined_sha "$dest_rel")
 
         # A declined file has no project copy BY DESIGN, so it must be
         # resolved before the absent-file branches below — otherwise a
@@ -700,7 +1031,9 @@ if [ "$MODE" = "scan" ]; then
         # it replaced. Declining is not permanent: when the kit changes the
         # file, the recorded SHA no longer matches and it is offered again,
         # which is the whole point of recording a SHA rather than a flag.
-        if [ -n "$declined_sha" ] && [ -z "$proj_sha" ]; then
+        if [ -n "$state" ] || [ "$owned_edit" = true ]; then
+            :   # decided above (merge files)
+        elif [ -n "$declined_sha" ] && [ -z "$proj_sha" ]; then
             if [ "$kit_sha" = "$declined_sha" ]; then
                 state="declined"
             else
@@ -710,38 +1043,74 @@ if [ "$MODE" = "scan" ]; then
             state="new-kit"
         elif [ -z "$proj_sha" ] && [ -n "$baseline_sha" ]; then
             state="project-deleted"
-        elif [ "$kit_sha" = "$baseline_sha" ] && [ "$proj_sha" = "$baseline_sha" ]; then
-            state="clean"
-        elif [ "$kit_sha" != "$baseline_sha" ] && [ "$proj_sha" = "$baseline_sha" ]; then
-            state="kit-only"
-        elif [ "$kit_sha" = "$baseline_sha" ] && [ "$proj_sha" != "$baseline_sha" ]; then
-            state="project-only"
-        elif [ "$kit_sha" != "$baseline_sha" ] && [ "$proj_sha" != "$baseline_sha" ]; then
-            if [ "$kit_sha" = "$proj_sha" ]; then
-                state="clean-converged"
-            else
-                state="conflict"
-            fi
-        elif [ -z "$baseline_sha" ] && [ -n "$proj_sha" ]; then
+        elif [ -z "$baseline_sha" ]; then
             if [ "$kit_sha" = "$proj_sha" ]; then
                 state="clean-first"
             else
                 state="conflict-first"
             fi
+        elif [ "$kit_sha" = "$baseline_sha" ] && [ "$proj_sha" = "$baseline_sha" ]; then
+            state="clean"
+        elif [ "$kit_sha" != "$baseline_sha" ] && [ "$proj_sha" = "$baseline_sha" ]; then
+            state="kit-only"
+        elif [ "$kit_sha" = "$baseline_sha" ]; then
+            state="project-only"
+        elif [ "$kit_sha" = "$proj_sha" ]; then
+            state="clean-converged"
         else
-            state="unknown"
+            state="conflict"
         fi
 
         # Template files: the project owns the content, so a two-sided divergence
         # is not something to reconcile toward the kit. Report it as drift — the
-        # kit's delta is informational, the project decides. Every other state
-        # keeps its meaning: `kit-only` still offers the update (the project has
-        # not customized), `project-only` is still a silent skip.
-        file_mode=$(mode_for_kit_path "$kit_rel")
+        # kit's delta is informational, the project decides. `kit-only` still
+        # offers the update (the project has not customized), `project-only` is
+        # a silent skip.
         if [ "$file_mode" = "template" ]; then
             case "$state" in
                 conflict|conflict-first) state="template-drift" ;;
             esac
+        fi
+
+        # Owned files: a project edit is never a silent skip. Merge files
+        # arrive here with owned_edit already decided.
+        if [ "$file_mode" = "owned" ]; then
+            case "$state" in
+                project-only) owned_edit=true ;;
+                conflict)
+                    # Unregistered, a two-sided divergence stays a conflict to
+                    # reconcile; registered, it is a patch the kit has moved under.
+                    if [ -n "$(patch_entry_for "$dest_rel")" ]; then
+                        owned_edit=true; kit_changed=true
+                    fi
+                    ;;
+            esac
+        fi
+
+        patch_json="null"
+        if [ "$owned_edit" = true ]; then
+            entry=$(patch_entry_for "$dest_rel")
+            if [ -n "$entry" ]; then
+                state="patched"
+                kit_issue=$(jq -r '.kitIssue // ""' <<<"$entry")
+                proj_issue=$(jq -r '.projectIssue // ""' <<<"$entry")
+                kit_issue_state=$(issue_state "$kit_issue")
+                proj_issue_state=$(issue_state "$proj_issue")
+                if [ "$kit_changed" = true ] && [ "$kit_issue_state" = "CLOSED" ]; then
+                    rec="take-kit"
+                elif [ "$kit_changed" = true ]; then
+                    rec="merge-kit-keep-patch"
+                elif [ "$kit_issue_state" = "CLOSED" ]; then
+                    rec="kit-issue-closed-file-unchanged"
+                else
+                    rec="keep"
+                fi
+                patch_json=$(jq -c --arg kis "$kit_issue_state" --arg pis "$proj_issue_state" \
+                    --argjson kc "$kit_changed" --arg rec "$rec" \
+                    '{kitIssue, projectIssue, reason, kit_issue_state: $kis, project_issue_state: $pis, kit_changed: $kc, recommendation: $rec}' <<<"$entry")
+            else
+                state="unsanctioned"
+            fi
         fi
 
         FILE_ENTRIES=$(echo "$FILE_ENTRIES" | jq \
@@ -752,8 +1121,22 @@ if [ "$MODE" = "scan" ]; then
             --arg kit_sha "$kit_sha" \
             --arg proj_sha "$proj_sha" \
             --arg baseline_sha "$baseline_sha" \
-            '. + [{kit_path: $kit_path, dest_path: $dest_path, state: $state, mode: $mode, kit_sha: $kit_sha, project_sha: $proj_sha, baseline_sha: $baseline_sha}]')
+            --arg detail "$detail" \
+            --argjson patch "$patch_json" \
+            '. + [{kit_path: $kit_path, dest_path: $dest_path, state: $state, mode: $mode, kit_sha: $kit_sha, project_sha: $proj_sha, baseline_sha: $baseline_sha}
+                  + (if $detail == "" then {} else {detail: $detail} end)
+                  + (if $patch == null then {} else {patch: $patch} end)]')
     done <<< "$KIT_FILES"
+
+    # Register entries that sanction nothing: the file now matches the kit,
+    # was never kit-owned, or is project-owned already. Each is reported so the
+    # entry is removed and its project issue closed.
+    STALE_PATCHES=$(jq -c --argjson files "$FILE_ENTRIES" '
+        [ .patches[] as $p
+          | ($files | map(select(.dest_path == $p.path)) | first) as $f
+          | select(($f.state // "") != "patched")
+          | $p + {current_state: ($f.state // "not-kit-managed"), current_mode: ($f.mode // "")} ]
+    ' <<<"$PATCHES_JSON")
 
     # Removed-from-kit: files in lockfile not present in kit
     if [ -f "$LOCKFILE" ]; then
@@ -793,7 +1176,10 @@ if [ "$MODE" = "scan" ]; then
         --argjson kit_behind "$KIT_BEHIND" \
         --argjson files "$FILE_ENTRIES" \
         --argjson gitignore_missing "$MISSING_ENTRIES" \
-        '{kit_path: $kit_path, kit_commit: $kit_commit, kit_clean: $kit_clean, kit_behind_remote: $kit_behind, files: $files, gitignore_additions_missing: $gitignore_missing}'
+        --argjson unmapped "$UNMAPPED" \
+        --argjson unconfigured "$UNCONFIGURED" \
+        --argjson stale_patches "$STALE_PATCHES" \
+        '{kit_path: $kit_path, kit_commit: $kit_commit, kit_clean: $kit_clean, kit_behind_remote: $kit_behind, files: $files, gitignore_additions_missing: $gitignore_missing, unmapped_templates: $unmapped, skipped_unconfigured: $unconfigured, stale_patches: $stale_patches}'
 
     exit 0
 fi
@@ -836,7 +1222,19 @@ if [ "$MODE" = "apply" ]; then
         kit_full=""
     fi
 
-    [ -z "$dest_rel" ] && { echo "sync-dev-kit.sh: no destination mapping for $APPLY_FILE" >&2; exit 4; }
+    if [ -z "$dest_rel" ]; then
+        dest_key=$(dest_key_for_kit_path "$APPLY_FILE")
+        if [ -n "$dest_key" ]; then
+            echo "sync-dev-kit.sh: $APPLY_FILE has no destination because $dest_key is empty in .claude/sync-substitutions.json" >&2
+        else
+            echo "sync-dev-kit.sh: no destination mapping for $APPLY_FILE" >&2
+        fi
+        exit 4
+    fi
+    if is_protected_dest "$dest_rel"; then
+        echo "sync-dev-kit.sh: $dest_rel is sync state, never written from the kit" >&2
+        exit 4
+    fi
 
     if [ ! -f "$kit_full" ]; then
         # Removed from kit — delete from project + lockfile
@@ -867,6 +1265,30 @@ if [ "$MODE" = "apply" ]; then
         mv "$tmp_final" "$proj_full"
         rm -f "$tmp_subst"
         new_sha=$(sha256_settings_proj "$proj_full")
+    elif [ "$(mode_for_kit_path "$APPLY_FILE")" = "merge" ]; then
+        # Kit text everywhere, the project's bodies inside its regions.
+        syn=$(region_syntax "$APPLY_FILE")
+        tmp_kit=$(mktemp)
+        tmp_final=$(mktemp)
+        apply_substitutions < "$kit_full" > "$tmp_kit"
+        if [ -f "$proj_full" ]; then
+            if ! has_region_markers "$syn" "$proj_full"; then
+                rm -f "$tmp_kit" "$tmp_final"
+                echo "sync-dev-kit.sh: $dest_rel has no project regions yet (merge-unmarked). Move its project content into the kit's regions by hand first — applying now would discard it." >&2
+                exit 4
+            fi
+            if ! region_awk compose "$syn" "$tmp_kit" "$proj_full" > "$tmp_final"; then
+                rm -f "$tmp_kit" "$tmp_final"
+                echo "sync-dev-kit.sh: could not merge $dest_rel — fix the region markers named above, then apply again" >&2
+                exit 4
+            fi
+        else
+            cp "$tmp_kit" "$tmp_final"
+        fi
+        cat "$tmp_final" > "$proj_full"
+        rm -f "$tmp_kit" "$tmp_final"
+        new_sha=$(sha256 "$proj_full")
+        new_skeleton=$(sha256_skeleton "$syn" "$proj_full")
     else
         apply_substitutions < "$kit_full" > "$proj_full"
         case "$APPLY_FILE" in
@@ -875,11 +1297,13 @@ if [ "$MODE" = "apply" ]; then
         new_sha=$(sha256 "$proj_full")
     fi
 
-    # Lockfile baseline SHA tracks the SUBSTITUTED (and for settings.json,
-    # overlaid + canonicalized) kit content — same as what got written to
-    # the project. This keeps subsequent scans clean until the kit template
-    # changes or the substitution value changes.
-    update_lockfile_file "$dest_rel" "$new_sha" "$(mode_for_kit_path "$APPLY_FILE")"
+    # Lockfile baseline SHA tracks what was WRITTEN: the substituted kit
+    # content (canonicalized for settings.json, region-merged for a merge
+    # file). This keeps subsequent scans clean until the kit template changes
+    # or the substitution value changes. A merge file also records its skeleton
+    # — the kit-owned text — which is how a later scan tells a project edit
+    # outside the regions from one inside them.
+    update_lockfile_file "$dest_rel" "$new_sha" "$(mode_for_kit_path "$APPLY_FILE")" "${new_skeleton:-}"
 
     echo "sync-dev-kit.sh: applied $dest_rel ($new_sha)" >&2
     exit 0
@@ -923,15 +1347,36 @@ if [ "$MODE" = "ack" ]; then
     [ ! -f "$kit_full" ] && { echo "sync-dev-kit.sh: $APPLY_FILE does not exist in the kit" >&2; exit 4; }
 
     # Same hash the scan computes for kit_sha, so the next scan sees the kit
-    # as unchanged and reports `project-only` rather than drift.
+    # as unchanged. A merge file records the kit's skeleton too; its kit_sha
+    # carries the project's regions, so it is taken from the composed text.
+    ack_skeleton=""
     if is_settings_json "$APPLY_FILE"; then
         ack_sha=$(sha256_settings_kit "$kit_full")
+    elif [ "$(mode_for_kit_path "$APPLY_FILE")" = "merge" ]; then
+        syn=$(region_syntax "$APPLY_FILE")
+        tmp_kit=$(mktemp)
+        apply_substitutions < "$kit_full" > "$tmp_kit"
+        ack_skeleton=$(sha256_skeleton "$syn" "$tmp_kit")
+        proj_full="${PROJECT_PATH}/${dest_rel}"
+        if [ -f "$proj_full" ] && has_region_markers "$syn" "$proj_full"; then
+            tmp_merged=$(mktemp)
+            if ! region_awk compose "$syn" "$tmp_kit" "$proj_full" > "$tmp_merged"; then
+                rm -f "$tmp_kit" "$tmp_merged"
+                echo "sync-dev-kit.sh: could not merge $dest_rel — fix the region markers named above first" >&2
+                exit 4
+            fi
+            ack_sha=$(sha256 "$tmp_merged")
+            rm -f "$tmp_merged"
+        else
+            ack_sha=$(sha256 "$tmp_kit")
+        fi
+        rm -f "$tmp_kit"
     else
         ack_sha=$(sha256_substituted "$kit_full")
     fi
     [ -z "$ack_sha" ] && { echo "sync-dev-kit.sh: could not hash $APPLY_FILE" >&2; exit 5; }
 
-    update_lockfile_file "$dest_rel" "$ack_sha" "$(mode_for_kit_path "$APPLY_FILE")"
+    update_lockfile_file "$dest_rel" "$ack_sha" "$(mode_for_kit_path "$APPLY_FILE")" "$ack_skeleton"
     echo "sync-dev-kit.sh: acknowledged $dest_rel ($ack_sha) — project file left untouched" >&2
     exit 0
 fi
@@ -977,6 +1422,35 @@ if [ "$MODE" = "decline" ]; then
 
     update_lockfile_declined "$dest_rel" "$decline_sha" "$(mode_for_kit_path "$APPLY_FILE")"
     echo "sync-dev-kit.sh: declined $dest_rel — not offered again until the kit changes it" >&2
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Mode: remove-patch
+#
+# The register entry outlives the patch only by mistake: once the project file
+# matches the kit again (the kit took the fix, or the patch was reverted), the
+# entry would sanction a future edit nobody approved. Sync never edits the
+# register on its own — this is called by the walkthrough after the user agrees.
+# ---------------------------------------------------------------------------
+
+if [ "$MODE" = "remove-patch" ]; then
+    [ -z "$APPLY_FILE" ] && { echo "sync-dev-kit.sh: --remove-patch requires a destination path" >&2; exit 2; }
+    load_patches
+    entry=$(patch_entry_for "$APPLY_FILE")
+    if [ -z "$entry" ]; then
+        echo "sync-dev-kit.sh: no patch register entry for $APPLY_FILE" >&2
+        exit 4
+    fi
+    tmp=$(mktemp)
+    if ! jq --arg p "$APPLY_FILE" '.patches |= map(select(.path != $p))' "$PATCHES_FILE" > "$tmp"; then
+        rm -f "$tmp"
+        echo "sync-dev-kit.sh: could not rewrite .claude/.kit-patches.json" >&2
+        exit 5
+    fi
+    mv "$tmp" "$PATCHES_FILE"
+    printf '%s\n' "$entry"
+    echo "sync-dev-kit.sh: removed the patch register entry for $APPLY_FILE" >&2
     exit 0
 fi
 
@@ -1078,18 +1552,44 @@ if [ "$MODE" = "finalize" ]; then
         [ -z "$dest_rel" ] && continue
         [ -f "${PROJECT_PATH}/${dest_rel}" ] || continue
 
-        kit_sha=$(sha256_substituted "${KIT_PATH}/${kit_rel}" "$kit_rel")
-        proj_sha=$(sha256 "${PROJECT_PATH}/${dest_rel}")
+        is_protected_dest "$dest_rel" && continue
+        file_mode=$(mode_for_kit_path "$kit_rel")
+        proj_full="${PROJECT_PATH}/${dest_rel}"
+        proj_sha=$(sha256 "$proj_full")
+        skeleton=""
+
+        if [ "$file_mode" = "merge" ]; then
+            # A merge file matches when composing the kit around the project's
+            # own regions reproduces the project file exactly — its regions may
+            # hold anything, its kit text must be the kit's.
+            syn=$(region_syntax "$kit_rel")
+            has_region_markers "$syn" "$proj_full" || continue
+            tmp_kit=$(mktemp)
+            tmp_merged=$(mktemp)
+            apply_substitutions < "${KIT_PATH}/${kit_rel}" > "$tmp_kit"
+            if region_awk compose "$syn" "$tmp_kit" "$proj_full" > "$tmp_merged" 2>/dev/null; then
+                kit_sha=$(sha256 "$tmp_merged")
+                skeleton=$(sha256_skeleton "$syn" "$tmp_kit")
+            else
+                kit_sha=""
+            fi
+            rm -f "$tmp_kit" "$tmp_merged"
+        elif is_settings_json "$kit_rel"; then
+            kit_sha=$(sha256_settings_kit "${KIT_PATH}/${kit_rel}")
+            proj_sha=$(sha256_settings_proj "$proj_full")
+        else
+            kit_sha=$(sha256_substituted "${KIT_PATH}/${kit_rel}")
+        fi
         [ -n "$kit_sha" ] && [ "$kit_sha" = "$proj_sha" ] || continue
 
         already=$(jq -r --arg k "$dest_rel" '
-            (.files[$k] // "") | if type == "object" then (.sha // "") else . end
+            (.files[$k] // "") | if type == "object" then ((.sha // "") + "|" + (.skeleton // "") + "|" + (.mode // "owned")) else . + "||owned" end
         ' "$LOCKFILE")
-        [ "$already" = "$kit_sha" ] && continue
+        [ "$already" = "${kit_sha}|${skeleton}|${file_mode}" ] && continue
 
         BACKFILL=$(jq -c --arg k "$dest_rel" --arg v "$kit_sha" \
-            --arg m "$(mode_for_kit_path "$kit_rel")" \
-            '. + {($k): {sha: $v, mode: $m}}' <<<"$BACKFILL")
+            --arg m "$file_mode" --arg s "$skeleton" \
+            '. + {($k): ({sha: $v, mode: $m} + (if $s == "" then {} else {skeleton: $s} end))}' <<<"$BACKFILL")
         BACKFILL_N=$((BACKFILL_N + 1))
     done <<< "$ALL_KIT_FILES"
 

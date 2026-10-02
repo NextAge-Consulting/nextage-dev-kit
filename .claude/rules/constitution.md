@@ -44,7 +44,7 @@ Production code never imports from `docs/`, `specs/`, or `project-documentation/
 
 LSP activates for a language only when both the official code-intelligence plugin is installed (`typescript-lsp`, `pyright-lsp`, `swift-lsp` from the official marketplace) and the language server binary is on PATH (`typescript-language-server`, `pyright-langserver`). Verify both before relying on it; otherwise use the language CLI diagnostics.
 
-Use LSP for type-aware queries — `goToDefinition`, `findReferences`, `hover`, `documentSymbol`, `workspaceSymbol`, `goToImplementation`, `incomingCalls`, `outgoingCalls`. Use Grep for text patterns. Use the language CLI (`tsc`, `pyright`, `ruff`) for diagnostics: it is the guaranteed path and what pre-commit and CI run.
+Use LSP for type-aware queries — `goToDefinition`, `findReferences`, `hover`, `documentSymbol`, `workspaceSymbol`, `goToImplementation`, `incomingCalls`, `outgoingCalls`. Use Grep for text patterns. Use the language CLI (`tsc`, `pyright`, `ruff`) for diagnostics: it is the guaranteed path and what the gates run — the commit gate typechecks TypeScript and Python, and CI runs `check-types`, Biome, `ruff`, the Python typecheck and the tests.
 
 Every diagnostic, LSP or CLI, is authoritative. Resolve all of them before claiming work done — every one you saw, not only those in files you edited (§XII).
 
@@ -61,6 +61,8 @@ What the user sees names the system and the impact, never the cause: no error te
 An empty state is not an error state. A failed lookup rendered as an empty list tells the user the thing does not exist — and a missing certificate and an unreachable server look identical that way.
 
 When reviewing, check every `onError`, `catch`, `.catch()` and `except` for a path to the user.
+
+**An automated check prints how much it inspected, and fails when that is nothing** — unless it says why it does not apply here.
 
 **The same rule governs ORDINARY screen copy, not just failures.** A label, hint,
 description or empty-state is read by whoever opens the screen, so it never names

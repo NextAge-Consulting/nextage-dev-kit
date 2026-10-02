@@ -50,7 +50,8 @@ correctly. See `data-loading.md`.
 
 ## Server function fails only in production
 
-Check in this order:
+Read the server log first: `logFailures` writes every failure as `server function
+failed` with the operation name, stack and cause. Then check in this order:
 
 1. Is an env var missing? Dev loads env files the container may not.
 2. Is auth throwing rather than the query failing? A dead session surfaces as a

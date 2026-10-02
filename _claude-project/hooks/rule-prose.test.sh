@@ -30,6 +30,8 @@ t no "/r/src/rules/pricing.md"                       'app dir named rules'
 t no "/r/my.claude/rules/x.md"                       'no path boundary'
 t no "/r/_claude-project/templates/dependency-policy.md" 'human-facing template'
 t no ""                                              'empty path'
+t yes 'C:\r\.claude\rules\x.md'                       'Windows backslash path'
+t yes 'C:\r\CLAUDE.md'                                  'Windows backslash CLAUDE.md'
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

@@ -1,0 +1,20 @@
+// Every server function handler is wrapped in logFailures(name, fn).
+//
+// TanStack Start never logs a thrown server function on the server, so an unwrapped
+// handler fails with an empty log. The wrapper and the reasoning live in the
+// mfing-bible-of-tanstack skill, references/server-functions.md.
+//
+// Matches `<builder>.handler(x)` where the builder chain contains createServerFn,
+// same-line and chained-multiline alike. A handler that genuinely must not log
+// carries, on the line above:
+//   // biome-ignore lint/plugin/server-fn-logging: <why>
+language js
+
+`$builder.handler($handler)` where {
+  $builder <: contains `createServerFn`,
+  $handler <: not `logFailures($_, $_)`,
+  register_diagnostic(
+    span = $handler,
+    message = "Server function handler is not wrapped in logFailures(name, fn), so a throw here never reaches the server log. Wrap it: .handler(logFailures('opName', async ({ data }) => { ... }))."
+  )
+}

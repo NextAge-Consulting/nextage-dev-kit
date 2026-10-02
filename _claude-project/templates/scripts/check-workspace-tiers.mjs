@@ -13,9 +13,10 @@
  *       server-shared tier, the web tier, or any database code.
  *   web            (packages/web)          — only when the tier exists
  *       Front-end app-logic tier: integrations and serverFns. MUST NOT touch
- *       the database. Exists only in projects that have shared client-side
- *       non-presentational code; most projects never need it.
- *   headless apps  (apps/* with no react dependency and no .tsx)
+ *       the database, and imports no `.server` module but its own. Exists only
+ *       in projects that have shared client-side non-presentational code; most
+ *       projects never need it.
+ *   headless apps  (apps/* with no react dependency and no .tsx/.jsx)
  *       Reach the server-shared tier ONLY — never ui, never web. This is what
  *       keeps browser libraries out of their container images.
  *   extension apps (apps/* built by a browser-extension builder)
@@ -35,9 +36,15 @@
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// Every path below is relative to the repository root, wherever this is run from.
+process.chdir(resolve(dirname(fileURLToPath(import.meta.url)), ".."));
 
 const failures = [];
+let scanned = 0;
+const UI_FILE = /\.(tsx|jsx)$/;
 
 function* walk(dir) {
   let entries;
@@ -50,7 +57,7 @@ function* walk(dir) {
     if (name === "node_modules" || name === "dist" || name === "build") continue;
     const p = join(dir, name);
     if (statSync(p).isDirectory()) yield* walk(p);
-    else if (/\.(ts|tsx|mts|cts)$/.test(name)) yield p;
+    else if (/\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(name)) yield p;
   }
 }
 
@@ -61,6 +68,7 @@ function* walk(dir) {
  * with newlines preserved, so reported line numbers stay true to the source.
  */
 function specifiers(path) {
+  scanned++;
   const out = [];
   const content = readFileSync(path, "utf8")
     .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
@@ -116,7 +124,7 @@ const EXTENSION_BUILDERS = ["wxt", "plasmo", "@plasmohq/parcel-config", "@crxjs/
 
 const isExtensionApp = (deps) => EXTENSION_BUILDERS.some((b) => b in deps);
 
-// Headless apps: an app workspace with no react dependency and no .tsx file.
+// Headless apps: an app workspace with no react dependency and no .tsx/.jsx file.
 // That two-field test separates server-only services from front-end apps
 // without any per-project configuration. Extension apps are excluded — they
 // have neither, but they are browser code, not server code.
@@ -140,7 +148,7 @@ function detectHeadlessApps() {
     const root = existsSync(join(dir, "src")) ? join(dir, "src") : dir;
     let hasTsx = false;
     for (const f of walk(root)) {
-      if (f.endsWith(".tsx")) {
+      if (UI_FILE.test(f)) {
         hasTsx = true;
         break;
       }
@@ -183,8 +191,13 @@ const startsWithAny = (spec, prefixes) => prefixes.some((p) => spec === p || spe
 // adding its driver here; a missing driver is a silent hole in the wall, not a
 // failing check.
 const isDbImport = (spec) =>
-  /^(drizzle-orm|drizzle-kit|pg|postgres|@neondatabase|mssql|tedious|mysql2|better-sqlite3)(\/|$)/.test(spec) ||
-  /\.server(\.|$|\/)/.test(spec);
+  /^(drizzle-orm|drizzle-kit|pg|postgres|@neondatabase|mssql|tedious|mysql2|better-sqlite3)(\/|$)/.test(spec);
+// A `.server` module is server-only, not necessarily database code. Pure browser
+// tiers (ui, extension apps) never import one. The web tier hosts server functions
+// and so imports its OWN `.server` files — TanStack Start's import protection keys
+// on that suffix to keep them out of the client bundle. A `.server` module from any
+// other workspace is the server-shared tier's database code reaching the web tier.
+const isServerOnly = (spec) => /\.server(\.|$|\/)/.test(spec);
 const isUiFramework = (spec) =>
   /^(react|react-dom|lucide-react|radix-ui|@radix-ui\/)(\/|$)/.test(spec) ||
   /^@tanstack\/react-/.test(spec) || // react-start / react-router pull React
@@ -198,8 +211,8 @@ const isUiFramework = (spec) =>
 // server loaders. Types erase at compile, so nothing runtime crosses.
 if (shared) {
   for (const f of walk(shared.root)) {
-    if (f.endsWith(".tsx"))
-      failures.push(`${f}: .tsx file inside the server-shared tier (${shared.dir}) — it stays UI-free`);
+    if (UI_FILE.test(f))
+      failures.push(`${f}: JSX file inside the server-shared tier (${shared.dir}) — it stays UI-free`);
     for (const { line, spec, stmt } of specifiers(f)) {
       if (isUiFramework(spec))
         failures.push(`${f}:${line}: server-shared tier imports UI framework "${spec}" — browser code stays out of the data tier`);
@@ -225,18 +238,27 @@ if (ui) {
         failures.push(`${f}:${line}: ui tier imports "${spec}" — presentation must not reach the data tier`);
       if (web && startsWithAny(spec, web.prefixes))
         failures.push(`${f}:${line}: ui tier imports "${spec}" — keep presentation and app-logic tiers separate`);
-      if (isDbImport(spec))
-        failures.push(`${f}:${line}: ui tier imports database code "${spec}" — drizzle/pg/.server never reach the client bundle`);
+      if (isDbImport(spec) || isServerOnly(spec))
+        failures.push(`${f}:${line}: ui tier imports server code "${spec}" — drizzle/pg/.server never reach the client bundle`);
     }
   }
 }
 
 // --- web tier: never touches the database ---------------------------------
+// Its own `.server` files are reached by a relative path or by the web tier's
+// own prefix; any other `.server` specifier resolves into another workspace.
+const insideWeb = (from, spec) =>
+  web &&
+  (startsWithAny(spec, web.prefixes) ||
+    (spec.startsWith(".") && `${resolve(dirname(from), spec)}${sep}`.startsWith(`${resolve(web.dir)}${sep}`)));
+
 if (web) {
   for (const f of walk(web.root)) {
     for (const { line, spec } of specifiers(f)) {
       if (isDbImport(spec))
         failures.push(`${f}:${line}: web tier imports database code "${spec}" — it is client-bundled; DB code belongs in the server-shared tier`);
+      else if (isServerOnly(spec) && !insideWeb(f, spec))
+        failures.push(`${f}:${line}: web tier imports "${spec}", a .server module outside ${web.dir} — the web tier imports only its own .server files`);
     }
   }
 }
@@ -259,14 +281,22 @@ for (const app of extensions) {
     for (const { line, spec } of specifiers(f)) {
       if (shared && startsWithAny(spec, shared.prefixes))
         failures.push(`${f}:${line}: extension app ${app.dir} imports "${spec}" — it is entirely browser code; a data-tier import ships drizzle into the extension bundle`);
-      if (isDbImport(spec))
-        failures.push(`${f}:${line}: extension app ${app.dir} imports database code "${spec}" — never in a browser bundle`);
+      if (isDbImport(spec) || isServerOnly(spec))
+        failures.push(`${f}:${line}: extension app ${app.dir} imports server code "${spec}" — never in a browser bundle`);
     }
   }
 }
 
 if (failures.length) {
-  console.error(`✗ workspace-tier violations:\n${failures.map((f) => `  ${f}`).join("\n")}`);
+  console.error(`✗ workspace-tier violations (${scanned} file(s) scanned):\n${failures.map((f) => `  ${f}`).join("\n")}`);
+  process.exit(1);
+}
+
+// A tier detected with nothing in it to read is a tier whose wall was never
+// checked: its source moved, or the walk is looking in the wrong place.
+const tiers = [shared, ui, web, ...headless, ...extensions].filter(Boolean);
+if (tiers.length && scanned === 0) {
+  console.error(`✗ workspace-tiers: detected ${tiers.map((t) => t.dir).join(", ")} but scanned 0 files — nothing was checked.`);
   process.exit(1);
 }
 
@@ -275,13 +305,13 @@ if (failures.length) {
 const checked = [];
 if (shared) checked.push(`${shared.dir} is browser-free`);
 if (ui) checked.push(`${ui.dir} is database-free`);
-if (web) checked.push(`${web.dir} is database-free`);
+if (web) checked.push(`${web.dir} is database-free and imports only its own .server modules`);
 if (headless.length)
   checked.push(`${headless.map((h) => h.dir).join(", ")} reach the data tier only`);
 if (extensions.length)
   checked.push(`${extensions.map((e) => e.dir).join(", ")} never reach the data tier`);
 console.log(
   checked.length
-    ? `✓ workspace-tiers: ${checked.join("; ")}.`
-    : "✓ workspace-tiers: no tiered workspaces detected — nothing to enforce.",
+    ? `✓ workspace-tiers: ${scanned} file(s) scanned; ${checked.join("; ")}.`
+    : "✓ workspace-tiers: no tiered workspaces detected (no apps/shared, packages/shared, packages/ui, packages/web, headless or extension app) — the walls do not apply.",
 );

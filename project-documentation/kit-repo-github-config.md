@@ -27,17 +27,18 @@ How **this** repository (`NextAge-Consulting/nextage-dev-kit`) is configured on 
 
 ## 2. What this means for gitflow
 
-The kit repo is a **degenerate case** for the gitflow subsystem — every optional gate auto-skips because the gating files don't exist.
+The kit repo is a **degenerate case** for the gitflow subsystem — every gate skips because the files it gates on don't exist, and each says so in its output.
 
 ### `/commit` — all validation short-circuits
 
 | Gate | Gated on | Kit repo? | Result |
 |------|----------|-----------|--------|
 | Typecheck (Node) | `package.json` + `check-types` script | ❌ absent | no-op |
-| Typecheck (Python) | `pyproject.toml` + pyright/mypy | ❌ absent | no-op |
-| Biome lint | `biome.json` / `biome.jsonc` | ❌ absent | no-op |
+| Typecheck (Python) | `pyproject.toml` or `pyrightconfig.json` (pyright, else mypy; fails when neither is installed) | ❌ absent | no-op |
+| Biome lint | `biome.json` / `biome.jsonc` + root `package.json` | ❌ absent | no-op |
+| Semgrep | `.github/workflows/ci.yml` declaring a `semgrep` job | ❌ absent | no-op |
 
-Net: `/commit` just stages all changes and commits with a conventional message.
+Net: `/commit` stages all changes and commits with the message Claude composes.
 
 ### `/open-pr` — no CI gate
 
@@ -57,12 +58,12 @@ Pushes branch, creates PR, prepends `Closes #N` from any branch-linked issues. T
 
 | Workflow | Why not installed here |
 |----------|------------------------|
-| `ci.yml` | Runs `check-types`, `biome` and `vitest` off a `package.json` the kit does not have — every job would no-op. |
-| `commitlint.yml` | Optional. Local `/commit` already enforces conventional format. Would need `.commitlintrc.json` at root. Install if a PR-title backstop is wanted. |
+| `ci.yml` | Its Node and Python jobs key off a `package.json` or `pyproject.toml` the kit does not have and would skip, leaving only `semgrep` and an empty `project` job. |
+| `commitlint.yml` | Optional. Nothing local validates commit messages — `/commit` composes a conventional one from `commit-types.md` — and the workflow checks only PR titles. Would need `.commitlintrc.json` at root. Install if a PR-title backstop is wanted. |
 
 Version bump and tag are **not** workflows and are not coming back as workflows — they
 live in the local `/deploy` command, single-writer and human-serialized (pipeline.md §2.1,
-and the do-not-reintroduce note at §11.5).
+and the anti-pattern in §2.6).
 
 ---
 

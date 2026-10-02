@@ -94,11 +94,11 @@ The migrate workflow body is project-owned and MUST exit 0 on a no-op and non-ze
 
 | Tool | Role | Why |
 |------|------|-----|
-| **Biome** (CI lint) | Lint-only (formatter disabled). `recommended` ruleset, all `a11y/*` on, `noExplicitAny` error. | AI-authored JSX omits a11y patterns (training data omits them); `any` blinds the type info AI reasons from. Formatter off because a 100%-AI codebase has no human formatting concern and enabling it produces a giant normalization diff. Fix violations in source, suppress only as last resort (constitution §XIII). |
+| **Biome** (CI lint) | Lint-only (formatter disabled), `recommended` preset. The kit owns `biome.base.json`; a project's `biome.json` extends it and adds its own plugins and settings. The base carries the kit's GritQL plugin `biome-plugins/server-fn-logging.grit`, which fails a TanStack Start server-function handler not wrapped in `logFailures`. | AI-authored JSX omits a11y patterns (training data omits them); `any` blinds the type info AI reasons from. Formatter off because a 100%-AI codebase has no human formatting concern and enabling it produces a giant normalization diff. Fix violations in source, suppress only as last resort (constitution §XIII). |
 | **Semgrep CE** (CI SAST) | `--config auto`, ~10s. Mandatory `.semgrepignore`. | Free, 1000+ rules. The ignore file is mandatory, not optional — generic secret-regex rules false-match base64 runs inside binary assets (PDF/EPS) and time out CI per file. Ship it with Semgrep, don't wait for the incident. §3.2. |
 | **Gemini Code Assist** (advisory PR review) | Inline + summary on every PR, free for private repos. Triage via `/triage`. | Independent model family (most distinct second opinion from Claude). Reads `.claude/rules/*.md` + `.gemini/styleguide.md` as review context — cites constitution rules unprompted. Catches the structural-diff-defect class; complements (does not replace) tests. `/triage` walks its findings; config in §3.7. |
 | **Dependabot** | Version + security PRs, monthly + cooldown + grouping. | Monthly batching (not weekly) because weekly is noise-dominant for a small shop. Cooldown (patch 3d / minor 7d / major 30d) dodges the 48–72h window where supply-chain attacks get caught and the bad version yanked; security fixes skip cooldown automatically. §3.3. |
-| **Dependency policy** (`project-documentation/dependency-policy.md`) | One page: severity→timeline table, who owns it, exceptions with review dates, and the weekly triage runbook. | The kit shipped Dependabot config and a triage skill but never the operating procedure — so nobody knew what to do with the output, and nobody did anything. Synced `template` mode: the timelines table is the dial each client tunes. §3.5. |
+| **Dependency policy** (`project-documentation/dependency-policy.md`) | One page: severity→timeline table, who owns it, exceptions with review dates, and the weekly triage runbook. | The kit shipped Dependabot config and a triage skill but never the operating procedure — so nobody knew what to do with the output, and nobody did anything. Synced `merge` mode: the owners, timelines and project-notes regions are each client's own. §3.5. |
 | **dep-alignment** (CI gate, Node-only) | Fails a PR if any shared dependency is declared at more than one version across workspaces. Node-gated in `ci.yml`, no-op on single-package / Python-only repos. | A monorepo runs ONE stack; cross-app version skew causes "works in one app, breaks in another" outages Dependabot *creates* (it bumps each manifest independently). Reads `package.json` only, no install. §3.6 / dependency-management.md. |
 
 **Rejected, and why** (terse — empirical, not theoretical):
@@ -109,6 +109,8 @@ The migrate workflow body is project-owned and MUST exit 0 on a no-op and non-ze
 | Sourcery | Paid, yet missed defects the free options caught; high false-positive rate; broken-on-push re-review; bundled security scan duplicates Dependabot. |
 | Snyk | Redundant with Dependabot + surfacing + Semgrep at small-shop scale. Upgrade path is a 5-seat-minimum cliff. |
 | Socket.dev | Zero unique signal above Dependabot on a clean codebase; free tier truncates the dep tree; adds per-release triage cost. |
+
+**CI (`ci.yml`) runs every check that can tell, and fails rather than passing unlooked.** A `detect` job names the stacks present and notes the ones it skips. The `biome` job runs `lint:tokens` and `lint:design` whenever `design.md` exists at the repository root, and a missing script fails it. The `vitest` job fails when the repository has `*.integration.test.ts` files and the `NEON_API_KEY` or `NEON_PROJECT_ID` secret is empty, because the integration project would otherwise drop out and the run pass green; Dependabot PRs, which GitHub runs without secrets, are the exception. The `python` job typechecks from the repository root whenever a root `pyproject.toml` or `pyrightconfig.json` exists, with the commit gate's choice of checker — pyright, else mypy — and fails on any error. The `project` job holds the repository's own CI steps in its `project-steps` region, which sync carries across kit updates.
 
 **Revisit threshold for the rejected dep-security tools:** a real supply-chain incident slipping through Dependabot + cooldown + surfacing + Semgrep. The kit's cross-file caller analysis (what paid review vendors charge for) is handled in-house by constitution §XIV at edit time.
 
@@ -465,7 +467,7 @@ Fires on `pull_request: opened/edited/synchronize/reopened`. Pipes the PR title 
 
 **Why title-only:**
 - Consumer repos squash-merge with `commit title = PR_TITLE`. The squash commit that lands on `main` IS the PR title; branch commits are discarded.
-- Local gitflow enforces conventional format at commit time for human-authored commits — that's the real guard.
+- Nothing local validates a commit message: `/commit` and `/ship-main` compose a conventional one from `references/commit-types.md`, and the scripts commit what they are given. A `/ship-main` commit reaches `main` with no PR, so this check never sees it.
 - Machine-generated PRs (Dependabot, Renovate) produce malformed branch commits on a regular basis. Dependabot specifically double-scopes `chore(deps)(deps):` even when `include: scope` is absent from `dependabot.yml`. Linting those branch commits blocks merges that would land as clean squashes.
 
 **Do NOT swap in a commitlint action that lints every commit in the PR** (`wagoid/commitlint-github-action` and similar do this by default). It rejects Dependabot PRs whose branch commits don't conform even when the PR title is clean, and the branch commits never reach `main`.
@@ -474,7 +476,7 @@ Fires on `pull_request: opened/edited/synchronize/reopened`. Pipes the PR title 
 
 **Job name kept as `lint`** so the GitHub status check name stays `commitlint / lint`. `/merge` self-gates by reading the PR's check-runs by name; renaming the job changes the check name and can let a merge slip through without the gate seeing it.
 
-**`.commitlintrc.json` requires a custom `parserPreset`.** The gitflow commit format is emoji-prefix (`✨ feat: ...`, `🐛 fix: ...`), which stock `@commitlint/config-conventional` rejects because its default `headerPattern` expects the type token at position 0. The template ships a `parserOpts.headerPattern` that tolerates an optional leading emoji cluster before the type. Keep this in sync with the commit format enforced by `commit.sh` — if the commit format changes, the parser regex must change too.
+**`.commitlintrc.json` requires a custom `parserPreset`.** The gitflow commit format is emoji-prefix (`✨ feat: ...`, `🐛 fix: ...`), which stock `@commitlint/config-conventional` rejects because its default `headerPattern` expects the type token at position 0. The template ships a `parserOpts.headerPattern` that tolerates an optional leading emoji cluster before the type. Keep this in sync with the commit format in the gitflow skill's `references/commit-types.md` — if the commit format changes, the parser regex must change too.
 
 ## 3.2 `.semgrepignore` (MANDATORY when adopting Semgrep)
 
@@ -536,7 +538,7 @@ The weekly dependency **process** is a kit skill (`.claude/skills/dependency-tri
 
 **Pairs with** the `npm-toolchain` / `npm-patch` split in `dependabot.yml` (§3.3, now kit-standard) and the `dep-alignment` gate (§3.6). Deeper dependency discipline: `dependency-management.md`.
 
-## 3.5 `dependency-policy.md` (synced as `template` mode)
+## 3.5 `dependency-policy.md` (synced as `merge` mode)
 
 The operating procedure for dependency and vulnerability work — what to do with what
 Dependabot produces. The kit long shipped the configuration (§3.3) and the triage
@@ -547,9 +549,10 @@ when" was undefined in every consumer.
 docs rather than `.claude/` because it is read by a human on a cadence, not loaded as
 a rule on every turn.
 
-**Mode `template`.** The timelines table and the owner names are each client's own.
-A consumer that tunes them gets `template-drift` (informational), never a reverted
-edit. `--ack-file` records "seen it, keeping ours".
+**Mode `merge`.** The `owners`, `timelines` and `project-notes` regions are each
+client's own; the kit owns every line around them. A consumer tunes its regions freely,
+and a kit change to the surrounding text applies without touching them
+(kitmaintainer-handbook.md §9.10).
 
 **The timelines table is the only dial.** Tightening toward a formal standard —
 ISO 27001 Annex A 8.8 wants a documented discover → prioritise → treat → review
@@ -592,7 +595,7 @@ The kit ships two files:
 - `.gemini/config.yaml` — reviewer behavior knobs
 - `.gemini/styleguide.md` — project-specific rules Gemini reads on every review
 
-Both are universal — same content per project, no placeholders. Customize the styleguide per project to add domain rules; the config defaults work for most projects.
+`config.yaml` is `owned` — the same in every project. `styleguide.md` is `merge` mode: a project's own review rules go in its `project-rules` region, under "Project rules", and the kit owns every line around it.
 
 **What `config.yaml` sets:**
 
@@ -615,9 +618,9 @@ The styleguide is project-context Gemini reads on every review. The kit template
 - Constitution §XIII (suppression discipline) — flags new lint suppressions without specific reasons
 - Severity guidance (`Critical | High | Medium | Low`)
 - A "what NOT to flag" section (test files, generated files)
-- Project-context placeholders to customize per consumer
+- A "Project rules" section whose `project-rules` region holds this repository's own rules
 
-Customize the styleguide per project. The defaults assume a TanStack/Hono/drizzle stack — strip what doesn't apply.
+The kit's text assumes the kit's stack (TanStack Start). A rule that does not fit one project is a kit issue, not a local edit outside the region.
 
 **Why Gemini and not a paid alternative**: see `pipeline.md` §1.4 (rejected tools). Short version: Gemini's consumer / free tier matches CR Pro's catch quality on the bake-off seed defects, reads in-repo `.claude/rules/*.md` as review context out of the box, and runs at $0/seat. The 33 PR/day quota is far above typical 2-dev-shop cadence.
 

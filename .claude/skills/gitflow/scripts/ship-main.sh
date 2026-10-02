@@ -14,7 +14,7 @@
 # Guardrails:
 #   - Refuses unless on main/master (a body of work in progress is on its own
 #     branch, so it can't trip this by accident).
-#   - Runs the same typecheck + biome lint as /commit (the assist worth keeping);
+#   - Runs the same typecheck, biome and semgrep gates as /commit (gates.sh);
 #     --skip-typecheck for a true emergency.
 #   - Folds any unpushed /checkpoint commits into the one commit it makes, so no
 #     `🔖 wip:` subject reaches main for /deploy to read.
@@ -26,7 +26,7 @@
 # protection (see pipeline.md §1.1). A direct push to main triggers NO workflows
 # (CI is pull_request-only; deploys are workflow_dispatch-only), so it lands
 # silently and instantly. CI is intentionally skipped — this is the exception
-# path; the local typecheck above is the safety net.
+# path; the local gates are the safety net.
 
 set -e
 
@@ -35,6 +35,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/branch_helpers.sh"
 # shellcheck source=./issue_helpers.sh
 source "$SCRIPT_DIR/issue_helpers.sh"
+# shellcheck source=./gates.sh
+source "$SCRIPT_DIR/gates.sh"
 
 MESSAGE=""
 MODEL_NAME="Claude"
@@ -83,104 +85,14 @@ fi
 # against it; the fold itself waits until they have all passed.
 FOLD_BASE=$(checkpoint_fold_base)
 
-# --- Validation (the assist that stays; --skip-typecheck for emergencies) --
-if [ "$SKIP_TYPECHECK" -eq 0 ]; then
-    if [ -f "package.json" ] && grep -q '"check-types"' package.json 2>/dev/null; then
-        echo "gitflow: running npm run check-types..." >&2
-        if ! npm run check-types >/dev/null 2>&1; then
-            echo "" >&2
-            echo "gitflow: TypeScript errors detected. Fix before shipping to main (or --skip-typecheck for a true emergency)." >&2
-            echo "  Run: npm run check-types" >&2
-            exit 4
-        fi
-    elif [ -f "pyproject.toml" ]; then
-        if command -v pyright >/dev/null 2>&1; then
-            echo "gitflow: running pyright..." >&2
-            if ! pyright >/dev/null 2>&1; then
-                echo "gitflow: Python type errors. Fix before shipping (run: pyright), or --skip-typecheck." >&2
-                exit 4
-            fi
-        elif command -v mypy >/dev/null 2>&1; then
-            echo "gitflow: running mypy..." >&2
-            if ! mypy . >/dev/null 2>&1; then
-                echo "gitflow: Python type errors. Fix before shipping (run: mypy .), or --skip-typecheck." >&2
-                exit 4
-            fi
-        fi
-    fi
-fi
-
-# ALWAYS `@biomejs/biome`, NEVER a bare `biome`, and always `--no-install` —
-# see the note on the same gate in commit.sh. A bare `npx biome` runs an
-# unrelated package that exits 0, so this gate passed without linting.
-# Gated on a root package.json too, like CI's `biome` job and commit.sh's gate:
-# without one there is no Node stack to install Biome into.
-if { [ -f "biome.json" ] || [ -f "biome.jsonc" ]; } && [ -f "package.json" ]; then
-    echo "gitflow: running biome lint..." >&2
-    if ! npx --no-install @biomejs/biome --version >/dev/null 2>&1; then
-        echo "" >&2
-        echo "gitflow: biome.json is present but @biomejs/biome is not installed." >&2
-        echo "  A gate that cannot run must not report success, so this is a failure." >&2
-        echo "  Fix: npm i -D @biomejs/biome@<the version biome.json's \$schema names>" >&2
-        exit 4
-    fi
-    if ! npx --no-install @biomejs/biome lint >/dev/null 2>&1; then
-        echo "" >&2
-        echo "gitflow: Biome lint errors detected. Fix before shipping to main." >&2
-        echo "  Run: npx --no-install @biomejs/biome lint" >&2
-        exit 4
-    fi
-fi
-
-# Semgrep (mirrors the CI `semgrep` job), scoped to the files this commit touches.
-# Identical in intent and shape to the gate in commit.sh — read the long note
-# there for why it is scoped to changed files and why a missing semgrep fails.
-#
-# It matters MORE here than on the /commit path, not less: this commits straight
-# to main, so a finding that slips through does not sit on a branch waiting for
-# review — it lands on the default branch and breaks CI for everyone. That
-# `/sync-dev-kit` recommends /ship-main for landing kit updates is exactly the
-# route by which an unscanned change would arrive there.
-if [ -f ".github/workflows/ci.yml" ] && grep -qE '^[[:space:]]*semgrep:[[:space:]]*$' .github/workflows/ci.yml 2>/dev/null; then
-    if ! command -v semgrep >/dev/null 2>&1; then
-        echo "" >&2
-        echo "gitflow: CI runs semgrep, but semgrep is not installed here." >&2
-        echo "  A gate that cannot run must not report success, so this is a failure." >&2
-        echo "  Fix: brew install semgrep   (or: pipx install semgrep)" >&2
-        exit 4
-    fi
-
-    # Tracked modifications plus untracked additions, minus deletions, measured from
-    # FOLD_BASE so content saved in checkpoints — which skipped every gate — is
-    # scanned too. `mapfile`
-    # is deliberately not used: macOS ships bash 3.2 as /bin/bash and does not
-    # have it, so this script would die on the shebang platform it most often
-    # runs on.
-    SEMGREP_FILES=()
-    while IFS= read -r semgrep_f; do
-        [ -n "$semgrep_f" ] && [ -f "$semgrep_f" ] && SEMGREP_FILES+=("$semgrep_f")
-    done < <(
-        {
-            git diff --name-only --diff-filter=d "$FOLD_BASE" 2>/dev/null
-            git ls-files --others --exclude-standard 2>/dev/null
-        } | sort -u
-    )
-
-    if [ ${#SEMGREP_FILES[@]} -gt 0 ]; then
-        echo "gitflow: running semgrep on ${#SEMGREP_FILES[@]} changed file(s)..." >&2
-        # Output is captured and REPLAYED on failure rather than suppressed with
-        # a "run it yourself" hint. A semgrep scan is tens of seconds; telling
-        # the user to pay that twice to find out what was wrong is the kind of
-        # small tax that gets a gate disabled.
-        if ! SEMGREP_OUT=$(semgrep scan --config auto --error "${SEMGREP_FILES[@]}" 2>&1); then
-            echo "" >&2
-            echo "gitflow: Semgrep findings in the files this commit touches. Fix before shipping to main." >&2
-            echo "" >&2
-            printf '%s\n' "$SEMGREP_OUT" >&2
-            exit 4
-        fi
-    fi
-fi
+# Typecheck, biome and semgrep — gates.sh holds each gate and why it is shaped
+# the way it is. Only the typecheck honours --skip-typecheck. Biome and semgrep
+# always run: this commits straight to main, so a finding that slips through does
+# not wait on a branch for review — it lands on the default branch and breaks CI
+# for everyone.
+run_typecheck_gate "$SKIP_TYPECHECK" "shipping to main (or --skip-typecheck for a true emergency)" || exit $?
+run_biome_gate "shipping to main" || exit $?
+run_semgrep_gate "$FOLD_BASE" "shipping to main" || exit $?
 
 # Rule-prose review: every rule, skill, command or pattern reference changed since
 # FOLD_BASE, reviewed by a headless Claude against the rule-authoring standard.

@@ -4,7 +4,7 @@ paths: "**/*.{tsx,jsx}"
 
 # Accessibility Baseline
 
-Apply these at composition time. `biome lint` runs in the pre-commit hook and on every PR, but the goal is code that is a11y-correct first time so the safety net stays quiet.
+Apply these at composition time. `biome lint` runs in the commit gate and on every PR, but the goal is code that is a11y-correct first time so the safety net stays quiet.
 
 AI-generated JSX skips a11y by default, because the training examples omit it. This file covers every a11y rule that fires on this codebase, plus `noExplicitAny` — which disables the type information the a11y rules depend on — and `noArrayIndexKey`, which is here because it breaks reconciliation rather than accessibility.
 

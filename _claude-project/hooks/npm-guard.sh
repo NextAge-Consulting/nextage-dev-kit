@@ -22,7 +22,11 @@
 #
 # Emergency override (user-authorized only): prefix with SKIP_NPM_GUARD=1
 
+# shellcheck source=guard-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/guard-lib.sh"
+
 INPUT=$(cat)
+require_tools PreToolUse jq python3
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name')
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // ""')
 CWD=$(echo "$INPUT" | jq -r '.cwd // ""')

@@ -103,13 +103,21 @@ behind.
   and fails on errors, empty renders, overlays that do not open or open detached, and a
   preview whose canvas render differs from its plain render by a single pixel — a
   component whose look leans on its neighbours or its position, which a design's
-  wrappers take away. Animations are frozen for the comparison.
-- **Provenance.** Each sync is dated in the config's `timeZone` and records the commit it
-  was built from, flagged when the working tree was uncommitted.
+  wrappers take away. Animations are frozen for the comparison. A popup trigger a preview
+  shows closed is clicked open with a real pointer, and fails when nothing opens.
+- **Provenance.** Each publish is numbered — the system's README, its cover and its index
+  show "Release 12 · built 2026-10-01 from 3f2a1c9", dated in the config's `timeZone`,
+  the commit flagged when the working tree was uncommitted — and each design's README
+  records the release it uses in the same form. Claude Design's own version ids are
+  opaque; the release number is the one a person can compare.
+- **The tooling's view of the roles.** The build generates the feed stylesheet's
+  safelist and the class-merge registration from the token files, and the token check
+  fails while either is stale.
 
-**What stays the project's:** the token rules in the design-system skill, and the config:
-which components are previewed, what each preview shows, where each one's guidelines come
-from.
+**What stays the project's:** the token rules in the design-system skill, its design keys
+in `.claude/sync-substitutions.json` (where the package, tokens and source are), and the
+config: which components are previewed, what each preview shows, where each one's
+guidelines come from.
 
 **The system page writes its "Consuming this system" section, component cards and
 `tokens.css` only when a person edits something on the page.** A design installs a

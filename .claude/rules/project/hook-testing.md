@@ -12,8 +12,11 @@ paths: "{_claude-project/hooks/**,.claude/hooks/**}"
 - **Must deny** — one case per pattern, plus compound forms (`cd x && <bad thing>`).
 - **Deny payload is valid JSON** — including a command containing double quotes.
 - **Degenerate input** — malformed JSON, empty payload, missing keys, nulls. Each exits cleanly.
+- **Tool missing** — the hook refuses, naming the tool. `test-helpers.sh` provides the fixtures: `path_without`, `path_with_store_python` (the Windows `python3` stub) and `assert_refuses_without`.
 
-**Emit a deny payload through `python3 -c 'json.dumps(...)'`, never a heredoc.**
+**Source `guard-lib.sh` and call `require_tools` for every tool the hook runs before it parses its input,** so a missing `jq` or `python3` refuses instead of allowing. Compare paths through its `normalize_path` / `path_rel_to`.
+
+**Emit a deny payload through a JSON encoder — `json.dumps` or `jq -n --arg` — never a heredoc.** `require_tools` is the one deny built without `python3` or `jq`, because its job is to report them missing.
 
 **Check an escape hatch in the command string as well as the environment.** `SKIP_X=1 cmd` sets the variable for `cmd`, not for the hook:
 

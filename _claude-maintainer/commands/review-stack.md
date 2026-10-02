@@ -21,10 +21,18 @@ session to work around a failing CI job.
 ~/.claude/scripts/review-stack.sh
 ```
 
-Emits JSON: `versions` (pinned vs latest, plus release notes for everything in
-between), `open_issues` touching what we use, `watch` entries, and the
-`references` list with what each was distilled from. Exit 4 means the kit path or
-manifest is missing — surface it and stop.
+Emits JSON: `versions` (every manifest package, pinned vs latest, plus release
+notes from the package's own repository for everything in between),
+`open_issues` touching what we use, `watch` entries, and the `references` list
+with what each was distilled from. Exit 4 means the kit path or manifest is
+missing — surface it and stop.
+
+Exit 6 means a lookup failed. The JSON is still printed: a failed package has
+`releases_since: null` and a `releases_note`, a failed search is listed in
+`open_issue_searches_failed`, and stderr names each. Tell the user which parts
+of the review are missing before reading the rest, and never present a `null`
+as "nothing new". A `releases_note` on a package that did not fail means its
+release list is partial — say so for that package.
 
 The script decides nothing. Everything below is your reading of it.
 

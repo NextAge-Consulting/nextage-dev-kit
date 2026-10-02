@@ -8,9 +8,11 @@
 # than a mock, because the storage IS git config — a mock would only assert that
 # the mock works.
 #
-# The gh-dependent helpers (validate_issue, dump_issue_context, the project-board
-# transitions) are deliberately not covered: they are thin wrappers over `gh`
-# whose failure modes are network and auth, not logic.
+# The board transition is covered against a stub `gh` that answers each GraphQL
+# call from $GH_MODE, because what it decides — set the status, add a missing
+# issue first, or fail — is logic. The other gh-dependent helpers
+# (validate_issue, dump_issue_context) are thin wrappers whose failure modes are
+# network and auth.
 set -uo pipefail
 S="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/issue_helpers.sh"
 fail=0
@@ -150,5 +152,46 @@ case "$out" in *"#42"*) t ok ok 'names the parked issue';; *) t ok "no mention" 
 case "$out" in *"--unset branch.main.gitflow-issues"*) t ok ok 'prints the exact command to drop it';; *) t ok "missing" 'prints the exact command to drop it';; esac
 clear_branch_linked_issues main
 t "" "$(report_parked_issue_links main 2>&1)" 'silent when nothing is parked'
+
+echo "board status move:"
+# The stub records every call and answers by which GraphQL operation it was sent.
+mkdir -p "$tmp/bin" .claude
+cat > "$tmp/bin/gh" <<'STUB'
+#!/bin/bash
+q=""; for a in "$@"; do case "$a" in query=*) q="$a";; esac; done
+printf '%s\n' "$q" | head -3 | tr -d '\n' >> "$GH_LOG"; echo >> "$GH_LOG"
+case "$q" in
+  *addProjectV2ItemById*)
+    [ "$GH_MODE" = add-fails ] && { echo "Resource not accessible by integration" >&2; exit 1; }
+    echo '{"data":{"addProjectV2ItemById":{"item":{"id":"ITEM_NEW"}}}}' ;;
+  *updateProjectV2ItemFieldValue*)
+    echo '{"data":{"updateProjectV2ItemFieldValue":{"projectV2Item":{"id":"x"}}}}' ;;
+  *projectItems*)
+    case "$GH_MODE" in
+      on-board) echo '{"data":{"repository":{"issue":{"id":"ISSUE_1","projectItems":{"nodes":[{"id":"ITEM_1","project":{"id":"PROJ"}}]}}}}}' ;;
+      *)        echo '{"data":{"repository":{"issue":{"id":"ISSUE_1","projectItems":{"nodes":[{"id":"ITEM_X","project":{"id":"OTHER"}}]}}}}}' ;;
+    esac ;;
+esac
+STUB
+chmod +x "$tmp/bin/gh"
+git remote add origin https://github.com/example/app.git
+printf 'GITFLOW_PROJECT_ID=PROJ\nGITFLOW_STATUS_FIELD_ID=FIELD\nGITFLOW_STATUS_STAGED_ID=OPT\n' > .claude/gitflow-project.conf
+board(){ # board <mode> — moves #7 to Staged; echoes the exit code
+  : > "$tmp/gh.log"
+  ( PATH="$tmp/bin:$PATH" GH_MODE="$1" GH_LOG="$tmp/gh.log" move_issue_to_staged 7 2>"$tmp/board.err" ); echo $?; }
+t 0 "$(board on-board)" 'an issue on the board: status set'
+t 0 "$(grep -c addProjectV2ItemById "$tmp/gh.log")" '…without adding it'
+t 0 "$(grep -c WARNING "$tmp/board.err")" '…and without a warning'
+t 0 "$(board off-board)" 'an issue missing from the board: added, then status set'
+t 1 "$(grep -c addProjectV2ItemById "$tmp/gh.log")" '…added exactly once'
+t 1 "$(grep -c updateProjectV2ItemFieldValue "$tmp/gh.log")" '…and its status still set'
+grep -q "WARNING — #7 was not on the project; added it. The board's auto-add workflow is not catching this repository's issues — check its repository and filter." "$tmp/board.err" \
+  && t ok ok '…with the auto-add warning' || t ok "$(cat "$tmp/board.err")" '…with the auto-add warning'
+t 1 "$(board add-fails)" 'a failed add is a hard error'
+t 0 "$(grep -c updateProjectV2ItemFieldValue "$tmp/gh.log")" '…and no status is set'
+grep -q 'Auto-add to project' "$tmp/board.err" && t ok ok '…with the existing guidance' || t ok missing '…with the existing guidance'
+rm .claude/gitflow-project.conf
+t 0 "$(board off-board)" 'no project configured: feature off, nothing called'
+t 0 "$(grep -c . "$tmp/gh.log")" '…not a single gh call'
 
 exit "$fail"

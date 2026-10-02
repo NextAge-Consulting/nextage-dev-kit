@@ -12,4 +12,4 @@ This directory is for rules that apply ONLY to this project and should never be 
 
 ## The one file the kit seeds here
 
-`ui-inventory.md` — the enumeration of this project's UI components and patterns, auto-loaded on every `.tsx` / `.jsx` edit. The kit ships a starting shape (from `_claude-project/templates/ui-inventory.md`) in `template` mode: it arrives once, the project owns every line from then on, and a later kit change to the shape is shown as information only. Everything else in this directory is yours alone.
+`ui-inventory.md` — the enumeration of this project's UI components and patterns, auto-loaded on every `.tsx` / `.jsx` edit. The kit ships it (from `_claude-project/templates/ui-inventory.md`) in `merge` mode: the project owns everything inside its `project:begin` / `project:end` regions, the kit owns the headings and instructions around them, and a later kit change to that text applies without touching the project's lists. Everything else in this directory is yours alone.

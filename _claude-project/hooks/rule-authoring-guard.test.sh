@@ -9,6 +9,8 @@ H="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/rule-authoring-guard.sh"
 fail=0
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 export TMPDIR="$tmp"
+# shellcheck source=test-helpers.sh
+source "$(dirname "$H")/test-helpers.sh"
 
 n=0
 raw(){ # $1=file_path $2=session_id $3=tool_name
@@ -108,6 +110,24 @@ if printf '%s' "$r1" | grep -q "A rule is an instruction" \
 else
   echo "  ✗ FAIL — full-text cadence wrong"; fail=1
 fi
+
+echo "WINDOWS-STYLE PATH — the separators do not hide rule prose:"
+t deny 'C:\repo\.claude\rules\constitution.md' 'backslash path to a rule'
+t deny 'c:/repo/.claude/skills/x/SKILL.md'      'forward-slash drive path to a skill'
+t deny '/c/repo/CLAUDE.md'                      'Git Bash drive path to CLAUDE.md'
+t allow 'C:\repo\src\rules\pricing.md'        'backslash path to an app dir that merely contains "rules"'
+S="win-$RANDOM"
+d1=$(decision 'C:\repo\.claude\rules\a.md' "$S" Write); d2=$(decision '/c/repo/.claude/rules/a.md' "$S" Write)
+if [ "$d1/$d2" = "deny/allow" ]; then echo "  ✓ C:\\ and /c/ spellings share one per-file marker"
+else echo "  ✗ FAIL (got $d1/$d2, want deny/allow) — spellings counted as different files"; fail=1; fi
+
+echo "TOOL MISSING — the guard refuses, naming the tool, never allows:"
+pl='{"tool_name":"Write","tool_input":{"file_path":"/repo/src/a.ts"},"session_id":"miss"}'
+assert_refuses_without "$H" deny "$(path_without jq)" jq "$pl" 'no jq on PATH'
+assert_refuses_without "$H" deny "$(path_with_store_python)" python3 "$pl" 'python3 is the Windows Store stub'
+out=$(printf '{"hook_event_name":"PostCompact","session_id":"x"}' | PATH="$(path_without jq)" "$H" 2>/dev/null); rc=$?
+if [ "$rc" -eq 0 ] && [ -z "$out" ]; then echo "  ✓ PostCompact without jq exits cleanly"
+else echo "  ✗ FAIL (rc $rc, out $out) — PostCompact without jq"; fail=1; fi
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

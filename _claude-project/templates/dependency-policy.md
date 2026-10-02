@@ -1,28 +1,32 @@
 # Dependency & Vulnerability Policy
 
-> Kit starting point — **this project owns this file from here.** The timelines
-> table is the dial: tune it to this client's risk appetite. Nothing else needs to
-> change when you do.
+> **The kit owns every line outside the `project:begin` / `project:end` markers;
+> this project owns everything between them.** The timelines table is the dial:
+> tune it to this client's risk appetite. Nothing else needs to change when you do.
 
 The doctrine behind this pass — one version per shared dependency, one shared build
 config, the verification standard, how a security residual is accepted — lives in the
 kit's `project-documentation/dependency-management.md`. Read it there; it is
 deliberately not copied into consumer projects, so there is one copy to keep true.
 This file holds only what that document cannot know about a given project: its
-owners, its timelines, and the project-specific facts a maintainer adds below.
+owners, its timelines, and the project-specific facts a maintainer adds under
+"Project notes".
 
 ## Who owns this
 
+<!-- project:begin owners -->
 | | |
 |---|---|
 | Runs the weekly pass | *(name)* |
 | Approves an exception | *(name)* |
 | Escalate to | *(name)* |
+<!-- project:end owners -->
 
 ## Timelines
 
 How long a known issue may remain unresolved, from the day it appears.
 
+<!-- project:begin timelines -->
 | Severity | Act within | If it can't be met |
 |---|---|---|
 | Critical | 7 days | Escalate immediately — do not let it lapse silently |
@@ -30,6 +34,7 @@ How long a known issue may remain unresolved, from the day it appears.
 | Medium | 30 days | Record an exception |
 | Low | Next routine pass | — |
 | No fix published | Record within 7 days | Review every 90 days until fixed |
+<!-- project:end timelines -->
 
 ## Exceptions
 
@@ -76,3 +81,8 @@ work, not a merge.
   it's exploitable here.
 - You don't understand what a change does. That is a legitimate reason to stop —
   merging it anyway is the failure this document exists to prevent.
+
+## Project notes
+
+<!-- project:begin project-notes -->
+<!-- project:end project-notes -->

@@ -8,7 +8,7 @@ command details are in `gitflow-cheatsheet.md` and `devserver-cheatsheet.md`.
 
 Clone the project. Its `.claude/` folder is committed, so the kit's rules, skills and
 commands come with it; nothing else gets installed. On a fresh Mac, `macbook-setup.md`
-first; then hand `developer-onboarding.md` to Claude and it walks you through the rest.
+first; on Windows, `windows-handbook.md` first; then hand `developer-onboarding.md` to Claude and it walks you through the rest.
 
 ## The day
 
