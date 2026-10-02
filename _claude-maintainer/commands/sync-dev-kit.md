@@ -293,6 +293,11 @@ Summarize:
 
 ## What this command does NOT do
 
+- **Does not change the project's code.** A check the sync just landed may fail on code
+  that predates it — a new lint plugin, a stricter tier rule, a new gate. List each such
+  failure in the Step 7 report and stop: fixing it is the project work the maintainer
+  starts next (a kit migration prompt, or the next task), in this same project, under
+  §XII. The sync's body of work ends at `--finalize`.
 - Does not push the kit itself — user handles kit repo separately.
 - Does not edit files in the kit — purely a pull-from-kit operation. Kit-shared changes are made in the kit source and arrive here on the next sync.
 - **Does not commit or push anything.** Sync applies kit updates to the working tree and stamps the lockfile; the user lands the result with `/ship-main` (or `/commit`). This keeps committing as gitflow's job and avoids the bootstrap problem of sync modifying the very commands that would commit it — sync now runs zero git operations.

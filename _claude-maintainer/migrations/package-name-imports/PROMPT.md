@@ -20,7 +20,7 @@ node "$MIG/codemod.mjs" . --dry-run
 node scripts/check-workspace-tiers.mjs
 ```
 
-If the codemod would rewrite nothing and leaves nothing for hand review, and the tier check passes, the imports already meet the standard: go to step 4. Otherwise, before changing anything, record a baseline of every gate in step 3, so a failure you meet later can be told apart from one that was already there.
+If the codemod would rewrite nothing and leaves nothing for hand review, and the tier check passes, the imports already meet the standard: go to step 3a. Otherwise, before changing anything, record a baseline of every gate in step 3, so a failure you meet later can be told apart from one that was already there.
 
 ## 2. Convert
 
@@ -49,6 +49,25 @@ From the repository root, run every gate below that this project has, and fix ev
 - `npx drizzle-kit check` for each Drizzle config
 
 Compare with the baseline. A gate that passed before and fails now is this migration's to fix.
+
+## 3a. Server functions log and redact their failures
+
+Run `npx --no-install @biomejs/biome lint`. Any `lint/plugin/server-fn-logging` finding means
+this project's server functions are not yet at the kit standard. Read
+`.claude/skills/mfing-bible-of-tanstack/references/server-functions.md`, sections "Every
+handler logs its own failure and redacts it" and "A server function's error message is never
+shown to the user", and follow them exactly:
+
+- the redacting `logFailures` wrapper, in a `.server` file, using the project's pino logger;
+- `UserFacingError` with its serialization adapter registered in `src/start.ts`, with the
+  CSRF middleware added back;
+- every handler wrapped as `.handler(logFailures("<module>.<export>", fn))`;
+- every message deliberately meant for the user thrown as `UserFacingError`;
+- every screen that renders a server error's message changed to a general statement, unless
+  the error is a `UserFacingError`;
+- unit tests for the wrapper.
+
+Biome then reports zero plugin findings. Re-run step 3.
 
 ## 4. Knip to zero
 
