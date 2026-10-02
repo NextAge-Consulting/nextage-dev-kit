@@ -4,10 +4,16 @@
  *
  * ONE INVARIANT: database code and browser code never share a package.
  *
+ * And the rule that makes the walls readable: a workspace reaches another one
+ * by its PACKAGE NAME, declared as a workspace dependency — never by a relative
+ * path out of its own directory, and never by a tsconfig `paths` alias that
+ * resolves outside it. A tier is recognised by its package name, so a path that
+ * bypasses the name bypasses the wall.
+ *
  *   server-shared  (apps/shared | packages/shared)
  *       Data/server tier. MAY import the ORM and DB driver. MUST NOT import React/browser
  *       libs, contain .tsx, or reach the ui/web tiers at runtime. The single
- *       sanctioned crossing is `import type` from `@ui/contracts/*`.
+ *       sanctioned crossing is `import type` from the ui tier's `contracts/`.
  *   ui             (packages/ui)
  *       Presentation tier and the Claude Design source. MUST NOT import the
  *       server-shared tier, the web tier, or any database code.
@@ -36,14 +42,14 @@
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // Every path below is relative to the repository root, wherever this is run from.
 process.chdir(resolve(dirname(fileURLToPath(import.meta.url)), ".."));
 
 const failures = [];
-let scanned = 0;
+const scannedFiles = new Set();
 const UI_FILE = /\.(tsx|jsx)$/;
 
 function* walk(dir) {
@@ -68,7 +74,7 @@ function* walk(dir) {
  * with newlines preserved, so reported line numbers stay true to the source.
  */
 function specifiers(path) {
-  scanned++;
+  scannedFiles.add(path);
   const out = [];
   const content = readFileSync(path, "utf8")
     .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
@@ -99,23 +105,23 @@ const readJson = (p) => {
 
 // --- tier detection -------------------------------------------------------
 // A tier is {dir, root, prefixes}: where it lives, where to walk, and the
-// import-specifier prefixes that mean "something reached into this tier".
-// Prefixes cover both the conventional path alias (@ui/) and the workspace
-// package name from its package.json (@acme/ui), since projects use either.
-function detectTier(candidates, alias) {
+// import-specifier prefixes that mean "something reached into this tier" — its
+// package name. A tier with no name cannot be reached the one sanctioned way.
+function detectTier(candidates) {
   for (const dir of candidates) {
     if (!existsSync(dir)) continue;
-    const prefixes = [`${alias}/`];
     const pkg = readJson(join(dir, "package.json"));
-    if (pkg?.name) prefixes.push(`${pkg.name}/`, pkg.name);
+    if (!pkg?.name)
+      failures.push(`${dir}: no package.json name — a shared tier is a workspace package, imported by its name`);
+    const prefixes = pkg?.name ? [`${pkg.name}/`, pkg.name] : [];
     return { dir, root: existsSync(join(dir, "src")) ? join(dir, "src") : dir, prefixes };
   }
   return null;
 }
 
-const shared = detectTier(["apps/shared", "packages/shared"], "@shared");
-const ui = detectTier(["packages/ui"], "@ui");
-const web = detectTier(["packages/web"], "@web");
+const shared = detectTier(["apps/shared", "packages/shared"]);
+const ui = detectTier(["packages/ui"]);
+const web = detectTier(["packages/web"]);
 
 // A browser-extension builder in an app's dependencies means the whole
 // workspace is browser code — there is no server half to justify a database
@@ -206,7 +212,7 @@ const isUiFramework = (spec) =>
   /^@stripe\/stripe-js/.test(spec); // browser Stripe SDK
 
 // --- server-shared tier: no browser/UI, no web tier ------------------------
-// The one sanctioned crossing is `import type` from @ui/contracts/* — row and
+// The one sanctioned crossing is `import type` from the ui tier's contracts/ — row and
 // param shapes rendered by UI are defined once there and type-imported back by
 // server loaders. Types erase at compile, so nothing runtime crosses.
 if (shared) {
@@ -287,15 +293,125 @@ for (const app of extensions) {
   }
 }
 
+// --- every workspace: other workspaces by package name only ---------------
+// Workspace directories: the root manifest's `workspaces`, plus every apps/* and
+// packages/* folder with a package.json, so a shared folder left out of the
+// root manifest is still held to the rule.
+function workspaceDirs() {
+  const dirs = new Set();
+  const globs = (() => {
+    const w = readJson("package.json")?.workspaces;
+    return Array.isArray(w) ? w : (w?.packages ?? []);
+  })();
+  for (const glob of [...globs, "apps/*", "packages/*"]) {
+    if (!glob.endsWith("/*")) {
+      if (existsSync(join(glob, "package.json"))) dirs.add(glob.replace(/\/+$/, ""));
+      continue;
+    }
+    const parent = glob.slice(0, -2);
+    let names;
+    try {
+      names = readdirSync(parent);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      const dir = join(parent, name);
+      if (existsSync(join(dir, "package.json"))) dirs.add(dir);
+    }
+  }
+  return [...dirs];
+}
+const workspaces = workspaceDirs();
+
+// tsconfig is JSON with comments and trailing commas. Strings are copied whole,
+// so a `/*` inside one — every `paths` glob has it — is never read as a comment.
+function parseJsonc(text) {
+  let out = "";
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"') {
+      let j = i + 1;
+      while (j < text.length && text[j] !== '"') j += text[j] === "\\" ? 2 : 1;
+      out += text.slice(i, j + 1);
+      i = j;
+    } else if (c === "/" && text[i + 1] === "/") {
+      while (i < text.length && text[i] !== "\n") i++;
+      out += "\n";
+    } else if (c === "/" && text[i + 1] === "*") {
+      i = text.indexOf("*/", i + 2);
+      if (i === -1) break;
+      i++;
+    } else out += c;
+  }
+  return JSON.parse(out.replace(/,(\s*[}\]])/g, "$1"));
+}
+const within = (path, dir) => `${resolve(path)}${sep}`.startsWith(`${resolve(dir)}${sep}`);
+const owner = (path) =>
+  workspaces.filter((d) => within(path, d)).sort((a, b) => b.length - a.length)[0] ?? null;
+const nameOf = (dir) => readJson(join(dir, "package.json"))?.name;
+
+// paths entries of every tsconfig*.json in a directory, resolved: [{file, alias, target}].
+function aliasesIn(dir) {
+  const out = [];
+  let names;
+  try {
+    names = readdirSync(dir).filter((n) => /^tsconfig.*\.json$/.test(n));
+  } catch {
+    return out;
+  }
+  for (const name of names) {
+    const file = join(dir, name);
+    let config;
+    try {
+      config = parseJsonc(readFileSync(file, "utf8"));
+    } catch {
+      failures.push(`${file}: unreadable — its paths could not be checked`);
+      continue;
+    }
+    const opts = config.compilerOptions ?? {};
+    const base = resolve(dir, opts.baseUrl ?? ".");
+    for (const [alias, targets] of Object.entries(opts.paths ?? {}))
+      for (const t of targets) out.push({ file, alias, target: resolve(base, t.replace(/\*.*$/, "")) });
+  }
+  return out;
+}
+const aliasFailure = ({ file, alias, target }, where) =>
+  `${file}: paths alias "${alias}" resolves to ${relative(".", target) || "."}, ${where} — import that package by its name, declared as a workspace dependency`;
+
+// A root tsconfig is extended by the workspaces, so an alias there that lands
+// inside any workspace is the same undeclared route, handed to all of them.
+if (workspaces.length > 0)
+  for (const a of aliasesIn("."))
+    if (owner(a.target)) failures.push(aliasFailure(a, `inside ${owner(a.target)}`));
+
+for (const ws of workspaces) {
+  for (const f of walk(ws)) {
+    for (const { line, spec } of specifiers(f)) {
+      if (!spec.startsWith(".")) continue;
+      const target = resolve(dirname(f), spec);
+      if (within(target, ws)) continue;
+      const other = owner(target);
+      if (other)
+        failures.push(
+          `${f}:${line}: "${spec}" reaches into ${other} by relative path — import it by its package name${nameOf(other) ? ` "${nameOf(other)}"` : ""}, declared as a workspace dependency`,
+        );
+    }
+  }
+  // A tsconfig `paths` alias that resolves outside its workspace is a second,
+  // undeclared route into another package.
+  for (const a of aliasesIn(ws)) if (!within(a.target, ws)) failures.push(aliasFailure(a, `outside ${ws}`));
+}
+
 if (failures.length) {
-  console.error(`✗ workspace-tier violations (${scanned} file(s) scanned):\n${failures.map((f) => `  ${f}`).join("\n")}`);
+  console.error(`✗ workspace-tier violations (${scannedFiles.size} file(s) scanned):\n${failures.map((f) => `  ${f}`).join("\n")}`);
   process.exit(1);
 }
 
 // A tier detected with nothing in it to read is a tier whose wall was never
 // checked: its source moved, or the walk is looking in the wrong place.
 const tiers = [shared, ui, web, ...headless, ...extensions].filter(Boolean);
-if (tiers.length && scanned === 0) {
+if (tiers.length && scannedFiles.size === 0) {
   console.error(`✗ workspace-tiers: detected ${tiers.map((t) => t.dir).join(", ")} but scanned 0 files — nothing was checked.`);
   process.exit(1);
 }
@@ -310,8 +426,9 @@ if (headless.length)
   checked.push(`${headless.map((h) => h.dir).join(", ")} reach the data tier only`);
 if (extensions.length)
   checked.push(`${extensions.map((e) => e.dir).join(", ")} never reach the data tier`);
+if (workspaces.length > 1) checked.push(`${workspaces.length} workspaces reach each other by package name only`);
 console.log(
   checked.length
-    ? `✓ workspace-tiers: ${scanned} file(s) scanned; ${checked.join("; ")}.`
+    ? `✓ workspace-tiers: ${scannedFiles.size} file(s) scanned; ${checked.join("; ")}.`
     : "✓ workspace-tiers: no tiered workspaces detected (no apps/shared, packages/shared, packages/ui, packages/web, headless or extension app) — the walls do not apply.",
 );

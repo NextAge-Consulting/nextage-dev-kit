@@ -78,7 +78,7 @@ The script:
 
 ## Naming issues without a PR
 
-`/work <issue#>` parks its issue links on the branch you are standing on and cuts nothing, so on `main` those links are sitting right here. `ship-main.sh` writes a `Closes #N, #M` line for the issues marked code complete, moves them to Staged, and unlinks exactly those once the push lands. Incomplete issues stay linked on `main`.
+`/work <issue#>` parks its issue links on the branch you are standing on and cuts nothing, so on `main` those links are sitting right here. `ship-main.sh` writes a `Closes #N, closes #M` line for the issues marked code complete, moves them to Staged, and unlinks exactly those once the push lands. Incomplete issues stay linked on `main`.
 
 The `Closes` line is how the next `/deploy` finds what shipped. Whether it closes the issue is GitHub configuration, not this command's: with the repository's "Auto-close issues with merged linked pull requests" setting on, GitHub closes the issue on this push; with it off, the issue stays open and the board decides (`github-project-board-setup.md`).
 

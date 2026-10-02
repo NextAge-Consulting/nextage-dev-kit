@@ -49,7 +49,7 @@ ui() {
     mkdir -p "$1/packages/ui/design-system"
     echo 'export default {}' > "$1/packages/ui/design-system/design-system.config.mjs"
     jq -n --arg b "$2" --arg c "$CHECK" \
-        '{name:"@ui/kit",scripts:{"build:design-system":$b,"check:design-system":$c}}' > "$1/packages/ui/package.json"
+        '{name:"@acme/ui",scripts:{"build:design-system":$b,"check:design-system":$c}}' > "$1/packages/ui/package.json"
 }
 
 # expect <name> <repo> <exit> <text the output must contain>

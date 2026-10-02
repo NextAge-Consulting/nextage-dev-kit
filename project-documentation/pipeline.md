@@ -100,6 +100,7 @@ The migrate workflow body is project-owned and MUST exit 0 on a no-op and non-ze
 | **Dependabot** | Version + security PRs, monthly + cooldown + grouping. | Monthly batching (not weekly) because weekly is noise-dominant for a small shop. Cooldown (patch 3d / minor 7d / major 30d) dodges the 48–72h window where supply-chain attacks get caught and the bad version yanked; security fixes skip cooldown automatically. §3.3. |
 | **Dependency policy** (`project-documentation/dependency-policy.md`) | One page: severity→timeline table, who owns it, exceptions with review dates, and the weekly triage runbook. | The kit shipped Dependabot config and a triage skill but never the operating procedure — so nobody knew what to do with the output, and nobody did anything. Synced `merge` mode: the owners, timelines and project-notes regions are each client's own. §3.5. |
 | **dep-alignment** (CI gate, Node-only) | Fails a PR if any shared dependency is declared at more than one version across workspaces. Node-gated in `ci.yml`, no-op on single-package / Python-only repos. | A monorepo runs ONE stack; cross-app version skew causes "works in one app, breaks in another" outages Dependabot *creates* (it bumps each manifest independently). Reads `package.json` only, no install. §3.6 / dependency-management.md. |
+| **knip** (CI gate, Node-only, per project) | Fails a PR on unused files, exports, types and dependencies, and on imports of packages a workspace never declares. One kit-owned `knip.config.ts`; the project turns the gate on with `KNIP_GATE`. | AI-written code accretes exports, files and dependencies nothing uses, and every one is context the next change reads as live. Neither the type-checker nor Biome sees across workspaces. §3.9. |
 
 **Rejected, and why** (terse — empirical, not theoretical):
 
@@ -110,7 +111,7 @@ The migrate workflow body is project-owned and MUST exit 0 on a no-op and non-ze
 | Snyk | Redundant with Dependabot + surfacing + Semgrep at small-shop scale. Upgrade path is a 5-seat-minimum cliff. |
 | Socket.dev | Zero unique signal above Dependabot on a clean codebase; free tier truncates the dep tree; adds per-release triage cost. |
 
-**CI (`ci.yml`) runs every check that can tell, and fails rather than passing unlooked.** A `detect` job names the stacks present and notes the ones it skips. The `biome` job runs `lint:tokens` and `lint:design` whenever `design.md` exists at the repository root, and a missing script fails it. The `vitest` job fails when the repository has `*.integration.test.ts` files and the `NEON_API_KEY` or `NEON_PROJECT_ID` secret is empty, because the integration project would otherwise drop out and the run pass green; Dependabot PRs, which GitHub runs without secrets, are the exception. The `python` job typechecks from the repository root whenever a root `pyproject.toml` or `pyrightconfig.json` exists, with the commit gate's choice of checker — pyright, else mypy — and fails on any error. The `project` job holds the repository's own CI steps in its `project-steps` region, which sync carries across kit updates.
+**CI (`ci.yml`) runs every check that can tell, and fails rather than passing unlooked.** A `detect` job names the stacks present and notes the ones it skips. The `biome` job runs `lint:tokens` and `lint:design` whenever `design.md` exists at the repository root, and a missing script fails it. The `vitest` job fails when the repository has `*.integration.test.ts` files and the `NEON_API_KEY` or `NEON_PROJECT_ID` secret is empty, because the integration project would otherwise drop out and the run pass green; Dependabot PRs, which GitHub runs without secrets, are the exception. The `python` job typechecks from the repository root whenever a root `pyproject.toml` or `pyrightconfig.json` exists, with the commit gate's choice of checker — pyright, else mypy — and fails on any error. The `knip` job runs knip when `KNIP_GATE` is `"true"`, passes with a notice when the project has decided against the gate, passes with a warning while the key is undecided, and fails on any other value (§3.9). The `project` job holds the repository's own CI steps in its `project-steps` region, which sync carries across kit updates.
 
 **Revisit threshold for the rejected dep-security tools:** a real supply-chain incident slipping through Dependabot + cooldown + surfacing + Semgrep. The kit's cross-file caller analysis (what paid review vendors charge for) is handled in-house by constitution §XIV at edit time.
 
@@ -697,3 +698,28 @@ Each dev's noise tolerance differs. This section maps every email GitHub sends o
 - Org membership invitations.
 
 **Verifying your config:** check `https://github.com/notifications` shortly after a known-noisy event (open a draft PR, push to it). If something showed up that you tried to mute, the relevant setting is one of the rows above; trace the trigger column to the source.
+
+## 3.9 `knip` job + `knip.config.ts` (unused-code gate)
+
+**What it catches.** Unused files, exports, types and dependencies, and imports of packages a workspace never declares — across workspaces, which neither `tsc` nor Biome sees.
+
+**One configuration, owned by the kit.** `knip.config.ts` lands at the repo root, `owned`. It reads the project's layout at run time — the workspaces in the root `package.json`, the `schema` each `drizzle*.config.*` names, the stylesheet a package script hands to the Tailwind CLI, and `SHARED_MODULE_DIR`, `DESIGN_UI_PACKAGE`, `DESIGN_FEED_BARREL` and `DESIGN_VENDORED_DIR` — so it never needs editing. Its entries are the kit's conventions: `server-start.mjs`, `src/server.ts`, `src/{start,router}.{ts,tsx}`, `design-system/**`, `public/**/*.js`, root `scripts/*`, the testing template's harness files, and the feed barrel. Drizzle configs are read, never executed: they throw without a database URL, which is every CI run.
+
+**There is no per-project ignore list.** A finding that is not dead code is a gap in `knip.config.ts`: raise it on the kit and fix it there, for every project. The exemptions the file does carry are kit-wide — the vendored shadcn atoms and the test harness are API surfaces, and the exports of `src/server.ts`, the design-system config and the Drizzle schema are consumed by a tool, not an import.
+
+**The gate is the project's call, `KNIP_GATE`.** A codebase reaches zero findings once, in a cleanup, and the gate holds it there.
+
+| `KNIP_GATE` | The `knip` job |
+|---|---|
+| `"true"` | Runs knip, prints each finding type with its count and annotates the PR; any finding fails the job |
+| empty, listed in `_intentionally_empty` | Passes with a notice that the gate is off |
+| missing, or empty and unlisted | Passes with a warning naming the key — undecided, and re-surfaced every sync |
+| anything else | Fails |
+
+**The version is the stack manifest's** (`knip`, `installedBy: ci`). The job runs `npx --yes knip@<version>`, and `stack-standard` fails when the workflow names any other.
+
+**Run it locally** from the repo root, after `npm install`:
+
+```bash
+npx --yes knip@5.88.1 --no-config-hints
+```

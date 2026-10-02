@@ -11,7 +11,7 @@
 #
 # Production build gate (exit 15): every workspace's `build` script runs LOCALLY
 # before the squash. CI does not build — it type-checks, lints and tests — so a build-only
-# break (bundler, Tailwind, an import alias a package's own tsconfig does not map) is
+# break (bundler, Tailwind, a package import its `exports` map does not resolve) is
 # invisible to every earlier gate. This is the last moment the PR is still OPEN, which is
 # the whole point: a failure here is fixed on the branch that caused it, in the PR that is
 # already under review. Catching it at /deploy instead means the branch is gone and the

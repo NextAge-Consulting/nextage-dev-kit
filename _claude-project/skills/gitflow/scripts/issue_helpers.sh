@@ -427,17 +427,23 @@ report_parked_issue_links() {
     echo "  Not yours? git config --local --unset branch.${branch}.gitflow-issues" >&2
 }
 
-# closes_line_for_issues <space-separated nums> — "Closes #1, #2". Empty in,
-# empty out. GitHub reads this keyword in a PR body (on merge) and in a commit
-# pushed to the default branch (on push), and closes the issue unless the
-# repository's "Auto-close issues with merged linked pull requests" setting is
-# off — which covers both paths. /deploy reads the same line to find what
-# shipped, so it is written whether or not anything closes.
+# closes_line_for_issues <space-separated nums> — "Closes #1, closes #2". Empty
+# in, empty out. GitHub's closing keyword applies to the one reference after it,
+# so every issue carries its own: "Closes #1, #2" closes #1 only. GitHub reads
+# the keyword in a PR body (on merge) and in a commit pushed to the default
+# branch (on push), and closes the issue unless the repository's "Auto-close
+# issues with merged linked pull requests" setting is off. /deploy reads the
+# same line to find what shipped, so it is written whether or not anything
+# closes.
 closes_line_for_issues() {
-    local refs
-    refs=$(format_issue_refs "$1")
-    [ -z "$refs" ] && return 0
-    echo "Closes ${refs}"
+    local n line=""
+    for n in $1; do
+        n="${n#\#}"
+        [ -n "$n" ] || continue
+        if [ -z "$line" ]; then line="Closes #${n}"; else line="${line}, closes #${n}"; fi
+    done
+    [ -n "$line" ] && echo "$line"
+    return 0
 }
 
 # ─── Project status transition ─────────────────────────────────────────────

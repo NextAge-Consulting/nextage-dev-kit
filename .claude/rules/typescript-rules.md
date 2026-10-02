@@ -104,3 +104,26 @@ npm install -g typescript typescript-language-server
 Verify with `which typescript-language-server` returning a path and `/plugin list` showing `typescript-lsp`. With either missing, LSP for TS is dead — fall back to `tsc`.
 
 The CLI always works: `npm run check-types` (typecheck via local `tsc`), `tsc --noEmit` directly, and `npm run dev` for the development server.
+
+## XI. Workspace Imports
+
+**One workspace reaches another by package name, declared as a dependency.** The consuming workspace lists the package with `"*"` (`"@acme/shared": "*"`) and imports `@acme/shared/billing/invoice` — never a relative path out of its own directory, and never a tsconfig `paths` alias that resolves outside it. `check-workspace-tiers.mjs` fails both.
+
+**The package's `exports` map points at TypeScript source**, so nothing is built before it is imported:
+
+```json
+"exports": {
+  "./billing": "./src/billing/index.ts",
+  "./styles.css": "./src/styles.css",
+  "./components/*": "./src/components/*.tsx",
+  "./*": "./src/*.ts"
+}
+```
+
+Give each barrel an explicit entry — a pattern maps `./billing` to `src/billing.ts`, never to its `index.ts`. Give each folder holding `.tsx` its own pattern, since one pattern carries one extension, and a `.ts` module inside that folder its own entry. A package imports its own modules by relative path or by its own name, never by an alias.
+
+**`@/*` stays the in-app alias**, mapped to the workspace's own `./src/*`.
+
+**A config module shared across workspaces resolves its paths from `import.meta.dirname`.** Vite loads a workspace package's module as native ESM, where `__dirname` is undefined, and `process.cwd()` is whichever app is building.
+
+**shadcn's `components.json` in a shared UI package names the package**: `"components": "@acme/ui/components"`, `"utils": "@acme/ui/lib/utils"`.

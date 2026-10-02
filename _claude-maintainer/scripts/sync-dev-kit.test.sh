@@ -41,6 +41,7 @@ printf 'export {}\n' > "$KIT/_claude-project/templates/testing/smoke.test.ts"
 printf 'const pkg = "{{DESIGN_UI_PACKAGE}}";\n' > "$KIT/_claude-project/templates/design-system/engine.mjs"
 printf '{ "extends": ["./biome.base.json"] }\n' > "$KIT/_claude-project/templates/biome.json"
 printf '{ "linter": { "enabled": true } }\n' > "$KIT/_claude-project/templates/biome.base.json"
+printf 'export default {};\n' > "$KIT/_claude-project/templates/knip.config.ts"
 mkdir -p "$KIT/_claude-project/templates/biome-plugins"
 printf 'language js\n' > "$KIT/_claude-project/templates/biome-plugins/kit-check.grit"
 cat > "$KIT/_claude-project/templates/ui-inventory.md" <<'EOF'
@@ -96,6 +97,7 @@ jq -e '[.skipped_unconfigured[] | .key] | sort == ["DESIGN_UI_PACKAGE","SHARED_M
     && ok "empty destination keys reported, not silent" || bad "unconfigured: $(jq -c .skipped_unconfigured <<<"$out")"
 [ "$(jq -r '.files[] | select(.dest_path == "biome.json") | .mode' <<<"$out")" = "template" ] && ok "biome.json is a template seed" || bad "biome.json mode"
 [ "$(jq -r '.files[] | select(.dest_path == "biome.base.json") | .mode' <<<"$out")" = "owned" ] && ok "biome.base.json is owned" || bad "biome.base.json mode"
+[ "$(jq -r '.files[] | select(.dest_path == "knip.config.ts") | .mode' <<<"$out")" = "owned" ] && ok "knip.config.ts maps to the root, owned" || bad "knip.config.ts mapping"
 [ "$(jq -r '.files[] | select(.dest_path == "biome-plugins/kit-check.grit") | .mode' <<<"$out")" = "owned" ] && ok "kit Biome plugin maps to root biome-plugins/, owned" || bad "biome plugin mapping"
 [ "$(jq -r '.files[] | select(.dest_path == ".gitattributes") | .mode' <<<"$out")" = "merge" ] && ok ".gitattributes maps to the root, merge" || bad ".gitattributes"
 for d in "$INV" "$CI" ; do

@@ -178,6 +178,19 @@
       "installedBy": "project",
       "blessedAt": "2026-10-01",
       "why": "The kit's claude-design engine builds the design system's stylesheet with it (the config's css.build), and the build fails when a class the system promises is missing from that output. Tailwind v4 is the stack the engine is built for."
+    },
+    "knip": {
+      "version": "5.88.1",
+      "applies": {
+        "whenFile": [
+          "knip.config.ts"
+        ]
+      },
+      "severity": "required",
+      "installedBy": "ci",
+      "blessedAt": "2026-10-02",
+      "ciWorkflow": ".github/workflows/ci.yml",
+      "why": "The kit ships knip.config.ts and the CI knip job, so the kit owns the tool. The config is written against knip 5's schema and plugin behaviour: which entries a plugin contributes, how includeEntryExports treats a workspace's exports map, how ignoreIssues matches. Another version reads the same file differently and the gate reports a different set of findings with no change in the code. The job installs it at run time; this file owns the version and the guard asserts the workflow names it."
     }
   },
   "_packages_notes": {

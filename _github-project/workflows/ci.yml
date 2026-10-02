@@ -1,8 +1,9 @@
 # CI: stack-detected checks on every PR targeting main.
 #
 # The repo's stack is auto-detected by file presence — NO per-project config:
-#   - Node    (root `package.json`)      → dep-alignment, check-types, biome,
-#                                           vitest
+#   - Node    (root `package.json`)      → dep-alignment, workspace-tiers,
+#                                           stack-standard, check-types, biome,
+#                                           vitest, knip
 #   - Python  (any `pyproject.toml`)      → ruff + pytest via uv, in each
 #                                           pyproject dir (monorepo layouts like
 #                                           services/<x>/ work with zero config);
@@ -67,7 +68,7 @@ jobs:
           echo "python=$python" >> "$GITHUB_OUTPUT"
           echo "detected: node=$node python=$python"
           skipped=""
-          [ "$node" = true ]   || skipped="$skipped Node (no root package.json: dep-alignment, workspace-tiers, stack-standard, check-types, biome, vitest)"
+          [ "$node" = true ]   || skipped="$skipped Node (no root package.json: dep-alignment, workspace-tiers, stack-standard, check-types, biome, vitest, knip)"
           [ "$python" = true ] || skipped="$skipped Python (no pyproject.toml: ruff, pytest, typecheck)"
           if [ -n "$skipped" ]; then
             echo "::notice::Stacks not detected, their jobs are skipped:$skipped"
@@ -223,6 +224,60 @@ jobs:
             exit 1
           fi
       - run: npm test
+
+  # Unused code: files, exports, types and dependencies nothing uses, and imports
+  # of packages a workspace never declares. The kit's knip.config.ts is the whole
+  # configuration — there is no per-project ignore list, so a finding that is not
+  # dead code is a kit defect to raise, never a line to silence here. The gate is
+  # the project's call, KNIP_GATE in .claude/sync-substitutions.json, because a
+  # codebase reaches zero findings once, in a cleanup, before the gate can hold it
+  # there (pipeline.md §3.9). The knip version is the stack manifest's.
+  knip:
+    name: knip
+    needs: detect
+    if: ${{ needs.detect.outputs.node == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - id: gate
+        name: KNIP_GATE
+        run: |
+          set -euo pipefail
+          subs=.claude/sync-substitutions.json
+          gate=""
+          listed=false
+          if [ -f "$subs" ]; then
+            gate=$(jq -r '.KNIP_GATE // ""' "$subs")
+            listed=$(jq -r '(._intentionally_empty // []) | index("KNIP_GATE") != null' "$subs")
+          fi
+          case "$gate" in
+            true)
+              echo "run=true" >> "$GITHUB_OUTPUT" ;;
+            "")
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              if [ "$listed" = true ]; then
+                echo "::notice::KNIP_GATE is off for this repository (listed in _intentionally_empty), so unused code is not gated."
+              else
+                echo "::warning::KNIP_GATE is undecided in .claude/sync-substitutions.json, so unused code is not gated. Reach zero knip findings, then set it to \"true\" — or list it in _intentionally_empty to decide against the gate."
+              fi ;;
+            *)
+              echo "::error::KNIP_GATE is \"$gate\" — the only values are \"true\", or empty and listed in _intentionally_empty."
+              exit 1 ;;
+          esac
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+          cache: npm
+      # Knip loads the project's Vite and Vitest configs, which import its
+      # installed packages.
+      - if: steps.gate.outputs.run == 'true'
+        run: npm ci
+      # The symbols reporter heads each finding type with its count; the
+      # github-actions reporter puts every finding on the PR diff. Exit 1 on
+      # any finding, 2 when knip itself cannot run — both fail the job.
+      - if: steps.gate.outputs.run == 'true'
+        run: npx --yes knip@5.88.1 --no-progress --no-config-hints --reporter symbols --reporter github-actions
 
   python:
     name: python

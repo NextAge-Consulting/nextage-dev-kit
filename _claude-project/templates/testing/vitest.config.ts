@@ -60,7 +60,9 @@ const unitProject = {
     globals: false,
     include: ["test/**/*.test.ts"],
     exclude: [...configDefaults.exclude, "test/**/*.integration.test.ts"],
-    setupFiles: ["test/test-utils.ts"],
+    // Absolute: a bare "test/…" reads as a package name
+    // to any tool that resolves the config (knip reports it unresolved).
+    setupFiles: [resolve(here, "test/test-utils.ts")],
   },
 };
 
@@ -74,8 +76,8 @@ const integrationProject = {
     // PARALLEL: every test runs in a rolled-back transaction (dbTest), so
     // concurrent tests on the one shared branch are MVCC-isolated. No serial
     // penalty, no per-file branch churn.
-    globalSetup: ["test/globalSetup.ts"],
-    setupFiles: ["test/test-utils.ts"],
+    globalSetup: [resolve(here, "test/globalSetup.ts")],
+    setupFiles: [resolve(here, "test/test-utils.ts")],
   },
 };
 

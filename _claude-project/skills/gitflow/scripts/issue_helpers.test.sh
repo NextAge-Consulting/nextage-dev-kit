@@ -48,7 +48,7 @@ t "" "$(read_branch_linked_issues never-used)" 'unknown branch reads empty'
 
 echo "formatting:"
 t "#7, #9" "$(format_issue_refs "$(read_branch_linked_issues main)")" 'refs render comma-separated'
-t "Closes #7, #9" "$(closes_line_for_issues "$(read_branch_linked_issues main)")" 'closes line'
+t "Closes #7, closes #9" "$(closes_line_for_issues "$(read_branch_linked_issues main)")" 'closes line'
 t "" "$(closes_line_for_issues "")" 'empty in, empty out — must not emit a bare "Closes"'
 t "" "$(format_issue_refs "")" 'empty refs'
 

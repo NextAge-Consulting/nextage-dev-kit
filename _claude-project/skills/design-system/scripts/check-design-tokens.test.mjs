@@ -125,8 +125,8 @@ const BUTTON = `export function Button({ className, ...props }: { className?: st
 }
 `
 
-const SCREEN = `import { Button } from "@ui/components/button"
-import { Spinner } from "@ui/components/spinner"
+const SCREEN = `import { Button } from "@acme/ui/components/button"
+import { Spinner } from "@acme/ui/components/spinner"
 export function Screen() {
   return (
     <main className="scroll-region bg-background text-foreground">
@@ -229,7 +229,7 @@ test('a comment line describing a rule is not a violation', async () => {
 })
 
 test('a call site that repaints a component fails; placing it passes; an exempt component passes', async () => {
-  const imports = 'import { Button } from "@ui/components/button"\nimport { PopoverTrigger } from "@ui/components/popover"'
+  const imports = 'import { Button } from "@acme/ui/components/button"\nimport { PopoverTrigger } from "@acme/ui/components/popover"'
   const bad = await run(screen('<><Button className="p-2 mt-1" /><PopoverTrigger className="p-2" /></>', imports))
   assert.equal(bad.problems.length, 1)
   assert.match(bad.problems[0], /<Button> p-2 {2}— a call site places a component/)

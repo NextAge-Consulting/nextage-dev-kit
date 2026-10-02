@@ -84,7 +84,7 @@ Server-shared plus UI home covers most projects. A third appears when a project 
 
 Any front-end may import it — apps, and extension apps too.
 
-Create it when the code that belongs in it exists, never speculatively — an empty third package is another manifest, another path alias, and a "where does this go?" decision on every future change. Most projects never need it.
+Create it when the code that belongs in it exists, never speculatively — an empty third package is another manifest, another workspace dependency in every app, and a "where does this go?" decision on every future change. Most projects never need it.
 
 ### Browser extensions are all browser
 
@@ -103,6 +103,8 @@ This is the only way the server-shared package may reference the UI home, and it
 ### The guard
 
 `scripts/check-workspace-tiers.mjs` (CI job `workspace-tiers`) enforces all of the above. It detects which tiers a repo has — server-shared, UI home, web tier, headless apps (an app workspace with no `react` dependency and no `.tsx`), and extension apps (an app workspace whose dependencies name an extension builder) — and checks only the walls that exist, so a repo with no shared workspace passes unconditionally.
+
+It also holds the rule every wall depends on: a tier is recognised by its package name, so a workspace reaches another only by that name, declared as a dependency (`typescript-rules.md`, Workspace Imports). A relative import out of a workspace, or a tsconfig `paths` alias resolving outside one, fails.
 
 Read its success line: it names what it actually enforced. Fewer tiers listed than you expect means a tier was not detected, not that it was checked and found clean.
 

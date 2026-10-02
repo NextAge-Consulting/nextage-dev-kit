@@ -593,6 +593,11 @@ dest_for_kit_path() {
         _claude-project/templates/.gitattributes)
             echo ".gitattributes"
             ;;
+        _claude-project/templates/knip.config.ts)
+            # The kit's unused-code configuration, one file for every project.
+            # It reads the project's own layout at run time, so it never varies.
+            echo "knip.config.ts"
+            ;;
         _claude-project/templates/.semgrepignore)
             echo ".semgrepignore"
             ;;

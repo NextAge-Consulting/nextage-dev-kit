@@ -104,7 +104,7 @@ fi
 
 # ─── Inject Closes #N from branch-scoped linked issues ────────────────────
 # Issues linked via /work <issue#> are stored in git config
-# (branch.<name>.gitflow-issues). Prepend a `Closes #N, #M ...` line to the
+# (branch.<name>.gitflow-issues). Prepend a `Closes #N, closes #M ...` line to the
 # PR body: the squash commit carries it onto main, where /deploy reads it to
 # find what shipped. Whether merging also closes the issue is the repository's
 # auto-close setting, not this script's. Idempotent: if the body already starts

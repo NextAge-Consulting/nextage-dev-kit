@@ -47,14 +47,14 @@ Read the matching one IN FULL before composing that kind of surface.
 Check a control against this list before writing one.
 
 <!-- project:begin components -->
-### _[`@ui/components/` — the project's own display vocabulary]_
+### _[`@acme/ui/components/` — the project's own display vocabulary]_
 
 | Component | Use for |
 |---|---|
 | _[`IconButton`]_ | _[**every** icon-only button; its required label feeds both `aria-label` and the tooltip]_ |
 | _[…]_ | _[one line each: what it is for]_ |
 
-### _[`@ui/components/ui/` — vendored atoms (shadcn or equivalent)]_
+### _[`@acme/ui/components/ui/` — vendored atoms (shadcn or equivalent)]_
 
 _[List the installed atoms as a plain run of names. e.g. `badge` `button` `card`
 `checkbox` `dialog` `input` `label` `popover` `select` `skeleton` `switch` `table`

@@ -8,7 +8,7 @@ The kit is a project like any other, with its own `.claude/` of rules, hooks, sk
 
 **`_claude-project/`** is what syncs out to consumer `<project>/.claude/` via `/sync-dev-kit`: rules, hooks, skills, the gitflow commands, agents, `settings.json`, `templates/`. Changes here reach every consumer on their next sync.
 
-**`_claude-maintainer/`** holds `kit-maintainer.md`, `commands/sync-dev-kit.md`, `commands/review-stack.md` and their scripts, copied to `~/.claude/` by hand when setting up a maintainer machine (`kitmaintainer-handbook.md` §0). Only the maintainer's machine gets this tier. `sync-dev-kit` must run from any project directory, so it is global by necessity — and a consumer machine that could sync would clobber projects the maintainer syncs ahead of them. Withholding the script beats guarding it: absent tooling has nothing to bypass.
+**`_claude-maintainer/`** holds `kit-maintainer.md`, `commands/sync-dev-kit.md`, `commands/review-stack.md` and their scripts, copied to `~/.claude/` by hand when setting up a maintainer machine (`kitmaintainer-handbook.md` §0). Its `migrations/` stay in the kit and are never copied: each is a codemod and a `PROMPT.md` the maintainer pastes into a consumer session, which reaches the codemod through `devKitPath`. Only the maintainer's machine gets this tier. `sync-dev-kit` must run from any project directory, so it is global by necessity — and a consumer machine that could sync would clobber projects the maintainer syncs ahead of them. Withholding the script beats guarding it: absent tooling has nothing to bypass.
 
 **There is no global tier for consumers.** Every kit command ships per-project via `_claude-project/commands/`, `/work` included. A command file in `~/.claude/commands/` outranks the project's copy of the same name, so a global command cannot be updated by `/sync-dev-kit` and silently shadows the project's copy forever. `work.sh` refuses to run when it finds one, and that guard is the only reliable place to catch it: nothing else runs on every invocation.
 
@@ -66,6 +66,7 @@ The kit dogfoods only what it actually uses. Everything below ships to consumers
 | `rules/dev-server.md` | Companion to the (excluded) dev-server feature; kit runs no dev servers. |
 | `rules/dependencies.md` | Kit has no `package.json` — nothing to install, no lockfile to protect. |
 | `skills/dependency-triage/**` | Kit has no `package.json` and no `.github/dependabot.yml` — no dependency PRs are ever opened here. |
+| `templates/knip.config.ts` | The kit's unused-code configuration. It reads a root `package.json` and the workspaces it declares; the kit has neither, and no JavaScript to analyse. |
 | `templates/scripts/**` | Seeds for a consumer's `scripts/` — `check-dep-alignment.mjs`, `check-workspace-tiers.mjs`, `check-stack.mjs`, `db-branch.mjs`. The first three read a `package.json` / workspace graph the kit does not have; the fourth resolves a Neon branch, and the kit has no database. |
 | `rules/project/README.md` | Consumer scaffolding placeholder; the kit has its own `rules/project/` content. |
 

@@ -127,15 +127,51 @@ the source for the framework's own accessor (`import.meta.env.VITE_*` for Vite, 
 equivalent elsewhere) and checking each name against what came back from Parameter Store.
 
 **Derive the SCOPE from the project too, never from a directory list in the buildspec.**
-Start at the service's own app directory and read the aliases the project already
-declares for itself — `compilerOptions.paths` in that app's `tsconfig.json`, or the
-equivalent resolver config. Add an aliased directory to the scan only when the service's
-source actually imports that alias, matched against a quote-anchored import specifier so
-a mention in a comment pulls nothing in, and iterate to a fixpoint so a shared package
+Start at the service's own app directory and follow the workspace dependencies the
+project already declares — the service's `package.json` names each workspace package it
+uses, and the root `package.json`'s `workspaces` maps each name to its directory. A
+package joins the scan only when the source already in scope imports it by name, matched
+against a quote-anchored import specifier so a mention in a comment pulls nothing in, and
+the walk repeats from each package it adds until nothing new joins, so a shared package
 that reaches another shared package is followed. A package the service never touches then
 contributes no requirement.
 
-The block that results names no directory, no alias and no package. That is the point:
+```bash
+APP_DIR="${APP_DIR:-apps/$SERVICE}"
+SRC_DIRS="$APP_DIR"
+# Workspace packages, name|dir, from the root manifest's own `workspaces` globs.
+WORKSPACES="$(for pattern in $(jq -r '(.workspaces | if type == "object" then .packages else . end) // [] | .[]' package.json); do
+  for d in $pattern; do
+    [ -f "$d/package.json" ] && printf '%s|%s\n' "$(jq -r '.name // empty' "$d/package.json")" "$d"
+  done
+done)"
+PENDING="$APP_DIR"
+while [ -n "$PENDING" ]; do
+  NEXT=""
+  for pkg_dir in $PENDING; do
+    for dep in $(jq -r '(.dependencies // {}) + (.devDependencies // {}) | keys[]' "$pkg_dir/package.json"); do
+      dir="$(printf '%s\n' "$WORKSPACES" | awk -F'|' -v n="$dep" '$1 == n { print $2 }')"
+      [ -n "$dir" ] || continue
+      [ -d "$dir/src" ] && scan="$dir/src" || scan="$dir"
+      case " $SRC_DIRS " in *" $scan "*) continue ;; esac
+      # Quote-anchored, so a mention of the package in a COMMENT does not pull it
+      # into scope; only a real import specifier counts.
+      dep_re="$(printf '%s' "$dep" | sed 's/[.]/\\./g')"
+      if grep -rqE "['\"]${dep_re}(/|['\"])" $SRC_DIRS --include='*.ts' --include='*.tsx' --exclude-dir=node_modules 2>/dev/null; then
+        SRC_DIRS="$SRC_DIRS $scan"
+        NEXT="$NEXT $dir"
+      fi
+    done
+  done
+  PENDING="$NEXT"
+done
+echo "Source scope for $SERVICE: $SRC_DIRS"
+```
+
+The required list is then every `import.meta.env.VITE_*` name `grep` finds under
+`$SRC_DIRS`, each checked against what came back from Parameter Store.
+
+The block names no directory and no package. That is the point:
 the same block ships unmodified to the next repo and reads the layout out of the project
 it is building. A buildspec carrying `apps/$SERVICE plus packages plus apps/shared` looks
 generic and is not — it encodes one repo's shape, passes review, and has to be

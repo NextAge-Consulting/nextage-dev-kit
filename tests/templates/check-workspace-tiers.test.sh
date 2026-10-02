@@ -18,9 +18,9 @@ bad() { echo "FAIL $1"; fail=1; }
 tiered() {
     local r="$tmp/$1"
     mkdir -p "$r/packages/web/src" "$r/packages/ui/src" "$r/packages/shared/src"
-    echo '{"name":"@web/app"}' > "$r/packages/web/package.json"
-    echo '{"name":"@ui/kit","dependencies":{"react":"19"}}' > "$r/packages/ui/package.json"
-    echo '{"name":"@shared/core"}' > "$r/packages/shared/package.json"
+    echo '{"name":"@acme/web"}' > "$r/packages/web/package.json"
+    echo '{"name":"@acme/ui","dependencies":{"react":"19"}}' > "$r/packages/ui/package.json"
+    echo '{"name":"@acme/shared"}' > "$r/packages/shared/package.json"
     echo 'export const s = 1;' > "$r/packages/shared/src/a.ts"
     echo 'export const u = 1;' > "$r/packages/ui/src/a.ts"
     echo 'export const w = 1;' > "$r/packages/web/src/a.ts"
@@ -42,23 +42,24 @@ printf 'export const logFailures = 1;\n' > "$r/packages/web/src/log-failures.ser
 printf 'import { logFailures } from "./log-failures.server";\nexport const x = logFailures;\n' > "$r/packages/web/src/fn.ts"
 expect "web tier may import its own .server module" "$r" 0 "packages/web is database-free"
 
-r=$(tiered web-own-server-alias)
+r=$(tiered web-own-server-name)
 mkdir -p "$r/packages/web/src/serverFn"
 printf 'export const logFailures = 1;\n' > "$r/packages/web/src/serverFn/log.server.ts"
-printf 'import { logFailures } from "@web/serverFn/log.server";\nimport { a } from "../serverFn/log.server";\nexport const x = [logFailures, a];\n' > "$r/packages/web/src/serverFn/fn.ts"
-expect "web tier may reach its own .server module by its alias or a parent path" "$r" 0 "packages/web is database-free"
+printf 'import { logFailures } from "@acme/web/serverFn/log.server";\nimport { a } from "../serverFn/log.server";\nexport const x = [logFailures, a];\n' > "$r/packages/web/src/serverFn/fn.ts"
+expect "web tier may reach its own .server module by its package name or a parent path" "$r" 0 "packages/web is database-free"
 
-r=$(tiered web-shared-server-alias)
-printf 'import { db } from "@shared/db/client.server";\nexport const x = db;\n' > "$r/packages/web/src/fn.ts"
-expect "web tier importing a server-shared .server module by alias fails" "$r" 1 'web tier imports "@shared/db/client.server", a .server module outside packages/web'
+r=$(tiered web-shared-server-name)
+printf 'import { db } from "@acme/shared/db/client.server";\nexport const x = db;\n' > "$r/packages/web/src/fn.ts"
+expect "web tier importing a server-shared .server module by package name fails" "$r" 1 'web tier imports "@acme/shared/db/client.server", a .server module outside packages/web'
 
 r=$(tiered web-shared-server-relative)
 printf 'import { db } from "../../shared/src/db/client.server";\nexport const x = db;\n' > "$r/packages/web/src/fn.ts"
 expect "web tier importing a server-shared .server module by relative path fails" "$r" 1 'web tier imports "../../shared/src/db/client.server", a .server module outside packages/web'
+expect "a relative import into another workspace fails, naming the package" "$r" 1 '"../../shared/src/db/client.server" reaches into packages/shared by relative path — import it by its package name "@acme/shared"'
 
 r=$(tiered web-ui-server)
-printf 'import { a } from "@ui/thing.server";\nexport const x = a;\n' > "$r/packages/web/src/fn.ts"
-expect "web tier importing another workspace's .server module fails" "$r" 1 'web tier imports "@ui/thing.server", a .server module outside packages/web'
+printf 'import { a } from "@acme/ui/thing.server";\nexport const x = a;\n' > "$r/packages/web/src/fn.ts"
+expect "web tier importing another workspace's .server module fails" "$r" 1 'web tier imports "@acme/ui/thing.server", a .server module outside packages/web'
 
 r=$(tiered web-driver)
 printf 'import { sql } from "drizzle-orm";\nexport const q = sql;\n' > "$r/packages/web/src/db.ts"
@@ -70,8 +71,39 @@ expect "ui tier importing a .server module fails" "$r" 1 'ui tier imports server
 
 r=$(tiered ui-own-server)
 printf 'export const a = 1;\n' > "$r/packages/ui/src/thing.server.ts"
-printf 'import { a } from "@ui/thing.server";\nexport const b = a;\n' > "$r/packages/ui/src/c.ts"
-expect "ui tier importing its own .server module by alias fails" "$r" 1 'ui tier imports server code "@ui/thing.server"'
+printf 'import { a } from "@acme/ui/thing.server";\nexport const b = a;\n' > "$r/packages/ui/src/c.ts"
+expect "ui tier importing its own .server module by package name fails" "$r" 1 'ui tier imports server code "@acme/ui/thing.server"'
+
+r=$(tiered shared-ui-runtime)
+printf 'import { Button } from "@acme/ui/components/button";\nexport const b = Button;\n' > "$r/packages/shared/src/b.ts"
+expect "server-shared tier importing the ui tier at runtime fails" "$r" 1 'runtime ui-tier import in the server-shared tier ("@acme/ui/components/button")'
+
+r=$(tiered shared-ui-contract-type)
+printf 'import type { Row } from "@acme/ui/contracts/row";\nexport type R = Row;\n' > "$r/packages/shared/src/b.ts"
+expect "server-shared tier may type-import the ui tier's contracts" "$r" 0 "packages/shared is browser-free"
+
+r=$(tiered cross-workspace-alias)
+mkdir -p "$r/apps/site/src"
+echo '{"name":"@acme/site"}' > "$r/apps/site/package.json"
+printf '{\n  // comments are allowed\n  "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["./src/*"], "@ui/*": ["../../packages/ui/src/*"], }, },\n}\n' > "$r/apps/site/tsconfig.json"
+echo 'export const a = 1;' > "$r/apps/site/src/a.ts"
+expect "a tsconfig paths alias resolving outside its workspace fails" "$r" 1 'apps/site/tsconfig.json: paths alias "@ui/*" resolves to packages/ui/src, outside apps/site'
+
+r=$(tiered root-alias)
+echo '{"compilerOptions":{"paths":{"@ui/*":["./packages/ui/src/*"]}}}' > "$r/tsconfig.base.json"
+expect "a root tsconfig paths alias landing inside a workspace fails" "$r" 1 'tsconfig.base.json: paths alias "@ui/*" resolves to packages/ui/src, inside packages/ui'
+
+r=$(tiered in-app-alias)
+mkdir -p "$r/apps/site/src"
+echo '{"name":"@acme/site","dependencies":{"@acme/ui":"*","react":"19"}}' > "$r/apps/site/package.json"
+echo '{ "compilerOptions": { "paths": { "@/*": ["./src/*"] } } }' > "$r/apps/site/tsconfig.json"
+printf 'import { u } from "@acme/ui/a";\nimport { b } from "@/b";\nexport const a = [u, b];\n' > "$r/apps/site/src/a.ts"
+echo 'export const b = 1;' > "$r/apps/site/src/b.ts"
+expect "an in-app alias and package-name imports pass" "$r" 0 "workspaces reach each other by package name only"
+
+r=$(tiered unnamed-tier)
+echo '{}' > "$r/packages/ui/package.json"
+expect "a shared tier without a package name fails" "$r" 1 "packages/ui: no package.json name"
 
 r=$(tiered ui-driver)
 printf 'import pg from "pg";\nexport const c = pg;\n' > "$r/packages/ui/src/d.ts"
