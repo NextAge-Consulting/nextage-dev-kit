@@ -285,3 +285,10 @@ test('the element dark fill never reaches its ::selection; a dark rule tied with
   assert.equal(winner(rules, ['&:hover'], 'background-color', 'light').v, 'destructive/90')
   assert.equal(winner(rules, ['&:hover'], 'background-color', 'dark').v, 'destructive/60')
 })
+
+test('class names quoted in a comment are not classes', () => {
+  assert.deepEqual(candidates('// was "text-sm font-medium" before the roles'), [])
+  assert.deepEqual(candidates(' * The field is `flex flex-col gap-2`, or "mb-2".'), [])
+  assert.deepEqual(candidates('{/* "p-2" */}'), [])
+  assert.deepEqual(candidates('<p className="p-2">'), ['p-2'])
+})

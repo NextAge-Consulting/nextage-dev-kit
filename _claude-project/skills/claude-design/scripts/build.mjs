@@ -415,7 +415,7 @@ module.exports = { jsx: j, jsxs: j, Fragment: R.Fragment };`,
  *   { inventory: "Name" } → that `| \`Name\` |` row of the UI inventory
  *   { design: "Heading" } → that `###` section of the design doc
  *   { source: "path" }    → the doc comment above the component in <package>/<sourceRoot>/<path>,
- *                            else that file's leading doc comment */
+ *                            else that file's leading doc comment, below any status line */
 function componentDoc(c) {
   if (c.doc?.inventory) {
     const row = inventory
@@ -434,7 +434,9 @@ function componentDoc(c) {
     const at = functionAt(src, c.name)
     const m =
       (at >= 0 ? /\/\*\*((?:(?!\*\/)[\s\S])*)\*\/\s*(?:export\s+)?$/.exec(src.slice(0, at)) : null) ??
-      /^(?:import[^\n]*\n|\s*\n)*\/\*\*((?:(?!\*\/)[\s\S])*)\*\//.exec(src)
+      // Imports, blank lines, line comments (`// ui-status: approved`) and a "use client"
+      // directive may sit above the file's leading doc comment.
+      /^(?:import[^\n]*\n|\s*\n|\s*\/\/[^\n]*\n|\s*["']use client["'];?[^\n]*\n)*\/\*\*((?:(?!\*\/)[\s\S])*)\*\//.exec(src)
     return m ? m[1].replace(/^\s*\* ?/gm, '').trim() : ''
   }
   return ''

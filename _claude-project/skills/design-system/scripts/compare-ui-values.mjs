@@ -35,8 +35,12 @@ const SEP = ' » '
 
 const git = (repo, args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
 
+// A comment line — `//`, a block comment's lines, a JSX comment — holds no classes, whatever it quotes.
+export const isCommentLine = (line) => /^\s*(?:\/\/|\/\*|\*|\{\s*\/\*)/.test(line)
+
 /** Every string literal's words on a line: the candidate classes. Tailwind ignores the rest. */
 export function candidates(line) {
+  if (isCommentLine(line)) return []
   const out = []
   for (const m of line.matchAll(/(["'`])((?:\\.|(?!\1).)*)\1/g)) for (const w of m[2].split(/\s+/)) if (w && !w.includes('${')) out.push(w)
   return out
@@ -76,6 +80,7 @@ export function arithmetic(src) {
  * applies. Returns one list per combination of choices, or null past eight.
  */
 export function variants(line) {
+  if (isCommentLine(line)) return [[]]
   const choices = []
   let rest = line.replace(/\?\s*(["'`])((?:\\.|(?!\1).)*)\1\s*:\s*(["'`])((?:\\.|(?!\3).)*)\3/g, (_, _q, a, _q2, b) => {
     choices.push([a, b])

@@ -175,9 +175,22 @@ const consumedExports = [
   ...drizzleConfigs,
   ...schemaGlobs,
 ];
-// API surfaces whose unused members are not dead code: the vendored shadcn atoms,
-// and the kit's test harness, which tests not yet written consume.
+// The modules the Claude Design feed barrel re-exports: the claude-design build reads the
+// barrel, so what it re-exports is consumed whether or not an app imports it.
+const feedModules: string[] = [];
+if (uiPackage && feedBarrel && existsSync(resolve(root, uiPackage, feedBarrel))) {
+  const barrelDir = dirname(`${uiPackage}/${feedBarrel}`);
+  for (const m of readFileSync(resolve(root, uiPackage, feedBarrel), "utf8").matchAll(/^\s*export\s[^;]*?\bfrom\s+["'](\.{1,2}\/[^"']+)["']/gm)) {
+    const base = toPosix(join(barrelDir, m[1])).replace(/\.(?:[cm]?[jt]sx?)$/, "");
+    feedModules.push(`${base}.{ts,tsx,js,jsx,mts}`, `${base}/index.{ts,tsx,js,jsx,mts}`);
+  }
+}
+
+// API surfaces whose unused members are not dead code: the vendored shadcn atoms, the
+// modules the feed barrel publishes, and the kit's test harness, which tests not yet
+// written consume.
 const apiSurfaces = [
+  ...feedModules,
   "**/src/components/ui/**",
   ...(vendoredDir ? [`${vendoredDir}/**`] : []),
   ...(sharedModule ? [sharedModule === "." ? harness : `${sharedModule}/${harness}`] : []),
