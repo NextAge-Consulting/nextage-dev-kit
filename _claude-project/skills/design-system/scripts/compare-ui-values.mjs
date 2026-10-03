@@ -147,9 +147,11 @@ export function canonicalColors(value) {
       const n = (i) => Number.parseInt(hex.slice(i, i + 2), 16) / 255
       return out(n(0), n(2), n(4), hex.length === 8 ? n(6) : 1)
     })
-    .replace(/rgba?\(\s*([\d.]+)%?[\s,]+([\d.]+)%?[\s,]+([\d.]+)%?\s*(?:[,/]\s*([\d.]+%?))?\s*\)/gi, (_, r, g, b, a) =>
-      out(r / 255, g / 255, b / 255, alpha(a)),
-    )
+    .replace(/rgba?\(\s*([\d.]+%?)[\s,]+([\d.]+%?)[\s,]+([\d.]+%?)\s*(?:[,/]\s*([\d.]+%?))?\s*\)/gi, (_, r, g, b, a) => {
+      // A channel is 0–255, or a percentage of it.
+      const ch = (x) => (x.endsWith('%') ? Number.parseFloat(x) / 100 : Number(x) / 255)
+      return out(ch(r), ch(g), ch(b), alpha(a))
+    })
     .replace(/oklch\(\s*([\d.]+)(%?)\s+([\d.]+)\s+([\d.]+)(?:deg)?\s*(?:\/\s*([\d.]+%?))?\s*\)/gi, (_, l, pct, c, h, a) => {
       const L = pct ? l / 100 : Number(l)
       const hr = (Number(h) * Math.PI) / 180

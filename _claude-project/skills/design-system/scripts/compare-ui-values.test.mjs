@@ -242,6 +242,8 @@ test('one colour written three ways compares equal', () => {
   assert.equal(canonicalColors('rgb(255 255 255)'), white)
   assert.equal(canonicalColors('oklch(1 0 0)'), white)
   assert.equal(canonicalColors('oklch(100% 0 0)'), white)
+  assert.equal(canonicalColors('rgb(100% 100% 100%)'), white)
+  assert.equal(canonicalColors('rgb(50% 0% 0%)'), canonicalColors('rgb(127.5 0 0)'))
   assert.equal(canonicalColors('rgba(0, 0, 0, 0.05)'), canonicalColors('rgb(0 0 0 / 5%)'))
   assert.notEqual(canonicalColors('oklch(0.42 0 0)'), canonicalColors('oklch(0.44 0 0)'))
 })
