@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { INITIAL, arithmetic, canonicalColors, specificity, visibleShadow, candidates, cssEvents, variants, declarations, explainMoves, hunks, ownSelector, pairLines, resolveVars, themeVars, toPx } from './compare-ui-values.mjs'
+import { INITIAL, arithmetic, baseDefaults, canonicalColors, specificity, visibleShadow, candidates, cssEvents, variants, declarations, explainMoves, hunks, ownSelector, pairLines, resolveVars, themeVars, toPx } from './compare-ui-values.mjs'
 
 test('candidates are the words of every string literal on a line', () => {
   assert.deepEqual(candidates(`<p className="text-sm font-medium" data-x='a b'>`), ['text-sm', 'font-medium', 'a', 'b'])
@@ -244,4 +244,16 @@ test('one colour written three ways compares equal', () => {
   assert.equal(canonicalColors('oklch(100% 0 0)'), white)
   assert.equal(canonicalColors('rgba(0, 0, 0, 0.05)'), canonicalColors('rgb(0 0 0 / 5%)'))
   assert.notEqual(canonicalColors('oklch(0.42 0 0)'), canonicalColors('oklch(0.44 0 0)'))
+})
+
+test('what the project sets on every element is its default', () => {
+  const css = `@layer base {
+  * { border-color: var(--border); outline-color: red; @supports (color: color-mix(in lab, red, red)) { outline-color: blue; } }
+  html { line-height: 1.5; }
+}
+@media (prefers-color-scheme: dark) { :root:not(.light) * { border-color: black; } }`
+  const light = baseDefaults(css, 'light')
+  assert.equal(light.get('border-color'), 'var(--border)')
+  assert.equal(light.get('outline-color'), 'blue')
+  assert.equal(light.has('line-height'), false)
 })

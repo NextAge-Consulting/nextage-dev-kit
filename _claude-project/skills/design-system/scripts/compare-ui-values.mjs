@@ -349,7 +349,11 @@ export async function compilerFor(root, entry) {
   // variables are re-read from the latest output whenever a new class was built.
   const read = () => {
     const css = compiled.build([])
-    return { light: themeVars(css, 'light'), dark: themeVars(css, 'dark') }
+    return {
+      light: themeVars(css, 'light'),
+      dark: themeVars(css, 'dark'),
+      defaults: { light: baseDefaults(css, 'light'), dark: baseDefaults(css, 'dark') },
+    }
   }
   let vars = read()
   const cache = new Map()
@@ -419,7 +423,9 @@ export async function compilerFor(root, entry) {
           if (!win) continue
           const raw = canonicalColors(toPx(resolveVars(win.v, local[mode])))
           const value = prop === 'box-shadow' ? visibleShadow(raw) : raw
-          if (!INITIAL[prop]?.includes(value.toLowerCase())) out.set(key, value)
+          const dflt = vars.defaults[mode].get(prop)
+          const atDefault = dflt !== undefined && canonicalColors(toPx(resolveVars(dflt, local[mode]))) === value
+          if (!atDefault && !INITIAL[prop]?.includes(value.toLowerCase())) out.set(key, value)
         }
         // A unitless line height is relative to the font size beside it.
         for (const [k, v] of out) {
@@ -537,6 +543,30 @@ export function explainMoves(diffs) {
     .map((d) => ({ ...d, lost: lost.get(d), gained: gained.get(d), changed: d.changed ?? new Map() }))
     .filter((d) => d.lost.size || d.gained.size || d.changed.size)
   return { moved: [...moves.values()], remaining }
+}
+
+/**
+ * The project's own defaults: properties its stylesheets set on every element (`* {…}`, as
+ * Tailwind writes `@apply border-border` in a base layer). An element with no value of its
+ * own takes these, so a value equal to one is the property unset. Dark blocks win in dark
+ * mode, and a `@supports (color: color-mix…)` upgrade wins over its fallback.
+ */
+export function baseDefaults(css, mode = 'light') {
+  const out = new Map()
+  const stack = []
+  for (const e of cssEvents(css)) {
+    if (e.type === 'open') stack.push(e.text)
+    else if (e.type === 'close') stack.pop()
+    else {
+      const sel = stack.findLast((x) => !x.startsWith('@') && !x.startsWith('&')) ?? ''
+      if (!/^\*(?:\s*,|\s*$)/.test(sel)) continue
+      const dark = stack.some(isDark)
+      if (dark && mode !== 'dark') continue
+      const m = e.text.match(/^([a-z][\w-]*)\s*:\s*([\s\S]+)$/)
+      if (m) out.set(m[1], m[2].trim())
+    }
+  }
+  return out
 }
 
 /** Changed lines per file: hunks of removed and added lines, with the new-side line number. */
