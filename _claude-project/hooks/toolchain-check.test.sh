@@ -57,6 +57,9 @@ printf '{"scripts":{"lint":"biome lint"}}' > "$tmp/js-only/package.json"
 : > "$tmp/js-only/static/app.ts"
 out=$(run "$tmp/js-only" "$PATH")
 has 'no "check-types" script'  "$out" 'package.json without check-types once a TypeScript source exists'
+printf '{"description":"run check-types before commit","scripts":{"lint":"biome lint --check-types"}}' > "$tmp/js-only/package.json"
+out=$(run "$tmp/js-only" "$PATH")
+has 'no "check-types" script'  "$out" 'the words check-types elsewhere in package.json are not the script'
 out=$(run "$tmp/py" "$(path_without pyright mypy)")
 has 'neither pyright nor mypy' "$out" 'pyproject.toml without pyright or mypy'
 mkdir -p "$tmp/fakepy"; printf '#!/bin/sh\nexit 0\n' > "$tmp/fakepy/mypy"; chmod +x "$tmp/fakepy/mypy"

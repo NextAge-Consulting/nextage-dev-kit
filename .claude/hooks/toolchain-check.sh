@@ -44,11 +44,22 @@ has_typescript_sources() {
     [ -n "$own" ]
 }
 
+# Whether <package.json> declares a `check-types` script — the scripts key itself, never
+# the string anywhere in the file (a dependency name, a description, another script).
+# Without jq, check_tools already reports it missing; the text match stands in.
+has_check_types_script() {
+    if command -v jq >/dev/null 2>&1; then
+        jq -e '(.scripts // {}) | has("check-types")' "$1" >/dev/null 2>&1
+    else
+        grep -q '"check-types"[[:space:]]*:' "$1" 2>/dev/null
+    fi
+}
+
 # Prints one line per gap in what the commit gate needs to typecheck <root>. Node and
 # Python are checked independently, as the gate checks them (gitflow gates.sh).
 check_typecheck() {
     local root="$1"
-    if [ -f "$root/package.json" ] && ! grep -q '"check-types"' "$root/package.json" 2>/dev/null &&
+    if [ -f "$root/package.json" ] && ! has_check_types_script "$root/package.json" &&
         has_typescript_sources "$root"; then
         printf '%s\n' "package.json has no \"check-types\" script, so /commit and /ship-main fail their typecheck. Add one, e.g. \"check-types\": \"tsc --noEmit\"."
     fi

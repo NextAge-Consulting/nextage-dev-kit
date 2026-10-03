@@ -132,6 +132,50 @@ export function resolveVars(value, vars) {
 const isDark = (part) => /\.dark\b|prefers-color-scheme:\s*dark|:root:not\(\.light\)/.test(part)
 
 /**
+ * CSS as a stream of block opens, block closes and declarations. `{`, `}` and `;` inside a
+ * quoted string, a comment or a `url(…)` are ordinary characters; a backslash keeps the
+ * next character inside its string. A declaration left open at a block's end still counts.
+ */
+export function* cssEvents(css) {
+  let buf = ''
+  let quote = ''
+  let url = false
+  for (let i = 0; i < css.length; i++) {
+    const ch = css[i]
+    if (quote) {
+      buf += ch
+      if (ch === '\\') buf += css[++i] ?? ''
+      else if (ch === quote) quote = ''
+      continue
+    }
+    if (url) {
+      buf += ch
+      if (ch === '\\') buf += css[++i] ?? ''
+      else if (ch === ')') url = false
+      continue
+    }
+    if (ch === '/' && css[i + 1] === '*') {
+      const end = css.indexOf('*/', i + 2)
+      i = end === -1 ? css.length : end + 1
+      continue
+    }
+    if (ch === '"' || ch === "'") quote = ch
+    else if (ch === '(' && /url$/i.test(buf)) url = true
+    if (ch === '{') {
+      yield { type: 'open', text: buf.trim() }
+      buf = ''
+    } else if (ch === '}') {
+      if (buf.trim()) yield { type: 'decl', text: buf.trim() }
+      yield { type: 'close' }
+      buf = ''
+    } else if (ch === ';') {
+      if (buf.trim()) yield { type: 'decl', text: buf.trim() }
+      buf = ''
+    } else buf += ch
+  }
+}
+
+/**
  * Theme variables for one mode, by the cascade: unlayered beats `@layer`, later beats
  * earlier, and in dark mode a dark block beats both. A variable defined as itself
  * (`--x: var(--x)`) is no value. `*` defaults and `@property` initial values rank lowest.
@@ -145,30 +189,24 @@ export function themeVars(css, mode = 'light') {
     rank.set(name, r)
   }
   const stack = []
-  let buf = ''
-  for (const ch of css) {
-    if (ch === '{') {
-      stack.push(buf.trim())
-      buf = ''
-    } else if (ch === '}') {
-      stack.pop()
-      buf = ''
-    } else if (ch === ';') {
+  for (const e of cssEvents(css)) {
+    if (e.type === 'open') stack.push(e.text)
+    else if (e.type === 'close') stack.pop()
+    else {
       // The nearest real selector: Tailwind nests `@supports` and `@media` inside `:root`.
       const sel = stack.findLast((x) => !x.startsWith('@')) ?? ''
       const at = stack.at(-1) ?? ''
       const dark = stack.some(isDark)
       const layered = stack.some((x) => x.startsWith('@layer'))
-      const m = buf.trim().match(/^(--[\w-]+)\s*:\s*([\s\S]+)$/)
+      const m = e.text.match(/^(--[\w-]+)\s*:\s*([\s\S]+)$/)
       if (m && (!dark || mode === 'dark')) {
         if (/(^|,|\s)(:root|:host|html)\b/.test(sel) || dark) put(m[1], m[2].trim(), (layered ? 1 : 2) + (dark ? 2 : 0))
         else if (/^\*/.test(sel)) put(m[1], m[2].trim(), 0)
       }
-      const init = buf.trim().match(/^initial-value\s*:\s*([\s\S]+)$/)
+      const init = e.text.match(/^initial-value\s*:\s*([\s\S]+)$/)
       const prop = at.match(/^@property\s+(--[\w-]+)/)
       if (init && prop) put(prop[1], init[1].trim(), 0)
-      buf = ''
-    } else buf += ch
+    }
   }
   return vars
 }
@@ -198,31 +236,24 @@ export function ownSelector(selector) {
 export function declarations(css, cls) {
   const out = new Map()
   const stack = []
-  let buf = ''
   let inside = 0
   // The class as CSS writes it in a selector (`hover\:bg-x`), matched as plain text.
   const selector = `.${cls.replace(/[^\w-]/g, (c) => `\\${c}`)}`
   const own = ownSelector(selector)
-  for (const ch of css) {
-    if (ch === '{') {
-      const sel = buf.trim()
-      stack.push(sel)
-      if (own.within(sel) || (inside && stack.length > inside)) inside ||= stack.length
-      buf = ''
-    } else if (ch === '}') {
+  for (const e of cssEvents(css)) {
+    if (e.type === 'open') {
+      stack.push(e.text)
+      if (own.within(e.text) || (inside && stack.length > inside)) inside ||= stack.length
+    } else if (e.type === 'close') {
       if (stack.length === inside) inside = 0
       stack.pop()
-      buf = ''
-    } else if (ch === ';') {
-      if (inside) {
-        const m = buf.trim().match(/^([\w-]+)\s*:\s*([\s\S]+)$/)
-        if (m) {
-          const context = stack.slice(inside).map((s) => own.replaced(s)).concat(stack.slice(0, inside).filter((s) => /^@media|^@supports|^@container/.test(s)))
-          out.set(`${context.join(SEP)}|${m[1]}`, m[2].trim())
-        }
+    } else if (inside) {
+      const m = e.text.match(/^([\w-]+)\s*:\s*([\s\S]+)$/)
+      if (m) {
+        const context = stack.slice(inside).map((x) => own.replaced(x)).concat(stack.slice(0, inside).filter((x) => /^@media|^@supports|^@container/.test(x)))
+        out.set(`${context.join(SEP)}|${m[1]}`, m[2].trim())
       }
-      buf = ''
-    } else buf += ch
+    }
   }
   return out
 }

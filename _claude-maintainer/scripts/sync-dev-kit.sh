@@ -559,6 +559,12 @@ subst_value() {
     printf '%s' "$SUBSTITUTIONS_JSON" | jq -r --arg k "$1" '.[$k] // "" | if type == "string" then . else "" end'
 }
 
+# Whether a key is the deliberate blank: present, empty, and listed in `_intentionally_empty`.
+subst_intentionally_empty() {
+    printf '%s' "$SUBSTITUTIONS_JSON" | jq -e --arg k "$1" \
+        'has($k) and (.[$k] == "") and ((._intentionally_empty // []) | index($k) != null)' >/dev/null 2>&1
+}
+
 # Map kit path to consumer destination path (relative to project root).
 # Convention: `_<name>-project/` in the kit maps 1:1 to `.<name>/` in the consumer.
 #   _claude-project/  → .claude/
@@ -630,13 +636,16 @@ dest_for_kit_path() {
             echo ".claude/rules/project/ui-inventory.md"
             ;;
         _claude-project/templates/design-system/*)
-            # The kit's design-system engine lands inside the UI package, which
-            # every project names differently. DESIGN_UI_PACKAGE supplies it;
-            # empty means the project publishes no design system and these
-            # files are skipped (reported under `skipped_unconfigured`).
+            # The claude-design engine's files land inside the UI package, which
+            # every project names differently. DESIGN_UI_PACKAGE supplies it; empty
+            # means the project has no UI package. A project with one that does
+            # not publish to Claude Design sets DESIGN_FEED_BARREL deliberately
+            # empty, and the engine's files are skipped too. Both are reported
+            # under `skipped_unconfigured`.
             local ui_pkg
             ui_pkg=$(subst_value "DESIGN_UI_PACKAGE")
             [ -z "$ui_pkg" ] && { echo ""; return; }
+            subst_intentionally_empty "DESIGN_FEED_BARREL" && { echo ""; return; }
             echo "${ui_pkg%/}/design-system/${kit_rel#_claude-project/templates/design-system/}"
             ;;
         _claude-project/templates/testing/vitest.config.ts)
@@ -708,7 +717,8 @@ kit_path_for_dest() {
 dest_key_for_kit_path() {
     case "$1" in
         _claude-project/templates/testing/*)       echo "SHARED_MODULE_DIR" ;;
-        _claude-project/templates/design-system/*) echo "DESIGN_UI_PACKAGE" ;;
+        _claude-project/templates/design-system/*)
+            if [ -z "$(subst_value DESIGN_UI_PACKAGE)" ]; then echo "DESIGN_UI_PACKAGE"; else echo "DESIGN_FEED_BARREL"; fi ;;
         *) echo "" ;;
     esac
 }

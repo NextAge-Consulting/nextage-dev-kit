@@ -244,6 +244,11 @@ d=$(scan | jq -r '.files[] | select(.kit_path == "_claude-project/templates/desi
 run --apply-file _claude-project/templates/design-system/engine.mjs >/dev/null 2>&1
 grep -q 'const pkg = "packages/ui";' "$PROJ/packages/ui/design-system/engine.mjs" && ok "design-system file written with substitutions" || bad "design-system content"
 scan | jq -e '[.skipped_unconfigured[] | .key] == ["SHARED_MODULE_DIR"]' >/dev/null && ok "configured key leaves the unconfigured list" || bad "unconfigured after set"
+jq '.DESIGN_FEED_BARREL = "" | ._intentionally_empty = ((._intentionally_empty // []) + ["DESIGN_FEED_BARREL"])' "$PROJ/.claude/sync-substitutions.json" > "$tmp/s" && mv "$tmp/s" "$PROJ/.claude/sync-substitutions.json"
+out=$(scan)
+jq -e '[.files[] | select(.kit_path == "_claude-project/templates/design-system/engine.mjs")] == []' <<<"$out" >/dev/null && ok "no Claude Design (feed barrel deliberately empty): engine files skipped" || bad "engine offered with no feed barrel"
+jq -e '[.skipped_unconfigured[] | .key] | sort == ["DESIGN_FEED_BARREL","SHARED_MODULE_DIR"]' <<<"$out" >/dev/null && ok "the skip is reported under the feed barrel key" || bad "feed barrel skip: $(jq -c .skipped_unconfigured <<<"$out")"
+jq 'del(.DESIGN_FEED_BARREL) | ._intentionally_empty -= ["DESIGN_FEED_BARREL"]' "$PROJ/.claude/sync-substitutions.json" > "$tmp/s" && mv "$tmp/s" "$PROJ/.claude/sync-substitutions.json"
 
 # ─── A broken register fails the scan loudly ──────────────────────────────
 printf '{not json' > "$PROJ/.claude/.kit-patches.json"

@@ -48,8 +48,9 @@
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const failures = [];
@@ -217,6 +218,23 @@ for (const [name, spec] of Object.entries(blessed)) {
 // So the DECLARATION fails and the bundling only advises. Measured, not assumed:
 // 6 of 7 apps in the fleet carry no `ssr.noExternal` and none of them is broken.
 // A check that failed them would be wrong, not strict.
+// An app's ssr.noExternal as Vite resolves its config — through a shared config
+// factory, a spread or an import, which reading the file as text cannot follow.
+// { error } when this app's Vite cannot load it.
+async function viteNoExternal(appDir, cfg) {
+  try {
+    const req = createRequire(resolve(appDir, "package.json"));
+    const vitePkg = req.resolve("vite/package.json");
+    const exp = JSON.parse(readFileSync(vitePkg, "utf8")).exports?.["."];
+    const entry = typeof exp === "string" ? exp : (exp?.import?.default ?? exp?.import ?? exp?.default);
+    const vite = await import(pathToFileURL(resolve(dirname(vitePkg), entry)).href);
+    const loaded = await vite.loadConfigFromFile({ command: "build", mode: "production" }, cfg, appDir, "silent");
+    return { value: loaded?.config?.ssr?.noExternal };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message.split("\n")[0] : String(err) };
+  }
+}
+
 const ssr = manifest.ssr_no_external;
 if (ssr?.whenAppDeclares) {
   for (const { dir, pkg } of manifests) {
@@ -254,10 +272,14 @@ if (ssr?.whenAppDeclares) {
     // -- advisory half.
     const wanted = ssr.adviseSsrNoExternal ?? [];
     if (wanted.length === 0) continue;
-    const src = readFileSync(cfg, "utf8");
-    const arr = src.match(/noExternal:\s*\[([\s\S]*?)\]/);
     const matchers = [];
-    if (arr) {
+    const viaVite = await viteNoExternal(resolve(repoRoot, dir), cfg);
+    const arr = viaVite.error ? readFileSync(cfg, "utf8").match(/noExternal:\s*\[([\s\S]*?)\]/) : null;
+    if (!viaVite.error) {
+      // true bundles every dependency; otherwise a string, a RegExp, or a list of them.
+      const v = viaVite.value;
+      for (const e of v === true ? [/(?:)/] : [v ?? []].flat()) if (typeof e === "string" || e instanceof RegExp) matchers.push(e);
+    } else if (arr) {
       for (const raw of arr[1].split(",")) {
         const e = raw.trim();
         if (!e) continue;
@@ -278,6 +300,7 @@ if (ssr?.whenAppDeclares) {
     if (missing.length) {
       advisories.push(
         `${dir}/${cfg.split("/").pop()}: ssr.noExternal does not cover ${missing.join(", ")}.\n` +
+          (viaVite.error ? `      Read as text — Vite could not load the config (${viaVite.error}).\n` : "") +
           `      Not a defect — the app declares its own majors, which is what protects it.\n` +
           `      This is hardening against a future hoist change. See ${ssr.reference}.`,
       );

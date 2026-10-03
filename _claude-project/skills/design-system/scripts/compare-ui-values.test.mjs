@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { INITIAL, arithmetic, candidates, variants, declarations, explainMoves, hunks, ownSelector, pairLines, resolveVars, themeVars, toPx } from './compare-ui-values.mjs'
+import { INITIAL, arithmetic, candidates, cssEvents, variants, declarations, explainMoves, hunks, ownSelector, pairLines, resolveVars, themeVars, toPx } from './compare-ui-values.mjs'
 
 test('candidates are the words of every string literal on a line', () => {
   assert.deepEqual(candidates(`<p className="text-sm font-medium" data-x='a b'>`), ['text-sm', 'font-medium', 'a', 'b'])
@@ -197,4 +197,20 @@ test('a token @supports override nested in :root wins in light mode as well as d
 }`
   assert.equal(themeVars(css, 'light').get('--ring'), 'color-mix(in oklab, red 20%, transparent)')
   assert.equal(themeVars(css, 'dark').get('--ring'), 'color-mix(in oklab, red 20%, transparent)')
+})
+
+test('braces and semicolons inside strings, comments and url() never break a block', () => {
+  const css = `:root {
+  --quote: "{;}";
+  /* a { comment ; } */
+  --icon: url(data:image/svg+xml;utf8,<svg>{}</svg>);
+  --escaped: 'a\\'}';
+  --after: 4px
+}`
+  const vars = themeVars(css)
+  assert.equal(vars.get('--quote'), '"{;}"')
+  assert.equal(vars.get('--icon'), 'url(data:image/svg+xml;utf8,<svg>{}</svg>)')
+  assert.equal(vars.get('--after'), '4px')
+  assert.deepEqual([...cssEvents('.a { b: c }')].map((e) => e.type), ['open', 'decl', 'close'])
+  assert.deepEqual([...declarations('.p-2 { content: "}"; padding: 8px; }', 'p-2')], [['|content', '"}"'], ['|padding', '8px']])
 })
