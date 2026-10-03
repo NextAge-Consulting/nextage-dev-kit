@@ -214,3 +214,10 @@ test('braces and semicolons inside strings, comments and url() never break a blo
   assert.deepEqual([...cssEvents('.a { b: c }')].map((e) => e.type), ['open', 'decl', 'close'])
   assert.deepEqual([...declarations('.p-2 { content: "}"; padding: 8px; }', 'p-2')], [['|content', '"}"'], ['|padding', '8px']])
 })
+
+test('an escaped quote in a selector does not open a string', () => {
+  const css = `.content-\\[\\'x\\'\\] { content: 'x'; }\n:root { --a: 4px; --b: red; }`
+  const vars = themeVars(css)
+  assert.equal(vars.get('--a'), '4px')
+  assert.equal(vars.get('--b'), 'red')
+})

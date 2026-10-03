@@ -289,6 +289,19 @@ test('a token nothing reaches fails, unless it is marked not-yet-built', async (
   assert.deepEqual(marked.problems, [])
 })
 
+test('a role named by its size fails where it is defined, in every family', async () => {
+  const { problems } = await run({
+    'packages/ui/src/styles.css': STYLES.replace('@theme inline {', '@theme inline {\n  --radius-md: 4px;\n  --font-weight-semibold: 600;\n  --shadow-lg: 0 0 4px black;'),
+    'packages/ui/src/type.css': `${TYPE}\n@utility type-sm {\n  font-size: 14px;\n}\n`,
+  })
+  const named = problems.filter((p) => /named by its size/.test(p))
+  assert.equal(named.length, 4)
+  assert.match(named.join('\n'), /packages\/ui\/src\/styles\.css:2 {2}--radius-md {2}— a radius role named by its size/)
+  assert.match(named.join('\n'), /--font-weight-semibold {2}— a weight role named by its size/)
+  assert.match(named.join('\n'), /--shadow-lg {2}— a shadow role named by its size/)
+  assert.match(named.join('\n'), /type-sm {2}— a type role named by its size/)
+})
+
 test('parity: a dark-only token and a ramp colour dark leaves light both fail', () => {
   const css = `:root {\n  /* page */\n  --background: #ffffff;\n  /* a */\n  --blue: #2244aa;\n  /* b */\n  --primary: var(--blue);\n  /* fixed */\n  --chart: #ff0000;\n}\n\n.dark {\n  --ghost: #000000;\n  --background: #111111;\n}\n`
   const { problems, applies } = parityProblems([['tokens.css', css]])

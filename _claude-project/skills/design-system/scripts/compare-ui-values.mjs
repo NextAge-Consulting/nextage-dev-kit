@@ -133,8 +133,8 @@ const isDark = (part) => /\.dark\b|prefers-color-scheme:\s*dark|:root:not\(\.lig
 
 /**
  * CSS as a stream of block opens, block closes and declarations. `{`, `}` and `;` inside a
- * quoted string, a comment or a `url(…)` are ordinary characters; a backslash keeps the
- * next character inside its string. A declaration left open at a block's end still counts.
+ * quoted string, a comment or a `url(…)` are ordinary characters, and a backslash escapes the
+ * next character everywhere — inside a string and in an escaped selector alike. A declaration left open at a block's end still counts.
  */
 export function* cssEvents(css) {
   let buf = ''
@@ -152,6 +152,11 @@ export function* cssEvents(css) {
       buf += ch
       if (ch === '\\') buf += css[++i] ?? ''
       else if (ch === ')') url = false
+      continue
+    }
+    // A CSS escape outside a string — a quote or brace in an escaped selector (`.content-\[\'x\'\]`) — is part of the name.
+    if (ch === '\\') {
+      buf += ch + (css[++i] ?? '')
       continue
     }
     if (ch === '/' && css[i + 1] === '*') {

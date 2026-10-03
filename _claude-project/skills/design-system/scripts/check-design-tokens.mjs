@@ -30,6 +30,8 @@
  *   call sites a component imported from the project's component trees placed, never
  *              repainted or sized by magnitude (`size="sm"`); a raw <input>/<textarea>
  *              painting the field look;
+ *   names      every role — type, radius, weight, shadow, spacing, leading, tracking —
+ *              named for what it is, never a size (`md`, `2xl`, `semibold`);
  *   tokens     every var() resolves, every token is reached, and the dark theme
  *              redefines every colour other tokens build on and adds none of its own;
  *   design.md  every token reference and quoted class exists, every type and radius
@@ -88,6 +90,8 @@ const PLACEMENT = new RegExp(
     ')$',
 )
 const NOT_TEXT = /\stype="(?:radio|checkbox|file|hidden|range|color)"/
+/** A role name that is a size, not a thing: `md`, `2xl`, `base`, `semibold`, `tight`. */
+const MAGNITUDE_NAME = /^(?:\d*x[sl]|sm|md|lg|base|thin|extralight|light|normal|medium|semibold|bold|extrabold|black|tighter|tight|snug|relaxed|loose|wide|wider|widest)$/
 /** A size prop naming a magnitude (`sm`, `lg`, `icon-sm`), not a role. */
 const MAGNITUDE_SIZE = /\ssize=(?:"((?:icon-)?(?:\d?xs|sm|md|lg|\d?xl))"|\{\s*["'`]((?:icon-)?(?:\d?xs|sm|md|lg|\d?xl))["'`]\s*\})/
 
@@ -253,6 +257,27 @@ export async function checkDesignTokens(repo, { keys: given } = {}) {
     for (const m of s.matchAll(/@utility\s+(type-[a-z0-9-]+)\s*\{/g)) typeRoles.add(m[1])
     for (const m of s.matchAll(/@utility\s+([a-z][a-z0-9-]*)\s*\{/g)) utilities.add(m[1])
   }
+  // A role is named for what it is, never for its size: `--radius-md`, `--font-weight-semibold`,
+  // `--shadow-lg` and `type-sm` are sizes in token clothing, whichever stylesheet defines them.
+  const definedAt = (text) => {
+    for (const [f, src] of css) {
+      const i = src.indexOf(text)
+      if (i !== -1) return `${f}:${src.slice(0, i).split('\n').length}`
+    }
+    return styleRels[0]
+  }
+  for (const [family, prefix, roles] of [
+    ['radius', '--radius-', radiusRoles],
+    ['weight', '--font-weight-', weightRoles],
+    ['shadow', '--shadow-', shadowRoles],
+    ['text-shadow', '--text-shadow-', textShadowRoles],
+    ['spacing', '--spacing-', spacingAliases],
+    ['leading', '--leading-', leadingRoles],
+    ['tracking', '--tracking-', trackingRoles],
+  ]) {
+    for (const r of roles) if (MAGNITUDE_NAME.test(r)) add(definedAt(`${prefix}${r}:`), `${prefix}${r}`, `a ${family} role named by its size; name it for what it is`)
+  }
+  for (const r of typeRoles) if (MAGNITUDE_NAME.test(r.slice('type-'.length))) add(definedAt(`@utility ${r}`), r, 'a type role named by its size; name it for what it is')
   const scrollUtilities = [...utilities].filter((u) => u.startsWith('scroll-'))
   const fieldLook = new Set(list(keys.DESIGN_FIELD_LOOK_CLASSES))
   const exempt = new Set(list(keys.DESIGN_EXEMPT_COMPONENTS))
