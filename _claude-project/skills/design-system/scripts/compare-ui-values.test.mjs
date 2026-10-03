@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { INITIAL, arithmetic, candidates, cssEvents, variants, declarations, explainMoves, hunks, ownSelector, pairLines, resolveVars, themeVars, toPx } from './compare-ui-values.mjs'
+import { INITIAL, arithmetic, canonicalColors, specificity, visibleShadow, candidates, cssEvents, variants, declarations, explainMoves, hunks, ownSelector, pairLines, resolveVars, themeVars, toPx } from './compare-ui-values.mjs'
 
 test('candidates are the words of every string literal on a line', () => {
   assert.deepEqual(candidates(`<p className="text-sm font-medium" data-x='a b'>`), ['text-sm', 'font-medium', 'a', 'b'])
@@ -220,4 +220,28 @@ test('an escaped quote in a selector does not open a string', () => {
   const vars = themeVars(css)
   assert.equal(vars.get('--a'), '4px')
   assert.equal(vars.get('--b'), 'red')
+})
+
+test('specificity counts what a rule adds: :where adds nothing, :is adds its inside', () => {
+  assert.equal(specificity([]), 0)
+  assert.equal(specificity(['&:hover', '@media (hover: hover)']), 1)
+  assert.equal(specificity(['&:where(.dark, .dark *)']), 0)
+  assert.equal(specificity(['&:is(.dark *)']), 1)
+  assert.equal(specificity(['&[data-size="sm"]']), 1)
+})
+
+test('a shadow layer with no offset, blur or spread draws nothing', () => {
+  assert.equal(visibleShadow('0 0 0 calc(0px + 0px) red'), 'none')
+  assert.equal(visibleShadow('0 0 #0000, 0 1px 2px 0 rgb(0 0 0 / 0.05)'), '0 1px 2px 0 rgb(0 0 0 / 0.05)')
+  assert.equal(visibleShadow('0 0 0 calc(3px + 0px) red'), '0 0 0 calc(3px + 0px) red')
+})
+
+test('one colour written three ways compares equal', () => {
+  const white = canonicalColors('#fff')
+  assert.equal(canonicalColors('#ffffff'), white)
+  assert.equal(canonicalColors('rgb(255 255 255)'), white)
+  assert.equal(canonicalColors('oklch(1 0 0)'), white)
+  assert.equal(canonicalColors('oklch(100% 0 0)'), white)
+  assert.equal(canonicalColors('rgba(0, 0, 0, 0.05)'), canonicalColors('rgb(0 0 0 / 5%)'))
+  assert.notEqual(canonicalColors('oklch(0.42 0 0)'), canonicalColors('oklch(0.44 0 0)'))
 })

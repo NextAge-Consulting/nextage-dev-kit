@@ -92,6 +92,82 @@ export function variants(line) {
   return out
 }
 
+/**
+ * The specificity a rule's own selector parts add, as one number (classes, attributes and
+ * pseudo-classes; `:where()` adds nothing, `:is()`/`:not()`/`:has()` add what is inside).
+ * The utility's own class is common to every rule of an element, so it is left out.
+ */
+export function specificity(parts) {
+  let n = 0
+  for (const part of parts) {
+    if (part.startsWith('@')) continue
+    let sel = part
+    for (let i = 0; i < 5 && sel.includes(':where('); i++) sel = sel.replace(/:where\((?:[^()]|\([^()]*\))*\)/g, '')
+    sel = sel.replace(/:(?:is|not|has)\(/g, '(').replace(/::[\w-]+/g, '')
+    n += (sel.match(/\.[\w-]|\[|:[\w-]+|#[\w-]/g) ?? []).length
+  }
+  return n
+}
+
+/** A shadow layer with no offset, blur or spread draws nothing, whatever its colour. */
+export function visibleShadow(value) {
+  const layers = []
+  let depth = 0
+  let cur = ''
+  for (const ch of value) {
+    if (ch === '(') depth++
+    else if (ch === ')') depth--
+    if (ch === ',' && depth === 0) {
+      layers.push(cur.trim())
+      cur = ''
+    } else cur += ch
+  }
+  layers.push(cur.trim())
+  const shown = layers.filter((l) => {
+    const lengths = (l.replace(/\b(?:inset|initial)\b/g, '').match(/-?[\d.]+(?:px|rem|em)?(?![\w%.(])/g) ?? []).slice(0, 4)
+    return !(lengths.length >= 2 && lengths.every((x) => Number.parseFloat(x) === 0))
+  })
+  return shown.length ? shown.join(', ') : 'none'
+}
+
+/**
+ * Every hex, rgb() and oklch() colour in a value rewritten as one canonical sRGB form, so
+ * `#fff`, `rgb(255 255 255)` and `oklch(1 0 0)` compare equal. Channels round to 0.1.
+ */
+export function canonicalColors(value) {
+  const out = (r, g, b, a = 1) => {
+    const c = (x) => +(x * 255).toFixed(1)
+    return `color(srgb ${c(r)} ${c(g)} ${c(b)}${a === 1 ? '' : ` / ${+a.toFixed(3)}`})`
+  }
+  const alpha = (x) => (x === undefined ? 1 : x.endsWith('%') ? Number.parseFloat(x) / 100 : Number(x))
+  return value
+    .replace(/#([0-9a-f]{3,8})\b/gi, (m, h) => {
+      const hex = h.length <= 4 ? [...h].map((x) => x + x).join('') : h
+      if (hex.length !== 6 && hex.length !== 8) return m
+      const n = (i) => Number.parseInt(hex.slice(i, i + 2), 16) / 255
+      return out(n(0), n(2), n(4), hex.length === 8 ? n(6) : 1)
+    })
+    .replace(/rgba?\(\s*([\d.]+)%?[\s,]+([\d.]+)%?[\s,]+([\d.]+)%?\s*(?:[,/]\s*([\d.]+%?))?\s*\)/gi, (_, r, g, b, a) =>
+      out(r / 255, g / 255, b / 255, alpha(a)),
+    )
+    .replace(/oklch\(\s*([\d.]+)(%?)\s+([\d.]+)\s+([\d.]+)(?:deg)?\s*(?:\/\s*([\d.]+%?))?\s*\)/gi, (_, l, pct, c, h, a) => {
+      const L = pct ? l / 100 : Number(l)
+      const hr = (Number(h) * Math.PI) / 180
+      const A = c * Math.cos(hr)
+      const B = c * Math.sin(hr)
+      const l_ = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3
+      const m_ = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3
+      const s_ = (L - 0.0894841775 * A - 1.291485548 * B) ** 3
+      const lin = [
+        4.0767416621 * l_ - 3.3077115913 * m_ + 0.2309699292 * s_,
+        -1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_,
+        -0.0041960863 * l_ - 0.7034186147 * m_ + 1.707614701 * s_,
+      ]
+      const gamma = (x) => (x <= 0.0031308 ? 12.92 * x : 1.055 * Math.sign(x) * Math.abs(x) ** (1 / 2.4) - 0.055)
+      return out(...lin.map(gamma), alpha(a))
+    })
+}
+
 /** A plain length or number in px where it can be; anything else unchanged. */
 export function toPx(value) {
   const v = value.trim().replace(/\s+/g, ' ')
@@ -306,10 +382,10 @@ export async function compilerFor(root, entry) {
       const ordered = [...new Set(classes)].sort((a, b) => at(a) - at(b))
       // Custom properties the element's own classes set (`--tw-shadow`) resolve first, over the theme.
       const local = { light: new Map(vars.light), dark: new Map(vars.dark) }
-      // Each class folds on its own first: its dark rule is its dark value, and Tailwind's
-      // `@supports (color: color-mix…)` upgrade replaces its own fallback. Then the classes
-      // apply in CSS order.
-      const slots = new Map()
+      // Each class folds on its own first: Tailwind's `@supports (color: color-mix…)` upgrade
+      // replaces its own fallback. Every rule is then kept with its state (hover, a media query,
+      // an attribute), its mode, its specificity and its place in the CSS.
+      const rules = []
       for (const c of ordered) {
         const own = new Map()
         for (const [k, v] of cache.get(c)) {
@@ -321,24 +397,29 @@ export async function compilerFor(root, entry) {
             if (mode === 'light') local.light.set(prop, v)
             continue
           }
-          const base = `${parts.filter((x) => !isDark(x) && !isMix(x)).join(SEP)}|${prop}`
+          const state = parts.filter((x) => !isDark(x) && !isMix(x))
+          const slot = `${state.join(SEP)}|${prop}\u0000${mode}`
           const mix = parts.some(isMix)
-          const slot = `${base}\u0000${mode}`
-          if (!own.has(slot) || mix || !own.get(slot).mix) own.set(slot, { v, mix })
+          if (!own.has(slot) || mix || !own.get(slot).mix) own.set(slot, { state, prop, mode, v, mix, spec: specificity(parts) })
         }
-        for (const [slot, { v }] of own) {
-          const [base, mode] = slot.split('\u0000')
-          if (!slots.has(base)) slots.set(base, {})
-          slots.get(base)[mode] = { v }
-        }
+        for (const r of own.values()) rules.push({ ...r, order: rules.length })
       }
+      // In each state, every rule that matches it competes, as in the browser: a plain rule
+      // also applies while hovered, a dark rule in dark mode. The more specific wins, then the later.
+      const states = new Map()
+      for (const r of rules) states.set(`${r.state.join(SEP)}|${r.prop}`, r)
       const resolved = (mode) => {
         const out = new Map()
-        for (const [base, slot] of slots) {
-          const v = mode === 'dark' ? (slot.dark ?? slot.light)?.v : slot.light?.v
-          if (v === undefined) continue
-          const value = toPx(resolveVars(v, local[mode]))
-          if (!INITIAL[base.split('|')[1]]?.includes(value.toLowerCase())) out.set(base, value)
+        for (const [key, { state, prop }] of states) {
+          let win = null
+          for (const r of rules) {
+            if (r.prop !== prop || (r.mode === 'dark' && mode !== 'dark') || !r.state.every((x) => state.includes(x))) continue
+            if (!win || r.spec > win.spec || (r.spec === win.spec && r.order > win.order)) win = r
+          }
+          if (!win) continue
+          const raw = canonicalColors(toPx(resolveVars(win.v, local[mode])))
+          const value = prop === 'box-shadow' ? visibleShadow(raw) : raw
+          if (!INITIAL[prop]?.includes(value.toLowerCase())) out.set(key, value)
         }
         // A unitless line height is relative to the font size beside it.
         for (const [k, v] of out) {
