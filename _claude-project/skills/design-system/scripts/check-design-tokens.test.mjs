@@ -205,6 +205,7 @@ for (const [name, cls, why] of [
   ['bare radius', 'rounded', /not a radius role/],
   ['raw weight', 'font-semibold', /not a weight role/],
   ['unknown shadow', 'shadow-lg', /not a shadow role/],
+  ['unknown text shadow', 'text-shadow-lg', /not a text-shadow role/],
   ['dark variant', 'dark:bg-background', /no `dark:`/],
   ['bare scroll', 'overflow-y-auto', /`scroll-region`/],
   ['arbitrary border width', 'border-[3px]', /no arbitrary line width/],
@@ -221,6 +222,12 @@ for (const [name, cls, why] of [
 test('roles the CSS defines pass: a leading token, 0.5, a radius corner, a colour with opacity', async () => {
   const { problems } = await run(screen('<div className="leading-prose p-0.5 rounded-t-panel text-foreground/60 rounded-none" />'))
   assert.deepEqual(problems, [])
+})
+
+test('a text shadow is never read as a type size', async () => {
+  const { problems } = await run(screen('<div className="text-shadow-lg text-shadow-none" />'))
+  assert.equal(problems.length, 1)
+  assert.doesNotMatch(problems[0], /type role/)
 })
 
 test('a comment line describing a rule is not a violation', async () => {

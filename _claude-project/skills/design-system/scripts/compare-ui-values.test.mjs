@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { arithmetic, candidates, declarations, hunks, ownSelector, resolveVars, themeVars, toPx } from './compare-ui-values.mjs'
+import { arithmetic, candidates, declarations, hunks, ownSelector, pairLines, resolveVars, themeVars, toPx } from './compare-ui-values.mjs'
 
 test('candidates are the words of every string literal on a line', () => {
   assert.deepEqual(candidates(`<p className="text-sm font-medium" data-x='a b'>`), ['text-sm', 'font-medium', 'a', 'b'])
@@ -76,4 +76,24 @@ test('a class matches its own selector, never a longer class it prefixes', () =>
   assert.equal(own.within('.p-20'), false)
   assert.equal(own.within('.p-2-x'), false)
   assert.equal(own.replaced('.p-2:hover, .p-2 > *'), '&:hover, & > *')
+})
+
+test('an escaped character after the match means a longer class', () => {
+  assert.equal(ownSelector('.py-2').within('.py-2\\.5'), false)
+  assert.equal(ownSelector('.py-1').within('.py-1\\.5'), false)
+  assert.equal(ownSelector('.py-2\\.5').within('.py-2\\.5'), true)
+})
+
+test('lines pair by their shape; a line with no partner is left over, never merged', () => {
+  const removed = ['<div className="p-2">', '<span className="text-sm">a</span>']
+  const added = ['<div className="p-3">', '<Icon className="size-4" />', '<span className="type-meta">a</span>']
+  const { pairs, leftover } = pairLines(removed, added)
+  assert.deepEqual(pairs, [[0, 0], [1, 2]])
+  assert.deepEqual(leftover, [{ side: 'added', index: 1 }])
+})
+
+test('an equal-sized gap between matches pairs one to one', () => {
+  const { pairs, leftover } = pairLines(['a("x")', 'b("y")'], ['c("x")', 'd("y")'])
+  assert.deepEqual(pairs, [[0, 0], [1, 1]])
+  assert.deepEqual(leftover, [])
 })

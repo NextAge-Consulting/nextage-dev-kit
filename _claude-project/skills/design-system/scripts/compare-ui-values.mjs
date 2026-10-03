@@ -120,7 +120,8 @@ export function ownSelector(selector) {
   const at = (sel) => {
     const hits = []
     for (let i = sel.indexOf(selector); i !== -1; i = sel.indexOf(selector, i + 1)) {
-      if (!/[\w-]/.test(sel[i + selector.length] ?? '')) hits.push(i)
+      // A word character, a hyphen or an escape (`py-2\.5`) after the match means a longer class.
+      if (!/[\w\\-]/.test(sel[i + selector.length] ?? '')) hits.push(i)
     }
     return hits
   }
@@ -234,6 +235,42 @@ function extractBase(repo, ref) {
   return dir
 }
 
+/** A line with the text inside its string literals blanked: what it is, apart from its classes. */
+const shape = (line) => line.replace(/(["'`])(?:\\.|(?!\1).)*\1/g, '$1$1').trim()
+
+/**
+ * Pairs a hunk's removed and added lines: lines of the same shape match in order, and the
+ * lines between two matches pair one to one when both sides hold the same number. Every
+ * other line is left over — never merged with another.
+ */
+export function pairLines(removed, added) {
+  const a = removed.map(shape)
+  const b = added.map(shape)
+  const lcs = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0))
+  for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1])
+  const anchors = []
+  for (let i = 0, j = 0; i < a.length && j < b.length; ) {
+    if (a[i] === b[j]) anchors.push([i++, j++])
+    else if (lcs[i + 1][j] >= lcs[i][j + 1]) i++
+    else j++
+  }
+  const pairs = []
+  const leftover = []
+  let pi = 0
+  let pj = 0
+  for (const [ai, bj] of [...anchors, [a.length, b.length]]) {
+    if (ai - pi === bj - pj) for (let k = 0; k < ai - pi; k++) pairs.push([pi + k, pj + k])
+    else {
+      for (let k = pi; k < ai; k++) leftover.push({ side: 'removed', index: k })
+      for (let k = pj; k < bj; k++) leftover.push({ side: 'added', index: k })
+    }
+    if (ai < a.length) pairs.push([ai, bj])
+    pi = ai + 1
+    pj = bj + 1
+  }
+  return { pairs, leftover }
+}
+
 /** Changed lines per file: hunks of removed and added lines, with the new-side line number. */
 export function hunks(diff) {
   const out = []
@@ -305,10 +342,15 @@ export async function compareUiValues(repo, { base = 'HEAD' } = {}) {
         uncompared.push(`${at}  — no stylesheet on one side to compile with`)
         continue
       }
-      const pairs = h.removed.length === h.added.length ? h.removed.map((r, i) => [r, h.added[i], i]) : [[h.removed.join('\n'), h.added.join('\n'), 0]]
-      for (const [r, a, i] of pairs) {
-        const oldC = candidates(r)
-        const newC = candidates(a)
+      const { pairs, leftover } = pairLines(h.removed, h.added)
+      for (const l of leftover) {
+        const text = l.side === 'removed' ? h.removed[l.index] : h.added[l.index]
+        if (candidates(text).length) uncompared.push(`${h.file}:${h.line + (l.side === 'added' ? l.index : 0)}  — a line with classes was ${l.side}, not swapped in place; check it by hand`)
+      }
+      for (const [ri, ai] of pairs) {
+        const i = ai
+        const oldC = candidates(h.removed[ri])
+        const newC = candidates(h.added[ai])
         if (oldC.join(' ') === newC.join(' ')) continue
         linesCompared++
         const x = before.resolve(oldC)

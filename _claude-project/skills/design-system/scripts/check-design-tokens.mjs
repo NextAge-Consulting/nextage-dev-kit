@@ -243,6 +243,7 @@ export async function checkDesignTokens(repo, { keys: given } = {}) {
   const weightRoles = themeKeys('font-weight')
   const fontFamilies = new Set([...themeKeys('font')].filter((k) => !k.startsWith('weight-')))
   const shadowRoles = themeKeys('shadow')
+  const textShadowRoles = themeKeys('text-shadow')
   const spacingAliases = themeKeys('spacing')
   const leadingRoles = themeKeys('leading')
   const trackingRoles = themeKeys('tracking')
@@ -284,6 +285,12 @@ export async function checkDesignTokens(repo, { keys: given } = {}) {
       each(/(?<![\w-])text-\[[^\]]*\]/g, (m) => add(at, m[0], 'no arbitrary text-[…]; type comes from a type-* role'))
       each(/(?<![\w-])(text-[a-z0-9][a-z0-9-]*)(?:\/\d+)?(?![\w-])/g, (m) => {
         const cls = m[1]
+        // A shadow on text is the shadow family, not a type size.
+        if (cls.startsWith('text-shadow')) {
+          const role = cls.slice('text-shadow-'.length)
+          if (role !== 'none' && !textShadowRoles.has(role)) add(at, cls, 'not a text-shadow role; a shadow on text comes from a --text-shadow-* token')
+          return
+        }
         if (NON_TYPE.has(cls) || NOT_CLASSES.has(cls) || colours.has(cls.slice(5))) return
         add(at, cls, /-\d{2,3}$|-(?:black|white)$/.test(cls) ? 'not a theme colour; colour comes from a semantic token' : 'not a type role; a size comes from a type-* role')
       })
