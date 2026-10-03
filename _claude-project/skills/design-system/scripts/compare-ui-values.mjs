@@ -11,8 +11,10 @@
  * and compared. Every theme variable both sides define is compared too.
  *
  * Prints:
+ *   moved        styles that left one line and arrived, identical, on another — a shared
+ *                look pulled into one place; not a change;
  *   changed      each difference, grouped (`font-size: 13px → 12px`), with file:line;
- *   uncompared   a changed line it could not pair or resolve, so nothing passes unseen.
+ *   uncompared   a changed line it could not resolve, so nothing passes unseen.
  * Exits 0 when nothing a user sees changed and everything was compared; 1 otherwise.
  * Prints what it inspected, and fails when that is nothing.
  */
@@ -26,6 +28,10 @@ import { pathToFileURL } from 'node:url'
 
 const ENTRY = /^\s*@import\s+["']tailwindcss["']/m
 const ROOT_PX = 16
+/** A property at its CSS initial value draws the same as the property unset. */
+export const INITIAL = { 'background-color': ['transparent'], 'border-color': ['currentcolor'], 'box-shadow': ['none'], opacity: ['1', '100%'] }
+/** Joins the nested rules a declaration sits in. */
+const SEP = ' » '
 
 const git = (repo, args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
 
@@ -66,7 +72,9 @@ export function arithmetic(src) {
 
 /** A plain length or number in px where it can be; anything else unchanged. */
 export function toPx(value) {
-  const v = value.trim()
+  const v = value.trim().replace(/\s+/g, ' ')
+  // A radius of infinity and one of 9999px or more both draw a pill.
+  if (v === 'calc(infinity * 1px)') return '9999px'
   let m = v.match(/^(-?[\d.]+)(px|rem)$/)
   if (m) return `${+(Number(m[1]) * (m[2] === 'rem' ? ROOT_PX : 1)).toFixed(3)}px`
   m = v.match(/^calc\((.+)\)$/)
@@ -85,14 +93,33 @@ export function toPx(value) {
 export function resolveVars(value, vars) {
   let v = value
   for (let i = 0; i < 20 && v.includes('var('); i++) {
-    v = v.replace(/var\((--[\w-]+)(?:\s*,\s*((?:[^()]|\([^()]*\))*))?\)/g, (_, name, fallback) => vars.get(name) ?? fallback ?? `<undefined ${name}>`)
+    v = v.replace(/var\((--[\w-]+)(?:\s*,\s*((?:[^()]|\([^()]*\))*))?\)/g, (_, name, fallback) => {
+      const value = vars.get(name)
+      // `initial` is the guaranteed-invalid value Tailwind gives an unset internal variable:
+      // the fallback applies, or nothing when there is none.
+      if (value === 'initial') return fallback ?? ''
+      return value ?? fallback ?? `<undefined ${name}>`
+    })
   }
   return v
 }
 
-/** Theme variables: every custom property on :root / :host / html outside a dark block. */
-export function themeVars(css) {
+/** A dark-theme block: the `.dark` class, the OS preference, or the kit's `:root:not(.light)`. */
+const isDark = (part) => /\.dark\b|prefers-color-scheme:\s*dark|:root:not\(\.light\)/.test(part)
+
+/**
+ * Theme variables for one mode, by the cascade: unlayered beats `@layer`, later beats
+ * earlier, and in dark mode a dark block beats both. A variable defined as itself
+ * (`--x: var(--x)`) is no value. `*` defaults and `@property` initial values rank lowest.
+ */
+export function themeVars(css, mode = 'light') {
   const vars = new Map()
+  const rank = new Map()
+  const put = (name, value, r) => {
+    if (value === `var(${name})` || (rank.get(name) ?? -1) > r) return
+    vars.set(name, value)
+    rank.set(name, r)
+  }
   const stack = []
   let buf = ''
   for (const ch of css) {
@@ -104,11 +131,16 @@ export function themeVars(css) {
       buf = ''
     } else if (ch === ';') {
       const sel = stack.at(-1) ?? ''
+      const dark = stack.some(isDark)
+      const layered = stack.some((x) => x.startsWith('@layer'))
       const m = buf.trim().match(/^(--[\w-]+)\s*:\s*([\s\S]+)$/)
-      if (m && /(^|,|\s)(:root|:host|html)\b|^\*/.test(sel) && !stack.some((s) => /\.dark|prefers-color-scheme:\s*dark/.test(s)) && !vars.has(m[1])) vars.set(m[1], m[2].trim())
+      if (m && (!dark || mode === 'dark')) {
+        if (/(^|,|\s)(:root|:host|html)\b/.test(sel) || dark) put(m[1], m[2].trim(), (layered ? 1 : 2) + (dark ? 2 : 0))
+        else if (/^\*/.test(sel)) put(m[1], m[2].trim(), 0)
+      }
       const init = buf.trim().match(/^initial-value\s*:\s*([\s\S]+)$/)
       const prop = sel.match(/^@property\s+(--[\w-]+)/)
-      if (init && prop && !vars.has(prop[1])) vars.set(prop[1], init[1].trim())
+      if (init && prop) put(prop[1], init[1].trim(), 0)
       buf = ''
     } else buf += ch
   }
@@ -159,7 +191,7 @@ export function declarations(css, cls) {
         const m = buf.trim().match(/^([\w-]+)\s*:\s*([\s\S]+)$/)
         if (m) {
           const context = stack.slice(inside).map((s) => own.replaced(s)).concat(stack.slice(0, inside).filter((s) => /^@media|^@supports|^@container/.test(s)))
-          out.set(`${context.join(' ')}|${m[1]}`, m[2].trim())
+          out.set(`${context.join(SEP)}|${m[1]}`, m[2].trim())
         }
       }
       buf = ''
@@ -176,12 +208,18 @@ export async function compilerFor(root, entry) {
   const compiled = await tw.compile(readFileSync(full, 'utf8'), { base: path.dirname(full), onDependency() {} })
   // build() is cumulative and writes only the theme variables its classes use, so the
   // variables are re-read from the latest output whenever a new class was built.
-  let vars = themeVars(compiled.build([]))
+  const read = () => {
+    const css = compiled.build([])
+    return { light: themeVars(css, 'light'), dark: themeVars(css, 'dark') }
+  }
+  let vars = read()
   const cache = new Map()
+  const isMix = (part) => /^@supports \(color: color-mix\(/.test(part)
   return {
     get vars() {
       return vars
     },
+    /** Each property's final value, light and dark: `14px`, or `x · dark y` when they differ. */
     resolve(classes) {
       let built = false
       const raw = new Map()
@@ -192,17 +230,50 @@ export async function compilerFor(root, entry) {
         }
         for (const [k, v] of cache.get(c)) raw.set(k, v)
       }
-      if (built) vars = themeVars(compiled.build([]))
+      if (built) vars = read()
       // Custom properties the element's own classes set (`--tw-shadow`) resolve first, over the theme.
-      const local = new Map(vars)
-      for (const [k, v] of raw) if (k.split('|')[1].startsWith('--')) local.set(k.split('|')[1], v)
-      const merged = new Map()
-      for (const [k, v] of raw) if (!k.split('|')[1].startsWith('--')) merged.set(k, toPx(resolveVars(v, local)))
-      // A unitless line height is relative to the font size beside it.
-      for (const [k, v] of merged) {
+      const local = { light: new Map(vars.light), dark: new Map(vars.dark) }
+      // A `dark:` class and Tailwind's `@supports (color: color-mix…)` upgrade fold into one
+      // property per mode: the dark rule wins in dark mode, the color-mix rule wins over its fallback.
+      const slots = new Map()
+      for (const [k, v] of raw) {
         const [ctx, prop] = k.split('|')
-        const size = merged.get(`${ctx}|font-size`)
-        if (prop === 'line-height' && /^[\d.]+$/.test(v) && size?.endsWith('px')) merged.set(k, `${+(Number(v) * Number.parseFloat(size)).toFixed(3)}px`)
+        const parts = ctx ? ctx.split(SEP) : []
+        const mode = parts.some(isDark) ? 'dark' : 'light'
+        const base = `${parts.filter((x) => !isDark(x) && !isMix(x)).join(SEP)}|${prop}`
+        if (prop.startsWith('--')) {
+          local.dark.set(prop, v)
+          if (mode === 'light') local.light.set(prop, v)
+          continue
+        }
+        const mix = parts.some(isMix)
+        if (!slots.has(base)) slots.set(base, {})
+        const slot = slots.get(base)
+        if (!slot[mode] || mix || !slot[mode].mix) slot[mode] = { v, mix }
+      }
+      const resolved = (mode) => {
+        const out = new Map()
+        for (const [base, slot] of slots) {
+          const v = mode === 'dark' ? (slot.dark ?? slot.light)?.v : slot.light?.v
+          if (v === undefined) continue
+          const value = toPx(resolveVars(v, local[mode]))
+          if (!INITIAL[base.split('|')[1]]?.includes(value.toLowerCase())) out.set(base, value)
+        }
+        // A unitless line height is relative to the font size beside it.
+        for (const [k, v] of out) {
+          const [ctx, prop] = k.split('|')
+          const size = out.get(`${ctx}|font-size`)
+          if (prop === 'line-height' && /^[\d.]+$/.test(v) && size?.endsWith('px')) out.set(k, `${+(Number(v) * Number.parseFloat(size)).toFixed(3)}px`)
+        }
+        return out
+      }
+      const light = resolved('light')
+      const dark = resolved('dark')
+      const merged = new Map()
+      for (const k of new Set([...light.keys(), ...dark.keys()])) {
+        const l = light.get(k) ?? '(unset)'
+        const d = dark.get(k) ?? '(unset)'
+        merged.set(k, l === d ? l : `${l} · dark ${d}`)
       }
       return merged
     },
@@ -271,6 +342,41 @@ export function pairLines(removed, added) {
   return { pairs, leftover }
 }
 
+/**
+ * Styles that moved rather than changed. Each line carries what it lost outright, what it
+ * gained outright, and what changed value in place. A line's lost styles that another line
+ * gained — same context, same value — moved there, when that line holds at least half of
+ * them: one shared property is coincidence. A value that changed in place is never
+ * explained by a move.
+ */
+export function explainMoves(diffs) {
+  const overlap = (src, t) => [...src.lost].filter(([k, v]) => t.gained.get(k) === v).map(([k]) => k)
+  const lost = new Map(diffs.map((d) => [d, new Map(d.lost)]))
+  const gained = new Map(diffs.map((d) => [d, new Map(d.gained)]))
+  const moves = new Map()
+  for (const src of diffs) {
+    if (!src.lost.size) continue
+    let best = null
+    for (const t of diffs) {
+      if (t === src || !t.gained.size) continue
+      const keys = overlap(src, t)
+      if (keys.length && (!best || keys.length > best.keys.length)) best = { t, keys }
+    }
+    if (!best || best.keys.length * 2 < src.lost.size) continue
+    const key = `${src.where} → ${best.t.where}`
+    if (!moves.has(key)) moves.set(key, { from: src.where, to: best.t.where, styles: 0 })
+    moves.get(key).styles += best.keys.length
+    for (const k of best.keys) {
+      lost.get(src).delete(k)
+      gained.get(best.t).delete(k)
+    }
+  }
+  const remaining = diffs
+    .map((d) => ({ ...d, lost: lost.get(d), gained: gained.get(d), changed: d.changed ?? new Map() }))
+    .filter((d) => d.lost.size || d.gained.size || d.changed.size)
+  return { moved: [...moves.values()], remaining }
+}
+
 /** Changed lines per file: hunks of removed and added lines, with the new-side line number. */
 export function hunks(diff) {
   const out = []
@@ -323,16 +429,19 @@ export async function compareUiValues(repo, { base = 'HEAD' } = {}) {
       const before = await get('old', entry)
       const after = await get('new', entry)
       if (!before || !after) continue
-      for (const [name, v] of before.vars) {
-        if (!after.vars.has(name)) continue
-        varsCompared++
-        const a = toPx(resolveVars(v, before.vars))
-        const b = toPx(resolveVars(after.vars.get(name), after.vars))
-        if (a !== b) note(`${name}: ${a} → ${b} (everything using it)`, entry)
+      for (const mode of ['light', 'dark']) {
+        for (const [name, v] of before.vars[mode]) {
+          if (!after.vars[mode].has(name)) continue
+          varsCompared++
+          const a = toPx(resolveVars(v, before.vars[mode]))
+          const b = toPx(resolveVars(after.vars[mode].get(name), after.vars[mode]))
+          if (a !== b) note(`${mode === 'dark' ? 'dark ' : ''}${name}: ${a} → ${b} (everything using it)`, entry)
+        }
       }
     }
 
     let linesCompared = 0
+    const diffs = []
     for (const h of changes) {
       const at = `${h.file}:${h.line}`
       const entry = entryFor(entries, h.file)
@@ -343,33 +452,56 @@ export async function compareUiValues(repo, { base = 'HEAD' } = {}) {
         continue
       }
       const { pairs, leftover } = pairLines(h.removed, h.added)
+      const record = (where, x, y) => {
+        const lost = new Map()
+        const gained = new Map()
+        const changed = new Map()
+        for (const k of new Set([...x.keys(), ...y.keys()])) {
+          const va = x.get(k)
+          const vb = y.get(k)
+          const undef = `${va} ${vb}`.match(/<undefined (--[\w-]+)>/)
+          if (undef) uncompared.push(`${where}  — ${k.split('|')[1]} uses ${undef[1]}, which nothing defines`)
+          else if (va !== vb) {
+            if (vb === undefined) lost.set(k, va)
+            else if (va === undefined) gained.set(k, vb)
+            else changed.set(k, [va, vb])
+          }
+        }
+        if (lost.size || gained.size || changed.size) diffs.push({ where, lost, gained, changed })
+      }
       for (const l of leftover) {
-        const text = l.side === 'removed' ? h.removed[l.index] : h.added[l.index]
-        if (candidates(text).length) uncompared.push(`${h.file}:${h.line + (l.side === 'added' ? l.index : 0)}  — a line with classes was ${l.side}, not swapped in place; check it by hand`)
+        const removed = l.side === 'removed'
+        const c = candidates(removed ? h.removed[l.index] : h.added[l.index])
+        if (!c.length) continue
+        linesCompared++
+        const where = `${h.file}:${h.line + (removed ? 0 : l.index)}`
+        if (removed) record(where, before.resolve(c), new Map())
+        else record(where, new Map(), after.resolve(c))
       }
       for (const [ri, ai] of pairs) {
-        const i = ai
         const oldC = candidates(h.removed[ri])
         const newC = candidates(h.added[ai])
         if (oldC.join(' ') === newC.join(' ')) continue
         linesCompared++
-        const x = before.resolve(oldC)
-        const y = after.resolve(newC)
-        const where = `${h.file}:${h.line + i}`
-        for (const k of new Set([...x.keys(), ...y.keys()])) {
-          const [ctx, prop] = k.split('|')
-          const va = x.get(k) ?? '(unset)'
-          const vb = y.get(k) ?? '(unset)'
-          const undef = `${va} ${vb}`.match(/<undefined (--[\w-]+)>/)
-          if (undef) uncompared.push(`${where}  — ${prop} uses ${undef[1]}, which nothing defines`)
-          else if (va !== vb) note(`${ctx ? `${ctx} ` : ''}${prop}: ${va} → ${vb}`, where)
-        }
+        record(`${h.file}:${h.line + ai}`, before.resolve(oldC), after.resolve(newC))
       }
+    }
+
+    const { moved, remaining } = explainMoves(diffs)
+    const label = (k) => {
+      const [ctx, prop] = k.split('|')
+      return `${ctx ? `${ctx} ` : ''}${prop}`
+    }
+    for (const d of remaining) {
+      for (const [k, v] of d.lost) note(`${label(k)}: ${v} → (unset)`, d.where)
+      for (const [k, v] of d.gained) note(`${label(k)}: (unset) → ${v}`, d.where)
+      for (const [k, [a, b]] of d.changed) note(`${label(k)}: ${a} → ${b}`, d.where)
     }
 
     return {
       problems: [],
       changed: [...changed].map(([what, at]) => ({ what, at })),
+      moved,
       uncompared,
       counts: { hunks: changes.length, linesCompared, varsCompared, entries: entries.length },
     }
@@ -382,7 +514,7 @@ async function main() {
   const i = process.argv.indexOf('--base')
   const base = i > -1 ? process.argv[i + 1] : 'HEAD'
   const repo = git(process.cwd(), ['rev-parse', '--show-toplevel']).trim()
-  const { problems, changed, uncompared, counts } = await compareUiValues(repo, { base })
+  const { problems, changed, moved, uncompared, counts } = await compareUiValues(repo, { base })
   if (problems.length) {
     for (const p of problems) console.error(`✗ ${p}`)
     process.exit(1)
@@ -391,6 +523,10 @@ async function main() {
   if (counts.linesCompared === 0 && counts.varsCompared === 0) {
     console.error(`✗ nothing compared: ${scanned}`)
     process.exit(1)
+  }
+  if (moved.length) {
+    console.log(`\n  Moved, values identical (${moved.length}) — glance that each source still uses its new home:`)
+    for (const m of moved) console.log(`    ${m.from}  →  ${m.to}  (${m.styles} style(s))`)
   }
   if (!changed.length && !uncompared.length) {
     console.log(`✓ nothing a user sees changed: ${scanned}`)

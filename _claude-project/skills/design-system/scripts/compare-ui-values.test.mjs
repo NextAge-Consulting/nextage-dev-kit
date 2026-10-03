@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { arithmetic, candidates, declarations, hunks, ownSelector, pairLines, resolveVars, themeVars, toPx } from './compare-ui-values.mjs'
+import { INITIAL, arithmetic, candidates, declarations, explainMoves, hunks, ownSelector, pairLines, resolveVars, themeVars, toPx } from './compare-ui-values.mjs'
 
 test('candidates are the words of every string literal on a line', () => {
   assert.deepEqual(candidates(`<p className="text-sm font-medium" data-x='a b'>`), ['text-sm', 'font-medium', 'a', 'b'])
@@ -42,7 +42,7 @@ test('a utility\'s declarations, with their variant context, custom properties i
   .shadow-md { --tw-shadow: 0 1px red; box-shadow: var(--tw-shadow); }
 }`
   assert.deepEqual([...declarations(css, 'text-sm')], [['|font-size', 'var(--text-sm)']])
-  assert.deepEqual([...declarations(css, 'hover:bg-x')], [['&:hover @media (hover: hover)|background-color', 'var(--x)']])
+  assert.deepEqual([...declarations(css, 'hover:bg-x')], [['&:hover » @media (hover: hover)|background-color', 'var(--x)']])
   assert.deepEqual([...declarations(css, 'shadow-md')], [['|--tw-shadow', '0 1px red'], ['|box-shadow', 'var(--tw-shadow)']])
 })
 
@@ -96,4 +96,83 @@ test('an equal-sized gap between matches pairs one to one', () => {
   const { pairs, leftover } = pairLines(['a("x")', 'b("y")'], ['c("x")', 'd("y")'])
   assert.deepEqual(pairs, [[0, 0], [1, 1]])
   assert.deepEqual(leftover, [])
+})
+
+const look = () => new Map([['|border-width', '1px'], ['|border-radius', '6px'], ['|padding-inline', '12px']])
+
+test('a shared look pulled out of three components into one place is a move, not a change', () => {
+  const diffs = [
+    { where: 'textarea.tsx:12', lost: look(), gained: new Map() },
+    { where: 'input.tsx:9', lost: look(), gained: new Map() },
+    { where: 'select.tsx:30', lost: look(), gained: new Map() },
+    { where: 'field.ts:3', lost: new Map(), gained: look() },
+  ]
+  const { moved, remaining } = explainMoves(diffs)
+  assert.deepEqual(moved.map((m) => `${m.from}>${m.to}`), ['textarea.tsx:12>field.ts:3', 'input.tsx:9>field.ts:3', 'select.tsx:30>field.ts:3'])
+  assert.deepEqual(remaining, [])
+})
+
+test('a value that changed in place is never explained by a move elsewhere', () => {
+  const diffs = [
+    { where: 'a.tsx:1', lost: new Map(), gained: new Map(), changed: new Map([['|font-size', ['13px', '12px']]]) },
+    { where: 'b.tsx:1', lost: new Map(), gained: new Map([['|font-size', '13px']]) },
+  ]
+  const { moved, remaining } = explainMoves(diffs)
+  assert.deepEqual(moved, [])
+  assert.equal(remaining.length, 2)
+})
+
+test('a line that changed one value still moves the styles it lost outright', () => {
+  const type = new Map([['|font-size', '16px'], ['|line-height', '24px']])
+  const { moved, remaining } = explainMoves([
+    { where: 'input.tsx:35', lost: new Map(type), gained: new Map(), changed: new Map([['|height', ['28px', '36px']]]) },
+    { where: 'input.tsx:14', lost: new Map(), gained: new Map(type) },
+  ])
+  assert.deepEqual(moved, [{ from: 'input.tsx:35', to: 'input.tsx:14', styles: 2 }])
+  assert.deepEqual(remaining.map((d) => [...d.changed]), [[['|height', ['28px', '36px']]]])
+})
+
+test('what moved is explained and the style that differs stays listed, on both sides', () => {
+  const extra = look()
+  extra.set('|color', 'red')
+  const target = look()
+  target.set('|gap', '4px')
+  const { moved, remaining } = explainMoves([
+    { where: 'a.tsx:1', lost: extra, gained: new Map() },
+    { where: 'b.tsx:1', lost: look(), gained: new Map() },
+    { where: 'field.ts:1', lost: new Map(), gained: target },
+  ])
+  assert.deepEqual(moved.map((m) => m.from), ['a.tsx:1', 'b.tsx:1'])
+  assert.deepEqual(remaining.map((d) => d.where), ['a.tsx:1', 'field.ts:1'])
+  assert.deepEqual([...remaining[0].lost], [['|color', 'red']])
+  assert.deepEqual([...remaining[1].gained], [['|gap', '4px']])
+})
+
+test('theme variables follow the cascade: unlayered over layered, a self-reference is no value, dark overrides in dark mode', () => {
+  const css = `@layer theme { :root { --c: var(--c); --size: 1rem; } }
+:root { --c: red; }
+@media (prefers-color-scheme: dark) { :root:not(.light) { --c: blue; } }`
+  assert.equal(themeVars(css, 'light').get('--c'), 'red')
+  assert.equal(themeVars(css, 'dark').get('--c'), 'blue')
+  assert.equal(themeVars(css, 'dark').get('--size'), '1rem')
+})
+
+test('one shared property is coincidence, not a move', () => {
+  const { moved, remaining } = explainMoves([
+    { where: 'a.tsx:1', lost: new Map([['|outline-style', 'none'], ['|color', 'red'], ['|gap', '8px']]), gained: new Map() },
+    { where: 'b.tsx:1', lost: new Map(), gained: new Map([['|outline-style', 'none']]) },
+  ])
+  assert.deepEqual(moved, [])
+  assert.equal(remaining.length, 2)
+})
+
+test('an `initial` variable falls back; a pill radius is one value', () => {
+  assert.equal(resolveVars('var(--tw-leading, 20px)', new Map([['--tw-leading', 'initial']])), '20px')
+  assert.equal(resolveVars('var(--tw-ring-inset) 0 0', new Map([['--tw-ring-inset', 'initial']])), ' 0 0')
+  assert.equal(toPx('calc(infinity * 1px)'), '9999px')
+})
+
+test('a property at its CSS initial value counts as unset', () => {
+  assert.deepEqual(INITIAL['background-color'], ['transparent'])
+  assert.deepEqual(INITIAL['border-color'], ['currentcolor'])
 })

@@ -76,7 +76,7 @@ Every component and pattern carries one, `approved` or `pending`; an approved to
 
 #### The review
 
-**First prove what did not change.** `node .claude/skills/design-system/scripts/compare-ui-values.mjs [--base <ref>]` resolves the classes on every changed line, before and after, through the project's own Tailwind build, and lists only the values a user would see differently — grouped, with file and line — plus any line it could not compare. A line it proves identical needs no review. It compares each line where it stands, so styling moved into a component shows as changed on the line it left.
+**First prove what did not change.** `node .claude/skills/design-system/scripts/compare-ui-values.mjs [--base <ref>]` resolves the classes on every changed line, before and after, through the project's own Tailwind build, and lists only the values a user would see differently — grouped, with file and line — plus any line it could not compare. A line it proves identical needs no review. It resolves every value in light and dark mode, and lists a style that leaves one line and arrives unchanged on another — a shared look pulled into one place — as moved, not changed.
 
 **At the end of a body of work — a feature, a conversion, a mockup session, and at the latest before `/deploy` — walk the human through every pending part and every change the comparison lists.** List them with `node .claude/skills/ui-patterns/scripts/check-ui-status.mjs`, each with the screens that use it. Each one the human approves becomes `approved`, in its file and on its inventory line. One they reject is replaced by an existing part, or folded back into the screens that use it. `/deploy` refuses while anything is pending.
 
