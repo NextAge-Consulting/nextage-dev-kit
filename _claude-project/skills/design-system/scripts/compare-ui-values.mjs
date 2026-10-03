@@ -154,7 +154,9 @@ export function themeVars(css, mode = 'light') {
       stack.pop()
       buf = ''
     } else if (ch === ';') {
-      const sel = stack.at(-1) ?? ''
+      // The nearest real selector: Tailwind nests `@supports` and `@media` inside `:root`.
+      const sel = stack.findLast((x) => !x.startsWith('@')) ?? ''
+      const at = stack.at(-1) ?? ''
       const dark = stack.some(isDark)
       const layered = stack.some((x) => x.startsWith('@layer'))
       const m = buf.trim().match(/^(--[\w-]+)\s*:\s*([\s\S]+)$/)
@@ -163,7 +165,7 @@ export function themeVars(css, mode = 'light') {
         else if (/^\*/.test(sel)) put(m[1], m[2].trim(), 0)
       }
       const init = buf.trim().match(/^initial-value\s*:\s*([\s\S]+)$/)
-      const prop = sel.match(/^@property\s+(--[\w-]+)/)
+      const prop = at.match(/^@property\s+(--[\w-]+)/)
       if (init && prop) put(prop[1], init[1].trim(), 0)
       buf = ''
     } else buf += ch

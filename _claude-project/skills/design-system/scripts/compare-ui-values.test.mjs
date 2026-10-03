@@ -187,3 +187,14 @@ test('an either/or class choice is two variants, never both classes at once', ()
 test('a Radix runtime variable compares as written, never as undefined', () => {
   assert.equal(resolveVars('var(--radix-select-content-available-height)', new Map()), 'runtime(--radix-select-content-available-height)')
 })
+
+test('a token @supports override nested in :root wins in light mode as well as dark', () => {
+  const css = `:root {
+  --ring: red;
+  @supports (color: color-mix(in lab, red, red)) {
+    --ring: color-mix(in oklab, red 20%, transparent);
+  }
+}`
+  assert.equal(themeVars(css, 'light').get('--ring'), 'color-mix(in oklab, red 20%, transparent)')
+  assert.equal(themeVars(css, 'dark').get('--ring'), 'color-mix(in oklab, red 20%, transparent)')
+})
