@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { arithmetic, candidates, declarations, hunks, resolveVars, themeVars, toPx } from './compare-ui-values.mjs'
+import { arithmetic, candidates, declarations, hunks, ownSelector, resolveVars, themeVars, toPx } from './compare-ui-values.mjs'
 
 test('candidates are the words of every string literal on a line', () => {
   assert.deepEqual(candidates(`<p className="text-sm font-medium" data-x='a b'>`), ['text-sm', 'font-medium', 'a', 'b'])
@@ -67,4 +67,13 @@ test('arithmetic evaluates + - * / and parentheses, and refuses anything else', 
   assert.equal(arithmetic('1.25 / 0.875'), 1.25 / 0.875)
   assert.equal(arithmetic('-(2 + 2)'), -4)
   assert.equal(arithmetic('2 + x'), null)
+})
+
+test('a class matches its own selector, never a longer class it prefixes', () => {
+  const own = ownSelector('.p-2')
+  assert.equal(own.within('.p-2'), true)
+  assert.equal(own.within('.p-2:hover'), true)
+  assert.equal(own.within('.p-20'), false)
+  assert.equal(own.within('.p-2-x'), false)
+  assert.equal(own.replaced('.p-2:hover, .p-2 > *'), '&:hover, & > *')
 })

@@ -115,20 +115,39 @@ export function themeVars(css) {
   return vars
 }
 
+/** Where a class's selector appears in a rule's selector — not as the prefix of a longer class. */
+export function ownSelector(selector) {
+  const at = (sel) => {
+    const hits = []
+    for (let i = sel.indexOf(selector); i !== -1; i = sel.indexOf(selector, i + 1)) {
+      if (!/[\w-]/.test(sel[i + selector.length] ?? '')) hits.push(i)
+    }
+    return hits
+  }
+  return {
+    within: (sel) => at(sel).length > 0,
+    replaced: (sel) => {
+      let out = sel
+      for (const i of at(sel).reverse()) out = `${out.slice(0, i)}&${out.slice(i + selector.length)}`
+      return out
+    },
+  }
+}
+
 /** The declarations one utility produces, as `context|property` → raw value, custom properties included. */
 export function declarations(css, cls) {
   const out = new Map()
   const stack = []
   let buf = ''
   let inside = 0
-  // The class as CSS writes it in a selector (`hover\:bg-x`), then escaped for a RegExp.
+  // The class as CSS writes it in a selector (`hover\:bg-x`), matched as plain text.
   const selector = `.${cls.replace(/[^\w-]/g, (c) => `\\${c}`)}`
-  const own = new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}(?![\\w-])`)
+  const own = ownSelector(selector)
   for (const ch of css) {
     if (ch === '{') {
       const sel = buf.trim()
       stack.push(sel)
-      if (own.test(sel) || (inside && stack.length > inside)) inside ||= stack.length
+      if (own.within(sel) || (inside && stack.length > inside)) inside ||= stack.length
       buf = ''
     } else if (ch === '}') {
       if (stack.length === inside) inside = 0
@@ -138,7 +157,7 @@ export function declarations(css, cls) {
       if (inside) {
         const m = buf.trim().match(/^([\w-]+)\s*:\s*([\s\S]+)$/)
         if (m) {
-          const context = stack.slice(inside).map((s) => s.replace(own, '&')).concat(stack.slice(0, inside).filter((s) => /^@media|^@supports|^@container/.test(s)))
+          const context = stack.slice(inside).map((s) => own.replaced(s)).concat(stack.slice(0, inside).filter((s) => /^@media|^@supports|^@container/.test(s)))
           out.set(`${context.join(' ')}|${m[1]}`, m[2].trim())
         }
       }
