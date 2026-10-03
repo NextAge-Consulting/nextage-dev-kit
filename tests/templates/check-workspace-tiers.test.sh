@@ -89,6 +89,13 @@ printf '{\n  // comments are allowed\n  "compilerOptions": { "baseUrl": ".", "pa
 echo 'export const a = 1;' > "$r/apps/site/src/a.ts"
 expect "a tsconfig paths alias resolving outside its workspace fails" "$r" 1 'apps/site/tsconfig.json: paths alias "@ui/*" resolves to packages/ui/src, outside apps/site'
 
+r=$(tiered comma-in-string)
+mkdir -p "$r/apps/site/src"
+echo '{"name":"@acme/site"}' > "$r/apps/site/package.json"
+printf '{ "compilerOptions": { "paths": { "@ui, }/*": ["../../packages/ui/src/*"], }, },\n}\n' > "$r/apps/site/tsconfig.json"
+echo 'export const a = 1;' > "$r/apps/site/src/a.ts"
+expect "a comma and bracket inside a tsconfig string survive parsing" "$r" 1 'paths alias "@ui, }/*" resolves to packages/ui/src'
+
 r=$(tiered root-alias)
 echo '{"compilerOptions":{"paths":{"@ui/*":["./packages/ui/src/*"]}}}' > "$r/tsconfig.base.json"
 expect "a root tsconfig paths alias landing inside a workspace fails" "$r" 1 'tsconfig.base.json: paths alias "@ui/*" resolves to packages/ui/src, inside packages/ui'

@@ -5,7 +5,6 @@
 - Items always inside their Group component
 - Callouts use Alert
 - Empty states use Empty component
-- Toast notifications use sonner
 - Choosing between overlay components
 - Dialog, Sheet, and Drawer always need a Title
 - Card structure
@@ -78,20 +77,6 @@ This applies to all group-based components:
     <Button>Create Project</Button>
   </EmptyContent>
 </Empty>
-```
-
----
-
-## Toast notifications use sonner
-
-```tsx
-import { toast } from "sonner"
-
-toast.success("Changes saved.")
-toast.error("Something went wrong.")
-toast("File deleted.", {
-  action: { label: "Undo", onClick: () => undoDelete() },
-})
 ```
 
 ---

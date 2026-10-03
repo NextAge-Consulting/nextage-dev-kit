@@ -4,7 +4,7 @@ paths: "**/*.{ts,tsx,mts,cts}"
 
 # TypeScript Rules
 
-Loaded when editing TypeScript. Universal rules live in `constitution.md`. Frontend rules live here, because the stack is TanStack + Astro and frontend means TS.
+Loaded when editing TypeScript. Universal rules live in `constitution.md`; UI rules live in `ui-design.md`, `ui-patterns.md` and `a11y-baseline.md`.
 
 ## I. TypeScript Quality (Zero Tolerance)
 
@@ -74,25 +74,11 @@ Wrap a chained `&&` assignment in `!!()` so it stores `true` or `false` rather t
 const isValid = !!(user && user.email && user.verified);
 ```
 
-## VII. Contextual Feedback, Not Toasts
-
-Replace a success toast with an inline state change or optimistic UI; an error toast with an inline message, form-level error, or modal; a warning toast with an inline indicator; a loading toast with a spinner in the component. Clipboard-copy confirmation is the one exception.
-
-When you edit a file that still has toasts, migrate them.
-
-## VIII. Web Standards
-
-Give every icon-only button a hover tooltip.
-
-Consider responsive impact across mobile, tablet and desktop on any UI change: horizontal space on mobile, text overflow and wrapping, touch targets of at least 44px, how grid and flex layouts shift, and the `sm:` / `md:` / `lg:` / `xl:` breakpoints.
-
-Style with Tailwind, build from `shadcn/ui` primitives, and follow the `shadcn` skill for component patterns. Name semantically (`ButtonActive`, not `ButtonRed`), prefer semantic classes like `text-foreground` over hand-written dark mode, and join conditional classes with `cn()`.
-
-## IX. Code Standards
+## VII. Code Standards
 
 Write TypeScript, and write components as functions with hooks rather than classes.
 
-## X. Setup and Commands
+## VIII. Setup and Commands
 
 TypeScript LSP needs both Claude Code's official plugin and the language server binary (constitution §IX). One-time per machine:
 
@@ -105,7 +91,7 @@ Verify with `which typescript-language-server` returning a path and `/plugin lis
 
 The CLI always works: `npm run check-types` (typecheck via local `tsc`), `tsc --noEmit` directly, and `npm run dev` for the development server.
 
-## XI. Workspace Imports
+## IX. Workspace Imports
 
 **One workspace reaches another by package name, declared as a dependency.** The consuming workspace lists the package with `"*"` (`"@acme/shared": "*"`) and imports `@acme/shared/billing/invoice` — never a relative path out of its own directory, and never a tsconfig `paths` alias that resolves outside it. `check-workspace-tiers.mjs` fails both.
 

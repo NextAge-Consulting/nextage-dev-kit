@@ -28,7 +28,8 @@
  *   classes    type, radius, weight, shadow, spacing, line width, `dark:`, bare scroll
  *              areas — off a role, arbitrary, or off the 4px grid;
  *   call sites a component imported from the project's component trees placed, never
- *              repainted; a raw <input>/<textarea> painting the field look;
+ *              repainted or sized by magnitude (`size="sm"`); a raw <input>/<textarea>
+ *              painting the field look;
  *   tokens     every var() resolves, every token is reached, and the dark theme
  *              redefines every colour other tokens build on and adds none of its own;
  *   design.md  every token reference and quoted class exists, every type and radius
@@ -63,7 +64,7 @@ const NON_TYPE = new Set([
 const NOT_CLASSES = new Set([
   'font-size', 'font-family', 'font-weight', 'font-style', 'font-variant',
   'font-stretch', 'font-feature-settings', 'font-variant-numeric',
-  'text-transform', 'text-decoration',
+  'text-transform', 'text-decoration', 'text-anchor',
 ])
 const SPACE_PROPS = 'p|px|py|pt|pb|pl|pr|ps|pe|m|mx|my|mt|mb|ml|mr|ms|me|gap|gap-x|gap-y|space-x|space-y'
 const CORNER = 't|r|b|l|tl|tr|br|bl|s|e|ss|se|es|ee'
@@ -73,9 +74,10 @@ const PLACEMENT = new RegExp(
   '^-?(?:' +
     [
       'm[xytrblse]?-.+', // margin
-      // The box's extent: the parent decides how wide a field is. `size-*` is NOT
-      // here — a fixed square is a control's identity.
-      '(?:min-|max-)?[wh]-.+',
+      // The box's extent: the parent decides how wide a field is, and may bound or
+      // stretch its height. A fixed height is NOT here, and neither is `size-*` —
+      // how tall a control is belongs to the control.
+      '(?:min-|max-)?w-.+', '(?:min-|max-)h-.+', 'h-(?:full|auto|screen|fit|min|max|dvh|svh|lvh)',
       'flex-(?:\\d+|\\[[^\\]]+\\]|1|auto|initial|none)', 'grow(?:-0)?', 'shrink(?:-0)?', 'basis-.+',
       'order-.+', 'self-.+', 'justify-self-.+', 'place-self-.+', 'col-.+', 'row-.+',
       'relative', 'absolute', 'sticky', 'fixed', 'inset-.+', 'top-.+', 'right-.+', 'bottom-.+', 'left-.+', 'z-.+',
@@ -86,6 +88,8 @@ const PLACEMENT = new RegExp(
     ')$',
 )
 const NOT_TEXT = /\stype="(?:radio|checkbox|file|hidden|range|color)"/
+/** A size prop naming a magnitude (`sm`, `lg`, `icon-sm`), not a role. */
+const MAGNITUDE_SIZE = /\ssize=(?:"((?:icon-)?(?:\d?xs|sm|md|lg|\d?xl))"|\{\s*["'`]((?:icon-)?(?:\d?xs|sm|md|lg|\d?xl))["'`]\s*\})/
 
 const posix = (p) => p.split(path.sep).join('/').replaceAll('\\', '/')
 const isComment = (line) => /^\s*(\/\/|\*|\/\*)/.test(line)
@@ -362,6 +366,8 @@ export async function checkDesignTokens(repo, { keys: given } = {}) {
         classesChecked++
         if (!PLACEMENT.test(cls.split(':').pop())) add(`${file}:${t.line}`, `<${t.name}> ${cls}`, 'a call site places a component, never repaints it; add a variant')
       }
+      const size = t.open.match(MAGNITUDE_SIZE)
+      if (size) add(`${file}:${t.line}`, `<${t.name}> size="${size[1] ?? size[2]}"`, 'a size named by magnitude; the component names the role (a size or variant for what the control is), and a call site never picks how big it is')
     }
   }
 

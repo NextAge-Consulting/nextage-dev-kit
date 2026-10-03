@@ -228,11 +228,31 @@ test('a comment line describing a rule is not a violation', async () => {
   assert.deepEqual(problems, [])
 })
 
+test('an SVG attribute in a string is not a class', async () => {
+  const { problems } = await run({ 'apps/web/src/icon.ts': 'export const svg = `<text x="16" text-anchor="middle">A</text>`\n' })
+  assert.deepEqual(problems, [])
+})
+
 test('a call site that repaints a component fails; placing it passes; an exempt component passes', async () => {
   const imports = 'import { Button } from "@acme/ui/components/button"\nimport { PopoverTrigger } from "@acme/ui/components/popover"'
   const bad = await run(screen('<><Button className="p-2 mt-1" /><PopoverTrigger className="p-2" /></>', imports))
   assert.equal(bad.problems.length, 1)
   assert.match(bad.problems[0], /<Button> p-2 {2}— a call site places a component/)
+})
+
+test('a call site may set a width or bound a height, never fix a height', async () => {
+  const imports = 'import { Button } from "@acme/ui/components/button"'
+  const { problems } = await run(screen('<><Button className="h-8 w-8" /><Button className="w-full h-full max-h-60" /></>', imports))
+  assert.equal(problems.length, 1)
+  assert.match(problems[0], /<Button> h-8 {2}— a call site places a component/)
+})
+
+test('a call site picking a size by magnitude fails; a role-named size passes', async () => {
+  const imports = 'import { Button } from "@acme/ui/components/button"'
+  const { problems } = await run(screen('<><Button size="sm" /><Button size={"icon-lg"} /><Button size="toolbar" /><Button size={size} /></>', imports))
+  assert.equal(problems.length, 2)
+  assert.match(problems[0], /<Button> size="sm" {2}— a size named by magnitude/)
+  assert.match(problems[1], /<Button> size="icon-lg" {2}— a size named by magnitude/)
 })
 
 test('a raw input painting the field look fails; a checkbox input does not', async () => {

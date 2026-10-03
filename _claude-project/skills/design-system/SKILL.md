@@ -396,5 +396,6 @@ For **look-and-feel** (elevation, motion, composition, density) there is a secon
 This skill cooperates with — and never duplicates — the following:
 
 - **`a11y-baseline.md` rule** — auto-loaded on every JSX/TSX edit; authoritative for accessibility patterns
-- **`typescript-rules.md` rule** — auto-loaded on TS/TSX; authoritative for TS quality discipline, frontend conventions, no-toast policy
+- **`ui-patterns.md` rule** — auto-loaded on JSX/TSX; authoritative for the no-toast policy
+- **`typescript-rules.md` rule** — auto-loaded on TS/TSX; authoritative for TS quality discipline
 - **`shadcn` skill** — invoked when adding new shadcn components or working with the registry

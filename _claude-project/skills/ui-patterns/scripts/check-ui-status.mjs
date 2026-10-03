@@ -128,7 +128,9 @@ export function checkUiStatus(repo, { files = repoFiles(repo) } = {}) {
   for (const row of rows) {
     const byPath = row.name.includes('/')
     const want = key(row.name.split('/').at(-1))
-    const matches = parts.filter((f) => fileKey(f) === want && (!byPath || key(f).endsWith(key(row.name))))
+    // A row naming a .md file is a pattern; any other names a component.
+    const kind = row.name.endsWith('.md') ? isPattern : isComponent
+    const matches = parts.filter((f) => kind(f) && fileKey(f) === want && (!byPath || key(f).endsWith(key(row.name))))
     if (matches.length === 0) {
       if (row.status) problems.push(`${INVENTORY}:${row.line}: \`${row.name}\` has a status but no component or pattern file is named that`)
       continue

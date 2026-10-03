@@ -325,8 +325,23 @@ function workspaceDirs() {
 const workspaces = workspaceDirs();
 
 // tsconfig is JSON with comments and trailing commas. Strings are copied whole,
-// so a `/*` inside one — every `paths` glob has it — is never read as a comment.
+// so a `/*` or a `, }` inside one — every `paths` glob has the first — is never
+// read as a comment or a trailing comma.
 function parseJsonc(text) {
+  // The next character after `from` that is neither whitespace nor inside a comment.
+  const nextSignificant = (from) => {
+    for (let k = from; k < text.length; k++) {
+      if (/\s/.test(text[k])) continue;
+      if (text[k] === "/" && text[k + 1] === "/") {
+        while (k < text.length && text[k] !== "\n") k++;
+      } else if (text[k] === "/" && text[k + 1] === "*") {
+        const end = text.indexOf("*/", k + 2);
+        if (end === -1) return "";
+        k = end + 1;
+      } else return text[k];
+    }
+    return "";
+  };
   let out = "";
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
@@ -342,9 +357,11 @@ function parseJsonc(text) {
       i = text.indexOf("*/", i + 2);
       if (i === -1) break;
       i++;
+    } else if (c === "," && "}]".includes(nextSignificant(i + 1))) {
+      // A trailing comma: dropped.
     } else out += c;
   }
-  return JSON.parse(out.replace(/,(\s*[}\]])/g, "$1"));
+  return JSON.parse(out);
 }
 const within = (path, dir) => `${resolve(path)}${sep}`.startsWith(`${resolve(dir)}${sep}`);
 const owner = (path) =>

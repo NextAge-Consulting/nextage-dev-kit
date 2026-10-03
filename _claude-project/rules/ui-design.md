@@ -18,7 +18,13 @@ This rule is path-targeted because JSX and TSX consume tokens, CSS and SCSS hold
 
 ## One app, one look and feel
 
+**We build applications, not websites.** Ground every design decision, piece of research and argument in application practice, where consistency is enforced and a screen gets little freedom. A practice common on websites is not a reason here.
+
 **Reuse what exists.** Sizes, spacing and colours come only from tokens — never a value picked because it looks better. No tweaking for its own sake.
+
+**Build from the project's `shadcn/ui` atoms, styled with Tailwind**; the `shadcn` skill carries the component patterns.
+
+**Check every UI change at phone, tablet and desktop widths** — horizontal space on a phone, text that overflows or wraps, how grid and flex layouts shift across the `sm:` / `md:` / `lg:` / `xl:` breakpoints.
 
 **A change the human asks for is made in the part** — the token, component or pattern — never on one screen, and you tell them what else it changes before you make it.
 
@@ -44,7 +50,7 @@ Where runtime and documented spec diverge, runtime wins: update `design.md` to m
 
 ## A token names what a thing IS
 
-**Name the role, never the size.** `field-caption`, `row-title` and `card-inset`
+**Name the role, never the size** — a component as much as a token: `ButtonActive`, never `ButtonRed`. `field-caption`, `row-title` and `card-inset`
 are tokens; `label`, `microlabel`, `sm`, `xs` and `lg` are sizes in token
 clothing, and they leave the next screen with the same decision to make.
 

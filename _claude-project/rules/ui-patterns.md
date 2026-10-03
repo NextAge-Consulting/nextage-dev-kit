@@ -33,6 +33,12 @@ It is a pattern if another competent developer would plausibly have built it dif
 
 **Patterns are project-owned.** The kit ships this rule and the skill; `references/` arrives empty and a sync never writes into it. To use another project's pattern, copy it across by hand or re-decide it here.
 
+## Feedback in context, never a toast
+
+Show the result of an action where the user is looking: success as an inline state change or optimistic update, an error as an inline message, form-level error or dialog, a warning as an inline indicator, progress as a spinner in the component. Clipboard-copy confirmation is the one exception.
+
+When you edit a file that still has toasts, migrate them.
+
 ## The one carve-out
 
 A purely presentational component — no state, no mutations, no transitions, no layout decisions of its own — does not need this.

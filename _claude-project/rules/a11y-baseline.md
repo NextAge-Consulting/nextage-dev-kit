@@ -12,19 +12,11 @@ AI-generated JSX skips a11y by default, because the training examples omit it. T
 
 A raw `<button>` defaults to `type="submit"`, which inside a `<form>` submits on any click. Set `type="button"` on action buttons and `type="submit"` on submit buttons. The shared shadcn `Button` already defaults to `type="button"`.
 
-## Icon-only buttons — give them a name
+## Icon-only buttons — a name and a tooltip
 
-A button whose only content is an icon has no accessible name: screen readers announce "button", and keyboard users get a focus ring with no idea what it does. Three valid patterns:
+A button whose only content is an icon has no accessible name: screen readers announce "button", and keyboard users get a focus ring with no idea what it does. **Give every icon-only button an `aria-label` and a hover tooltip carrying the same text** — `TooltipContent` is the tooltip, not the button's accessible name, so it needs both.
 
 ```tsx
-// 1. aria-label — simplest, when no tooltip is needed
-<Button variant="ghost" size="icon" aria-label="Close dialog">
-  <X className="size-4" />
-</Button>
-
-// 2. Tooltip — best when the action benefits from a hover hint.
-//    The button still needs its own aria-label: TooltipContent is the
-//    tooltip's content, not the button's accessible name.
 <Tooltip>
   <TooltipTrigger asChild>
     <Button variant="ghost" size="icon" aria-label="Delete row">
@@ -33,13 +25,9 @@ A button whose only content is an icon has no accessible name: screen readers an
   </TooltipTrigger>
   <TooltipContent>Delete row</TooltipContent>
 </Tooltip>
-
-// 3. Visually-hidden span — when the icon already reads to sighted users
-<Button variant="ghost" size="icon">
-  <Settings className="size-4" />
-  <span className="sr-only">Open settings</span>
-</Button>
 ```
+
+A project builds this once, as an icon-button composite whose one label feeds both, and every screen uses that.
 
 **Name the action, not the icon.** The name is announced verbatim and shown on focus.
 
@@ -51,6 +39,12 @@ A button whose only content is an icon has no accessible name: screen readers an
 | "View order details" | "Click here" |
 
 When the button already has a name and the icon is an inline `<svg>`, mark the SVG `aria-hidden="true"` — naming both double-announces.
+
+## Target size — a 24px floor; touch sizing comes from the design system
+
+**Every interactive target is at least 24px in both dimensions** (WCAG 2.5.8). Above that floor, desktop controls stay as compact as the design wants.
+
+**A control grows for a finger through the design system:** a control-size token the stylesheet redefines under `@media (pointer: coarse)`, so the same button is mouse-sized with a mouse and finger-sized (44px, Apple HIG) on touch. Never a page-level size override, and never a 44px minimum applied to desktop.
 
 ## SVG icons — `<title>` or hidden
 

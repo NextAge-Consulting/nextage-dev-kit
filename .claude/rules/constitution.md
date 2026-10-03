@@ -1,6 +1,6 @@
 # Constitution
 
-Global, language-agnostic rules. Language-specific rules — TypeScript and frontend quality, Python quality, framework patterns — live in `typescript-rules.md` and `python-rules.md`, loaded by path targeting.
+Global, language-agnostic rules. Language-specific rules — TypeScript quality, Python quality, framework patterns — live in `typescript-rules.md` and `python-rules.md`, and UI rules in `ui-design.md`, `ui-patterns.md` and `a11y-baseline.md`, all loaded by path targeting.
 
 ## II. Questions Before Code
 

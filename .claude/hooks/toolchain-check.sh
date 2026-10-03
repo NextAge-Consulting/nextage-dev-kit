@@ -39,6 +39,7 @@ check_tools() {
 has_typescript_sources() {
     local files own
     files=$(git -C "$1" ls-files --cached --others --exclude-standard -- '*.ts' '*.tsx' '*.mts' '*.cts' 2>/dev/null) || return 0
+    # An empty list needs no early return: $(…) strips the lone newline, so own is empty.
     own=$(printf '%s\n' "$files" | grep -vE '(^|/)(node_modules|\.claude|dist)/' | grep -vxF 'knip.config.ts')
     [ -n "$own" ]
 }

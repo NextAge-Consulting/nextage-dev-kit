@@ -107,6 +107,18 @@ test('a path in the catalogue picks one of two same-named files', () => {
   assert.deepEqual(out.problems, [`${other}: not in ${INVENTORY}`])
 })
 
+test('a pattern and a component sharing a name are matched by kind', () => {
+  const notice = 'src/components/failure-notice.tsx'
+  const ref = '.claude/skills/ui-patterns/references/failure-notice.md'
+  const out = run({
+    [notice]: '// ui-status: pending\n',
+    [ref]: '---\nui-status: approved\n---\n',
+    [INVENTORY]: INV('| `failure-notice.md` | x | approved |\n| `FailureNotice` | x | pending |'),
+  })
+  assert.deepEqual(out.problems, [])
+  assert.deepEqual(out.pending, [`${notice} (component)`])
+})
+
 test('component and pattern recognition, and name keys', () => {
   assert.ok(isComponent('apps/web/src/components/x.tsx'))
   assert.ok(!isComponent('apps/web/src/components/x.test.tsx'))
