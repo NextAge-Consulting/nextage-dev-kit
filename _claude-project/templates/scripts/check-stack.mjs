@@ -348,13 +348,13 @@ if (existsSync(resolve(repoRoot, "design.md"))) {
     [".", rootPkg, "lint:design", "design.md lint design.md"],
   ];
   // DESIGN_UI_PACKAGE's three states: set, deliberately empty (listed in
-  // _intentionally_empty — no design system yet, so the engine's scripts are not
+  // _intentionally_empty — the project has no UI package, so the engine's scripts are not
   // required and lint:tokens says so itself), or undecided, which fails.
   const uiPkg = String(subs.DESIGN_UI_PACKAGE ?? "").trim().replace(/\/$/, "");
   const uiOff = subs.DESIGN_UI_PACKAGE !== undefined && !uiPkg && (subs._intentionally_empty ?? []).includes("DESIGN_UI_PACKAGE");
   if (!uiPkg && !uiOff)
     failures.push(
-      `.claude/sync-substitutions.json: DESIGN_UI_PACKAGE is ${subs.DESIGN_UI_PACKAGE === undefined ? "not set" : "empty and not listed in _intentionally_empty"} — design.md exists, so set it to the UI package that holds the design system, or set it to "" and list it in _intentionally_empty when the design system is not set up yet.`,
+      `.claude/sync-substitutions.json: DESIGN_UI_PACKAGE is ${subs.DESIGN_UI_PACKAGE === undefined ? "not set" : "empty and not listed in _intentionally_empty"} — design.md exists, so set it to the UI package that holds the design system, or set it to "" and list it in _intentionally_empty only when the project has no UI package.`,
     );
   const uiConfig = uiPkg && existsSync(resolve(repoRoot, uiPkg, "design-system/design-system.config.mjs"));
   if (uiConfig) {
@@ -377,7 +377,7 @@ if (existsSync(resolve(repoRoot, "design.md"))) {
     if (got === undefined) failures.push(`${where(dir)}: no "${script}" script — design.md exists, so it runs the kit's check: ${target}`);
     else if (!runs(got)) failures.push(`${where(dir)}: "${script}" is "${got}" — it runs the kit's check: ${target}`);
   }
-  designWiring = `${want.length} design script(s) checked${uiOff ? " (design system not set up: DESIGN_UI_PACKAGE is intentionally empty)" : ""}`;
+  designWiring = `${want.length} design script(s) checked${uiOff ? " (no UI package: DESIGN_UI_PACKAGE is intentionally empty)" : ""}`;
 }
 
 // --- report ----------------------------------------------------------------

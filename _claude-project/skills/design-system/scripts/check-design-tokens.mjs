@@ -95,7 +95,7 @@ const posix = (p) => p.split(path.sep).join('/').replaceAll('\\', '/')
 const isComment = (line) => /^\s*(\/\/|\*|\/\*)/.test(line)
 const DECL = /^\s*(--[A-Za-z0-9-]+)\s*:\s*(.+?);(?:\s*\/\*.*)?\s*$/
 
-export const NOT_SET_UP = 'design token checks do not apply: this project has not set up its design system (DESIGN_UI_PACKAGE is intentionally empty)'
+export const NOT_SET_UP = 'design token checks do not apply: this project has no UI package (DESIGN_UI_PACKAGE is intentionally empty)'
 
 /** The design keys from .claude/sync-substitutions.json, and a problem per missing one;
  * `notApplicable` set when the project has deliberately not set its design system up. */
@@ -105,8 +105,9 @@ export function readKeys(repo) {
   const subs = JSON.parse(readFileSync(file, 'utf8'))
   // DESIGN_UI_PACKAGE decides whether the check applies at all, by the three
   // substitution states: empty AND listed in _intentionally_empty is a decision
-  // that the project has no design system yet; missing, or empty without that
-  // listing, is a decision nobody has made.
+  // that the project has no UI package; missing, or empty without that
+  // listing, is a decision nobody has made. Every project with a UI package names it,
+  // whether or not it publishes to Claude Design.
   const ui = subs.DESIGN_UI_PACKAGE
   const off = (subs._intentionally_empty ?? []).includes('DESIGN_UI_PACKAGE')
   if (ui !== undefined && !String(ui).trim() && off) return { keys: null, problems: [], notApplicable: NOT_SET_UP }
@@ -114,7 +115,7 @@ export function readKeys(repo) {
     return {
       keys: null,
       problems: [
-        `DESIGN_UI_PACKAGE: ${ui === undefined ? 'not set' : 'empty, and not listed in _intentionally_empty'} in .claude/sync-substitutions.json — set it to the UI package that holds the design system, or set it to "" and list it in _intentionally_empty when the project has not set its design system up`,
+        `DESIGN_UI_PACKAGE: ${ui === undefined ? 'not set' : 'empty, and not listed in _intentionally_empty'} in .claude/sync-substitutions.json — set it to the UI package that holds the design system, or set it to "" and list it in _intentionally_empty only when the project has no UI package`,
       ],
     }
   const problems = []

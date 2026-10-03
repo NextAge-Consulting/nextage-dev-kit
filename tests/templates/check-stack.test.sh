@@ -62,7 +62,7 @@ expect() {
 }
 
 r=$(repo exact "$TOKENS" OFF)
-expect "design system not set up (key intentionally empty): lint scripts checked, engine scripts not required" "$r" 0 "2 design script(s) checked (design system not set up: DESIGN_UI_PACKAGE is intentionally empty)"
+expect "no UI package (key intentionally empty): lint scripts checked, engine scripts not required" "$r" 0 "2 design script(s) checked (no UI package: DESIGN_UI_PACKAGE is intentionally empty)"
 
 r=$(repo unlisted "$TOKENS" "")
 expect "DESIGN_UI_PACKAGE empty but not in _intentionally_empty fails naming both choices" "$r" 1 "DESIGN_UI_PACKAGE is empty and not listed in _intentionally_empty"
@@ -71,7 +71,7 @@ r=$(repo unset "$TOKENS" UNSET)
 expect "DESIGN_UI_PACKAGE missing fails naming both choices" "$r" 1 "DESIGN_UI_PACKAGE is not set — design.md exists, so set it to the UI package"
 
 r=$(repo off-unwired "" OFF); echo '# Design' > "$r/design.md"
-expect "not set up still needs lint:tokens wired, so it can say why" "$r" 1 "no \"lint:tokens\" script"
+expect "no UI package still needs lint:tokens wired, so it can say why" "$r" 1 "no \"lint:tokens\" script"
 
 r=$(repo wrong-tokens "node scripts/check-design-tokens.mjs" OFF)
 expect "lint:tokens pointing at another script fails" "$r" 1 "\"lint:tokens\" is \"node scripts/check-design-tokens.mjs\""

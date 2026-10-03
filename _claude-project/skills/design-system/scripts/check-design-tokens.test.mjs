@@ -386,7 +386,7 @@ test('DESIGN_UI_PACKAGE empty and listed in _intentionally_empty: does not apply
   const r = await checkDesignTokens(dir)
   assert.deepEqual(r.problems, [])
   assert.equal(r.notApplicable, NOT_SET_UP)
-  assert.match(r.notApplicable, /has not set up its design system \(DESIGN_UI_PACKAGE is intentionally empty\)/)
+  assert.match(r.notApplicable, /has no UI package \(DESIGN_UI_PACKAGE is intentionally empty\)/)
 })
 
 test('DESIGN_UI_PACKAGE empty but not listed: fails naming the key and both choices', async () => {

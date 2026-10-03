@@ -36,9 +36,21 @@ Match the kit template's tables: patterns, components (the project's own, the ve
 
 A line that is not a list item or a "never hand-roll X, use Y" line is a rule. Move it into the reference file of the pattern it governs; a rule that governs no pattern goes in its own file under `.claude/rules/project/`. Do the same for any other `.claude/rules/project/*.md` whose rules are about how a kind of screen works.
 
+## 3a. Build the roles and switch the token check on
+
+Read the `design-system` skill's "Semantic tokens, or it is a design system in name only" through "Enforce it or it decays" first.
+
+1. **Name the UI package.** Set `DESIGN_UI_PACKAGE` in `.claude/sync-substitutions.json` to the package that holds the design system (`packages/ui`, or the one app's folder) and take it out of `_intentionally_empty`. Set the other design keys the catalog's `_placeholders_referenced_by_kit` describes. `DESIGN_FEED_BARREL` is `""` and listed in `_intentionally_empty` unless the project publishes to Claude Design. Wire `"lint:tokens": "node .claude/skills/design-system/scripts/check-design-tokens.mjs"` at the root if it is missing. Run `npm run lint:tokens` and keep its counts as the baseline.
+2. **Build the roles from what the code already uses.** For each family — type, weight, radius, spacing, shadow, colour — collect the values in use, grouped by what each element is. Each group becomes a role named for what it is, taking the group's most-used value; an outlier snaps to the nearest role. Define every role in the token stylesheets, each with its comment.
+3. **Convert every call site and every component variant to the roles.** A size a screen picks (`size="sm"`, `h-8`) becomes a role-named size or variant on the component.
+4. **Prove what changed.** Run `node .claude/skills/design-system/scripts/compare-ui-values.mjs`. A line it proves identical needs nothing. For each change it lists, either adjust the role until the line is identical, or keep it as a deliberate snap.
+5. Run `npm run lint:tokens` until it passes.
+
+A role that only names values already in use changes nothing a user sees, so it needs no approval. What goes to me is only what `compare-ui-values.mjs` still lists, grouped by role.
+
 ## 4. Known Gaps
 
-If `design.md` has a Known Gaps section, leave it in place and list every entry in the report: each one is now either a part to build and mark pending, or a decision for me.
+If `design.md` has a Known Gaps section, remove the heading and move each entry, in present tense, into the section it belongs to — a colour fact into Colors, a scope note into Overview. Anything that is a real missing piece goes to me instead.
 
 ## 5. Prove it
 
@@ -46,12 +58,15 @@ If `design.md` has a Known Gaps section, leave it in place and list every entry 
 node .claude/skills/ui-patterns/scripts/check-ui-status.mjs
 ```
 
-It passes with nothing pending. Then run `npm run check-types`, `npx --no-install @biomejs/biome lint --max-diagnostics=none`, and `npm run lint:tokens` and `npm run lint:design` when `design.md` exists, and fix every failure.
+It passes with nothing pending. Then run `npm run check-types`, `npx --no-install @biomejs/biome lint --max-diagnostics=none`, `npm run lint:tokens` and `npm run lint:design`, and fix every failure.
 
 ## Report
 
 - the files marked approved, as a count
 - the inventory before and after, in rows per section
 - every rule moved, and where it went
-- every Known Gaps entry
+- the roles built, one line each, with the values they hold
+- `lint:tokens` before and after, by kind
+- what `compare-ui-values.mjs` still lists, grouped by role
+- every Known Gaps entry, and where it went
 - each check's result

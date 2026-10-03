@@ -28,6 +28,8 @@ This rule is path-targeted because JSX and TSX consume tokens, CSS and SCSS hold
 
 **A change the human asks for is made in the part** — the token, component or pattern — never on one screen, and you tell them what else it changes before you make it.
 
+**A change that leaves what the user sees exactly the same needs no review and no approval.** Prove it first with `node .claude/skills/design-system/scripts/compare-ui-values.mjs`; only what it lists as changed goes to the human.
+
 **Nothing new becomes part of the system until the human has looked at it and approved it.** Build what the work needs and mark it pending; `/deploy` refuses while anything is. How that plays out when converting a screen, tweaking one, building a new screen or mockup, or bringing a Claude Design back is the `design-system` skill's Step 2.
 
 ## Adding a component means adding it in two places

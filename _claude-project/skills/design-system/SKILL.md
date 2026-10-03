@@ -54,7 +54,7 @@ This is a search you run every time. No hardcoded paths, no per-project list —
 
 **A token, a variant, a pattern, or anything a second screen uses is a part.** A layout block only one screen uses stays in that screen's file and is not a part; it still takes every value from a token. When a second screen needs it, it becomes a part.
 
-**Adding to or changing an approved part — a new variant included — sets it to pending**, unless the human asked for that change.
+**Changing how an approved part looks or behaves — a new variant included — sets it to pending**, unless the human asked for that change. A change `compare-ui-values.mjs` proves leaves every value the same stays approved.
 
 #### Each kind of work
 
@@ -76,7 +76,9 @@ Every component and pattern carries one, `approved` or `pending`; an approved to
 
 #### The review
 
-**At the end of a body of work — a feature, a conversion, a mockup session, and at the latest before `/deploy` — walk the human through every pending part.** List them with `node .claude/skills/ui-patterns/scripts/check-ui-status.mjs`, each with the screens that use it. Each one the human approves becomes `approved`, in its file and on its inventory line. One they reject is replaced by an existing part, or folded back into the screens that use it. `/deploy` refuses while anything is pending.
+**First prove what did not change.** `node .claude/skills/design-system/scripts/compare-ui-values.mjs [--base <ref>]` resolves the classes on every changed line, before and after, through the project's own Tailwind build, and lists only the values a user would see differently — grouped, with file and line — plus any line it could not compare. A line it proves identical needs no review. It compares each line where it stands, so styling moved into a component shows as changed on the line it left.
+
+**At the end of a body of work — a feature, a conversion, a mockup session, and at the latest before `/deploy` — walk the human through every pending part and every change the comparison lists.** List them with `node .claude/skills/ui-patterns/scripts/check-ui-status.mjs`, each with the screens that use it. Each one the human approves becomes `approved`, in its file and on its inventory line. One they reject is replaced by an existing part, or folded back into the screens that use it. `/deploy` refuses while anything is pending.
 
 ### Step 3: Identify the right tokens for the task
 
@@ -287,7 +289,7 @@ mismatch, `design.md` naming what does not exist, and a stale generated file.
   `<UI package>/design-system/checks/` default-exporting a function. The checker runs
   each one with its API — `repo`, `pkg`, `design`, `css`, `sources`, the `roles` it read,
   and `add(at, what, why)` to report a finding.
-- **A project with `design.md` and no design system set up yet** sets `DESIGN_UI_PACKAGE` to `""` and lists it in `_intentionally_empty`; the check then passes saying it does not apply, and fails while the key is missing or empty without that listing.
+- **Every project with a UI package names it in `DESIGN_UI_PACKAGE`**, whether or not it publishes to Claude Design, and the check runs. Only a project with no UI package sets it to `""` and lists it in `_intentionally_empty`; the check then passes saying it does not apply, and fails while the key is missing or empty without that listing.
 - **A token for a screen not built yet says so on its line** —
   `/* not-yet-built: <screen> */` — or the check reads it as one a rewrite left behind.
 
