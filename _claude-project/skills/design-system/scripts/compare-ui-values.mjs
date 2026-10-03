@@ -70,6 +70,28 @@ export function arithmetic(src) {
   return i === tokens.length && Number.isFinite(v) ? v : null
 }
 
+/**
+ * The class lists a line can apply. `cond ? "a" : "b"` applies one branch or the other, and
+ * `cond && "a"` applies it or nothing, so each is a choice; every other string always
+ * applies. Returns one list per combination of choices, or null past eight.
+ */
+export function variants(line) {
+  const choices = []
+  let rest = line.replace(/\?\s*(["'`])((?:\\.|(?!\1).)*)\1\s*:\s*(["'`])((?:\\.|(?!\3).)*)\3/g, (_, _q, a, _q2, b) => {
+    choices.push([a, b])
+    return ' '
+  })
+  rest = rest.replace(/&&\s*(["'`])((?:\\.|(?!\1).)*)\1/g, (_, _q, a) => {
+    choices.push([a, ''])
+    return ' '
+  })
+  const always = candidates(rest)
+  if (choices.length > 3) return null
+  let out = [always]
+  for (const [a, b] of choices) out = out.flatMap((cls) => [[...cls, ...candidates(`"${a}"`)], [...cls, ...candidates(`"${b}"`)]])
+  return out
+}
+
 /** A plain length or number in px where it can be; anything else unchanged. */
 export function toPx(value) {
   const v = value.trim().replace(/\s+/g, ' ')
@@ -94,6 +116,8 @@ export function resolveVars(value, vars) {
   let v = value
   for (let i = 0; i < 20 && v.includes('var('); i++) {
     v = v.replace(/var\((--[\w-]+)(?:\s*,\s*((?:[^()]|\([^()]*\))*))?\)/g, (_, name, fallback) => {
+      // Radix sets its `--radix-*` variables on the element at runtime; no stylesheet holds them.
+      if (name.startsWith('--radix-')) return `runtime(${name})`
       const value = vars.get(name)
       // `initial` is the guaranteed-invalid value Tailwind gives an unset internal variable:
       // the fallback applies, or nothing when there is none.
@@ -159,6 +183,7 @@ export function ownSelector(selector) {
   }
   return {
     within: (sel) => at(sel).length > 0,
+    first: (css) => at(css)[0] ?? -1,
     replaced: (sel) => {
       let out = sel
       for (const i of at(sel).reverse()) out = `${out.slice(0, i)}&${out.slice(i + selector.length)}`
@@ -214,6 +239,7 @@ export async function compilerFor(root, entry) {
   }
   let vars = read()
   const cache = new Map()
+  const place = new Map()
   const isMix = (part) => /^@supports \(color: color-mix\(/.test(part)
   return {
     get vars() {
@@ -222,34 +248,51 @@ export async function compilerFor(root, entry) {
     /** Each property's final value, light and dark: `14px`, or `x · dark y` when they differ. */
     resolve(classes) {
       let built = false
-      const raw = new Map()
       for (const c of classes) {
         if (!cache.has(c)) {
           cache.set(c, declarations(compiled.build([c]), c))
           built = true
         }
-        for (const [k, v] of cache.get(c)) raw.set(k, v)
       }
-      if (built) vars = read()
+      if (built) {
+        vars = read()
+        place.clear()
+      }
+      // Two classes setting one property: the one later in the compiled CSS wins, whatever
+      // order the className lists them in.
+      const css = place.size ? null : compiled.build([])
+      const at = (c) => {
+        if (!place.has(c)) place.set(c, ownSelector(`.${c.replace(/[^\w-]/g, (x) => `\\${x}`)}`).first(css ?? compiled.build([])))
+        return place.get(c)
+      }
+      const ordered = [...new Set(classes)].sort((a, b) => at(a) - at(b))
       // Custom properties the element's own classes set (`--tw-shadow`) resolve first, over the theme.
       const local = { light: new Map(vars.light), dark: new Map(vars.dark) }
-      // A `dark:` class and Tailwind's `@supports (color: color-mix…)` upgrade fold into one
-      // property per mode: the dark rule wins in dark mode, the color-mix rule wins over its fallback.
+      // Each class folds on its own first: its dark rule is its dark value, and Tailwind's
+      // `@supports (color: color-mix…)` upgrade replaces its own fallback. Then the classes
+      // apply in CSS order.
       const slots = new Map()
-      for (const [k, v] of raw) {
-        const [ctx, prop] = k.split('|')
-        const parts = ctx ? ctx.split(SEP) : []
-        const mode = parts.some(isDark) ? 'dark' : 'light'
-        const base = `${parts.filter((x) => !isDark(x) && !isMix(x)).join(SEP)}|${prop}`
-        if (prop.startsWith('--')) {
-          local.dark.set(prop, v)
-          if (mode === 'light') local.light.set(prop, v)
-          continue
+      for (const c of ordered) {
+        const own = new Map()
+        for (const [k, v] of cache.get(c)) {
+          const [ctx, prop] = k.split('|')
+          const parts = ctx ? ctx.split(SEP) : []
+          const mode = parts.some(isDark) ? 'dark' : 'light'
+          if (prop.startsWith('--')) {
+            local.dark.set(prop, v)
+            if (mode === 'light') local.light.set(prop, v)
+            continue
+          }
+          const base = `${parts.filter((x) => !isDark(x) && !isMix(x)).join(SEP)}|${prop}`
+          const mix = parts.some(isMix)
+          const slot = `${base}\u0000${mode}`
+          if (!own.has(slot) || mix || !own.get(slot).mix) own.set(slot, { v, mix })
         }
-        const mix = parts.some(isMix)
-        if (!slots.has(base)) slots.set(base, {})
-        const slot = slots.get(base)
-        if (!slot[mode] || mix || !slot[mode].mix) slot[mode] = { v, mix }
+        for (const [slot, { v }] of own) {
+          const [base, mode] = slot.split('\u0000')
+          if (!slots.has(base)) slots.set(base, {})
+          slots.get(base)[mode] = { v }
+        }
       }
       const resolved = (mode) => {
         const out = new Map()
@@ -420,7 +463,7 @@ export async function compareUiValues(repo, { base = 'HEAD' } = {}) {
     const uncompared = []
     const note = (what, at) => {
       if (!changed.has(what)) changed.set(what, [])
-      changed.get(what).push(at)
+      if (!changed.get(what).includes(at)) changed.get(what).push(at)
     }
 
     // Theme variables both sides define.
@@ -471,19 +514,31 @@ export async function compareUiValues(repo, { base = 'HEAD' } = {}) {
       }
       for (const l of leftover) {
         const removed = l.side === 'removed'
-        const c = candidates(removed ? h.removed[l.index] : h.added[l.index])
-        if (!c.length) continue
+        const text = removed ? h.removed[l.index] : h.added[l.index]
+        if (!candidates(text).length) continue
         linesCompared++
         const where = `${h.file}:${h.line + (removed ? 0 : l.index)}`
-        if (removed) record(where, before.resolve(c), new Map())
-        else record(where, new Map(), after.resolve(c))
+        const vs = variants(text)
+        if (!vs) {
+          uncompared.push(`${where}  — more than three conditional class choices on one line; check it by hand`)
+          continue
+        }
+        for (const c of vs) {
+          if (removed) record(where, before.resolve(c), new Map())
+          else record(where, new Map(), after.resolve(c))
+        }
       }
       for (const [ri, ai] of pairs) {
-        const oldC = candidates(h.removed[ri])
-        const newC = candidates(h.added[ai])
-        if (oldC.join(' ') === newC.join(' ')) continue
+        if (candidates(h.removed[ri]).join(' ') === candidates(h.added[ai]).join(' ')) continue
         linesCompared++
-        record(`${h.file}:${h.line + ai}`, before.resolve(oldC), after.resolve(newC))
+        const where = `${h.file}:${h.line + ai}`
+        const vo = variants(h.removed[ri])
+        const vn = variants(h.added[ai])
+        if (!vo || !vn || vo.length !== vn.length) {
+          uncompared.push(`${where}  — its conditional class choices changed shape; check each branch by hand`)
+          continue
+        }
+        for (let v = 0; v < vo.length; v++) record(where, before.resolve(vo[v]), after.resolve(vn[v]))
       }
     }
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { INITIAL, arithmetic, candidates, declarations, explainMoves, hunks, ownSelector, pairLines, resolveVars, themeVars, toPx } from './compare-ui-values.mjs'
+import { INITIAL, arithmetic, candidates, variants, declarations, explainMoves, hunks, ownSelector, pairLines, resolveVars, themeVars, toPx } from './compare-ui-values.mjs'
 
 test('candidates are the words of every string literal on a line', () => {
   assert.deepEqual(candidates(`<p className="text-sm font-medium" data-x='a b'>`), ['text-sm', 'font-medium', 'a', 'b'])
@@ -175,4 +175,15 @@ test('an `initial` variable falls back; a pill radius is one value', () => {
 test('a property at its CSS initial value counts as unset', () => {
   assert.deepEqual(INITIAL['background-color'], ['transparent'])
   assert.deepEqual(INITIAL['border-color'], ['currentcolor'])
+})
+
+test('an either/or class choice is two variants, never both classes at once', () => {
+  assert.deepEqual(variants(`className={cn("flex", dense ? "h-7" : "h-9")}`), [['flex', 'h-7'], ['flex', 'h-9']])
+  assert.deepEqual(variants(`className={cn("p-2", active && "bg-muted")}`), [['p-2', 'bg-muted'], ['p-2']])
+  assert.deepEqual(variants('className="p-2"'), [['p-2']])
+  assert.equal(variants('a ? "x" : "y", b ? "x" : "y", c ? "x" : "y", d ? "x" : "y"'), null)
+})
+
+test('a Radix runtime variable compares as written, never as undefined', () => {
+  assert.equal(resolveVars('var(--radix-select-content-available-height)', new Map()), 'runtime(--radix-select-content-available-height)')
 })
