@@ -417,11 +417,7 @@ export async function compilerFor(root, entry) {
       const resolved = (mode) => {
         const out = new Map()
         for (const [key, { state, prop }] of states) {
-          let win = null
-          for (const r of rules) {
-            if (r.prop !== prop || (r.mode === 'dark' && mode !== 'dark') || !r.state.every((x) => state.includes(x))) continue
-            if (!win || r.spec > win.spec || (r.spec === win.spec && r.order > win.order)) win = r
-          }
+          const win = winner(rules, state, prop, mode)
           if (!win) continue
           const raw = canonicalColors(toPx(resolveVars(win.v, local[mode])))
           const value = prop === 'box-shadow' ? visibleShadow(raw) : raw
@@ -569,6 +565,41 @@ export function baseDefaults(css, mode = 'light') {
     }
   }
   return out
+}
+
+/**
+ * Whether a selector part picks a different element than the one the class is on: a
+ * pseudo-element (`::selection`) or a child (`& svg`, `:is(& > *)`). A pseudo-class
+ * (`:hover`, `[data-state=open]`) is a state of the same element.
+ */
+export function isOtherElement(part) {
+  if (part.startsWith('@')) return false
+  if (part.includes('::')) return true
+  if (/\(\s*&\s*[>~+\s]/.test(part)) return true
+  let depth = 0
+  let outside = ''
+  for (const ch of part.replace(/^&/, '')) {
+    if (ch === '(' || ch === '[') depth++
+    else if (ch === ')' || ch === ']') depth--
+    else if (depth === 0) outside += ch
+  }
+  return /[\s>~+]/.test(outside)
+}
+
+/**
+ * The rule that wins one property in one state, as the browser decides: among rules for the
+ * same element whose states all hold here, the more specific wins, then the later. A dark
+ * rule competes only in dark mode.
+ */
+export function winner(rules, state, prop, mode) {
+  const element = state.filter(isOtherElement).join(SEP)
+  let win = null
+  for (const r of rules) {
+    if (r.prop !== prop || (r.mode === 'dark' && mode !== 'dark')) continue
+    if (r.state.filter(isOtherElement).join(SEP) !== element || !r.state.every((x) => state.includes(x))) continue
+    if (!win || r.spec > win.spec || (r.spec === win.spec && r.order > win.order)) win = r
+  }
+  return win
 }
 
 /** Changed lines per file: hunks of removed and added lines, with the new-side line number. */

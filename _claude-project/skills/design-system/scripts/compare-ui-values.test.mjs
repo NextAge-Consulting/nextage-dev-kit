@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { INITIAL, arithmetic, baseDefaults, canonicalColors, specificity, visibleShadow, candidates, cssEvents, variants, declarations, explainMoves, hunks, ownSelector, pairLines, resolveVars, themeVars, toPx } from './compare-ui-values.mjs'
+import { INITIAL, arithmetic, isOtherElement, winner, baseDefaults, canonicalColors, specificity, visibleShadow, candidates, cssEvents, variants, declarations, explainMoves, hunks, ownSelector, pairLines, resolveVars, themeVars, toPx } from './compare-ui-values.mjs'
 
 test('candidates are the words of every string literal on a line', () => {
   assert.deepEqual(candidates(`<p className="text-sm font-medium" data-x='a b'>`), ['text-sm', 'font-medium', 'a', 'b'])
@@ -258,4 +258,30 @@ test('what the project sets on every element is its default', () => {
   assert.equal(light.get('border-color'), 'var(--border)')
   assert.equal(light.get('outline-color'), 'blue')
   assert.equal(light.has('line-height'), false)
+})
+
+test('a pseudo-element or a child is another element; a pseudo-class is a state', () => {
+  assert.equal(isOtherElement('&::selection'), true)
+  assert.equal(isOtherElement('& *::selection'), true)
+  assert.equal(isOtherElement('&::file-selector-button'), true)
+  assert.equal(isOtherElement('& svg'), true)
+  assert.equal(isOtherElement(':is(& > *)'), true)
+  assert.equal(isOtherElement('&:hover'), false)
+  assert.equal(isOtherElement('&:has(>svg)'), false)
+  assert.equal(isOtherElement('&[data-label="a b"]'), false)
+  assert.equal(isOtherElement('&:where(.dark, .dark *)'), false)
+  assert.equal(isOtherElement('@media (hover: hover)'), false)
+})
+
+test('the element dark fill never reaches its ::selection; a dark rule tied with hover wins when later', () => {
+  const rules = [
+    { state: [], prop: 'background-color', mode: 'dark', v: 'input/30', spec: 1, order: 0 },
+    { state: ['&::selection'], prop: 'background-color', mode: 'light', v: 'primary', spec: 0, order: 1 },
+    { state: [], prop: 'background-color', mode: 'light', v: 'destructive', spec: 0, order: 2 },
+    { state: ['&:hover'], prop: 'background-color', mode: 'light', v: 'destructive/90', spec: 1, order: 3 },
+    { state: [], prop: 'background-color', mode: 'dark', v: 'destructive/60', spec: 1, order: 4 },
+  ]
+  assert.equal(winner(rules, ['&::selection'], 'background-color', 'dark').v, 'primary')
+  assert.equal(winner(rules, ['&:hover'], 'background-color', 'light').v, 'destructive/90')
+  assert.equal(winner(rules, ['&:hover'], 'background-color', 'dark').v, 'destructive/60')
 })
