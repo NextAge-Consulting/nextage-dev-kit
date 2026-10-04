@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { INITIAL, arithmetic, conditionalVars, stripComments, isOtherElement, winner, baseDefaults, canonicalColors, specificity, visibleShadow, candidates, cssEvents, variants, declarations, explainMoves, hunks, ownSelector, pairLines, resolveVars, themeVars, toPx } from './compare-ui-values.mjs'
+import { INITIAL, arithmetic, conditionalVars, elementScope, stripComments, isOtherElement, winner, baseDefaults, canonicalColors, specificity, visibleShadow, candidates, cssEvents, variants, declarations, explainMoves, hunks, ownSelector, pairLines, resolveVars, themeVars, toPx } from './compare-ui-values.mjs'
 
 test('candidates are the words of every string literal on a line', () => {
   assert.deepEqual(candidates(`<p className="text-sm font-medium" data-x='a b'>`), ['text-sm', 'font-medium'])
@@ -309,4 +309,14 @@ test('a value under a media query holds only there, and is compared under it', (
 @media (pointer: coarse) { :root { --control-height: 44px; } }`
   assert.equal(themeVars(css).get('--control-height'), '32px')
   assert.deepEqual([...conditionalVars(css)], [['@media (pointer: coarse) --control-height', '44px']])
+})
+
+test('a variable a child selector sets reaches that child, never the element itself', () => {
+  const local = { light: new Map([['--text-sm--line-height', '20px']]), dark: new Map([['--text-sm--line-height', '20px']]) }
+  const childVars = [{ element: '& p', prop: '--tw-leading', v: '1.625', mode: 'light' }]
+  const element = elementScope(local, childVars, '')
+  const child = elementScope(local, childVars, '& p')
+  assert.equal(resolveVars('var(--tw-leading, var(--text-sm--line-height))', element.light), '20px')
+  assert.equal(resolveVars('var(--tw-leading, var(--text-sm--line-height))', child.light), '1.625')
+  assert.equal(child.light.get('--text-sm--line-height'), '20px')
 })

@@ -414,6 +414,9 @@ export async function compilerFor(root, entry, { inherited = new Set() } = {}) {
       // replaces its own fallback. Every rule is then kept with its state (hover, a media query,
       // an attribute), its mode, its specificity and its place in the CSS.
       const rules = []
+      // Custom properties by the element they are set on: '' is this element, a child
+      // selector (`[&_p]:leading-relaxed`) its own. A child inherits this element's.
+      const childVars = []
       for (const c of ordered) {
         const own = new Map()
         for (const [k, v] of cache.get(c)) {
@@ -421,8 +424,12 @@ export async function compilerFor(root, entry, { inherited = new Set() } = {}) {
           const parts = ctx ? ctx.split(SEP) : []
           const mode = parts.some(isDark) ? 'dark' : 'light'
           if (prop.startsWith('--')) {
-            local.dark.set(prop, v)
-            if (mode === 'light') local.light.set(prop, v)
+            const element = parts.filter(isOtherElement).join(SEP)
+            if (element) childVars.push({ element, prop, v, mode })
+            else {
+              local.dark.set(prop, v)
+              if (mode === 'light') local.light.set(prop, v)
+            }
             continue
           }
           const state = parts.filter((x) => !isDark(x) && !isMix(x))
@@ -436,15 +443,21 @@ export async function compilerFor(root, entry, { inherited = new Set() } = {}) {
       // also applies while hovered, a dark rule in dark mode. The more specific wins, then the later.
       const states = new Map()
       for (const r of rules) states.set(`${r.state.join(SEP)}|${r.prop}`, r)
+      const scopes = new Map([['', local]])
+      const scopeFor = (element) => {
+        if (!scopes.has(element)) scopes.set(element, elementScope(local, childVars, element))
+        return scopes.get(element)
+      }
       const resolved = (mode) => {
         const out = new Map()
         for (const [key, { state, prop }] of states) {
           const win = winner(rules, state, prop, mode)
           if (!win) continue
-          const raw = canonicalColors(toPx(resolveVars(win.v, local[mode])))
+          const scope = scopeFor(win.state.filter(isOtherElement).join(SEP))[mode]
+          const raw = canonicalColors(toPx(resolveVars(win.v, scope)))
           const value = prop === 'box-shadow' ? visibleShadow(raw) : raw
           const dflt = vars.defaults[mode].get(prop)
-          const atDefault = dflt !== undefined && canonicalColors(toPx(resolveVars(dflt, local[mode]))) === value
+          const atDefault = dflt !== undefined && canonicalColors(toPx(resolveVars(dflt, scope))) === value
           if (!atDefault && !INITIAL[prop]?.includes(value.toLowerCase())) out.set(key, value)
         }
         // A unitless line height is relative to the font size beside it.
@@ -606,6 +619,20 @@ export function isOtherElement(part) {
     else if (depth === 0) outside += ch
   }
   return /[\s>~+]/.test(outside)
+}
+
+/**
+ * The custom properties one element sees: this element's own, plus those a child selector
+ * sets on that child. A child inherits the element's; the element never sees a child's.
+ */
+export function elementScope(local, childVars, element) {
+  const own = { light: new Map(local.light), dark: new Map(local.dark) }
+  for (const d of childVars) {
+    if (d.element !== element) continue
+    own.dark.set(d.prop, d.v)
+    if (d.mode === 'light') own.light.set(d.prop, d.v)
+  }
+  return own
 }
 
 /**
