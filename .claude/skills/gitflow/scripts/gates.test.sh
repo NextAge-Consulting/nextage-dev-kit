@@ -160,6 +160,19 @@ stub semgrep 0
 t 4 "$(gate run_semgrep_gate no-such-ref committing)" 'a base git cannot diff against fails, not "no changed files"'
 has 'no-such-ref' '…naming the base'
 
+echo "project gate:"
+new_repo
+t 0 "$(gate run_project_gate "$BASE" committing)" 'no .claude/project-gate.sh: passes'
+has 'project gate: none' '…and says so'
+mkdir -p .claude
+printf 'echo "checked against $1" >&2\nexit 0\n' > .claude/project-gate.sh
+t 0 "$(gate run_project_gate "$BASE" committing)" 'a project gate that passes: passes'
+has "checked against $BASE" '…given the base the change is measured from'
+printf 'echo "a project check failed" >&2\nexit 3\n' > .claude/project-gate.sh
+t 4 "$(gate run_project_gate "$BASE" "shipping to main")" 'a project gate that fails: fails'
+has 'Fix before shipping to main' '…naming the action'
+rm -rf .claude
+
 echo "build (real npm):"
 mono="$tmp/mono"; mkdir -p "$mono/packages/a" "$mono/packages/b"
 printf '{"name":"root","private":true,"workspaces":["packages/*"]}\n' > "$mono/package.json"

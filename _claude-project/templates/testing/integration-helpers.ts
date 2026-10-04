@@ -1,64 +1,74 @@
-// Integration-test wiring — transaction-per-test isolation on the RUN's shared
-// Neon branch.
+// Integration-test wiring — the kit's, kept current by /sync-dev-kit.
 //
-// The branch is created ONCE per run in globalSetup.ts (Neon's "one branch per
-// test run") — one create, one delete: no per-file branch churn, no rate
-// limiting, nothing to orphan. Tests run in PARALLEL on that one branch because
-// each test runs inside its own transaction that is ALWAYS rolled back —
-// Postgres MVCC isolates concurrent transactions, so no two tests can see or
-// clobber each other's writes, and nothing persists between tests.
+// Transaction-per-test isolation on the run's one Neon branch (globalSetup.ts creates it).
+// Each test runs inside a transaction that is ALWAYS rolled back, so tests run in parallel
+// on the shared branch — Postgres MVCC keeps concurrent transactions apart — and nothing
+// persists between them.
 //
-// `dbTest` is the ONLY way to get a DB handle in a test. There is no exported
-// pool or committing `db`, so a test physically cannot write outside a
-// rolled-back transaction — isolation is enforced by the API, not by discipline.
+// `dbTest` (and `dbTestOn`, for a database beyond the main one) is the only way a test gets
+// a database handle. There is no exported pool or committing handle, so a test cannot
+// write outside a rolled-back transaction: the API enforces it.
 //
-// Carve-out: code that takes a SESSION-level advisory lock (the worker reaper)
-// won't release it on ROLLBACK. Such a test must release its own lock or use a
-// transaction-scoped lock; see requestReaper's suite.
+// Code that takes a SESSION-level advisory lock is not released by ROLLBACK: its test
+// releases the lock itself, or the code uses a transaction-scoped lock.
 
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { it } from "vitest";
-import * as schema from "../src/db/schema";
+import project from "./project";
 
-export type TestDb = NodePgDatabase<typeof schema>;
+export type TestDb = NodePgDatabase<typeof project.schema>;
 
-// One pool per worker (from globalSetup's DATABASE_URL), reused across the
-// files that worker runs. `max` covers a worker's concurrent test transactions.
-let pool: Pool | null = null;
-function getPool(): Pool {
-  if (!process.env.DATABASE_URL) {
+// One pool per database per worker, from the URLs globalSetup set, reused across the files
+// that worker runs. `max` covers a worker's concurrent test transactions.
+const pools = new Map<string, Pool>();
+function poolFor(envVar: string): Pool {
+  const url = process.env[envVar];
+  if (!url) {
     throw new Error(
-      "DATABASE_URL not set — the integration branch (globalSetup.ts) did not initialize. Ensure NEON_API_KEY + NEON_PROJECT_ID are set.",
+      `${envVar} is not set — the integration branch (globalSetup.ts) did not initialize. Set NEON_API_KEY and NEON_PROJECT_ID.`,
     );
   }
-  if (!pool) pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
+  let pool = pools.get(envVar);
+  if (!pool) {
+    pool = new Pool({ connectionString: url, max: 8 });
+    pools.set(envVar, pool);
+  }
   return pool;
 }
 
+function transactionTest<S extends Record<string, unknown>>(envVar: string, schema: S) {
+  return (name: string, fn: (tx: NodePgDatabase<S>) => Promise<void>, timeout = 30_000): void => {
+    it(
+      name,
+      async () => {
+        const client = await poolFor(envVar).connect();
+        await client.query("BEGIN");
+        try {
+          await fn(drizzle(client, { schema }));
+        } finally {
+          await client.query("ROLLBACK");
+          client.release();
+        }
+      },
+      timeout,
+    );
+  };
+}
+
 /**
- * Run `fn` inside a transaction that is ALWAYS rolled back. Pass the provided
- * `tx` straight into the code under test (every ingest/pricing/device fn takes
- * `db` as a parameter, so its writes ride this transaction and vanish on
- * rollback). This is the ONLY DB entry point for integration tests.
+ * Run `fn` inside a transaction on the main database that is ALWAYS rolled back. Pass the
+ * `tx` straight into the code under test — a data function takes its connection as a
+ * parameter — so its writes ride this transaction and vanish on rollback.
  */
-export function dbTest(
-  name: string,
-  fn: (tx: TestDb) => Promise<void>,
-  timeout = 30_000,
-): void {
-  it(
-    name,
-    async () => {
-      const client = await getPool().connect();
-      await client.query("BEGIN");
-      try {
-        await fn(drizzle(client, { schema }));
-      } finally {
-        await client.query("ROLLBACK");
-        client.release();
-      }
-    },
-    timeout,
-  );
+export const dbTest = transactionTest("DATABASE_URL", project.schema);
+
+/**
+ * The same, on a database beyond the main one, named by the variable test/project.ts
+ * gives it: `export const auditTest = dbTestOn("AUDIT_DATABASE_URL")` in a helper of the project's.
+ */
+export function dbTestOn(envVar: string) {
+  const extra = project.extraDatabases?.find((d) => d.envVar === envVar);
+  if (!extra) throw new Error(`dbTestOn: test/project.ts declares no extra database "${envVar}"`);
+  return transactionTest(envVar, extra.schema);
 }

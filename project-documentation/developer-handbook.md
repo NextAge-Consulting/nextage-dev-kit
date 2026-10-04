@@ -111,6 +111,11 @@ either way.
 reference carries history, a justification, or a counted list. Have Claude fix the text
 and commit again. If you judge a finding wrong, commit with `SKIP_RULE_REVIEW=1`.
 
+**`/commit` stopped on the project gate.** The project has a `.claude/project-gate.sh`,
+which `/commit` and `/ship-main` run after the kit's own checks, passing the commit it
+compares against. Its output says what failed. A project adds one for a check of its own
+that every commit must pass.
+
 **A session opens with "Shell edits are not being checked".** Claude Code reports which
 files a shell command changed only in auto mode unless you add
 `"bashEditDiffEnabled": true` to `~/.claude/settings.json`, and a project cannot set it

@@ -1,17 +1,50 @@
-// Integration-suite branch lifecycle — ONE ephemeral Neon branch per RUN
-// (Neon's guidance: neon.com/branching/ci-preview-workflows). One create, one
-// delete: no per-file branch churn, so no API rate-limiting and nothing to
-// orphan. `setup` forks the default (production) branch, migrates it once, and
-// points DATABASE_URL at it BEFORE any worker spawns. Integration tests run in
-// PARALLEL on this one branch — each runs in a rolled-back transaction (dbTest
-// in integration-helpers.ts), so concurrent tests are MVCC-isolated and never
-// collide. `teardown` deletes the branch; `expires_at` (30 min) is the crash
-// backstop.
-import { execSync } from "node:child_process";
+// Integration-suite branch lifecycle — the kit's, kept current by /sync-dev-kit.
+//
+// ONE ephemeral Neon branch per RUN (neon.com/branching/ci-preview-workflows): one
+// create, one delete, so nothing to rate-limit or orphan. `setup` forks the default
+// (production) branch, migrates every database on it once, and sets each database's URL
+// BEFORE any worker spawns. Tests run in parallel on the one branch, each in a rolled-back
+// transaction (integration-helpers.ts). `teardown` deletes the branch; `expires_at`
+// (30 min) is the crash backstop.
+//
+// Databases beyond the main one, and fixups the fork needs, come from test/project.ts.
+
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { createApiClient, EndpointType } from "@neondatabase/api-client";
+import project from "./project";
+
+// drizzle-kit resolves its config's paths from the working directory: the shared module.
+const sharedModule = fileURLToPath(new URL("..", import.meta.url));
 
 let branchId: string | null = null;
+
+/** The one role or database to connect as: the named one, or the only one the branch has. */
+function pick(kind: string, named: string | undefined, names: string[]): string {
+  if (named) {
+    if (!names.includes(named)) throw new Error(`globalSetup: the branch has no ${kind} "${named}" (it has: ${names.join(", ")})`);
+    return named;
+  }
+  if (names.length === 1) return names[0];
+  throw new Error(
+    `globalSetup: the branch has ${names.length ? `several ${kind}s (${names.join(", ")})` : `no ${kind}`} — set NEON_${kind.toUpperCase()}_NAME in .env to the one the tests use`,
+  );
+}
+
+function migrate(label: string, url: string, args: string[]): void {
+  try {
+    execFileSync("npx", ["drizzle-kit", "migrate", ...args], {
+      cwd: sharedModule,
+      stdio: "inherit",
+      env: { ...process.env, DATABASE_URL: url },
+      timeout: 55_000,
+      killSignal: "SIGTERM",
+    });
+  } catch (err) {
+    throw new Error(`globalSetup: migrating the ${label} database on the test branch failed`, { cause: err });
+  }
+}
 
 export async function setup(): Promise<void> {
   const apiKey = process.env.NEON_API_KEY;
@@ -19,8 +52,8 @@ export async function setup(): Promise<void> {
   if (!apiKey || !projectId) return;
 
   const api = createApiClient({ apiKey });
-  // expires_at: absolute-instant safety-net timestamp (never displayed / never
-  // tz-filtered) — constitution §VI audit-field carve-out.
+  // expires_at: an absolute-instant safety net, never displayed or filtered by a local
+  // boundary — constitution §VI's audit-field carve-out.
   const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
   const { data } = await api.createProjectBranch(projectId, {
     branch: { name: `test/${randomUUID()}`, expires_at: expiresAt },
@@ -29,16 +62,12 @@ export async function setup(): Promise<void> {
   });
   branchId = data.branch.id;
 
-  const role =
-    process.env.NEON_ROLE_NAME ??
-    data.roles?.find((r) => r.name === "neondb_owner")?.name ??
-    data.roles?.[0]?.name;
-  const database =
-    process.env.NEON_DATABASE_NAME ??
-    data.databases?.find((d) => d.name === "neondb")?.name ??
-    data.databases?.[0]?.name;
-  if (!role || !database) throw new Error("Neon branch has no role/database to connect as");
-
+  const role = pick("role", process.env.NEON_ROLE_NAME, (data.roles ?? []).map((r) => r.name));
+  const database = pick(
+    "database",
+    process.env.NEON_DATABASE_NAME,
+    (data.databases ?? []).map((d) => d.name).filter((n) => !project.extraDatabases?.some((x) => x.database === n)),
+  );
   const { data: uriData } = await api.getConnectionUri({
     projectId,
     branch_id: branchId,
@@ -48,18 +77,22 @@ export async function setup(): Promise<void> {
   });
   const url = new URL(uriData.uri);
   url.searchParams.set("sslmode", "verify-full");
-  // Set BEFORE workers spawn so every integration worker inherits it.
-  process.env.DATABASE_URL = url.toString();
 
-  // Migrate the branch once. It forked production, which lacks any migration
-  // from THIS PR; drizzle tracks applied migrations, so this applies exactly the
-  // new one during a migration PR and is a no-op otherwise.
-  execSync("npx drizzle-kit migrate", {
-    stdio: "inherit",
-    env: process.env,
-    timeout: 55_000,
-    killSignal: "SIGTERM",
-  });
+  // Set BEFORE workers spawn, so every integration worker inherits them.
+  const urls: Record<string, string> = { DATABASE_URL: url.toString() };
+  for (const extra of project.extraDatabases ?? []) {
+    const other = new URL(url);
+    other.pathname = `/${extra.database}`;
+    urls[extra.envVar] = other.toString();
+  }
+  Object.assign(process.env, urls);
+
+  // The branch forked production, which lacks any migration this change adds; drizzle
+  // records what it applied, so this applies exactly the new ones and is otherwise a no-op.
+  migrate("main", urls.DATABASE_URL, []);
+  for (const extra of project.extraDatabases ?? []) migrate(extra.envVar, urls[extra.envVar], ["--config", extra.drizzleConfig]);
+
+  await project.afterMigrate?.(urls);
 }
 
 export async function teardown(): Promise<void> {
@@ -67,16 +100,12 @@ export async function teardown(): Promise<void> {
   const projectId = process.env.NEON_PROJECT_ID;
   if (!apiKey || !projectId || !branchId) return;
   const api = createApiClient({ apiKey });
-  // Object argument, NOT positional. @neondatabase/api-client changed this
-  // signature at 2.7.2 — `deleteProjectBranch(projectId, branchId)` compiles
-  // against the old typings but sends DELETE /projects/undefined/branches/
-  // undefined, which 404s. Pin `@neondatabase/api-client` to ^2.7.2 or later.
+  // Object argument: @neondatabase/api-client 2.7.2 changed the signature, and the old
+  // positional call still compiles but deletes /projects/undefined/branches/undefined.
   //
-  // The failure is NOT swallowed. A failed delete leaves a live branch that
-  // costs money, and if the cause is systematic it leaks one on every run —
-  // exactly what a `.catch(() => undefined)` here hid until someone happened to
-  // look at the branch list. `expires_at` still cleans up; the noise is the
-  // point.
+  // A failed delete is not swallowed: it leaves a branch that costs money, and a
+  // systematic cause leaks one on every run. expires_at still cleans up; the error is
+  // what makes it seen.
   await api.deleteProjectBranch({ projectId, branchId });
   branchId = null;
 }

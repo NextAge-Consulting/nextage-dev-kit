@@ -250,6 +250,28 @@ jq -e '[.files[] | select(.kit_path == "_claude-project/templates/design-system/
 jq -e '[.skipped_unconfigured[] | .key] | sort == ["DESIGN_FEED_BARREL","SHARED_MODULE_DIR"]' <<<"$out" >/dev/null && ok "the skip is reported under the feed barrel key" || bad "feed barrel skip: $(jq -c .skipped_unconfigured <<<"$out")"
 jq 'del(.DESIGN_FEED_BARREL) | ._intentionally_empty -= ["DESIGN_FEED_BARREL"]' "$PROJ/.claude/sync-substitutions.json" > "$tmp/s" && mv "$tmp/s" "$PROJ/.claude/sync-substitutions.json"
 
+# ─── A template is a seed: offered once, never again ─────────────────────
+run --apply-file _claude-project/templates/biome.json >/dev/null 2>&1
+printf '{ "extends": ["./biome.base.json"], "plugins": ["./mine.grit"] }\n' > "$PROJ/biome.json"
+printf '{ "extends": ["./biome.base.json"], "root": true }\n' > "$KIT/_claude-project/templates/biome.json"; kit_commit "biome seed v2"
+st=$(scan | jq -r '.files[] | select(.dest_path == "biome.json") | .state')
+[ "$st" = "template-kept" ] && ok "an adapted seed the kit changed is kept, not offered" || bad "adapted seed: $st"
+printf '{ "extends": ["./biome.base.json"], "root": true }\n' > "$PROJ/biome.json"; run --apply-file _claude-project/templates/biome.json >/dev/null 2>&1
+printf '{ "extends": ["./biome.base.json"], "root": false }\n' > "$KIT/_claude-project/templates/biome.json"; kit_commit "biome seed v3"
+st=$(scan | jq -r '.files[] | select(.dest_path == "biome.json") | .state')
+[ "$st" = "template-kept" ] && ok "an untouched seed the kit changed is kept, not offered" || bad "untouched seed: $st"
+rm "$PROJ/biome.json"
+st=$(scan | jq -r '.files[] | select(.dest_path == "biome.json") | .state')
+[ "$st" = "template-kept" ] && ok "a deleted seed stays deleted" || bad "deleted seed: $st"
+printf 'export {}\n' > "$KIT/_claude-project/templates/testing/project.ts"; kit_commit "project.ts seed"
+jq '.SHARED_MODULE_DIR = "apps/shared"' "$PROJ/.claude/sync-substitutions.json" > "$tmp/s" && mv "$tmp/s" "$PROJ/.claude/sync-substitutions.json"
+run --decline-file _claude-project/templates/testing/project.ts >/dev/null 2>&1
+printf 'export const v = 2\n' > "$KIT/_claude-project/templates/testing/project.ts"; kit_commit "project.ts seed v2"
+st=$(scan | jq -r '.files[] | select(.kit_path == "_claude-project/templates/testing/project.ts") | .state')
+[ "$st" = "declined" ] && ok "a declined seed stays declined when the kit changes it" || bad "declined seed: $st"
+[ "$(scan | jq -r '.files[] | select(.kit_path == "_claude-project/templates/testing/smoke.test.ts") | .mode')" = "owned" ] && ok "the test scaffolding is kit-owned" || bad "smoke.test.ts mode"
+jq '.SHARED_MODULE_DIR = ""' "$PROJ/.claude/sync-substitutions.json" > "$tmp/s" && mv "$tmp/s" "$PROJ/.claude/sync-substitutions.json"
+
 # ─── A broken register fails the scan loudly ──────────────────────────────
 printf '{not json' > "$PROJ/.claude/.kit-patches.json"
 run --scan >/dev/null 2>&1; rc=$?

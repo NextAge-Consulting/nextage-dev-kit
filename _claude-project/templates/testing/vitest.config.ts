@@ -1,53 +1,47 @@
+// The shared vitest configuration — the kit's, kept current by /sync-dev-kit. What
+// differs between projects is read from test/project.ts (test/define.ts describes it).
+//
+// Run it from the repository root: `vitest run -c <shared module>/vitest.config.ts`.
+
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { availableParallelism } from "node:os";
+import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config as loadDotenv } from "dotenv";
-import { configDefaults, defineConfig } from "vitest/config";
+import { configDefaults, defineConfig, type Plugin } from "vitest/config";
+import project from "./test/project";
 
-// Resolve paths relative to this config file, not the repo-root CWD.
-// Without this, `npm run test` from the repo root reports "No test files
-// found" because include globs resolve against process.cwd().
+// This file's folder is the shared module; the repository root is the nearest folder
+// above it holding .claude/sync-substitutions.json, wherever the module sits.
 const here = fileURLToPath(new URL(".", import.meta.url));
+function findRepoRoot(from: string): string {
+  for (let dir = from; ; dir = dirname(dir)) {
+    if (existsSync(resolve(dir, ".claude/sync-substitutions.json"))) return dir;
+    if (dir === dirname(dir)) throw new Error(`vitest.config.ts: no .claude/sync-substitutions.json above ${from}`);
+  }
+}
+const repoRoot = findRepoRoot(here);
+const shared = relative(repoRoot, here) || ".";
+const inShared = (glob: string) => (shared === "." ? glob : `${shared}/${glob}`);
 
-// Make the Neon creds visible at config-load so the integration gate behaves
-// identically locally and in CI. CI injects NEON_* via the workflow `env:`
-// block (present in process.env before vitest starts); locally they live in
-// the repo-root .env, which is otherwise only read at test RUNTIME by
-// test-utils.ts — too late for the config-load check below. Without this,
-// hasNeonCreds was always false locally, so the DB suites NEVER ran on a dev
-// machine and only surfaced failures on CI. Promote ONLY the NEON_* keys (read
-// into a sandbox, not the whole .env) so the rest of production env stays out
-// of the test process. DATABASE_URL is NOT promoted — globalSetup.ts sets it per
-// run to the branch it creates. CI's own env vars win (the !process.env guard
-// never overrides them).
+// The Neon credentials decide at load time whether the integration project exists, so
+// they are read here as well as by the tests. CI puts them in process.env; locally they
+// live in the repository's .env. Only the NEON_* keys are promoted, from a sandbox, and
+// CI's own values win. DATABASE_URL is never promoted: globalSetup.ts sets it per run to
+// the branch it creates.
 const envSandbox: Record<string, string> = {};
-loadDotenv({ path: resolve(here, "../../.env"), processEnv: envSandbox });
-for (const key of [
-  "NEON_API_KEY",
-  "NEON_PROJECT_ID",
-  "NEON_DATABASE_NAME",
-  "NEON_ROLE_NAME",
-]) {
+loadDotenv({ path: resolve(repoRoot, ".env"), processEnv: envSandbox, quiet: true });
+for (const key of ["NEON_API_KEY", "NEON_PROJECT_ID", "NEON_DATABASE_NAME", "NEON_ROLE_NAME"]) {
   if (envSandbox[key] && !process.env[key]) process.env[key] = envSandbox[key];
 }
+// The integration tests need a live Neon project; without one (a fork, a fresh clone,
+// a Dependabot PR) only the unit tests run, and they stay real signal everywhere.
+const hasNeonCreds = Boolean(process.env.NEON_API_KEY && process.env.NEON_PROJECT_ID);
 
-// Integration tests require a live Neon connection (NEON_API_KEY +
-// NEON_PROJECT_ID). When those creds are absent, exclude the integration
-// suites from the run entirely — gating on the actual prerequisite, not on
-// who triggered the run. This keeps the unit tests as real signal in EVERY
-// context (your PRs, a fork, a fresh clone with no .env, and Dependabot PRs —
-// which GitHub deliberately runs without the Actions secret store) while the
-// DB-dependent suites only run where they can actually connect. With the creds
-// present, nothing changes: integration tests run and the module-scope guard
-// in integration-helpers.ts still fails loud on partial/misconfigured creds.
-const hasNeonCreds = Boolean(
-  process.env.NEON_API_KEY && process.env.NEON_PROJECT_ID,
-);
-
-// A test here may import an app's own code, and that code reaches its own files through
-// the app's `@/` alias (typescript-rules.md, Workspace Imports). The alias belongs to the
-// importing app, so it is resolved per importer: from the `@/*` entry of the nearest
-// tsconfig.json above the file doing the import.
+// A test may import an app's own code, which reaches its own files through the app's
+// `@/` alias (typescript-rules.md, Workspace Imports). The alias belongs to the importing
+// app, so it is resolved per importer, from the `@/*` entry of the nearest tsconfig.json
+// above the importing file.
 const appAlias = new Map<string, string | null>();
 function aliasRootFor(importer: string): string | null {
   for (let dir = dirname(importer); dir !== dirname(dir); dir = dirname(dir)) {
@@ -61,60 +55,58 @@ function aliasRootFor(importer: string): string | null {
   }
   return null;
 }
-const appAliases = {
+const appAliases: Plugin = {
   name: "app-aliases",
-  enforce: "pre" as const,
-  async resolveId(this: { resolve: (id: string, importer?: string, opts?: object) => Promise<unknown> }, source: string, importer?: string) {
+  enforce: "pre",
+  async resolveId(source, importer) {
     if (!source.startsWith("@/") || !importer) return null;
     const root = aliasRootFor(importer);
     return root ? this.resolve(resolve(root, source.slice(2)), importer, { skipSelf: true }) : null;
   },
 };
 
-// Two projects:
-//   • unit        — no DB, fast; runs everywhere.
-//   • integration — runs against ONE Neon branch created per run in
-//                   globalSetup.ts (Neon's "one branch per test run"): one
-//                   create, one delete, so no API rate-limiting and no orphaned
-//                   branches. Tests run in PARALLEL — each in a rolled-back
-//                   transaction (dbTest), so they're MVCC-isolated on the shared
-//                   branch. Present only when creds exist (forks/Dependabot run
-//                   unit-only).
+const integrationInclude = project.integrationInclude ?? [inShared("test/**/*.integration.test.ts")];
+const setupFiles = [resolve(here, "test/test-utils.ts")];
+
+// An inline project inherits neither the root's plugins nor its root, so each carries both.
 const unitProject = {
-  // An inline project does not inherit the root's plugins.
   plugins: [appAliases],
   test: {
     name: "unit",
-    root: here,
+    root: repoRoot,
     environment: "node" as const,
     globals: false,
-    include: ["test/**/*.test.ts"],
-    exclude: [...configDefaults.exclude, "test/**/*.integration.test.ts"],
-    // Absolute: a bare "test/…" reads as a package name
-    // to any tool that resolves the config (knip reports it unresolved).
-    setupFiles: [resolve(here, "test/test-utils.ts")],
+    include: project.unitInclude ?? [inShared("test/**/*.test.ts")],
+    exclude: [...configDefaults.exclude, ...integrationInclude, ...(project.unitExclude ?? [])],
+    setupFiles,
   },
 };
 
+// Every test runs in a rolled-back transaction on the run's one branch, so the tests
+// run in parallel; the work is I/O-bound, so the worker count does not stop at the CPUs.
+// The group order runs integration after unit, so a unit failure is reported first.
 const integrationProject = {
   plugins: [appAliases],
   test: {
     name: "integration",
-    root: here,
+    root: repoRoot,
     environment: "node" as const,
     globals: false,
-    include: ["test/**/*.integration.test.ts"],
-    // PARALLEL: every test runs in a rolled-back transaction (dbTest), so
-    // concurrent tests on the one shared branch are MVCC-isolated. No serial
-    // penalty, no per-file branch churn.
+    include: integrationInclude,
     globalSetup: [resolve(here, "test/globalSetup.ts")],
-    setupFiles: [resolve(here, "test/test-utils.ts")],
+    setupFiles,
+    maxWorkers: Math.max(8, availableParallelism()),
+    sequence: { groupOrder: 1 },
   },
 };
 
 export default defineConfig({
   test: {
     reporters: ["default"],
-    projects: hasNeonCreds ? [unitProject, integrationProject] : [unitProject],
+    projects: [
+      unitProject,
+      ...(hasNeonCreds ? [integrationProject] : []),
+      ...(project.vitestProjects ?? []).map((p) => ({ ...p, plugins: [appAliases, ...(p.plugins ?? [])] })),
+    ],
   },
 });

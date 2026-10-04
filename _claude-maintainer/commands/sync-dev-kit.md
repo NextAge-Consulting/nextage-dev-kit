@@ -101,7 +101,6 @@ For each file entry, the `state` field is one of:
 | `clean-first` | First-ever sync; project and kit already match | Silent skip — establish baseline only |
 | `clean-converged` | Both changed from baseline to the same content | Silent skip — establish new baseline |
 | `kit-only` | Kit changed, project did not | Recommend apply |
-| `project-only` | `template` file: project changed, kit did not | Silent skip — the project owns it |
 | `patched` | `owned` or `merge` file: the project changed kit-owned text, and `.claude/.kit-patches.json` sanctions it | Report every sync with both issues and the `patch.recommendation` (Step 2.2) |
 | `unsanctioned` | `owned` or `merge` file: the project changed kit-owned text with no register entry | Report loudly every sync. Recommend reverting to the kit (`--apply-file`) or registering it as a patch (Step 2.2) |
 | `conflict` | `owned` file, no register entry: both changed to different content from baseline | Three-way diff; compare `kit_sha`, `project_sha`, `baseline_sha`; recommend taking the kit's version. A project change that must stay is a patch: register it, then ACK (Step 2.2) |
@@ -110,7 +109,7 @@ For each file entry, the `state` field is one of:
 | `declined` | The project refused this file at its current content | Silent skip — do not list |
 | `removed-kit` | Kit deleted a file that still exists in project | Ask: delete from project or keep as project-owned? |
 | `project-deleted` | Baseline + kit still have file, but project deleted it | Ask: re-add from kit, or accept deletion? |
-| `template-drift` | Template file; kit and project both changed | The project OWNS this file. Show the kit's delta as information, recommend nothing. Never reconcile toward the kit. |
+| `template-kept` | A `template` seed the project already has, adapted, or deleted, which the kit has since changed | Silent skip — do not list. A seed is the project's from the moment it lands |
 | `merge-unmarked` | `merge` file whose project copy has no region markers | Never apply — it would discard the project's content. Move the project's content into the kit's regions by hand (Step 2.3), then re-scan |
 | `merge-invalid` | `merge` file whose project markers are malformed, or that has a region the kit lacks | Show `detail`. Fix the markers or move the orphan region's content into a kit region, then re-scan. Apply refuses until then |
 
@@ -120,19 +119,7 @@ Every entry also carries a `mode` field, declared kit-side by `mode_for_kit_path
 
 - **`owned`** (default, nearly everything) — the kit owns the content. `block-kit-edit.sh` denies consumer edits. A project edit is `patched` or `unsanctioned`, never a silent skip; a two-sided divergence with no register entry is a `conflict` to reconcile toward the kit.
 - **`merge`** — owned, except inside the file's named project regions. Sync writes the kit's text around the project's region bodies, so `kit-only` is always safe to apply and a region edit is never a conflict. An edit outside the regions is `patched` or `unsanctioned`.
-- **`template`** — the kit ships a STARTING POINT; the project owns the file and has final say. The hook permits consumer edits, a two-sided divergence reports as `template-drift`, and `project-only` is a silent skip.
-
-**Presenting a `template-drift` is a different conversation.** Do NOT recommend applying, and do NOT frame the project's content as something to reconcile. Show what the kit changed and let the user decide whether any of it is worth adopting; "keep ours" is a perfectly good answer that needs no justification. Applying is still available via `--apply-file`, but it overwrites a file the project owns — so it happens only on an explicit request, never on your recommendation.
-
-**When the user keeps theirs, ACK it — this is not optional.**
-
-```bash
-~/.claude/scripts/sync-dev-kit.sh --ack-file <kit_path>
-```
-
-This records the kit's current content as the new baseline WITHOUT touching the project file, so the file reports `project-only` (a silent skip) from then on. Skip it and the baseline stays behind the kit, the identical drift re-reports on **every** subsequent sync forever, and the user learns to scroll past a signal that was supposed to mean something. Ack is not a permanent mute: the next time the kit changes that file, drift surfaces again — which is exactly the behaviour wanted.
-
-On a template-drift, offer in this order: **keep ours** (ack), **take the kit's version** (`--apply-file`, overwrites), or **merge by hand** (the user edits, then ack). Never present it as a two-way apply/skip choice — "skip" without an ack is the option that quietly creates the recurring noise.
+- **`template`** — a SEED: the project's own content from the start. It is offered once, as `new-kit`, to a project that has never had it. Once the project has it — untouched, adapted or deleted — or declined it, a kit change never offers it again (`template-kept`, `declined`). The hook permits consumer edits.
 
 **Acking an `owned` file — the test is whether the kit's current content has been INCORPORATED.** `--ack-file` accepts any file: it advances the baseline to what the kit ships today and leaves the project file untouched.
 

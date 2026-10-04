@@ -7,9 +7,8 @@
 #   --decline-file <kit-rel> Record that this project does NOT want the file. It stops
 #                           being offered until the KIT changes it again.
 #   --ack-file <kit-rel>    Record the kit's current content as the baseline WITHOUT
-#                           writing the project file — "seen it, keeping mine" for a
-#                           `template` file. Silences a declined `template-drift` until
-#                           the kit changes again.
+#                           writing the project file — after a conflict was resolved
+#                           by hand, so the next scan sees the kit as incorporated.
 #   --remove-patch <dest>   Drop a destination's entry from .claude/.kit-patches.json once
 #                           the patch it sanctioned is gone. Prints the entry removed, so
 #                           the caller can close its project issue.
@@ -91,7 +90,7 @@ LOCKFILE="${PROJECT_PATH}/.claude/.kit-sync.json"
 SKIP_LIST=(
     "_claude-project/templates/README.md"
     # Kit-internal documentation ABOUT the testing templates, for someone
-    # reading the kit. The templates themselves sync (mode `template`, destination
+    # reading the kit. The files themselves sync (kit-owned, destination
     # from SHARED_MODULE_DIR); this file explaining them would land in the
     # consumer's test directory, where it is noise.
     "_claude-project/templates/testing/README.md"
@@ -733,16 +732,17 @@ dest_key_for_kit_path() {
 #   merge    — owned, except inside named project regions (see "Merge regions"
 #              above). Kit text outside the regions always applies; the
 #              project's region bodies are always kept.
-#   template — the kit ships a STARTING POINT; the project owns the file and has
-#              final say. Consumers may edit it freely (the hook allows the
-#              write), and divergence reports as `template-drift`: the kit's delta
-#              is shown for the project to take or ignore, never reconciled.
+#   template — a SEED: the project's content from the start. Offered once to a
+#              project that has never had it; once the project has it — or
+#              declined it — a kit change never offers it again (`template-kept`).
+#              Consumers may edit it freely (the hook allows the write).
 #
-# Use `template` only where content genuinely must vary per project — a value that
-# differs, not a preference that differs. When the variation is a few known
-# blocks inside otherwise-shared text, it is `merge`. When in doubt it is
-# `owned`: a file marked `template` stops receiving enforced updates, and that is
-# hard to notice.
+# Choose a mode in this order, and stop at the first that fits: `owned`, with
+# placeholders for the values that differ; `merge`, for text a project adds
+# beside the kit's; `owned` with a project extension file it imports for project
+# logic (test/project.ts); and `template` last — only for a file that is the
+# project's own content, which the kit never needs to improve. A `template` file
+# stops receiving every kit change, silently.
 #
 # Mode is a property of the KIT file, not of the consumer, so it is declared here
 # and copied into each consumer's lockfile on apply — `block-kit-edit.sh` runs on
@@ -750,16 +750,11 @@ dest_key_for_kit_path() {
 mode_for_kit_path() {
     local kit_rel="$1"
     case "$kit_rel" in
-        # Vitest scaffolding. The project owns these outright: test layout,
-        # TZ pinning, and the database topology they set up are all
-        # project-specific, and a consumer that adapts one must not have the
-        # edit reverted. The kit still ships improvements — they surface as
-        # `kit-only` (offered) when untouched, `template-drift` (informational)
-        # when adapted. Per-project deploy workflows are the other prospective
-        # member; they are not synced at all yet.
-        _claude-project/templates/testing/*) echo "template" ;;
-        # The Biome seed: one line extending the kit-owned biome.base.json, plus
-        # whatever this project adds. The base is `owned`.
+        # Seeds: files whose content is the project's from the start. The test
+        # settings every kit test file reads (test/project.ts), and the Biome seed
+        # — one line extending the kit-owned biome.base.json, plus whatever this
+        # project adds. Seeded once; never offered again (template-kept below).
+        _claude-project/templates/testing/project.ts) echo "template" ;;
         _claude-project/templates/biome.json) echo "template" ;;
         # The UI inventory's enumerations, the dependency policy's owners and
         # timelines, the project's own CI steps, review rules and attributes
@@ -1049,7 +1044,8 @@ if [ "$MODE" = "scan" ]; then
         if [ -n "$state" ] || [ "$owned_edit" = true ]; then
             :   # decided above (merge files)
         elif [ -n "$declined_sha" ] && [ -z "$proj_sha" ]; then
-            if [ "$kit_sha" = "$declined_sha" ]; then
+            # A declined seed stays declined whatever the kit later does to it.
+            if [ "$kit_sha" = "$declined_sha" ] || [ "$file_mode" = "template" ]; then
                 state="declined"
             else
                 state="new-kit"
@@ -1076,14 +1072,14 @@ if [ "$MODE" = "scan" ]; then
             state="conflict"
         fi
 
-        # Template files: the project owns the content, so a two-sided divergence
-        # is not something to reconcile toward the kit. Report it as drift — the
-        # kit's delta is informational, the project decides. `kit-only` still
-        # offers the update (the project has not customized), `project-only` is
-        # a silent skip.
+        # Template files are seeds: the project owns the content from the moment
+        # it lands. Once the project has the file — untouched, adapted or
+        # deleted — a kit change to it is never offered again; it is
+        # `template-kept`, silent. Only a project that never had it is offered
+        # the seed (`new-kit`), once.
         if [ "$file_mode" = "template" ]; then
             case "$state" in
-                conflict|conflict-first) state="template-drift" ;;
+                kit-only|project-only|conflict|conflict-first|project-deleted) state="template-kept" ;;
             esac
         fi
 
@@ -1331,17 +1327,10 @@ fi
 # current (substituted) content as the baseline WITHOUT touching the project
 # file.
 #
-# Why this exists: the baseline only ever advanced when a change was APPLIED,
-# so declining a `template-drift` left the baseline behind the kit and the
-# same drift re-reported on every subsequent sync, forever. A signal that
-# cannot be dismissed is one people learn to skip past, which costs more than
-# it saves. After an ack the file reports `project-only` (a silent skip) until
-# the kit changes again — at which point you are told once more, which is the
-# whole point.
+# The baseline otherwise advances only when a change is APPLIED, so a conflict
+# resolved by hand would re-report on every later sync.
 #
-# Deliberately NOT restricted to `template` files, and that is not an
-# oversight to be corrected by a caller that refuses `owned` outright. What
-# makes an ack wrong is acking a kit change that was never INCORPORATED —
+# What makes an ack wrong is acking a kit change that was never INCORPORATED —
 # that silences a real enforced update. Acking an `owned` file AFTER
 # resolving its conflict by hand is correct and necessary: the kit's content
 # is in the file, only the project's own customization still differs, and

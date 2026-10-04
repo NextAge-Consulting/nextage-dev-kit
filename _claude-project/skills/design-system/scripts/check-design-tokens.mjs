@@ -249,12 +249,16 @@ export function classText(src, { names = new Set() } = {}) {
   // A variable a class list names contributes its initialiser, once — named here, or in
   // another file's class list (`names`), for a constant exported to it.
   const seen = new Set()
+  // Every declaration's initialiser start, by name — the first one wins.
+  const declared = new Map()
+  for (const d of src.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*/g)) {
+    if (!declared.has(d[1])) declared.set(d[1], d.index + d[0].length)
+  }
   const declare = (name) => {
     if (seen.has(name)) return
     seen.add(name)
-    const decl = new RegExp(`\\b(?:const|let|var)\\s+${name.replace(/\$/g, '\\$')}\\s*(?::[^=]+)?=\\s*`).exec(src)
-    if (!decl) return
-    const start = decl.index + decl[0].length
+    const start = declared.get(name)
+    if (start === undefined) return
     const ch = src[start]
     const end =
       ch === '{' ? closeOf(src, start, '{', '}') : ch === '[' ? closeOf(src, start, '[', ']') : ch === '"' || ch === "'" || ch === '`' ? src.indexOf(ch, start + 1) : -1

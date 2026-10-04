@@ -1,49 +1,62 @@
 # Testing
 
-The developer reference for tests in a kit-enabled project: the Vitest scaffolding the kit seeds, and `/e2e`. Who runs tests and which tier a test belongs in is the `testing-verification` rule; the model behind it is `pipeline.md` §1.5.
+The developer reference for tests in a kit-enabled project: the Vitest scaffolding the kit ships, and `/e2e`. Who runs tests and which tier a test belongs in is the `testing-verification` rule; the model behind it is `pipeline.md` §1.5.
 
 ## 1 Vitest scaffolding
 
-Per-app test infrastructure the kit seeds once. The kit provides the starting point and **the project owns every file** — edit them freely; nothing reverts your changes.
+Per-app test infrastructure the kit owns. `/sync-dev-kit` keeps every file identical to the kit's, so a fix to the harness reaches every project — except `test/project.ts`, which is the project's: the kit seeds it once and never offers it again.
 
-**Destination comes from the `SHARED_MODULE_DIR` substitution**, because test layout is project-specific (`apps/shared` in a monorepo, `src` or `.` in a flat repo, `packages/<name>` elsewhere). `vitest.config.ts` lands at `<SHARED_MODULE_DIR>/vitest.config.ts`; every other file at `<SHARED_MODULE_DIR>/test/<name>`. **Empty means the project has no shared test module and the scaffolding is skipped entirely** rather than landing somewhere wrong — so this costs nothing for projects it does not apply to.
+**Destination comes from the `SHARED_MODULE_DIR` substitution**, because test layout is project-specific (`apps/shared` in a monorepo, `src` or `.` in a flat repo, `packages/<name>` elsewhere). `vitest.config.ts` lands at `<SHARED_MODULE_DIR>/vitest.config.ts`; every other file at `<SHARED_MODULE_DIR>/test/<name>`. **Empty means the project has no shared test module and the scaffolding is skipped entirely** — so this costs nothing for projects it does not apply to.
 
-**When the kit improves one of these files,** `/sync-dev-kit` shows the change and the project decides; keeping your own version is the normal answer and does not re-prompt until the kit changes the file again.
+**What differs between projects goes in `test/project.ts`**, typed by `test/define.ts`:
 
-**What's in the template dir:**
+| Setting | What it sets |
+|---|---|
+| `timezone` | The IANA zone every test runs in — the zone the project stores and shows time in (constitution §VI). The smoke test asserts it. |
+| `schema` | The main database's Drizzle schema; `dbTest`'s handle is typed and built with it. |
+| `unitInclude`, `unitExclude`, `integrationInclude` | Test file globs from the repository root, when the defaults under the shared module's `test/` do not fit. |
+| `vitestProjects` | Further vitest projects beside `unit` and `integration` — a UI package with its own environment. |
+| `envKeys` | `.env` keys the tests may read beyond `NEON_*` and `TZ`. |
+| `extraDatabases` | Databases beyond the main one on the integration branch: each one's URL variable, name, drizzle-kit config and schema. |
+| `afterMigrate` | Runs once after every database is migrated, given each URL — for what a fork of production needs before tests. |
+| `roles` | The roles a test user may hold, and the default `mockAuthedUser` gives. |
+
+**A project's own helpers go in files of their own beside `project.ts`** — domain fakes, a second database's test function (`export const auditTest = dbTestOn("AUDIT_DATABASE_URL")`), a stub server. A kit file is never edited to hold them.
+
+**The files:**
 
 | File | Purpose |
 |---|---|
-| `vitest.config.ts` | Node env; globals off (explicit imports from `vitest`); two projects — `unit` (parallel, no DB) and `integration` (parallel, present only when Neon creds exist); `globalSetup` → globalSetup.ts; `setupFiles` → test-utils.ts; `root` pinned to the config-file dir so `npm test` from repo root resolves include globs. |
-| `globalSetup.ts` | Integration branch lifecycle. Forks the default (production) branch once per run, runs `drizzle-kit migrate` against it, sets `DATABASE_URL` before workers spawn; deletes the branch in `teardown` (`expires_at` 30 min is the crash backstop). Uses `@neondatabase/api-client` — **pin `^2.7.2` or later**: `deleteProjectBranch` takes a single `{ projectId, branchId }` object from 2.7.2, and the older positional form silently requests `/projects/undefined/branches/undefined`, 404s, and leaks a branch per run. Teardown deliberately does not swallow that failure. |
-| `integration-helpers.ts` | `dbTest(name, fn)` — the only DB entry point for integration tests. Runs `fn` inside an always-rolled-back Postgres transaction and passes the `tx` handle into the code under test, so parallel tests on the one shared branch stay MVCC-isolated. |
-| `auth-mocks.ts` | Typed `MockAuthedUser` + `mockAuthedUser()` / `mockUnauthed()` stubs. |
-| `test-utils.ts` | Setup file. Pins `process.env.TZ` (chosen per consumer — UTC for UTC-stored projects, local TZ for projects that store in local time). Exposes a deterministic UUID-v7-like helper. Re-exports auth mocks. |
-| `smoke.test.ts` | 4 assertions proving vitest picks up the config, runs the setup file, resolves module imports, runs assertions under node env. |
+| `define.ts` | The contract `project.ts` is written against. |
+| `project.ts` | The project's settings. Seeded once; the project's from then on. |
+| `vitest.config.ts` | Node env; globals off; a `unit` project (parallel, no DB) and an `integration` project (parallel, present only when Neon creds exist), plus `project.ts`'s own. Resolves the repository root from `.claude/sync-substitutions.json`, and each app's `@/` alias from the nearest `tsconfig.json` above the importing file. |
+| `globalSetup.ts` | Integration branch lifecycle. Forks the default (production) branch once per run, runs `drizzle-kit migrate` for every database on it, runs `afterMigrate`, sets the URLs before workers spawn, and deletes the branch in `teardown` (`expires_at` 30 min is the crash backstop). Teardown does not swallow a failed delete. |
+| `integration-helpers.ts` | `dbTest(name, fn)` and `dbTestOn(envVar)` — the only DB entry points. Each runs `fn` inside an always-rolled-back Postgres transaction and passes the `tx` handle into the code under test. |
+| `auth-mocks.ts` | Typed `MockAuthedUser` + `mockAuthedUser()` / `mockUnauthed()` stubs, roles from `project.ts`. |
+| `test-utils.ts` | Setup file. Loads the allowed `.env` keys, pins `process.env.TZ` to `project.timezone`, exposes a deterministic UUID-v7-like helper, re-exports the auth mocks. |
+| `smoke.test.ts` | Proves vitest picks up the config, runs the setup file, resolves module imports, and runs in the project's timezone. |
 
 **Enabling it for a consumer:**
 
 ```bash
-# 1. Deps. Pin api-client ^2.7.2 or later — see the globalSetup.ts row above.
-npm install -D vitest '@neondatabase/api-client@^2.7.2' pg
+# 1. Deps, at the versions stack-manifest.json pins — check-stack fails any other.
+npm install -D --save-exact vitest@4.1.11 @neondatabase/api-client@2.7.3 pg
 
 # 2. Point the substitution at the workspace holding the shared module.
 #    "apps/shared" in a monorepo, "src" or "." flat, "" if the project has none.
 jq '.SHARED_MODULE_DIR = "apps/shared"' .claude/sync-substitutions.json > tmp && mv tmp .claude/sync-substitutions.json
 
-# 3. /sync-dev-kit — the files arrive as `new-kit` and land at their mapped
-#    destinations. Every later kit improvement arrives the same way.
+# 3. /sync-dev-kit — the files arrive as `new-kit`. Then set test/project.ts:
+#    the timezone, and the schema import if it is not ../src/db/schema.
 
 # 4. Wire npm scripts in root package.json:
 #      "test":       "vitest run -c <shared-module>/vitest.config.ts"
 #      "test:watch": "vitest -c <shared-module>/vitest.config.ts"
 ```
 
-**Test-dir placement** — tests live at `<shared-module>/test/` (sibling of `src/`), NOT under `src/`. Keeps test code out of the production include glob and avoids special-casing test excludes in builder tooling. Runner defaults are not uniform — Mocha defaults to a `test/` directory; Vitest and Jest discover by filename glob (`.test.` / `.spec.`) and don't mandate a layout — but the sibling-of-`src/` convention is common because it works cleanly under all three when configured. `<shared-module>/tsconfig.json` should explicitly `"include": ["src/**/*", "test/**/*"]` so `check-types` still typechecks test files. Tests inside `src/` was tried and reverted after recognizing the real cost (test code leaking into the production include glob).
+**Test-dir placement** — tests live at `<shared-module>/test/` (sibling of `src/`), NOT under `src/`. Keeps test code out of the production include glob and avoids special-casing test excludes in builder tooling. `<shared-module>/tsconfig.json` should explicitly `"include": ["src/**/*", "test/**/*"]` so `check-types` still typechecks test files.
 
-**TZ pinning** — consumer MUST choose a TZ that matches how their project stores and displays timestamps. The template ships with `America/Chicago` as the default. If your DB stores in UTC, pin `UTC`. The smoke-test assertion also must match.
-
-**Integration pattern — one branch per run, transaction per test.** Reference templates: `globalSetup.ts` (branch lifecycle) + `integration-helpers.ts` (`dbTest`). Same behavior locally and in CI: `globalSetup.ts` forks the project's default (production) branch **once per test run** (Neon copy-on-write), migrates it, points `DATABASE_URL` at it before any worker spawns, and deletes it in `teardown`. One create + one delete for the whole run → no API rate-limiting, no orphaned branches. Uses `@neondatabase/api-client` directly.
+**Integration pattern — one branch per run, transaction per test.** Files: `globalSetup.ts` (branch lifecycle) + `integration-helpers.ts` (`dbTest`). Same behavior locally and in CI: `globalSetup.ts` forks the project's default (production) branch **once per test run** (Neon copy-on-write), migrates it, points `DATABASE_URL` at it before any worker spawns, and deletes it in `teardown`. One create + one delete for the whole run → no API rate-limiting, no orphaned branches. Uses `@neondatabase/api-client` directly.
 
 **Vitest "projects" split.** `vitest.config.ts` defines two projects: a `unit` project (parallel, no DB — runs in every context including forks and Dependabot PRs that have no Neon creds) and an `integration` project (also parallel, every worker sharing the one branch). The integration project is present only when `NEON_API_KEY` + `NEON_PROJECT_ID` are set.
 
@@ -66,13 +79,9 @@ jq '.SHARED_MODULE_DIR = "apps/shared"' .claude/sync-substitutions.json > tmp &&
 - forking from `dev` risks testing against schema that may never reach prod (devs can leave migrations applied to dev that they later drop from a PR)
 - privacy is small concern for shops with shared prod access already
 
-Point it at a different parent only if your project default is not the right reference — change the `createProjectBranch` call in `globalSetup.ts`.
-
-**Migration-during-PR (wired in `globalSetup.ts`).** After forking the branch and setting `DATABASE_URL`, `setup` runs `execSync("npx drizzle-kit migrate")` once against the fresh branch. This is **idempotent**: drizzle tracks applied migrations in `__drizzle_migrations`. The branch forked production, which lacks any migration from THIS PR — so a migration PR applies exactly the new one, and a non-migration PR is a no-op. Either way the pending migration is validated in the same CI pass, same code path as the production deploy step (`npm run db:migrate` post-deploy).
+**Migration-during-PR (wired in `globalSetup.ts`).** After forking the branch and setting `DATABASE_URL`, `setup` runs `npx drizzle-kit migrate` once against the fresh branch, and once per `extraDatabases` entry with its own config. This is **idempotent**: drizzle tracks applied migrations in `__drizzle_migrations`. The branch forked production, which lacks any migration from THIS PR — so a migration PR applies exactly the new one, and a non-migration PR is a no-op. Either way the pending migration is validated in the same CI pass, same code path as the production deploy step (`npm run db:migrate` post-deploy).
 
 Cost: ~1s per run when a migration is applied (Drizzle is fast on small migration counts). No-op when the branch is already current.
-
-Adopting projects with non-Drizzle migration runners: swap the `execSync` command. The pattern (run-migrations-once-before-tests, in `globalSetup`) is general.
 
 **Required scripts** (root `package.json`):
 - `"test": "vitest run -c <vitest-config-path>"` — single command for both the unit and integration projects; the per-run branch + transaction-per-test (`dbTest`) handle isolation.

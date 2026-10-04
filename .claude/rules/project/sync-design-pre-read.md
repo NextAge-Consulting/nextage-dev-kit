@@ -23,7 +23,7 @@ Name which of the four you have loaded, in the reply, in the sentence before the
 
 **The kit has two `.claude` surfaces.** `_claude-project/.claude/…` is the template that ships to consumers; `<kit_root>/.claude/…` is the kit's own dogfood. Whether a given item is dogfooded at all is governed by the manifest in `dev-kit-workflow.md`. Either way, `/sync-dev-kit` only ever compares a consumer's `.claude/` against the kit's `_claude-project/`, never against the kit's own `.claude/`.
 
-**Sync state names are exact terms with exact meanings** — `clean`, `kit-only`, `project-only`, `conflict`, `clean-converged`, `clean-first`, `conflict-first`, `new-kit`, `removed-kit`, `project-deleted`. Use them as written, from kitmaintainer-handbook.md §9.3 and the recommendation table in `sync-dev-kit.md` Step 2. Don't paraphrase.
+**Sync state names are exact terms with exact meanings** — `clean`, `kit-only`, `conflict`, `clean-converged`, `clean-first`, `conflict-first`, `new-kit`, `declined`, `removed-kit`, `project-deleted`, `template-kept`, `patched`, `unsanctioned`, `merge-unmarked`, `merge-invalid`. Use them as written, from kitmaintainer-handbook.md §9.3 and the recommendation table in `sync-dev-kit.md` Step 2. Don't paraphrase.
 
 **The lockfile baseline SHA tracks substituted content, not raw kit bytes.** A consumer's lockfile entry equals the SHA of what was written to disk, which equals the SHA of `apply_substitutions(kit_file)` at the time of apply.
 

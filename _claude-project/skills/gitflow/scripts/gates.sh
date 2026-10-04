@@ -187,6 +187,26 @@ semgrep_include_pattern() {
     printf '/%s' "$1" | sed 's/[][*?\\ ]/\\&/g'
 }
 
+# run_project_gate <fold_base> <action>
+#
+# The repository's own checks, beyond the ones every project shares: when
+# .claude/project-gate.sh exists, it runs from the repository root with <fold_base>,
+# the commit the change is measured from, and a non-zero exit fails the gate. A
+# repository without one passes, saying so.
+run_project_gate() {
+    local base="$1" action="$2"
+    if [ ! -f ".claude/project-gate.sh" ]; then
+        echo "gitflow: project gate: none (.claude/project-gate.sh does not exist)." >&2
+        return 0
+    fi
+    echo "gitflow: running the project gate (.claude/project-gate.sh)..." >&2
+    if ! bash .claude/project-gate.sh "$base"; then
+        echo "" >&2
+        echo "gitflow: the project gate failed (.claude/project-gate.sh). Fix before $action." >&2
+        return 4
+    fi
+}
+
 # run_semgrep_gate <fold_base> <action>
 #
 # Mirrors the CI `semgrep` job, scoped to the files this commit touches.

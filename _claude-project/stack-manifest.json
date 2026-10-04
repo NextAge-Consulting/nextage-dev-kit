@@ -204,6 +204,22 @@
       "blessedAt": "2026-10-02",
       "ciWorkflow": ".github/workflows/ci.yml",
       "why": "The CI python job typechecks from the repository root whenever a root pyrightconfig.json or pyproject.toml exists, so the kit owns the checker. Pyright adds and tightens checks in patch releases, so two versions report different errors on the same code. The job installs this version over whatever the project declares; the commit gate warns when the pyright installed locally differs. The guard asserts the workflow names it."
+    },
+    "vitest": {
+      "version": "4.1.11",
+      "applies": "whenDeclared",
+      "severity": "required",
+      "installedBy": "project",
+      "blessedAt": "2026-10-04",
+      "why": "The kit owns the test configuration (templates/testing/vitest.config.ts and the files beside it), written against vitest 4's projects API and inline project shape. A project on another major reads the same config differently, so the version is the kit's."
+    },
+    "@neondatabase/api-client": {
+      "version": "2.7.3",
+      "applies": "whenDeclared",
+      "severity": "required",
+      "installedBy": "project",
+      "blessedAt": "2026-10-04",
+      "why": "The kit's templates/testing/globalSetup.ts creates and deletes the integration branch through it. Before 2.7.2 deleteProjectBranch took positional arguments, so the kit's object-argument call requests /projects/undefined/branches/undefined, 404s, and leaks a branch every run."
     }
   },
   "_packages_notes": {

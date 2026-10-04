@@ -162,6 +162,7 @@ fi
 run_typecheck_gate "$SKIP_TYPECHECK" "committing" || exit $?
 run_biome_gate "committing" || exit $?
 run_semgrep_gate "$FOLD_BASE" "committing" || exit $?
+run_project_gate "$FOLD_BASE" "committing" || exit $?
 
 # Rule-prose review: every rule, skill, command or pattern reference changed since
 # FOLD_BASE, reviewed by a headless Claude against the rule-authoring standard.

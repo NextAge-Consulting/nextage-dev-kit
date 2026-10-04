@@ -20,7 +20,7 @@ The kit is a project like any other, with its own `.claude/` of rules, hooks, sk
 
 The kit repo's project-level config, loaded when working in the kit. It holds the part of `_claude-project/` the kit actually uses — gitflow commands, the shared rules, hooks and skills — which is everything the manifest below does not mark template-only. The manifest governs; a large slice is deliberately absent.
 
-It also holds kit-custom items that never propagate: the `install-cpl` and `install-statusline` commands, and the kit-specific rules `dev-kit-workflow.md`, `sync-design-pre-read.md` and `hook-testing.md`. Edit those in place — they have no other home, and the "kit's own rule tweak" row below does not apply to them.
+It also holds kit-custom items that never propagate: the `install-cpl` and `install-statusline` commands, the kit-specific rules `dev-kit-workflow.md`, `sync-design-pre-read.md` and `hook-testing.md`, and the pre-ship gate — `project-gate.sh` and `kit-gate/` (kitmaintainer-handbook.md §9.11). Edit those in place — they have no other home, and the "kit's own rule tweak" row below does not apply to them.
 
 Those prove the extensibility pattern: any project can add commands in its own `.claude/commands/` that the kit knows nothing about.
 
@@ -59,7 +59,7 @@ The kit dogfoods only what it actually uses. Everything below ships to consumers
 | `rules/cli-utilities.md` | Kit runs no AWS / cloud CLI — the account/region discipline never applies. |
 | `skills/agent-browser/**`, `rules/integrations/agent-browser.md` | Kit has no web app to drive a browser against. |
 | `skills/e2e/**` | Kit has no `test/e2e/*.md` flow files. |
-| `templates/testing/**` | Kit has no `package.json`, no vitest, no Neon project. They sync to consumers in `template` mode via `SHARED_MODULE_DIR` (testing.md §1); the kit is not a consumer of them. |
+| `templates/testing/**` | Kit has no `package.json`, no vitest, no Neon project. They sync to consumers via `SHARED_MODULE_DIR` — kit-owned, except the `project.ts` seed (testing.md §1); the kit is not a consumer of them. |
 | `skills/e2e-author/**` | Kit has no flow files to author. |
 | `skills/analysis/**` | Kit produces markdown analyses of itself in-repo; the shareable-HTML analysis workflow is for consumer apps. |
 | `lib/gen-report.mjs` | Shared report generator invoked by the (template-only) e2e + analysis skills; the kit runs neither. |

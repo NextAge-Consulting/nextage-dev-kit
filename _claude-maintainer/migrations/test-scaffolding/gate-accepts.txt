@@ -1,0 +1,6 @@
+# Findings the kit gate's replay accepts while this migration ships: every project on
+# the kit's test scaffolding pins these exactly, and the migration's step 5 does it.
+: vitest is "
+: vitest resolves to
+: @neondatabase/api-client is "
+: @neondatabase/api-client resolves to

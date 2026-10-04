@@ -1,33 +1,23 @@
-// Reference-only — NOT synced by /sync-dev-kit.
-// Copy to <test-dir>/smoke.test.ts in your project. See ../README.md.
-//
-// Phase 5 smoke test — proves the Vitest pipeline runs end-to-end:
-//   * vitest picks up the config
-//   * the setupFile (test-utils.ts) executes (TZ is pinned)
-//   * test-utils re-exports from auth-mocks (module resolution works)
-//   * assertions run under the node environment
-//
-// Real tests will exercise server functions, domain math, etc. This file
-// exists only to fail loudly if the scaffolding ever rots.
-//
-// CHOOSE TZ: update the expected TZ assertion to match the pin in
-// test-utils.ts. Defaults to "America/Chicago".
+// The test scaffolding's own smoke test — the kit's, kept current by /sync-dev-kit. It fails
+// loudly if the scaffolding rots: vitest reads the config, the setup file runs, imports
+// resolve, and assertions run under node.
 
 import { describe, expect, it } from "vitest";
+import project from "./project";
 import { mockAuthedUser, uuidv7Like } from "./test-utils";
 
 describe("vitest scaffolding smoke", () => {
-  it("runs assertions in node environment", () => {
+  it("runs assertions in the node environment", () => {
     expect(1 + 1).toBe(2);
   });
 
-  it("setup file pinned the process TZ", () => {
-    expect(process.env.TZ).toBe("America/Chicago");
+  it("the setup file pinned the project's timezone", () => {
+    expect(process.env.TZ).toBe(project.timezone);
   });
 
-  it("re-exports auth mock helpers from test-utils", () => {
-    const user = mockAuthedUser({ role: "admin" });
-    expect(user.role).toBe("admin");
+  it("re-exports the auth mocks from test-utils", () => {
+    const user = mockAuthedUser({ email: "someone@example.test" });
+    expect(user.email).toBe("someone@example.test");
     expect(user.userid).toMatch(/^0191d3c8-/);
   });
 
