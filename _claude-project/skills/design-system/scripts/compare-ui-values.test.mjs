@@ -46,7 +46,7 @@ test('a utility\'s declarations, with their variant context, custom properties i
   assert.deepEqual([...declarations(css, 'shadow-md')], [['|--tw-shadow', '0 1px red'], ['|box-shadow', 'var(--tw-shadow)']])
 })
 
-test('diff hunks carry the file, the new-side line, and the removed and added lines', () => {
+test('diff hunks carry the file, the old-side and new-side lines, and the removed and added lines', () => {
   const diff = `diff --git a/src/a.tsx b/src/a.tsx
 --- a/src/a.tsx
 +++ b/src/a.tsx
@@ -57,8 +57,8 @@ test('diff hunks carry the file, the new-side line, and the removed and added li
 +one
 +two`
   assert.deepEqual(hunks(diff), [
-    { file: 'src/a.tsx', line: 3, removed: ['<p className="text-sm">'], added: ['<p className="type-meta">'] },
-    { file: 'src/a.tsx', line: 10, removed: [], added: ['one', 'two'] },
+    { file: 'src/a.tsx', oldLine: 3, line: 3, removed: ['<p className="text-sm">'], added: ['<p className="type-meta">'] },
+    { file: 'src/a.tsx', oldLine: 9, line: 10, removed: [], added: ['one', 'two'] },
   ])
 })
 
@@ -319,4 +319,12 @@ test('a variable a child selector sets reaches that child, never the element its
   assert.equal(resolveVars('var(--tw-leading, var(--text-sm--line-height))', element.light), '20px')
   assert.equal(resolveVars('var(--tw-leading, var(--text-sm--line-height))', child.light), '1.625')
   assert.equal(child.light.get('--text-sm--line-height'), '20px')
+})
+
+test('a role-name list fed to a merge config is not a class list; a class helper argument is', async () => {
+  const { classText } = await import('./check-design-tokens.mjs')
+  const src = `export const SPACING_ROLES = ['field', 'inline', 'title'] as const\nconst x = cn('inline', 'p-2')\n`
+  const [roles, call] = classText(src).split('\n')
+  assert.deepEqual(candidates(roles), [])
+  assert.deepEqual(candidates(call), ['inline', 'p-2'])
 })

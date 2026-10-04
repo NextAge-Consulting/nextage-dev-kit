@@ -25,6 +25,7 @@ import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { classNames, classText } from './check-design-tokens.mjs'
 
 const ENTRY = /^\s*@import\s+["']tailwindcss["']/m
 const ROOT_PX = 16
@@ -701,8 +702,8 @@ export function hunks(diff) {
   for (const line of diff.split('\n')) {
     if (line.startsWith('+++ ')) file = line.slice(4).replace(/^b\//, '')
     else if (line.startsWith('@@')) {
-      const m = line.match(/\+(\d+)/)
-      cur = { file, line: Number(m[1]), removed: [], added: [] }
+      const m = line.match(/-(\d+)(?:,\d+)? \+(\d+)/)
+      cur = { file, oldLine: Number(m[1]), line: Number(m[2]), removed: [], added: [] }
       out.push(cur)
     } else if (cur && line.startsWith('-') && !line.startsWith('---')) cur.removed.push(line.slice(1))
     else if (cur && line.startsWith('+') && !line.startsWith('+++')) cur.added.push(line.slice(1))
@@ -735,6 +736,22 @@ export async function compareUiValues(repo, { base = 'HEAD' } = {}) {
       if (existsSync(path.join(baseDir, file))) texts.push(readFileSync(path.join(baseDir, file), 'utf8'))
       for (const t of texts) for (const m of t.matchAll(/\[(--[\w-]+):/g)) inherited.add(m[1])
     }
+    // Only class lists hold classes: a className, a class helper's arguments, a variable
+    // either names — never a role-name list or a prop value (check-design-tokens' classText).
+    // Constants a class list names in another file count where they are declared.
+    const sources = git(repo, ['ls-files', '--cached', '--others', '--exclude-standard', '--', '*.ts', '*.tsx'])
+      .split('\n')
+      .filter((f) => f && !f.includes('node_modules') && existsSync(path.join(repo, f)))
+      .map((f) => readFileSync(path.join(repo, f), 'utf8'))
+    for (const file of new Set(changes.map((h) => h.file))) if (existsSync(path.join(baseDir, file))) sources.push(readFileSync(path.join(baseDir, file), 'utf8'))
+    const names = classNames(sources)
+    const classLines = new Map()
+    const linesOf = (dir, file) => {
+      const k = `${dir}:${file}`
+      if (!classLines.has(k)) classLines.set(k, existsSync(path.join(dir, file)) ? classText(readFileSync(path.join(dir, file), 'utf8'), { names }).split('\n') : null)
+      return classLines.get(k)
+    }
+
     const get = async (side, entry) => {
       const k = `${side}:${entry}`
       if (!compilers.has(k)) compilers.set(k, existsSync(path.join(side === 'new' ? repo : baseDir, entry)) ? await compilerFor(side === 'new' ? repo : baseDir, entry, { inherited }) : null)
@@ -783,9 +800,12 @@ export async function compareUiValues(repo, { base = 'HEAD' } = {}) {
         uncompared.push(`${at}  — no stylesheet on one side to compile with`)
         continue
       }
-      h.removed = stripComments(h.removed)
-      h.added = stripComments(h.added)
-      const { pairs, leftover } = pairLines(h.removed, h.added)
+      const oldLines = linesOf(baseDir, h.file)
+      const newLines = linesOf(repo, h.file)
+      // Lines pair by their written shape; their classes come from the class lists alone.
+      const { pairs, leftover } = pairLines(stripComments(h.removed), stripComments(h.added))
+      h.removed = stripComments(h.removed.map((l, i) => oldLines?.[h.oldLine - 1 + i] ?? l))
+      h.added = stripComments(h.added.map((l, i) => newLines?.[h.line - 1 + i] ?? l))
       const record = (where, x, y) => {
         const lost = new Map()
         const gained = new Map()
@@ -823,8 +843,11 @@ export async function compareUiValues(repo, { base = 'HEAD' } = {}) {
         if (candidates(h.removed[ri]).join(' ') === candidates(h.added[ai]).join(' ')) continue
         linesCompared++
         const where = `${h.file}:${h.line + ai}`
-        const vo = variants(h.removed[ri])
-        const vn = variants(h.added[ai])
+        let vo = variants(h.removed[ri])
+        let vn = variants(h.added[ai])
+        // A side with no choice holds in every branch of the other.
+        if (vo && vn && vo.length === 1) vo = vn.map(() => vo[0])
+        if (vo && vn && vn.length === 1) vn = vo.map(() => vn[0])
         if (!vo || !vn || vo.length !== vn.length) {
           uncompared.push(`${where}  — its conditional class choices changed shape; check each branch by hand`)
           continue

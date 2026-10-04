@@ -296,6 +296,24 @@ test('a class constant is checked where it is declared, used here or in another 
   assert.deepEqual(problems.map((p) => p.split('  ')[1]), ['px-[10px]'])
 })
 
+test('a function a class list calls is checked — directly, through a variable or a class prop — as a declaration, a block arrow or an expression arrow', async () => {
+  const { problems } = await run({
+    'apps/web/src/tone.ts': [
+      'export function toneFor(late: boolean): string {',
+      '  if (late) return "text-blue-500"',
+      '  return ""',
+      '}',
+      'export const edge = (x: number) => {',
+      '  return x > 1 ? "rounded-lg" : ""',
+      '}',
+      'export const pad = (n: number) => (n ? "px-[3px]" : "")',
+      'export function unused() { return "text-sm" }',
+    ].join('\n'),
+    'apps/web/src/screen.tsx': 'import { toneFor, edge, pad } from "./tone"\nexport const S = () => {\n  const tone = toneFor(true)\n  return <Row toneClasses={tone} className={cn(edge(2), pad(1))} />\n}\n',
+  })
+  assert.deepEqual(problems.map((p) => p.split('  ')[1]).sort(), ['px-[3px]', 'rounded-lg', 'text-blue-500'])
+})
+
 test('a var() that resolves to nothing fails', async () => {
   const { problems } = await run({ 'packages/ui/src/styles.css': `${STYLES}\n.x { color: var(--nowhere); }\n` })
   assert.ok(problems.some((p) => /--nowhere {2}— referenced but never defined/.test(p)))

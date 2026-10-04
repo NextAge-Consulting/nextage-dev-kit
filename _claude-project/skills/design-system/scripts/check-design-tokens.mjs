@@ -226,9 +226,10 @@ const CLASS_CALLS = /\b(?:cn|clsx|cva|tv|twMerge|twJoin|cx)\s*\(/g
 
 /**
  * The source with everything but its class lists blanked, line breaks kept: className and
- * class attribute values, the arguments of the class-merge helpers, and the initialiser of
- * any variable those use (`const base = "…"`, a size map). An import path, a URL, a logger
- * name or a prop value (`size="text-meta"`) is not a class list.
+ * class attribute values and any prop named for classes (`contentClassName`, `toneClasses`), the arguments of the class-merge helpers, the initialiser of any
+ * variable those use (`const base = "…"`, a size map), and the body of any function they
+ * call (`className={toneFor(order)}`). An import path, a URL, a logger name or a prop value
+ * (`size="text-meta"`) is not a class list.
  */
 export function classText(src, { names = new Set() } = {}) {
   const keep = new Uint8Array(src.length)
@@ -236,7 +237,7 @@ export function classText(src, { names = new Set() } = {}) {
     for (let i = a; i <= b && i < src.length; i++) keep[i] = 1
   }
   const spans = []
-  for (const m of src.matchAll(/\b(?:className|class)\s*=\s*/g)) {
+  for (const m of src.matchAll(/(?<!\b(?:const|let|var)\s+)\b(?:className|class|[A-Za-z]\w*(?:ClassName|Classes|Class))\s*=(?![=>])\s*/g)) {
     const at = m.index + m[0].length
     const ch = src[at]
     if (ch === '"' || ch === "'") spans.push([at, src.indexOf(ch, at + 1)])
@@ -254,6 +255,27 @@ export function classText(src, { names = new Set() } = {}) {
   for (const d of src.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*/g)) {
     if (!declared.has(d[1])) declared.set(d[1], d.index + d[0].length)
   }
+  for (const d of src.matchAll(/\bfunction\s+([A-Za-z_$][\w$]*)\s*(?=[(<])/g)) {
+    if (!declared.has(d[1])) declared.set(d[1], d.index + d[0].length)
+  }
+  // A call's span (`toneFor(order)`), so the function it names is followed in turn.
+  const callEnd = (start) => {
+    const call = src.slice(start).match(/^(?:await\s+)?[A-Za-z_$][\w$.]*\s*\(/)
+    return call ? closeOf(src, start + call[0].length - 1, '(', ')') : -1
+  }
+  // A function's span: its block body, or an arrow's expression to the end of its line.
+  const fnEnd = (start) => {
+    const open = src.indexOf('(', start)
+    if (open < 0) return -1
+    const close = closeOf(src, open, '(', ')')
+    if (close < 0) return -1
+    const after = src.slice(close + 1).match(/^\s*(?::[^={]*)?(=>)?\s*/)
+    const at = close + 1 + after[0].length
+    if (src[at] === '{') return closeOf(src, at, '{', '}')
+    if (!after[1]) return close
+    const eol = src.indexOf('\n', at)
+    return eol < 0 ? src.length - 1 : eol
+  }
   const declare = (name) => {
     if (seen.has(name)) return
     seen.add(name)
@@ -261,7 +283,15 @@ export function classText(src, { names = new Set() } = {}) {
     if (start === undefined) return
     const ch = src[start]
     const end =
-      ch === '{' ? closeOf(src, start, '{', '}') : ch === '[' ? closeOf(src, start, '[', ']') : ch === '"' || ch === "'" || ch === '`' ? src.indexOf(ch, start + 1) : -1
+      ch === '{'
+        ? closeOf(src, start, '{', '}')
+        : ch === '['
+          ? closeOf(src, start, '[', ']')
+          : ch === '"' || ch === "'" || ch === '`'
+            ? src.indexOf(ch, start + 1)
+            : ch === '(' || ch === '<' || src.startsWith('async', start)
+              ? fnEnd(start)
+              : callEnd(start)
     if (end >= 0) spans.push([start, end])
   }
   for (const name of names) declare(name)

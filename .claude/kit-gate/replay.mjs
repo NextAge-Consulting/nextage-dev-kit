@@ -29,7 +29,7 @@ const P = '_claude-project'
 // What each check reads, so a change to it — or to a module it imports — replays it.
 const CHECKS = [
   { name: 'token check', files: [`${P}/skills/design-system/scripts/check-design-tokens.mjs`, `${P}/skills/claude-design/scripts/resolve.mjs`], run: tokenCheck },
-  { name: 'comparison tool', files: [`${P}/skills/design-system/scripts/compare-ui-values.mjs`], run: compareTool },
+  { name: 'comparison tool', files: [`${P}/skills/design-system/scripts/compare-ui-values.mjs`, `${P}/skills/design-system/scripts/check-design-tokens.mjs`], run: compareTool },
   { name: 'UI status check', files: [`${P}/skills/ui-patterns/scripts/check-ui-status.mjs`], run: statusCheck },
   { name: 'knip config', files: [`${P}/templates/knip.config.ts`], run: knipConfig },
   { name: 'check-stack', files: [`${P}/templates/scripts/check-stack.mjs`, `${P}/stack-manifest.json`], run: (o, n, c) => scriptCheck('check-stack.mjs', o, n, c) },
@@ -152,11 +152,13 @@ async function compareTool(OLD, NEW, consumer) {
   const now = await run(NEW)
   if (now.problems?.length && /no stylesheet imports tailwindcss/.test(now.problems[0])) return { skip: 'no Tailwind entry stylesheet' }
   const before = await run(OLD)
-  // More lines it cannot compare is a regression; what it lists as changed is the
-  // project's uncommitted work, so only a growth in it is reported.
-  const out = added((before.uncompared ?? []).map(String), (now.uncompared ?? []).map(String))
-  const grew = (now.changed?.length ?? 0) - (before.changed?.length ?? 0)
-  if (grew > 0) out.push(`${grew} more changed group(s) than the committed version lists`)
+  // What it lists is the project's uncommitted work, for a reviewer: a changed group and a
+  // line it could not compare cost the same look. Only growth in that total is reported,
+  // so a line it now compares instead of giving up on is not a regression.
+  const review = (r) => (r.changed?.length ?? 0) + (r.uncompared?.length ?? 0)
+  const out = []
+  const grew = review(now) - review(before)
+  if (grew > 0) out.push(`${grew} more item(s) for review than the committed version lists`, ...added((before.uncompared ?? []).map(String), (now.uncompared ?? []).map(String)))
   return { added: out }
 }
 
