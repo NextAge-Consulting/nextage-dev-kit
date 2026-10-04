@@ -1167,7 +1167,10 @@ if [ "$MODE" = "scan" ]; then
         while IFS= read -r dest_rel; do
             [ -z "$dest_rel" ] && continue
             still_in_kit=$(echo "$FILE_ENTRIES" | jq --arg d "$dest_rel" 'any(.[]; .dest_path == $d)')
-            if [ "$still_in_kit" = "false" ]; then
+            # Nothing maps here and the project has no such file — a declined
+            # seed, a destination a substitution gate now skips: nothing to
+            # remove. --finalize drops the entry.
+            if [ "$still_in_kit" = "false" ] && [ -e "${PROJECT_PATH}/${dest_rel}" ]; then
                 proj_full="${PROJECT_PATH}/${dest_rel}"
                 proj_sha=$(sha256 "$proj_full")
                 baseline_sha=$(load_baseline_sha "$dest_rel")
@@ -1561,11 +1564,13 @@ if [ "$MODE" = "finalize" ]; then
 
     BACKFILL="{}"
     BACKFILL_N=0
+    MAPPED="[]"
     while IFS= read -r kit_rel; do
         [ -z "$kit_rel" ] && continue
         is_skipped "$kit_rel" && continue
         dest_rel=$(dest_for_kit_path "$kit_rel")
         [ -z "$dest_rel" ] && continue
+        MAPPED=$(jq -c --arg d "$dest_rel" '. + [$d]' <<<"$MAPPED")
         [ -f "${PROJECT_PATH}/${dest_rel}" ] || continue
 
         is_protected_dest "$dest_rel" && continue
@@ -1609,11 +1614,21 @@ if [ "$MODE" = "finalize" ]; then
         BACKFILL_N=$((BACKFILL_N + 1))
     done <<< "$ALL_KIT_FILES"
 
+    # An entry nothing in the kit maps to, for a file the project does not
+    # have, records nothing: the scan skips it, and it is dropped here.
+    STALE="[]"
+    while IFS= read -r dest_rel; do
+        [ -z "$dest_rel" ] && continue
+        [ -e "${PROJECT_PATH}/${dest_rel}" ] && continue
+        jq -e --arg d "$dest_rel" 'index($d) == null' <<<"$MAPPED" >/dev/null || continue
+        STALE=$(jq -c --arg d "$dest_rel" '. + [$d]' <<<"$STALE")
+    done <<< "$(jq -r '.files | keys[]' "$LOCKFILE" 2>/dev/null)"
+
     tmp=$(mktemp)
     jq --arg repo "$KIT_REMOTE" --arg commit "$KIT_COMMIT" --arg ts "$NOW" \
-        --argjson backfill "$BACKFILL" \
+        --argjson backfill "$BACKFILL" --argjson stale "$STALE" \
         '.kitRepo = $repo | .lastSyncedCommit = $commit | .lastSyncedAt = $ts
-         | .files = (.files + $backfill)' \
+         | .files = ((.files + $backfill) | with_entries(select(.key as $k | $stale | index($k) == null)))' \
         "$LOCKFILE" > "$tmp"
     mv "$tmp" "$LOCKFILE"
 

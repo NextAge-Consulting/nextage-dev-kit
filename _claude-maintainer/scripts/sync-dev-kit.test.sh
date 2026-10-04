@@ -278,6 +278,18 @@ jq -e '[.files[] | select(.kit_path == "_claude-project/templates/testing/integr
     && ok "another engine skips the Postgres harness, reported under DB_ENGINE" || bad "non-Postgres harness: $(jq -c .skipped_unconfigured <<<"$out")"
 jq -e '[.files[] | select(.kit_path == "_claude-project/templates/testing/smoke.test.ts")] | length == 1' <<<"$out" >/dev/null \
     && ok "another engine still gets the unit scaffolding" || bad "non-Postgres unit scaffolding"
+L="$PROJ/.claude/.kit-sync.json"
+jq '.files["apps/shared/test/integration-helpers.ts"] = {sha: "x", mode: "template", declined: true} | .files["gone.md"] = {sha: "y", mode: "owned"}' "$L" > "$tmp/l" && mv "$tmp/l" "$L"
+printf 'left behind\n' > "$PROJ/gone.md"
+out=$(scan)
+jq -e '[.files[] | select(.dest_path == "apps/shared/test/integration-helpers.ts")] == []' <<<"$out" >/dev/null \
+    && ok "a lockfile entry nothing maps to, for a file the project lacks, is not removed-kit" || bad "phantom removal: $(jq -c '[.files[] | select(.state == "removed-kit")]' <<<"$out")"
+[ "$(jq -r '.files[] | select(.dest_path == "gone.md") | .state' <<<"$out")" = "removed-kit" ] \
+    && ok "a kit-removed file the project still has is removed-kit" || bad "real removal not reported"
+run --finalize >/dev/null 2>&1
+jq -e '.files | has("apps/shared/test/integration-helpers.ts") | not' "$L" >/dev/null && jq -e '.files | has("gone.md")' "$L" >/dev/null \
+    && ok "finalize drops the entry with no file and keeps the one with a file" || bad "finalize pruning: $(jq -c '.files | keys' "$L")"
+rm "$PROJ/gone.md"; jq 'del(.files["gone.md"])' "$L" > "$tmp/l" && mv "$tmp/l" "$L"
 jq '.DB_ENGINE = "PostgreSQL"' "$PROJ/.claude/sync-substitutions.json" > "$tmp/s" && mv "$tmp/s" "$PROJ/.claude/sync-substitutions.json"
 [ "$(scan | jq -r '.files[] | select(.kit_path == "_claude-project/templates/testing/integration-helpers.ts") | .dest_path')" = "apps/shared/test/integration-helpers.ts" ] \
     && ok "Postgres gets the integration harness" || bad "Postgres harness dest"
