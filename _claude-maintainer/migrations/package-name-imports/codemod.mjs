@@ -34,9 +34,21 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
+const USAGE = "usage: node codemod.mjs [repoRoot] [--dry-run]";
 const args = process.argv.slice(2);
+if (args.includes("--help") || args.includes("-h")) {
+  console.log(USAGE);
+  process.exit(0);
+}
+// An argument it does not know stops the run before anything is written.
+const unknown = args.filter((a) => a.startsWith("-") && a !== "--dry-run");
+const positional = args.filter((a) => !a.startsWith("-"));
+if (unknown.length || positional.length > 1) {
+  console.error(`codemod: ${unknown.length ? `unknown option ${unknown.join(", ")}` : "more than one repository root"}\n${USAGE}`);
+  process.exit(2);
+}
 const dryRun = args.includes("--dry-run");
-const root = resolve(args.find((a) => !a.startsWith("--")) ?? ".");
+const root = resolve(positional[0] ?? ".");
 const toPosix = (p) => p.split(sep).join("/");
 
 const readJson = (p) => JSON.parse(readFileSync(p, "utf8"));
@@ -149,17 +161,22 @@ function* walk(dir) {
   }
 }
 
+// The subpath an exports map resolves: relative to src/ when the module is under it,
+// with no file extension (`"./*": "./src/*.ts"` adds it).
 const packageSpecifier = (target, abs) => {
   const src = join(target.abs, "src");
-  const sub = within(abs, src) ? relative(src, abs) : relative(target.abs, abs);
+  const sub = (within(abs, src) ? relative(src, abs) : relative(target.abs, abs)).replace(CODE, "");
   return sub ? `${target.name}/${toPosix(sub)}` : target.name;
 };
+// The repository root, for code at the top level that belongs to no workspace
+// (a root drizzle.config.ts): its imports are rewritten and its dependencies reported.
+const ROOT = { dir: ".", abs: root, name: rootManifest.name };
 
 // Module-specifier positions: from '…', import '…', import('…'), require('…'),
 // vi.mock('…') / vi.importActual('…'), export … from '…'.
 const SPEC = /(\bfrom\s*|\bimport\s*\(\s*|\bimport\s+|\b(?:mock|doMock|importActual|importMock)\s*\(\s*|\brequire\s*\(\s*)(['"])([^'"\n]+)\2/g;
 
-const counts = { alias: 0, relative: 0, self: 0, files: 0 };
+const counts = { alias: 0, relative: 0, self: 0, src: 0, files: 0 };
 const needs = new Map(); // workspace dir -> Set(package names it imports)
 const subpaths = new Map(); // package name -> Set(subpaths)
 const leftover = [];
@@ -173,8 +190,9 @@ const record = (from, spec) => {
 };
 
 const scanRoots = [...workspaces.map((w) => w.abs), join(root, "scripts")];
-for (const top of scanRoots) {
-  for (const file of walk(top)) {
+const rootFiles = readdirSync(root).map((n) => join(root, n)).filter((p) => CODE.test(p) && statSync(p).isFile());
+for (const top of [...scanRoots, ...rootFiles]) {
+  for (const file of top === root || rootFiles.includes(top) ? [top] : walk(top)) {
     const rel = toPosix(relative(root, file));
     if (!CODE.test(file)) {
       if (/\.css$/.test(file)) {
@@ -207,6 +225,11 @@ for (const top of scanRoots) {
           next = packageSpecifier(target, abs);
           counts.self++;
         }
+      } else if (workspaces.some((w) => spec.startsWith(`${w.name}/src/`))) {
+        // A package-name import that reaches into src/ takes the exports-map form.
+        const target = workspaces.find((w) => spec.startsWith(`${w.name}/src/`));
+        next = packageSpecifier(target, join(target.abs, spec.slice(target.name.length + 1)));
+        counts.src++;
       } else if (spec.startsWith(".")) {
         const abs = resolve(dirname(file), spec);
         const target = ownerOf(abs);
@@ -217,7 +240,7 @@ for (const top of scanRoots) {
           leftover.push(`${rel}: "${spec}" leaves ${own.dir} for a folder no workspace owns — move the code into a package, or the import into that folder`);
         }
       }
-      if (own) record(own, next ?? spec);
+      record(own ?? ROOT, next ?? spec);
       return next === null ? whole : `${lead}${q}${next}${q}`;
     });
     if (out !== src) {
@@ -231,7 +254,7 @@ for (const top of scanRoots) {
 const verb = dryRun ? "would rewrite" : "rewrote";
 console.log(
   `codemod: ${verb} ${counts.alias + counts.relative + counts.self} specifier(s) in ${counts.files} file(s) — ` +
-    `${counts.alias} alias, ${counts.relative} relative, ${counts.self} self-reference${dryRun ? " (dry run: nothing written)" : ""}`,
+    `${counts.alias} alias, ${counts.relative} relative, ${counts.self} self-reference, ${counts.src} into src/${dryRun ? " (dry run: nothing written)" : ""}`,
 );
 
 const missing = [];

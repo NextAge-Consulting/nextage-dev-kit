@@ -42,7 +42,14 @@ export const isCommentLine = (line) => /^\s*(?:\/\/|\/\*|\*|\{\s*\/\*)/.test(lin
 export function candidates(line) {
   if (isCommentLine(line)) return []
   const out = []
-  for (const m of line.matchAll(/(["'`])((?:\\.|(?!\1).)*)\1/g)) for (const w of m[2].split(/\s+/)) if (w && !w.includes('${')) out.push(w)
+  // A JSX attribute other than className/class (`density="filter"`, `variant="outline"`)
+  // holds a prop value, not classes, however much it looks like one.
+  const code = line
+    .replace(/\/\*.*?\*\//g, ' ')
+    .replace(/\b([A-Za-z_][\w:-]*)=(["'])((?:\\.|(?!\2).)*)\2/g, (whole, attr) => (/^(?:className|class)$/.test(attr) ? whole : ' '))
+    // A string in a TypeScript union (`density?: "control" | "filter"`) is a type, not a class.
+    .replace(/(["'])[\w-]+\1(?=\s*\|)|(?<=\|\s*)(["'])[\w-]+\2/g, ' ')
+  for (const m of code.matchAll(/(["'`])((?:\\.|(?!\1).)*)\1/g)) for (const w of m[2].split(/\s+/)) if (w && !w.includes('${')) out.push(w)
   return out
 }
 
@@ -285,6 +292,9 @@ export function themeVars(css, mode = 'light') {
       const sel = stack.findLast((x) => !x.startsWith('@')) ?? ''
       const at = stack.at(-1) ?? ''
       const dark = stack.some(isDark)
+      // A value under a media query other than dark mode (`@media (pointer: coarse)`) holds
+      // only there; conditionalVars compares it under its own condition.
+      if (stack.some((x) => x.startsWith('@media') && !isDark(x))) continue
       const layered = stack.some((x) => x.startsWith('@layer'))
       const m = e.text.match(/^(--[\w-]+)\s*:\s*([\s\S]+)$/)
       if (m && (!dark || mode === 'dark')) {
@@ -347,7 +357,7 @@ export function declarations(css, cls) {
 }
 
 /** A compiler for one tree: classes → resolved declarations, cached. */
-export async function compilerFor(root, entry) {
+export async function compilerFor(root, entry, { inherited = new Set() } = {}) {
   const req = createRequire(path.join(root, 'package.json'))
   const tw = await import(pathToFileURL(req.resolve('@tailwindcss/node')).href)
   const full = path.join(root, entry)
@@ -359,6 +369,7 @@ export async function compilerFor(root, entry) {
     return {
       light: themeVars(css, 'light'),
       dark: themeVars(css, 'dark'),
+      conditional: conditionalVars(css),
       defaults: { light: baseDefaults(css, 'light'), dark: baseDefaults(css, 'dark') },
     }
   }
@@ -393,6 +404,12 @@ export async function compilerFor(root, entry) {
       const ordered = [...new Set(classes)].sort((a, b) => at(a) - at(b))
       // Custom properties the element's own classes set (`--tw-shadow`) resolve first, over the theme.
       const local = { light: new Map(vars.light), dark: new Map(vars.dark) }
+      // A variable a component sets on an ancestor (`[--cell-size:…]`) reaches this element
+      // by inheritance at runtime: it compares as written.
+      for (const name of inherited) {
+        if (!local.light.has(name)) local.light.set(name, `inherited(${name})`)
+        if (!local.dark.has(name)) local.dark.set(name, `inherited(${name})`)
+      }
       // Each class folds on its own first: Tailwind's `@supports (color: color-mix…)` upgrade
       // replaces its own fallback. Every rule is then kept with its state (hover, a media query,
       // an attribute), its mode, its specificity and its place in the CSS.
@@ -607,6 +624,48 @@ export function winner(rules, state, prop, mode) {
   return win
 }
 
+/**
+ * Theme variables that hold only under a media query other than dark mode, keyed
+ * `<media> <name>`: a touch-size override is compared under its own condition.
+ */
+export function conditionalVars(css) {
+  const out = new Map()
+  const stack = []
+  for (const e of cssEvents(css)) {
+    if (e.type === 'open') stack.push(e.text)
+    else if (e.type === 'close') stack.pop()
+    else {
+      const media = stack.filter((x) => x.startsWith('@media') && !isDark(x))
+      const m = e.text.match(/^(--[\w-]+)\s*:\s*([\s\S]+)$/)
+      if (m && media.length && !stack.some(isDark)) out.set(`${media.join(' ')} ${m[1]}`, m[2].trim())
+    }
+  }
+  return out
+}
+
+/**
+ * A hunk's lines with their comments removed: a block comment may open on one line and
+ * close several lines later, and a JSX comment sits mid-line.
+ */
+export function stripComments(lines) {
+  let open = false
+  return lines.map((line) => {
+    let out = ''
+    for (let i = 0; i < line.length; i++) {
+      if (open) {
+        if (line[i] === '*' && line[i + 1] === '/') {
+          open = false
+          i++
+        }
+      } else if (line[i] === '/' && line[i + 1] === '*') {
+        open = true
+        i++
+      } else out += line[i]
+    }
+    return out
+  })
+}
+
 /** Changed lines per file: hunks of removed and added lines, with the new-side line number. */
 export function hunks(diff) {
   const out = []
@@ -640,9 +699,18 @@ export async function compareUiValues(repo, { base = 'HEAD' } = {}) {
   const baseDir = extractBase(repo, base)
   try {
     const compilers = new Map()
+    // Custom properties the changed files set with an arbitrary property (`[--cell-size:…]`),
+    // on either side: an element below reads them by inheritance.
+    const inherited = new Set()
+    for (const file of new Set(changes.map((h) => h.file))) {
+      const texts = []
+      if (existsSync(path.join(repo, file))) texts.push(readFileSync(path.join(repo, file), 'utf8'))
+      if (existsSync(path.join(baseDir, file))) texts.push(readFileSync(path.join(baseDir, file), 'utf8'))
+      for (const t of texts) for (const m of t.matchAll(/\[(--[\w-]+):/g)) inherited.add(m[1])
+    }
     const get = async (side, entry) => {
       const k = `${side}:${entry}`
-      if (!compilers.has(k)) compilers.set(k, existsSync(path.join(side === 'new' ? repo : baseDir, entry)) ? await compilerFor(side === 'new' ? repo : baseDir, entry) : null)
+      if (!compilers.has(k)) compilers.set(k, existsSync(path.join(side === 'new' ? repo : baseDir, entry)) ? await compilerFor(side === 'new' ? repo : baseDir, entry, { inherited }) : null)
       return compilers.get(k)
     }
 
@@ -668,6 +736,13 @@ export async function compareUiValues(repo, { base = 'HEAD' } = {}) {
           if (a !== b) note(`${mode === 'dark' ? 'dark ' : ''}${name}: ${a} → ${b} (everything using it)`, entry)
         }
       }
+      for (const [key, v] of before.vars.conditional) {
+        if (!after.vars.conditional.has(key)) continue
+        varsCompared++
+        const a = toPx(resolveVars(v, before.vars.light))
+        const b = toPx(resolveVars(after.vars.conditional.get(key), after.vars.light))
+        if (a !== b) note(`${key}: ${a} → ${b} (everything using it, under that condition)`, entry)
+      }
     }
 
     let linesCompared = 0
@@ -681,6 +756,8 @@ export async function compareUiValues(repo, { base = 'HEAD' } = {}) {
         uncompared.push(`${at}  — no stylesheet on one side to compile with`)
         continue
       }
+      h.removed = stripComments(h.removed)
+      h.added = stripComments(h.added)
       const { pairs, leftover } = pairLines(h.removed, h.added)
       const record = (where, x, y) => {
         const lost = new Map()

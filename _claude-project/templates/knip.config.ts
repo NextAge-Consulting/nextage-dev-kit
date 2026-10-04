@@ -167,10 +167,25 @@ for (const dir of [".", ...packageDirs]) {
 }
 if (uiPackage && feedBarrel) entriesOf(uiPackage).push(feedBarrel);
 
-// Entries whose exports a tool or framework consumes, not an import.
+// The local icon module the Claude Design config names (`icons: './icons.ts'`): the
+// claude-design build imports its `icons` export by path.
+const iconModules: string[] = [];
+if (uiPackage) {
+  const configPath = `${uiPackage}/design-system/design-system.config.mjs`;
+  if (existsSync(resolve(root, configPath))) {
+    const icons = readFileSync(resolve(root, configPath), "utf8").match(/^\s*icons\s*:\s*["'](\.{1,2}\/[^"']+)["']/m);
+    if (icons) iconModules.push(toPosix(join(dirname(configPath), icons[1])));
+  }
+}
+
+// Entries whose exports a tool or framework consumes, not an import: the server entry,
+// the Claude Design config and its icon module, and the project's own token checks,
+// which check-design-tokens.mjs loads by path.
 const consumedExports = [
   "**/src/server.ts",
   "**/design-system/design-system.config.mjs",
+  "**/design-system/checks/*.mjs",
+  ...iconModules,
   served,
   ...drizzleConfigs,
   ...schemaGlobs,
@@ -187,9 +202,10 @@ if (uiPackage && feedBarrel && existsSync(resolve(root, uiPackage, feedBarrel)))
 }
 
 // API surfaces whose unused members are not dead code: the vendored shadcn atoms, the
-// modules the feed barrel publishes, and the kit's test harness, which tests not yet
-// written consume.
+// feed barrel and the modules it publishes, and the kit's test harness, which tests not
+// yet written consume.
 const apiSurfaces = [
+  ...(uiPackage && feedBarrel ? [`${uiPackage}/${feedBarrel}`] : []),
   ...feedModules,
   "**/src/components/ui/**",
   ...(vendoredDir ? [`${vendoredDir}/**`] : []),

@@ -412,15 +412,20 @@ module.exports = { jsx: j, jsxs: j, Fragment: R.Fragment };`,
 }
 
 /** A component's guidelines from its one source; empty when that source has none.
- *   { inventory: "Name" } → that `| \`Name\` |` row of the UI inventory
+ *   { inventory: "Name" } → the UI inventory row naming it, by component, file or path
  *   { design: "Heading" } → that `###` section of the design doc
  *   { source: "path" }    → the doc comment above the component in <package>/<sourceRoot>/<path>,
  *                            else that file's leading doc comment, below any status line */
 function componentDoc(c) {
   if (c.doc?.inventory) {
-    const row = inventory
-      .split('\n')
-      .find((l) => l.startsWith(`| \`${c.doc.inventory}\``) || l.startsWith(`| \`${c.doc.inventory}\` /`))
+    // The row naming the component, or its file or path (`IconButton`, `icon-button.tsx`,
+    // `looper/looper`): the UI inventory's own naming, matched as check-ui-status does.
+    const key = (name) => name.split('/').at(-1).toLowerCase().replace(/\.(tsx|md)$/, '').replace(/[^a-z0-9]/g, '')
+    const want = key(c.doc.inventory)
+    const row = inventory.split('\n').find((l) => {
+      const name = l.match(/^\|\s*`([^`]+)`/)?.[1]
+      return name !== undefined && (name === c.doc.inventory || key(name) === want)
+    })
     return row ? row.split('|')[2].trim() : ''
   }
   if (c.doc?.design) {

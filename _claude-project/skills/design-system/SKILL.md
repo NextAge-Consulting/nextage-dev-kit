@@ -211,7 +211,9 @@ failure one level up.
   pick up their own focus and disabled treatment, and nothing notices.
 - **Restyle a vendored primitive once, at the source.** A shadcn atom left on its
   registry defaults gets repainted by every caller. Restyle the vendored file to
-  `design.md` so callers never have to.
+  `design.md` so callers never have to. Keep its focus mark: shadcn pairs
+  `outline-none` with a `focus-visible:` ring, and dropping the ring leaves no focus
+  at all (`a11y-baseline.md`, "Focus is always visible").
 - **A prop names meaning, never style.** `cols={2}`, `size="detail"`,
   `inset="list"` — a small closed set the component interprets. Never
   `radius="xl"` or `padding="…"`: an override prop does not track the variant, so

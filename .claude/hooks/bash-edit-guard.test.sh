@@ -124,6 +124,16 @@ case "$reason" in *"not-there.sh could not run"*"not found"*) echo "  ✓ a guar
                   *) echo "  ✗ FAIL — missing guard not reported: $reason"; fail=1 ;; esac
 cp "$tmp/settings.saved" "$repo/.claude/settings.json"
 
+echo "A BLOCK WITH NO REASON STILL SAYS WHICH GUARD:"
+printf '%s\n' '#!/bin/bash' 'echo '"'"'{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"  "}}'"'" > "$repo/.claude/hooks/mute.sh"
+chmod +x "$repo/.claude/hooks/mute.sh"
+printf '%s\n' '{"hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/mute.sh"}]}]}}' > "$repo/.claude/settings.json"
+reason=$(printf '%s' "$(event "$repo/src/fine.ts")" | CLAUDE_PROJECT_DIR="$repo" "$H" 2>/dev/null \
+         | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["decision"], d["reason"])' 2>/dev/null)
+case "$reason" in block*"mute.sh objected to this file without saying why"*) echo "  ✓ a reasonless block names its guard" ;;
+                  *) echo "  ✗ FAIL — reasonless block: $reason"; fail=1 ;; esac
+cp "$tmp/settings.saved" "$repo/.claude/settings.json"
+
 echo "PROJECT DIR FROM THE PAYLOAD when CLAUDE_PROJECT_DIR is unset:"
 got=$(printf '%s' "$(event "$repo/src/forbidden.ts")" | env -u CLAUDE_PROJECT_DIR "$H" 2>/dev/null \
       | python3 -c 'import json,sys; print(json.load(sys.stdin).get("decision"))' 2>/dev/null)

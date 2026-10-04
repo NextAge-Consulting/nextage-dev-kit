@@ -104,7 +104,7 @@ test("--dry-run writes nothing and reports the same counts", () => {
   const root = repo();
   const before = read(root, "apps/web/src/screen.ts");
   const out = run(root, "--dry-run");
-  assert.match(out, /would rewrite 8 specifier\(s\) in 3 file\(s\) — 4 alias, 3 relative, 1 self-reference \(dry run: nothing written\)/);
+  assert.match(out, /would rewrite 8 specifier\(s\) in 3 file\(s\) — 4 alias, 3 relative, 1 self-reference, 0 into src\/ \(dry run: nothing written\)/);
   assert.equal(read(root, "apps/web/src/screen.ts"), before);
 });
 
@@ -119,4 +119,34 @@ test("a workspace without a name stops the run before anything is written", () =
   writeFileSync(join(root, "packages/ui/package.json"), "{}\n");
   assert.throws(() => run(root), /packages\/ui\/package\.json has no name/);
   assert.match(read(root, "apps/web/src/screen.ts"), /"@shared\/billing\/invoice"/);
+});
+
+test("an unknown option stops the run before anything is written; --help only prints usage", () => {
+  const root = repo();
+  const before = read(root, "apps/web/src/screen.ts");
+  assert.throws(() => run(root, "--frobnicate"), /unknown option --frobnicate/);
+  assert.match(run(root, "--help"), /^usage: node codemod\.mjs/);
+  assert.equal(read(root, "apps/web/src/screen.ts"), before);
+});
+
+test("a rewritten specifier drops its file extension", () => {
+  const root = repo();
+  writeFileSync(join(root, "apps/web/src/typed.ts"), `import { invoice } from "../../shared/src/billing/invoice.ts";\nexport const x = invoice;\n`);
+  run(root);
+  assert.match(read(root, "apps/web/src/typed.ts"), /from "@acme\/shared\/billing\/invoice";/);
+});
+
+test("a package-name import reaching into src/ takes the exports-map form", () => {
+  const root = repo();
+  writeFileSync(join(root, "apps/web/src/deep.ts"), `import { invoice } from "@acme/shared/src/billing/invoice";\nexport const x = invoice;\n`);
+  assert.match(run(root), /1 into src\//);
+  assert.match(read(root, "apps/web/src/deep.ts"), /from "@acme\/shared\/billing\/invoice";/);
+});
+
+test("a code file at the repository root is rewritten, and its dependency reported against the root", () => {
+  const root = repo();
+  writeFileSync(join(root, "drizzle.config.ts"), `import { invoice } from "./apps/shared/src/billing/invoice";\nexport default invoice;\n`);
+  const out = run(root);
+  assert.match(read(root, "drizzle.config.ts"), /from "@acme\/shared\/billing\/invoice";/);
+  assert.match(out, /\.: "@acme\/shared": "\*"/);
 });

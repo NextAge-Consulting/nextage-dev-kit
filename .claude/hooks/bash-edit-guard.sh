@@ -152,19 +152,24 @@ for path in files:
                                  "found or is not executable. Check the file against that guard yourself."))
                 continue
             reason = ""
+            blocked = False
             try:
                 out = json.loads(r.stdout) if r.stdout.strip() else {}
             except Exception:
                 out = {}
             hso = out.get("hookSpecificOutput") or {} if isinstance(out, dict) else {}
             if hso.get("permissionDecision") == "deny":
-                reason = hso.get("permissionDecisionReason") or ""
+                blocked, reason = True, hso.get("permissionDecisionReason") or ""
             elif isinstance(out, dict) and out.get("decision") == "block":
-                reason = out.get("reason") or ""
+                blocked, reason = True, out.get("reason") or ""
             elif r.returncode == 2:
-                reason = r.stderr.strip()
-            if reason:
-                findings.append((path, reason))
+                blocked, reason = True, r.stderr
+            # A block with no words is still a block: name the guard so it can be run by hand.
+            if blocked and not reason.strip():
+                reason = ("Guard " + guard_name(cmd) + " objected to this file without saying why. "
+                          "Run it on the file yourself to see the objection.")
+            if blocked:
+                findings.append((path, reason.strip()))
 
 if unchecked:
     findings.append((unchecked[0], str(len(unchecked)) + " more changed files were not checked. "

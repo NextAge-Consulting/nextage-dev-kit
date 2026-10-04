@@ -20,7 +20,7 @@ node "$MIG/codemod.mjs" . --dry-run
 node scripts/check-workspace-tiers.mjs
 ```
 
-If the codemod would rewrite nothing and leaves nothing for hand review, and the tier check passes, the imports already meet the standard: go to step 3a. Otherwise, before changing anything, record a baseline of every gate in step 3, so a failure you meet later can be told apart from one that was already there.
+If the codemod would rewrite nothing and leaves nothing for hand review, the tier check passes, and every workspace another one imports has an `exports` map whose targets exist, the imports already meet the standard: go to step 3a. Otherwise, before changing anything, record a baseline of every gate in step 3, so a failure you meet later can be told apart from one that was already there.
 
 ## 2. Convert
 
@@ -45,7 +45,7 @@ From the repository root, run every gate below that this project has, and fix ev
 - `node scripts/check-workspace-tiers.mjs`, `node scripts/check-stack.mjs` and `node scripts/check-dep-alignment.mjs`
 - every workspace's `build` script
 - every built server started from its `dist/` through its `server-start.mjs`, with a page that renders shared UI loaded; every headless app started and seen reaching its ready state
-- `docker build` for each Dockerfile, with the image run until the service answers — a package that changed workspace must still be installed in the image
+- `docker build` for each Dockerfile, with the image run until the service answers — a package that changed workspace must still be installed in the image. `docker run --env-file` takes each value literally, quotes included, so pass values unquoted
 - `npx drizzle-kit check` for each Drizzle config
 
 Compare with the baseline. A gate that passed before and fails now is this migration's to fix.

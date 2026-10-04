@@ -111,6 +111,10 @@ Radio groups, checkbox groups and button-groups acting as a picker use `<fieldse
 
 `key={index}` breaks reconciliation on reorder or delete. Use an id from the data, or build a composite key from unique fields (`` `${item.type}-${item.imageId}` ``).
 
+## Focus is always visible
+
+**Every element a keyboard reaches shows that it has focus.** Removing the outline (`outline-none`, `outline-hidden`) needs a replacement on the element — a `focus-visible:` ring, border or fill — or on the wrapper that draws its look, through `focus-within:`.
+
 ## Focus order is DOM order
 
 **Decide the tab order first, write the markup in that order, and let the layout follow.** When tab order feels wrong the markup is wrong — move the element rather than renumbering it.

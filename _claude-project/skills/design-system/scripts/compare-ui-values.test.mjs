@@ -1,9 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { INITIAL, arithmetic, isOtherElement, winner, baseDefaults, canonicalColors, specificity, visibleShadow, candidates, cssEvents, variants, declarations, explainMoves, hunks, ownSelector, pairLines, resolveVars, themeVars, toPx } from './compare-ui-values.mjs'
+import { INITIAL, arithmetic, conditionalVars, stripComments, isOtherElement, winner, baseDefaults, canonicalColors, specificity, visibleShadow, candidates, cssEvents, variants, declarations, explainMoves, hunks, ownSelector, pairLines, resolveVars, themeVars, toPx } from './compare-ui-values.mjs'
 
 test('candidates are the words of every string literal on a line', () => {
-  assert.deepEqual(candidates(`<p className="text-sm font-medium" data-x='a b'>`), ['text-sm', 'font-medium', 'a', 'b'])
+  assert.deepEqual(candidates(`<p className="text-sm font-medium" data-x='a b'>`), ['text-sm', 'font-medium'])
   assert.deepEqual(candidates('cn(`p-2 ${x}`, "mt-1")'), ['p-2', 'mt-1'])
 })
 
@@ -291,4 +291,22 @@ test('class names quoted in a comment are not classes', () => {
   assert.deepEqual(candidates(' * The field is `flex flex-col gap-2`, or "mb-2".'), [])
   assert.deepEqual(candidates('{/* "p-2" */}'), [])
   assert.deepEqual(candidates('<p className="p-2">'), ['p-2'])
+})
+
+test('a JSX attribute other than className holds a prop value, not classes', () => {
+  assert.deepEqual(candidates(`<Field density="filter" variant="outline" className="p-2" />`), ['p-2'])
+  assert.deepEqual(candidates(`cva("flex", { variants: { size: { sm: "h-8" } } })`), ['flex', 'h-8'])
+  assert.deepEqual(candidates(`density?: "control" | "filter";`), [])
+})
+
+test('a comment mid-line or across lines holds no classes', () => {
+  assert.deepEqual(candidates('<div className="p-2">{/* was `w-full` */}'), ['p-2'])
+  assert.deepEqual(stripComments(['<div>{/* first', '  `w-full` still comment', '*/}<p className="p-2">']), ['<div>{', '', '}<p className="p-2">'])
+})
+
+test('a value under a media query holds only there, and is compared under it', () => {
+  const css = `:root { --control-height: 32px; }
+@media (pointer: coarse) { :root { --control-height: 44px; } }`
+  assert.equal(themeVars(css).get('--control-height'), '32px')
+  assert.deepEqual([...conditionalVars(css)], [['@media (pointer: coarse) --control-height', '44px']])
 })
