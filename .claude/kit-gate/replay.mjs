@@ -179,9 +179,10 @@ function knipFindings(config, consumer) {
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
   })
-  const start = r.stdout.indexOf('{')
-  if (start < 0) throw new Error(`knip printed no report: ${(r.stderr || r.stdout).trim().split('\n')[0]}`)
-  const j = JSON.parse(r.stdout.slice(start))
+  // The report is one JSON line; a .env loader the project's config imports may print first.
+  const report = r.stdout.split('\n').find((l) => l.startsWith('{"'))
+  if (!report) throw new Error(`knip printed no report: ${(r.stderr || r.stdout).trim().split('\n')[0]}`)
+  const j = JSON.parse(report)
   const out = (j.files ?? []).filter((f) => !f.endsWith('knip.config.ts')).map((f) => `unused file ${f}`)
   for (const i of j.issues ?? [])
     for (const [kind, items] of Object.entries(i)) if (Array.isArray(items)) for (const it of items) out.push(`${i.file}: ${kind} ${it.name}`)

@@ -12,7 +12,7 @@ export type ExtraDatabase = {
   envVar: string;
   /** The database's name on the Neon branch. */
   database: string;
-  /** The drizzle-kit config that migrates it, from the shared module, e.g. "drizzle.audit.config.ts". */
+  /** The drizzle-kit config that migrates it, from the folder holding the main drizzle config, e.g. "drizzle.audit.config.ts". */
   drizzleConfig: string;
   /** Its Drizzle schema, which dbTestOn's handle is typed and built with. */
   schema: Record<string, unknown>;

@@ -657,6 +657,16 @@ dest_for_kit_path() {
             [ -z "$shared_dir" ] && { echo ""; return; }
             echo "${shared_dir}/vitest.config.ts"
             ;;
+        _claude-project/templates/testing/globalSetup.ts|_claude-project/templates/testing/integration-helpers.ts)
+            # The integration harness is Postgres on Neon: a branch per run, a
+            # rolled-back pg transaction per test. Another engine — or one not
+            # yet declared — gets the unit scaffolding only.
+            local shared_dir3
+            shared_dir3=$(subst_value "SHARED_MODULE_DIR")
+            [ -z "$shared_dir3" ] && { echo ""; return; }
+            [ "$(subst_value "DB_ENGINE")" = "PostgreSQL" ] || { echo ""; return; }
+            echo "${shared_dir3}/test/${kit_rel#_claude-project/templates/testing/}"
+            ;;
         _claude-project/templates/testing/*)
             local shared_dir2
             shared_dir2=$(subst_value "SHARED_MODULE_DIR")
@@ -715,6 +725,8 @@ kit_path_for_dest() {
 # whose key is empty in this project is skipped deliberately, not unmapped.
 dest_key_for_kit_path() {
     case "$1" in
+        _claude-project/templates/testing/globalSetup.ts|_claude-project/templates/testing/integration-helpers.ts)
+            if [ -z "$(subst_value SHARED_MODULE_DIR)" ]; then echo "SHARED_MODULE_DIR"; else echo "DB_ENGINE"; fi ;;
         _claude-project/templates/testing/*)       echo "SHARED_MODULE_DIR" ;;
         _claude-project/templates/design-system/*)
             if [ -z "$(subst_value DESIGN_UI_PACKAGE)" ]; then echo "DESIGN_UI_PACKAGE"; else echo "DESIGN_FEED_BARREL"; fi ;;

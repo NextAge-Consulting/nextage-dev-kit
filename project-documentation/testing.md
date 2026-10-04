@@ -8,6 +8,8 @@ Per-app test infrastructure the kit owns. `/sync-dev-kit` keeps every file ident
 
 **Destination comes from the `SHARED_MODULE_DIR` substitution**, because test layout is project-specific (`apps/shared` in a monorepo, `src` or `.` in a flat repo, `packages/<name>` elsewhere). `vitest.config.ts` lands at `<SHARED_MODULE_DIR>/vitest.config.ts`; every other file at `<SHARED_MODULE_DIR>/test/<name>`. **Empty means the project has no shared test module and the scaffolding is skipped entirely** — so this costs nothing for projects it does not apply to.
 
+**The integration tier is Postgres on Neon.** `globalSetup.ts` and `integration-helpers.ts` sync only when `DB_ENGINE` is `PostgreSQL`, and `vitest.config.ts` runs the `integration` project only then. A project on another engine gets the unit tier and defines its own integration strategy (`testing-verification.md`).
+
 **What differs between projects goes in `test/project.ts`**, typed by `test/define.ts`:
 
 | Setting | What it sets |
@@ -29,7 +31,7 @@ Per-app test infrastructure the kit owns. `/sync-dev-kit` keeps every file ident
 |---|---|
 | `define.ts` | The contract `project.ts` is written against. |
 | `project.ts` | The project's settings. Seeded once; the project's from then on. |
-| `vitest.config.ts` | Node env; globals off; a `unit` project (parallel, no DB) and an `integration` project (parallel, present only when Neon creds exist), plus `project.ts`'s own. Resolves the repository root from `.claude/sync-substitutions.json`, and each app's `@/` alias from the nearest `tsconfig.json` above the importing file. |
+| `vitest.config.ts` | Node env; globals off; a `unit` project (parallel, no DB) and an `integration` project (parallel, present only when `DB_ENGINE` is `PostgreSQL` and Neon creds exist), plus `project.ts`'s own. Resolves the repository root from `.claude/sync-substitutions.json`, and each app's `@/` alias from the nearest `tsconfig.json` above the importing file. |
 | `globalSetup.ts` | Integration branch lifecycle. Forks the default (production) branch once per run, runs `drizzle-kit migrate` for every database on it, runs `afterMigrate`, sets the URLs before workers spawn, and deletes the branch in `teardown` (`expires_at` 30 min is the crash backstop). Teardown does not swallow a failed delete. |
 | `integration-helpers.ts` | `dbTest(name, fn)` and `dbTestOn(envVar)` — the only DB entry points. Each runs `fn` inside an always-rolled-back Postgres transaction and passes the `tx` handle into the code under test. |
 | `auth-mocks.ts` | Typed `MockAuthedUser` + `mockAuthedUser()` / `mockUnauthed()` stubs, roles from `project.ts`. |
@@ -58,7 +60,7 @@ jq '.SHARED_MODULE_DIR = "apps/shared"' .claude/sync-substitutions.json > tmp &&
 
 **Integration pattern — one branch per run, transaction per test.** Files: `globalSetup.ts` (branch lifecycle) + `integration-helpers.ts` (`dbTest`). Same behavior locally and in CI: `globalSetup.ts` forks the project's default (production) branch **once per test run** (Neon copy-on-write), migrates it, points `DATABASE_URL` at it before any worker spawns, and deletes it in `teardown`. One create + one delete for the whole run → no API rate-limiting, no orphaned branches. Uses `@neondatabase/api-client` directly.
 
-**Vitest "projects" split.** `vitest.config.ts` defines two projects: a `unit` project (parallel, no DB — runs in every context including forks and Dependabot PRs that have no Neon creds) and an `integration` project (also parallel, every worker sharing the one branch). The integration project is present only when `NEON_API_KEY` + `NEON_PROJECT_ID` are set.
+**Vitest "projects" split.** `vitest.config.ts` defines two projects: a `unit` project (parallel, no DB — runs in every context including forks and Dependabot PRs that have no Neon creds) and an `integration` project (also parallel, every worker sharing the one branch). The integration project is present only when `DB_ENGINE` is `PostgreSQL` and `NEON_API_KEY` + `NEON_PROJECT_ID` are set.
 
 **Isolation = transaction-per-test.** `dbTest(name, async (tx) => { … })` is the ONLY way a test touches the DB. It runs the body inside a Postgres transaction that is ALWAYS rolled back, so concurrent tests on the one shared branch are MVCC-isolated and run in **parallel** without colliding — nothing persists between tests. There is no exported pool or committing `db` handle, so a test physically cannot write outside a rolled-back transaction; isolation is enforced by the API, not by author discipline. Every production function takes `db` as a parameter, so `tx` threads straight through into the code under test — sequences, triggers, FK cascades, NOTIFY all behave normally inside the transaction. A global-sweep test (a function that scans a whole table) clears that table at the top of its transaction (rolled back after). Carve-out: a test that takes a SESSION-level advisory lock must release it itself — `ROLLBACK` won't.
 

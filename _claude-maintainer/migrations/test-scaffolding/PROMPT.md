@@ -22,7 +22,7 @@ Run `npm test` from the repository root and keep the result: test files and test
 
 ```bash
 diff "$T/vitest.config.ts" "$S/vitest.config.ts"
-for f in globalSetup.ts integration-helpers.ts test-utils.ts auth-mocks.ts smoke.test.ts; do diff "$T/$f" "$S/test/$f"; done
+for f in globalSetup.ts integration-helpers.ts test-utils.ts auth-mocks.ts smoke.test.ts; do [ -e "$S/test/$f" ] && diff "$T/$f" "$S/test/$f"; done
 ```
 
 Also find every other vitest config the project runs — a root `vitest.config.ts`, a workspace file, a `test` script pointing anywhere but `$S/vitest.config.ts`.
@@ -47,10 +47,12 @@ A difference that fits no row goes to me, never back into a kit file.
 ## 4. Take the kit's files
 
 ```bash
-for f in vitest.config.ts define.ts project.ts globalSetup.ts integration-helpers.ts test-utils.ts auth-mocks.ts smoke.test.ts; do
+for f in vitest.config.ts define.ts project.ts test-utils.ts auth-mocks.ts smoke.test.ts; do
   bash ~/.claude/scripts/sync-dev-kit.sh --apply-file "_claude-project/templates/testing/$f"
 done
 ```
+
+When `DB_ENGINE` is `PostgreSQL`, apply `globalSetup.ts` and `integration-helpers.ts` the same way. On any other engine the scan lists them under `skipped_unconfigured`: the integration tier is Postgres-only, the tests run unit-only, and a Postgres `globalSetup.ts` or `integration-helpers.ts` already in `test/` is deleted.
 
 Then write this project's settings into `test/project.ts`. Delete every other vitest config step 2 found, and point the root scripts at the kit's:
 

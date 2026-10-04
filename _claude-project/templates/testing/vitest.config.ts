@@ -34,9 +34,13 @@ loadDotenv({ path: resolve(repoRoot, ".env"), processEnv: envSandbox, quiet: tru
 for (const key of ["NEON_API_KEY", "NEON_PROJECT_ID", "NEON_DATABASE_NAME", "NEON_ROLE_NAME"]) {
   if (envSandbox[key] && !process.env[key]) process.env[key] = envSandbox[key];
 }
-// The integration tests need a live Neon project; without one (a fork, a fresh clone,
-// a Dependabot PR) only the unit tests run, and they stay real signal everywhere.
-const hasNeonCreds = Boolean(process.env.NEON_API_KEY && process.env.NEON_PROJECT_ID);
+// The integration tier is Postgres on Neon (globalSetup.ts, integration-helpers.ts), which
+// /sync-dev-kit ships only when DB_ENGINE is PostgreSQL. It also needs a live Neon project;
+// without one (a fork, a fresh clone, a Dependabot PR) only the unit tests run, and they
+// stay real signal everywhere.
+const dbEngine = JSON.parse(readFileSync(resolve(repoRoot, ".claude/sync-substitutions.json"), "utf8")).DB_ENGINE;
+const runsIntegration =
+  dbEngine === "PostgreSQL" && Boolean(process.env.NEON_API_KEY && process.env.NEON_PROJECT_ID);
 
 // A test may import an app's own code, which reaches its own files through the app's
 // `@/` alias (typescript-rules.md, Workspace Imports). The alias belongs to the importing
@@ -105,7 +109,7 @@ export default defineConfig({
     reporters: ["default"],
     projects: [
       unitProject,
-      ...(hasNeonCreds ? [integrationProject] : []),
+      ...(runsIntegration ? [integrationProject] : []),
       ...(project.vitestProjects ?? []).map((p) => ({ ...p, plugins: [appAliases, ...(p.plugins ?? [])] })),
     ],
   },

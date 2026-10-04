@@ -102,7 +102,7 @@ const appEntries = [
   served,
 ];
 const packageEntries = [knipDefaults, `src/${knipDefaults}`, "design-system/**/*.{mjs,ts,css}", served];
-const harness = "test/{globalSetup,integration-helpers,test-utils,auth-mocks}.ts";
+const harness = "test/{define,globalSetup,integration-helpers,test-utils,auth-mocks}.ts";
 
 // Packages nothing imports by name: pino resolves its transport from a string
 // (typescript-rules.md, the logger), and the claude-design engine — whose code

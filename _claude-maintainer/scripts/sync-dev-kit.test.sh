@@ -270,6 +270,18 @@ printf 'export const v = 2\n' > "$KIT/_claude-project/templates/testing/project.
 st=$(scan | jq -r '.files[] | select(.kit_path == "_claude-project/templates/testing/project.ts") | .state')
 [ "$st" = "declined" ] && ok "a declined seed stays declined when the kit changes it" || bad "declined seed: $st"
 [ "$(scan | jq -r '.files[] | select(.kit_path == "_claude-project/templates/testing/smoke.test.ts") | .mode')" = "owned" ] && ok "the test scaffolding is kit-owned" || bad "smoke.test.ts mode"
+printf 'import "pg"\n' > "$KIT/_claude-project/templates/testing/integration-helpers.ts"; kit_commit "postgres harness"
+jq '.DB_ENGINE = "SQLServer"' "$PROJ/.claude/sync-substitutions.json" > "$tmp/s" && mv "$tmp/s" "$PROJ/.claude/sync-substitutions.json"
+out=$(scan)
+jq -e '[.files[] | select(.kit_path == "_claude-project/templates/testing/integration-helpers.ts")] == []' <<<"$out" >/dev/null \
+    && jq -e '[.skipped_unconfigured[] | select(.kit_path == "_claude-project/templates/testing/integration-helpers.ts") | .key] == ["DB_ENGINE"]' <<<"$out" >/dev/null \
+    && ok "another engine skips the Postgres harness, reported under DB_ENGINE" || bad "non-Postgres harness: $(jq -c .skipped_unconfigured <<<"$out")"
+jq -e '[.files[] | select(.kit_path == "_claude-project/templates/testing/smoke.test.ts")] | length == 1' <<<"$out" >/dev/null \
+    && ok "another engine still gets the unit scaffolding" || bad "non-Postgres unit scaffolding"
+jq '.DB_ENGINE = "PostgreSQL"' "$PROJ/.claude/sync-substitutions.json" > "$tmp/s" && mv "$tmp/s" "$PROJ/.claude/sync-substitutions.json"
+[ "$(scan | jq -r '.files[] | select(.kit_path == "_claude-project/templates/testing/integration-helpers.ts") | .dest_path')" = "apps/shared/test/integration-helpers.ts" ] \
+    && ok "Postgres gets the integration harness" || bad "Postgres harness dest"
+jq 'del(.DB_ENGINE)' "$PROJ/.claude/sync-substitutions.json" > "$tmp/s" && mv "$tmp/s" "$PROJ/.claude/sync-substitutions.json"
 jq '.SHARED_MODULE_DIR = ""' "$PROJ/.claude/sync-substitutions.json" > "$tmp/s" && mv "$tmp/s" "$PROJ/.claude/sync-substitutions.json"
 
 # ─── A broken register fails the scan loudly ──────────────────────────────

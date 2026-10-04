@@ -11,12 +11,29 @@
 
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createApiClient, EndpointType } from "@neondatabase/api-client";
 import project from "./project";
 
-// drizzle-kit resolves its config's paths from the working directory: the shared module.
+// drizzle-kit resolves a config's paths from the working directory, so it runs from the
+// folder holding the project's drizzle config: the shared module, or else the repository
+// root (the nearest folder above holding .claude/sync-substitutions.json).
 const sharedModule = fileURLToPath(new URL("..", import.meta.url));
+function findRepoRoot(from: string): string {
+  for (let dir = from; ; dir = dirname(dir)) {
+    if (existsSync(resolve(dir, ".claude/sync-substitutions.json"))) return dir;
+    if (dir === dirname(dir)) throw new Error(`globalSetup: no .claude/sync-substitutions.json above ${from}`);
+  }
+}
+function drizzleDir(): string {
+  const configs = ["drizzle.config.ts", "drizzle.config.mts", "drizzle.config.js", "drizzle.config.mjs", "drizzle.config.json"];
+  for (const dir of [sharedModule, findRepoRoot(sharedModule)]) {
+    if (configs.some((c) => existsSync(resolve(dir, c)))) return dir;
+  }
+  throw new Error(`globalSetup: no drizzle config in ${sharedModule} or the repository root`);
+}
 
 let branchId: string | null = null;
 
@@ -26,16 +43,17 @@ function pick(kind: string, named: string | undefined, names: string[]): string 
     if (!names.includes(named)) throw new Error(`globalSetup: the branch has no ${kind} "${named}" (it has: ${names.join(", ")})`);
     return named;
   }
-  if (names.length === 1) return names[0];
+  const [only] = names;
+  if (names.length === 1 && only) return only;
   throw new Error(
     `globalSetup: the branch has ${names.length ? `several ${kind}s (${names.join(", ")})` : `no ${kind}`} — set NEON_${kind.toUpperCase()}_NAME in .env to the one the tests use`,
   );
 }
 
-function migrate(label: string, url: string, args: string[]): void {
+function migrate(cwd: string, label: string, url: string, args: string[]): void {
   try {
     execFileSync("npx", ["drizzle-kit", "migrate", ...args], {
-      cwd: sharedModule,
+      cwd,
       stdio: "inherit",
       env: { ...process.env, DATABASE_URL: url },
       timeout: 55_000,
@@ -79,18 +97,21 @@ export async function setup(): Promise<void> {
   url.searchParams.set("sslmode", "verify-full");
 
   // Set BEFORE workers spawn, so every integration worker inherits them.
-  const urls: Record<string, string> = { DATABASE_URL: url.toString() };
-  for (const extra of project.extraDatabases ?? []) {
+  const main = url.toString();
+  const urls: Record<string, string> = { DATABASE_URL: main };
+  const extras = (project.extraDatabases ?? []).map((extra) => {
     const other = new URL(url);
     other.pathname = `/${extra.database}`;
     urls[extra.envVar] = other.toString();
-  }
+    return { extra, url: other.toString() };
+  });
   Object.assign(process.env, urls);
 
   // The branch forked production, which lacks any migration this change adds; drizzle
   // records what it applied, so this applies exactly the new ones and is otherwise a no-op.
-  migrate("main", urls.DATABASE_URL, []);
-  for (const extra of project.extraDatabases ?? []) migrate(extra.envVar, urls[extra.envVar], ["--config", extra.drizzleConfig]);
+  const cwd = drizzleDir();
+  migrate(cwd, "main", main, []);
+  for (const { extra, url: extraUrl } of extras) migrate(cwd, extra.envVar, extraUrl, ["--config", extra.drizzleConfig]);
 
   await project.afterMigrate?.(urls);
 }

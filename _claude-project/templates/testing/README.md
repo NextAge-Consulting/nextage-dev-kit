@@ -17,7 +17,8 @@ Their destination comes from the `SHARED_MODULE_DIR` substitution:
 | everything else | `<SHARED_MODULE_DIR>/test/<name>` |
 
 A project with `SHARED_MODULE_DIR` empty has no shared test module, and these files are
-skipped entirely.
+skipped entirely. `globalSetup.ts` and `integration-helpers.ts` are the Postgres integration
+harness: they sync only when `DB_ENGINE` is `PostgreSQL`.
 
 **This README is kit-internal** — it is in `SKIP_LIST` and never lands in a consumer.
 
@@ -29,7 +30,7 @@ Full pattern, install steps and the integration model: testing.md §1.
 |---|---|
 | `define.ts` | The contract: `TestProject`, `ExtraDatabase`, and `defineTestProject()`. |
 | `project.ts` | The seed. The project's settings, read by every other file here. |
-| `vitest.config.ts` | Finds the repository root, then runs `unit` and — only when Neon credentials exist — `integration`, plus any projects `project.ts` adds. Resolves each app's `@/` alias per importing file. |
+| `vitest.config.ts` | Finds the repository root, then runs `unit` and — only on Postgres with Neon credentials — `integration`, plus any projects `project.ts` adds. Resolves each app's `@/` alias per importing file. |
 | `globalSetup.ts` | Integration branch lifecycle: forks the default branch once per run, migrates every database on it, runs `afterMigrate`, sets the URLs before workers spawn, deletes the branch in teardown. |
 | `integration-helpers.ts` | `dbTest(name, fn)` and `dbTestOn(envVar)` — the only database entry points. Each runs its body in an always-rolled-back transaction. |
 | `auth-mocks.ts` | Typed `MockAuthedUser` plus `mockAuthedUser()` / `mockUnauthed()`, with roles from `project.ts`. |
