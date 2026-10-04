@@ -167,6 +167,18 @@ for (const dir of [".", ...packageDirs]) {
 }
 if (uiPackage && feedBarrel) entriesOf(uiPackage).push(feedBarrel);
 
+// A WXT browser extension: WXT builds each file under entrypoints/ into a page or script
+// of the extension and reads wxt.config.ts — the same `wxt` dependency the workspace
+// tier check reads as an extension app.
+// It reads each entry's default export, and resolves the `#imports` virtual module itself.
+const wxtApps: string[] = [];
+for (const dir of packageDirs) {
+  const manifest = readJson(`${dir}/package.json`);
+  if (!("wxt" in { ...manifest.dependencies, ...manifest.devDependencies })) continue;
+  wxtApps.push(dir);
+  entriesOf(dir).push("entrypoints/**/*.{ts,tsx,html,css}", "wxt.config.ts");
+}
+
 // The local icon module the Claude Design config names (`icons: './icons.ts'`): the
 // claude-design build imports its `icons` export by path.
 const iconModules: string[] = [];
@@ -183,6 +195,7 @@ if (uiPackage) {
 // which check-design-tokens.mjs loads by path.
 const consumedExports = [
   "**/src/server.ts",
+  ...wxtApps.flatMap((dir) => [`${dir}/entrypoints/**`, `${dir}/wxt.config.ts`]),
   "**/design-system/design-system.config.mjs",
   "**/design-system/checks/*.mjs",
   ...iconModules,
@@ -226,6 +239,7 @@ export default {
   ignore: [".claude/**", "project-documentation/**", "infra/**", "**/*.generated.*", "**/routeTree.gen.ts", "**/dist/**"],
   ignoreBinaries,
   ignoreDependencies,
+  ...(wxtApps.length ? { ignoreUnresolved: ["#imports"] } : {}),
   ignoreIssues: {
     ...Object.fromEntries(consumedExports.map((glob: string) => [glob, ["exports"]])),
     ...Object.fromEntries(apiSurfaces.map((glob: string) => [glob, ["exports", "types"]])),

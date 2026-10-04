@@ -1,4 +1,5 @@
-import { resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config as loadDotenv } from "dotenv";
 import { configDefaults, defineConfig } from "vitest/config";
@@ -43,6 +44,33 @@ const hasNeonCreds = Boolean(
   process.env.NEON_API_KEY && process.env.NEON_PROJECT_ID,
 );
 
+// A test here may import an app's own code, and that code reaches its own files through
+// the app's `@/` alias (typescript-rules.md, Workspace Imports). The alias belongs to the
+// importing app, so it is resolved per importer: from the `@/*` entry of the nearest
+// tsconfig.json above the file doing the import.
+const appAlias = new Map<string, string | null>();
+function aliasRootFor(importer: string): string | null {
+  for (let dir = dirname(importer); dir !== dirname(dir); dir = dirname(dir)) {
+    if (appAlias.has(dir)) return appAlias.get(dir) ?? null;
+    const tsconfig = resolve(dir, "tsconfig.json");
+    if (!existsSync(tsconfig)) continue;
+    const target = readFileSync(tsconfig, "utf8").match(/"@\/\*"\s*:\s*\[\s*"([^"]+)\/\*"/)?.[1];
+    const root = target ? resolve(dir, target) : null;
+    appAlias.set(dir, root);
+    return root;
+  }
+  return null;
+}
+const appAliases = {
+  name: "app-aliases",
+  enforce: "pre" as const,
+  async resolveId(this: { resolve: (id: string, importer?: string, opts?: object) => Promise<unknown> }, source: string, importer?: string) {
+    if (!source.startsWith("@/") || !importer) return null;
+    const root = aliasRootFor(importer);
+    return root ? this.resolve(resolve(root, source.slice(2)), importer, { skipSelf: true }) : null;
+  },
+};
+
 // Two projects:
 //   • unit        — no DB, fast; runs everywhere.
 //   • integration — runs against ONE Neon branch created per run in
@@ -53,6 +81,8 @@ const hasNeonCreds = Boolean(
 //                   branch. Present only when creds exist (forks/Dependabot run
 //                   unit-only).
 const unitProject = {
+  // An inline project does not inherit the root's plugins.
+  plugins: [appAliases],
   test: {
     name: "unit",
     root: here,
@@ -67,6 +97,7 @@ const unitProject = {
 };
 
 const integrationProject = {
+  plugins: [appAliases],
   test: {
     name: "integration",
     root: here,

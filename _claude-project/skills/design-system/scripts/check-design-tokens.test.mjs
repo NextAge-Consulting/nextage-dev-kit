@@ -269,12 +269,31 @@ test('a raw input painting the field look fails; a checkbox input does not', asy
 })
 
 test('vendored atoms: every class rule when restyled; only arbitrary spacing when not', async () => {
-  const atom = { 'packages/ui/src/components/ui/badge.tsx': 'export const b = "text-sm gap-[3px]"\n' }
+  const atom = { 'packages/ui/src/components/ui/badge.tsx': 'export const b = cn("text-sm gap-[3px]")\n' }
   const restyled = await run(atom)
   assert.equal(restyled.problems.length, 2)
   const asShipped = await run(atom, { keys: { ...KEYS, DESIGN_VENDORED_RESTYLED: '' } })
   assert.equal(asShipped.problems.length, 1)
   assert.match(asShipped.problems[0], /gap-\[3px\].*no arbitrary spacing/)
+})
+
+test('only class lists are read: imports, URLs, logger names and prop values are not classes', async () => {
+  const src = [
+    'import { Help } from "./tracking-help-dialog"',
+    'const log = createLogger("tracking-service")',
+    'const url = "https://example.com/tracking-parcel.html?tracking-id=1"',
+    'export const S = () => <Button size="text-meta" className="text-sm" />',
+  ].join('\n')
+  const { problems } = await run({ 'apps/web/src/screen.tsx': src })
+  assert.deepEqual(problems.map((p) => p.split('  ')[1]), ['text-sm'])
+})
+
+test('a class constant is checked where it is declared, used here or in another file', async () => {
+  const { problems } = await run({
+    'apps/web/src/styles.ts': 'export const cell = "px-[10px]"\nexport const notClasses = "text-only"\n',
+    'apps/web/src/screen.tsx': 'import { cell } from "./styles"\nexport const S = () => <td className={cn(cell)} />\n',
+  })
+  assert.deepEqual(problems.map((p) => p.split('  ')[1]), ['px-[10px]'])
 })
 
 test('a var() that resolves to nothing fails', async () => {

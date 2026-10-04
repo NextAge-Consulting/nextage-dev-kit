@@ -203,6 +203,88 @@ export function parityProblems(cssByFile) {
   return { problems: out, applies: true }
 }
 
+/**
+ * Where a bracketed span that opens at `start` closes, skipping strings, template
+ * literals and comments; -1 when it never does.
+ */
+function closeOf(src, start, open, close) {
+  let depth = 0
+  for (let i = start; i < src.length; i++) {
+    const ch = src[i]
+    if (ch === '"' || ch === "'" || ch === '`') {
+      for (i++; i < src.length && src[i] !== ch; i++) if (src[i] === '\\') i++
+    } else if (ch === '/' && src[i + 1] === '/') i = src.indexOf('\n', i) < 0 ? src.length : src.indexOf('\n', i)
+    else if (ch === '/' && src[i + 1] === '*') i = src.indexOf('*/', i + 2) < 0 ? src.length : src.indexOf('*/', i + 2) + 1
+    else if (ch === open) depth++
+    else if (ch === close && --depth === 0) return i
+  }
+  return -1
+}
+
+/** The class-merge helpers whose arguments are class lists. */
+const CLASS_CALLS = /\b(?:cn|clsx|cva|tv|twMerge|twJoin|cx)\s*\(/g
+
+/**
+ * The source with everything but its class lists blanked, line breaks kept: className and
+ * class attribute values, the arguments of the class-merge helpers, and the initialiser of
+ * any variable those use (`const base = "…"`, a size map). An import path, a URL, a logger
+ * name or a prop value (`size="text-meta"`) is not a class list.
+ */
+export function classText(src, { names = new Set() } = {}) {
+  const keep = new Uint8Array(src.length)
+  const mark = (a, b) => {
+    for (let i = a; i <= b && i < src.length; i++) keep[i] = 1
+  }
+  const spans = []
+  for (const m of src.matchAll(/\b(?:className|class)\s*=\s*/g)) {
+    const at = m.index + m[0].length
+    const ch = src[at]
+    if (ch === '"' || ch === "'") spans.push([at, src.indexOf(ch, at + 1)])
+    else if (ch === '{') spans.push([at, closeOf(src, at, '{', '}')])
+  }
+  for (const m of src.matchAll(CLASS_CALLS)) {
+    const open = m.index + m[0].length - 1
+    spans.push([open, closeOf(src, open, '(', ')')])
+  }
+  // A variable a class list names contributes its initialiser, once — named here, or in
+  // another file's class list (`names`), for a constant exported to it.
+  const seen = new Set()
+  const declare = (name) => {
+    if (seen.has(name)) return
+    seen.add(name)
+    const decl = new RegExp(`\\b(?:const|let|var)\\s+${name.replace(/\$/g, '\\$')}\\s*(?::[^=]+)?=\\s*`).exec(src)
+    if (!decl) return
+    const start = decl.index + decl[0].length
+    const ch = src[start]
+    const end =
+      ch === '{' ? closeOf(src, start, '{', '}') : ch === '[' ? closeOf(src, start, '[', ']') : ch === '"' || ch === "'" || ch === '`' ? src.indexOf(ch, start + 1) : -1
+    if (end >= 0) spans.push([start, end])
+  }
+  for (const name of names) declare(name)
+  for (let k = 0; k < spans.length; k++) {
+    const [a, b] = spans[k]
+    if (b < 0) continue
+    mark(a, b)
+    for (const id of src.slice(a, b + 1).matchAll(/(?<![\w$.'"`-])[A-Za-z_$][\w$]*/g)) {
+      declare(id[0])
+    }
+  }
+  let out = ''
+  for (let i = 0; i < src.length; i++) out += keep[i] || src[i] === '\n' ? src[i] : ' '
+  return out
+}
+
+/** The identifiers every file's class lists name, so a constant exported from one file and
+ * used in another's class list is checked where it is declared. */
+export function classNames(sources) {
+  const names = new Set()
+  for (const src of sources) {
+    const text = classText(src)
+    for (const id of text.matchAll(/(?<![\w$.'"`-])[A-Za-z_$][\w$]*/g)) names.add(id[0])
+  }
+  return names
+}
+
 /** Run every check over a repository. `keys` replaces the substitutions read from
  * the repository — for running the check against a tree that has none yet. */
 export async function checkDesignTokens(repo, { keys: given } = {}) {
@@ -289,11 +371,15 @@ export async function checkDesignTokens(repo, { keys: given } = {}) {
   // --- the classes source writes ---------------------------------------------
   const arbitrarySpacing = new RegExp(`(?<![\\w-])-?(?:${SPACE_PROPS})-\\[[^\\]]*\\]`, 'g')
   const sources = new Map(sourceFiles.map((f) => [f, readFileSync(path.join(repo, f), 'utf8').replace(/\r\n/g, '\n')]))
+  const exported = classNames(sources.values())
   for (const [file, src] of sources) {
     const isVendored = vendored && file.startsWith(vendored)
-    src.split('\n').forEach((line, i) => {
+    // Only class lists are checked; the rest of the file is blanked, line numbers kept.
+    const classLines = classText(src, { names: exported }).split('\n')
+    src.split('\n').forEach((original, i) => {
       lines++
-      if (isComment(line)) return
+      if (isComment(original)) return
+      const line = classLines[i]
       const at = `${file}:${i + 1}`
       const each = (re, fn) => {
         for (const m of line.matchAll(re)) {
