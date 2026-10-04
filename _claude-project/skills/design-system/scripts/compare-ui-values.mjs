@@ -485,7 +485,14 @@ export async function compilerFor(root, entry, { inherited = new Set() } = {}) {
 /** The base tree, extracted read-only, with node_modules mirrored so its own workspaces resolve. */
 function extractBase(repo, ref) {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'ui-values-'))
-  execFileSync('bash', ['-c', `git -C "$1" archive "$2" | tar -x -C "$3"`, '_', repo, ref, dir])
+  // Two plain processes, no shell: git and tar both ship on Windows as well.
+  const archive = path.join(mkdtempSync(path.join(os.tmpdir(), 'ui-values-tar-')), 'base.tar')
+  try {
+    execFileSync('git', ['-C', repo, 'archive', '--output', archive, ref])
+    execFileSync('tar', ['-xf', archive, '-C', dir])
+  } finally {
+    rmSync(path.dirname(archive), { recursive: true, force: true })
+  }
   const mirror = (from, to) => {
     if (!existsSync(from)) return
     mkdirSync(to, { recursive: true })

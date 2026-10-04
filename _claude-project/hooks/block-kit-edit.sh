@@ -163,7 +163,8 @@ else:
         edits = ti.get("edits") if tool == "MultiEdit" else [ti]
         new = old
         for e in edits or []:
-            o, n = (e or {}).get("old_string"), (e or {}).get("new_string")
+            e = e or {}
+            o, n = e.get("old_string"), e.get("new_string")
             if not isinstance(o, str) or not isinstance(n, str) or not o or o not in new:
                 print("its edit does not apply to the file as it is on disk."); sys.exit(0)
             new = new.replace(o, n) if e.get("replace_all") else new.replace(o, n, 1)

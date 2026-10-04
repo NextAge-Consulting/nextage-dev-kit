@@ -157,7 +157,8 @@ export function* openingTags(src, pattern) {
       }
     }
     let value = ''
-    if (at0 >= 0 && open[at0] === '"') value = open.slice(at0, open.indexOf('"', at0 + 1) + 1)
+    const quote = open[at0]
+    if (at0 >= 0 && (quote === '"' || quote === "'")) value = open.slice(at0, open.indexOf(quote, at0 + 1) + 1)
     else if (at0 >= 0) {
       let d = 1
       let i = at0 + 1

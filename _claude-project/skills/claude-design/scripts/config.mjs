@@ -215,7 +215,13 @@ export function checkPrerequisites({ CONFIG, CONFIG_DIR, PKG }) {
   const version = (name) => {
     for (const dir of req.resolve.paths(name) ?? []) {
       const file = path.join(dir, name, 'package.json')
-      if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8')).version
+      if (!fs.existsSync(file)) continue
+      // A package.json that does not parse is a broken install, never "not installed".
+      try {
+        return JSON.parse(fs.readFileSync(file, 'utf8')).version
+      } catch (err) {
+        throw new Error(`${file} is not valid JSON — reinstall ${name}`, { cause: err })
+      }
     }
     return null
   }

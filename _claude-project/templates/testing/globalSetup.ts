@@ -12,6 +12,7 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createApiClient, EndpointType } from "@neondatabase/api-client";
@@ -50,9 +51,16 @@ function pick(kind: string, named: string | undefined, names: string[]): string 
   );
 }
 
+// drizzle-kit's own entry script, run by this Node: no npx and no shell, so it runs the
+// same on Windows, where npx is a batch file a shell-less spawn cannot start.
+function drizzleKit(cwd: string): string {
+  const main = createRequire(resolve(cwd, "package.json")).resolve("drizzle-kit");
+  return resolve(dirname(main), "bin.cjs");
+}
+
 function migrate(cwd: string, label: string, url: string, args: string[]): void {
   try {
-    execFileSync("npx", ["drizzle-kit", "migrate", ...args], {
+    execFileSync(process.execPath, [drizzleKit(cwd), "migrate", ...args], {
       cwd,
       stdio: "inherit",
       env: { ...process.env, DATABASE_URL: url },

@@ -247,6 +247,13 @@ test('a call site that repaints a component fails; placing it passes; an exempt 
   assert.match(bad.problems[0], /<Button> p-2 {2}— a call site places a component/)
 })
 
+test('a single-quoted className at a call site is read like a double-quoted one', async () => {
+  const imports = 'import { Button } from "@acme/ui/components/button"'
+  const { problems } = await run(screen(`<Button className='p-2 mt-1' />`, imports))
+  assert.equal(problems.length, 1)
+  assert.match(problems[0], /<Button> p-2 {2}— a call site places a component/)
+})
+
 test('a call site may set a width or bound a height, never fix a height', async () => {
   const imports = 'import { Button } from "@acme/ui/components/button"'
   const { problems } = await run(screen('<><Button className="h-8 w-8" /><Button className="w-full h-full max-h-60" /></>', imports))
