@@ -26,6 +26,13 @@
 # every mode when the user setting `bashEditDiffEnabled` is true. With no list, this
 # hook does nothing; bash-edit-diff-check.sh warns at session start when that is so.
 #
+# No shell text crosses Python's argv: on Windows, Python flattens argv into one command
+# line and Git Bash re-splits it by other rules, so quotes inside a `bash -c` string
+# arrive unbalanced. kit-delivered.sh is run as a script with its two values, and each
+# replayed command is written to a script file. On Windows the bash running this hook is
+# named by its full path, because a bare "bash" from native Python finds the WSL
+# launcher in System32 before Git Bash on PATH.
+#
 # A replayed guard that does not run — it times out, fails to start, or is not found —
 # has not passed the file, and is reported as a finding naming the guard.
 #
@@ -43,9 +50,14 @@ INPUT=$(cat)
 require_tools PostToolUse python3
 
 KIT_LIB="$HOOK_DIR/kit-delivered.sh"
+GUARD_BASH=bash
+if kit_is_windows && command -v cygpath >/dev/null 2>&1; then
+    GUARD_BASH=$(cygpath -m "$BASH")
+    KIT_LIB=$(cygpath -m "$KIT_LIB")
+fi
 
-printf '%s' "$INPUT" | PROJECT_DIR="${CLAUDE_PROJECT_DIR:-}" KIT_LIB="$KIT_LIB" python3 -c '
-import json, os, re, subprocess, sys
+printf '%s' "$INPUT" | PROJECT_DIR="${CLAUDE_PROJECT_DIR:-}" KIT_LIB="$KIT_LIB" GUARD_BASH="$GUARD_BASH" python3 -c '
+import atexit, json, os, re, shutil, signal, subprocess, sys, tempfile
 
 try:
     event = json.load(sys.stdin)
@@ -68,12 +80,12 @@ except Exception:
     sys.exit(0)
 
 kit_lib = os.environ["KIT_LIB"]
+bash = os.environ.get("GUARD_BASH") or "bash"
 
 def kit_delivered(path):
     if not os.path.isfile(kit_lib):
         return False
-    r = subprocess.run(["bash", "-c", "source \"$0\"; is_kit_delivered \"$1\" \"$2\"", kit_lib, project, path],
-                       capture_output=True)
+    r = subprocess.run([bash, kit_lib, project, path], capture_output=True)
     return r.returncode == 0
 
 files = [f for f in files if not kit_delivered(f)]
@@ -125,6 +137,37 @@ except ValueError:
     timeout = 60
 
 env = dict(os.environ, CLAUDE_PROJECT_DIR=project)
+
+# Each command becomes a script file, LF-terminated so Windows Python writes no CR.
+scripts_dir = tempfile.mkdtemp(prefix="bash-edit-guard-")
+atexit.register(shutil.rmtree, scripts_dir, True)
+scripts = {}
+for i, cmd in enumerate(dict.fromkeys(pre + post)):
+    scripts[cmd] = os.path.join(scripts_dir, str(i) + ".sh").replace(os.sep, "/")
+    with open(scripts[cmd], "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(cmd + "\n")
+
+# On POSIX the guard runs in its own process group, so a timeout stops everything it
+# started, not only the outer bash.
+def run_guard(cmd, stdin):
+    own_group = os.name != "nt"
+    p = subprocess.Popen([bash, scripts[cmd]], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, text=True, env=env, cwd=project,
+                         start_new_session=own_group)
+    try:
+        out, err = p.communicate(stdin, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if own_group:
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except OSError:
+                p.kill()
+        else:
+            p.kill()
+        p.communicate()
+        raise
+    return subprocess.CompletedProcess(p.args, p.returncode, out, err)
+
 findings = []
 for path in files:
     base = {k: event.get(k) for k in ("session_id", "transcript_path", "cwd") if event.get(k)}
@@ -137,8 +180,7 @@ for path in files:
         for cmd in commands:
             # A guard that did not run has not passed the file: say so, never count it an allow.
             try:
-                r = subprocess.run(["bash", "-c", cmd], input=json.dumps(payload), capture_output=True,
-                                   text=True, env=env, cwd=project, timeout=timeout)
+                r = run_guard(cmd, json.dumps(payload))
             except subprocess.TimeoutExpired:
                 findings.append((path, "Guard " + guard_name(cmd) + " could not run on this file: it did not "
                                  "finish within " + str(timeout) + " seconds. Check the file against that guard yourself."))

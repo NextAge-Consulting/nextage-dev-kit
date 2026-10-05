@@ -26,3 +26,12 @@ is_kit_delivered() {
     have=$(sha256_file "$root/$rel") || return 1
     [ "$have" = "$want" ]
 }
+
+# Run directly — `bash kit-delivered.sh <project-root> <path>` — it answers by exit
+# status, for a caller that cannot source it. bash-edit-guard.sh calls it this way from
+# Python: on Windows, shell text with quotes does not survive Python's argv into Git
+# Bash, so the call carries only the script and the two values.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+    is_kit_delivered "$1" "$2"
+    exit
+fi

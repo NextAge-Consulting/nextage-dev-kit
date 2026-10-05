@@ -69,7 +69,7 @@ t allow "$(event "$repo/src/old.ts")" 'committed content is not judged — only 
 t allow '{"tool_name":"Bash","tool_response":{"stdout":"x"}}' 'no bashEditDiff (non-edit command)'
 t allow "$(event)" 'empty changedFiles'
 out=$(printf '%s' "$(event "$repo/src/forbidden.ts")" | SKIP_BASH_EDIT_GUARD=1 CLAUDE_PROJECT_DIR="$repo" "$H")
-[ -z "$out" ] && echo "  ✓ SKIP_BASH_EDIT_GUARD=1 skips" || { echo "  ✗ FAIL — override did not skip"; fail=1; }
+if [ -z "$out" ]; then echo "  ✓ SKIP_BASH_EDIT_GUARD=1 skips"; else echo "  ✗ FAIL — override did not skip"; fail=1; fi
 
 echo "MUST BLOCK:"
 printf 'x\n' > "$repo/src/forbidden.ts"
@@ -127,7 +127,9 @@ cp "$tmp/settings.saved" "$repo/.claude/settings.json"
 echo "A BLOCK WITH NO REASON STILL SAYS WHICH GUARD:"
 printf '%s\n' '#!/bin/bash' 'echo '"'"'{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"  "}}'"'" > "$repo/.claude/hooks/mute.sh"
 chmod +x "$repo/.claude/hooks/mute.sh"
-printf '%s\n' '{"hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/mute.sh"}]}]}}' > "$repo/.claude/settings.json"
+cat > "$repo/.claude/settings.json" <<'EOF'
+{"hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/mute.sh"}]}]}}
+EOF
 reason=$(printf '%s' "$(event "$repo/src/fine.ts")" | CLAUDE_PROJECT_DIR="$repo" "$H" 2>/dev/null \
          | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["decision"], d["reason"])' 2>/dev/null)
 case "$reason" in block*"mute.sh objected to this file without saying why"*) echo "  ✓ a reasonless block names its guard" ;;
@@ -137,7 +139,31 @@ cp "$tmp/settings.saved" "$repo/.claude/settings.json"
 echo "PROJECT DIR FROM THE PAYLOAD when CLAUDE_PROJECT_DIR is unset:"
 got=$(printf '%s' "$(event "$repo/src/forbidden.ts")" | env -u CLAUDE_PROJECT_DIR "$H" 2>/dev/null \
       | python3 -c 'import json,sys; print(json.load(sys.stdin).get("decision"))' 2>/dev/null)
-[ "$got" = block ] && echo "  ✓ cwd in the payload locates the project" || { echo "  ✗ FAIL (got $got) — payload cwd ignored"; fail=1; }
+if [ "$got" = block ]; then echo "  ✓ cwd in the payload locates the project"; else echo "  ✗ FAIL (got $got) — payload cwd ignored"; fail=1; fi
+
+echo "NO SHELL TEXT IN ARGV — Windows re-splits it, and its quotes arrive unbalanced:"
+# A bash on PATH that refuses any argument containing a double quote stands in for Git
+# Bash receiving a Python argv on Windows.
+real_bash=$(command -v bash)
+mkdir -p "$tmp/shim"
+{ printf '#!%s\n' "$real_bash"; cat <<'EOF'; printf 'exec %s "$@"\n' "$real_bash"; } > "$tmp/shim/bash"
+for a; do case "$a" in *\"*) echo "quote in argv: $a" >&2; exit 2 ;; esac; done
+EOF
+chmod +x "$tmp/shim/bash"
+shim(){ printf '%s' "$1" | PATH="$tmp/shim:$PATH" CLAUDE_PROJECT_DIR="$2" "$H" 2>/dev/null \
+        | python3 -c 'import json,sys; s=sys.stdin.read().strip(); print(json.loads(s)["reason"] if s else "allow")' 2>/dev/null; }
+spaced="$tmp/my project"; cp -R "$repo" "$spaced"
+ev(){ python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","cwd":sys.argv[1],"tool_response":{"bashEditDiff":{"changedFiles":sys.argv[2:]}}}))' "$@"; }
+printf 'BAD(4)\n' > "$spaced/src/added.ts"
+got=$(shim "$(ev "$spaced" "$spaced/src/added.ts")" "$spaced")
+case "$got" in *"added BAD("*) echo "  ✓ a replayed guard judges the file, in a project path with spaces" ;;
+               *) echo "  ✗ FAIL — replay did not judge the file: $got"; fail=1 ;; esac
+printf 'kit content\n' > "$spaced/src/forbidden-kit.md"
+sha=$(shasum -a 256 "$spaced/src/forbidden-kit.md" | cut -d' ' -f1)
+printf '{"files":{"src/forbidden-kit.md":{"sha":"%s","mode":"owned"}}}' "$sha" > "$spaced/.claude/.kit-sync.json"
+got=$(shim "$(ev "$spaced" "$spaced/src/forbidden-kit.md")" "$spaced")
+if [ "$got" = allow ]; then echo "  ✓ a kit-delivered file is skipped, in a project path with spaces"
+else echo "  ✗ FAIL — kit-delivered file not skipped: $got"; fail=1; fi
 
 echo "TOOL MISSING — python3 that does not run is reported, never a silent pass:"
 # shellcheck source=test-helpers.sh
@@ -152,7 +178,7 @@ for p in '' 'not json' 'null' '[]' '{"tool_response":null}' '{"tool_response":{"
   else echo "  ✗ FAIL (rc=$rc out=$out) — ${p:-<empty>}"; fail=1; fi
 done
 out=$(printf '%s' "$(event "$repo/src/forbidden.ts")" | CLAUDE_PROJECT_DIR="$tmp/nowhere" "$H" 2>/dev/null); rc=$?
-[ "$rc" -eq 0 ] && [ -z "$out" ] && echo "  ✓ exits clean with no settings.json" || { echo "  ✗ FAIL — missing settings.json"; fail=1; }
+if [ "$rc" -eq 0 ] && [ -z "$out" ]; then echo "  ✓ exits clean with no settings.json"; else echo "  ✗ FAIL — missing settings.json"; fail=1; fi
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"
