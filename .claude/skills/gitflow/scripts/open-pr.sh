@@ -1,7 +1,20 @@
 #!/bin/bash
 # gitflow open-pr: push current branch, create a PR.
 # Usage: open-pr.sh --title "<PR title>" --body "<PR body>" \
-#                   [--base main] [--draft] [--complete "<N[,N…]>"]
+#                   [--base main] [--draft] [--complete "<N[,N…]>"] [--to <login|me>]
+#        open-pr.sh --to <login|me>      # on a branch whose PR is already open: re-assign it
+#
+# Who has the PR: the author is assigned by default. --to <login> hands it to that
+# person instead — assigned to them, their review requested — and the author's part
+# ends at the open: CI and the review are the taker's. With no --to, GITFLOW_PR_TO
+# (a developer's own default, in .claude/settings.local.json's env block) names the
+# taker; "ask" is resolved by the slash command before this script runs. --to me
+# keeps a PR for this once whatever the default says.
+#
+# Stacked branches: a branch /commit cut from a handed-off PR (branch.<name>.
+# gitflow-parent) opens its PR against that parent while the parent's PR is open,
+# so its review shows only its own changes. /merge moves it to main when it merges the
+# parent; /catchup does the same for a parent merged some other way.
 #
 # Code-complete gate: every issue linked on the branch must be code complete
 # before a PR opens, because opening one sets them all to Staged. An issue not
@@ -39,12 +52,15 @@ BASE="main"
 DRAFT=""
 COMPLETE_ISSUES=""
 NOTES_DIR=""
+TO=""
+BASE_GIVEN=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --title)            TITLE="$2"; shift 2 ;;
         --body)             BODY="$2"; shift 2 ;;
-        --base)             BASE="$2"; shift 2 ;;
+        --base)             BASE="$2"; BASE_GIVEN=1; shift 2 ;;
+        --to)               TO="${2:-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
         --draft)            DRAFT="--draft"; shift 1 ;;
         --notes)            NOTES_DIR="$2"; shift 2 ;;
         --complete)
@@ -58,6 +74,39 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Who takes the PR: --to, else the developer's own default. "ask" never reaches here
+# unanswered — the slash command asks first and passes --to.
+[ -z "$TO" ] && TO="${GITFLOW_PR_TO:-}"
+if [ "$TO" = "ask" ]; then
+    echo "open-pr.sh: --to ask must be resolved to a login first (the slash command lists the collaborators)." >&2
+    exit 2
+fi
+ME=""
+if [ -n "$TO" ] || command -v gh >/dev/null 2>&1; then
+    ME=$(gh_login) || ME=""
+fi
+[ "$TO" = "me" ] && TO="$ME"
+
+# A branch whose PR is already open: --to re-assigns it, and that is all.
+CURRENT_BRANCH=$(git branch --show-current)
+EXISTING_PR=$(open_pr_for_branch "$CURRENT_BRANCH")
+if [ -n "$EXISTING_PR" ]; then
+    if [ -z "$TO" ]; then
+        echo "open-pr.sh: PR #$EXISTING_PR is already open for $CURRENT_BRANCH. To hand it to someone, re-run with --to <login>." >&2
+        exit 3
+    fi
+    if ! hand_pr_to "$EXISTING_PR" "$TO"; then
+        echo "open-pr.sh: could not assign PR #$EXISTING_PR to @$TO (gh's reason above)." >&2
+        exit 10
+    fi
+    if [ "$TO" = "$ME" ]; then
+        echo "gitflow: PR #$EXISTING_PR is yours again." >&2
+    else
+        echo "gitflow: PR #$EXISTING_PR handed to @$TO — CI and the review are theirs. Keep working here: your next /commit stacks a new branch on it." >&2
+    fi
+    exit 0
+fi
+
 if [ -z "$TITLE" ]; then
     echo "open-pr.sh: --title is required" >&2
     exit 2
@@ -67,7 +116,17 @@ if [ -z "$BODY" ]; then
     exit 2
 fi
 
-CURRENT_BRANCH=$(git branch --show-current)
+# A stacked branch opens against its parent while the parent's PR is still open.
+PARENT=$(branch_parent "$CURRENT_BRANCH")
+if [ -z "$BASE_GIVEN" ] && [ -n "$PARENT" ]; then
+    if [ "$(pr_state_for_branch "$PARENT")" = "OPEN" ]; then
+        BASE="$PARENT"
+        echo "gitflow: $CURRENT_BRANCH is stacked on $PARENT, whose PR is still open — opening against it." >&2
+    else
+        clear_branch_parent "$CURRENT_BRANCH"
+    fi
+fi
+
 if [ "$CURRENT_BRANCH" = "$BASE" ]; then
     echo "open-pr.sh: current branch is $BASE — cannot open PR against itself." >&2
     exit 3
@@ -205,7 +264,7 @@ if [ -n "$PR_NUMBER" ] && [ -z "$DRAFT" ]; then
     fi
     if [ "$GEMINI_SKIP" != "true" ]; then
         if command -v gh >/dev/null 2>&1; then
-            if gh pr comment "$PR_NUMBER" --body "/gemini review" >/dev/null 2>&1; then
+            if post_gemini_review "$PR_NUMBER" >/dev/null 2>&1; then
                 echo "gitflow: posted /gemini review on PR #$PR_NUMBER — Gemini will review within ~5 min" >&2
             else
                 echo "open-pr.sh: failed to post /gemini review on PR #$PR_NUMBER." >&2
@@ -236,6 +295,23 @@ if [ -n "$PR_NUMBER" ] && [ -z "$DRAFT" ]; then
             exit 9
         fi
     fi
+fi
+
+# ─── Who has it ────────────────────────────────────────────────────────────
+# The author by default; --to hands it over. A failure here leaves an open PR
+# with no owner named, so it is loud, never silent.
+TAKER="${TO:-$ME}"
+if [ -n "$PR_NUMBER" ] && [ -n "$TAKER" ]; then
+    if ! hand_pr_to "$PR_NUMBER" "$TAKER"; then
+        echo "open-pr.sh: PR #$PR_NUMBER is open, but assigning it to @$TAKER failed (gh's reason above)." >&2
+        echo "  Assign it on GitHub, or re-run: open-pr.sh --to $TAKER" >&2
+        exit 10
+    fi
+    if [ -n "$TO" ] && [ "$TO" != "$ME" ]; then
+        echo "gitflow: PR #$PR_NUMBER handed to @$TO — CI and the review are theirs. Keep working here: your next /commit stacks a new branch on it." >&2
+    fi
+elif [ -n "$PR_NUMBER" ]; then
+    echo "open-pr.sh: PR #$PR_NUMBER is open but has no assignee — gh could not say who you are." >&2
 fi
 
 # ─── Every linked issue → Staged on the project board ─────────────────────

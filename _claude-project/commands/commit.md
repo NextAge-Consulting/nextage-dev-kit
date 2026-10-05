@@ -43,7 +43,14 @@ Resolve in this order:
    ```bash
    PR_NUMBER=$(gh pr list --head "$(git branch --show-current)" --state open --json number --jq '.[0].number // empty' 2>/dev/null)
    ```
-3. **PR is open and the user did NOT specify a flag.** Ask in prose and wait: whether to trigger a Gemini review on this commit. Carry both consequences — reviewing posts `/gemini review` after the push, which earns its keep early in the PR or when fixes substantively change behavior; skipping it is right in late triage once the decision to ship is made, saving Gemini quota and letting `/merge` proceed on CI alone.
+3. **The PR was handed to someone else** — assigned, and not to you. Pass nothing: this
+   commit lands on a new branch stacked on it (Branch behavior, below), so there is no PR
+   for it yet.
+   ```bash
+   bash -c 'source .claude/skills/gitflow/scripts/branch_helpers.sh && pr_handed_off "$(git branch --show-current)"'
+   ```
+   Exit 0 means handed off, and it prints who has it.
+4. **PR is open and the user did NOT specify a flag.** Ask in prose and wait: whether to trigger a Gemini review on this commit. Carry both consequences — reviewing posts `/gemini review` after the push, which earns its keep early in the PR or when fixes substantively change behavior; skipping it is right in late triage once the decision to ship is made, saving Gemini quota and letting `/merge` proceed on CI alone.
 
    Map the answer to the flag: review → `--review`, skip → `--no-review`.
 
@@ -110,7 +117,8 @@ The script resolves the target branch before committing:
 | Current branch | Action |
 |----------------|--------|
 | `main` / `master` | Derive `<type>/<slug>` from the commit message, create and switch. Any issue links parked on `main` by `/work <issue#>`, and which of them are complete, are carried onto the new branch and cleared from `main`. Any `/checkpoint` commits move with it, and local `main` is reset to where they started. |
-| Any other branch | Commit in place |
+| A branch whose PR is assigned to someone else | Its review is theirs, so the commit does not join it. Cut `<type>/<slug>` from here — a branch stacked on it, recorded so `/open-pr` and `/catchup` follow it. Only issue links added since the hand-off come along; the PR keeps its own. |
+| Any other branch — no PR, or a PR assigned to you or to nobody | Commit in place |
 
 Collisions on the target name are resolved by appending `-2`, `-3`, etc.
 

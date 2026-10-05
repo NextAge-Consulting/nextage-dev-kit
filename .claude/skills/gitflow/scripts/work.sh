@@ -4,6 +4,7 @@
 # Usage:
 #   work.sh                              # refresh main and stay put, or resume the current branch
 #   work.sh --issue <N[,N…]>            # link issue(s) to the current branch, dump their context
+#   work.sh <PR#>                        # pick up a pull request: switch to its branch
 #   work.sh --retrieve <branch>          # fetch a teammate's branch and switch to it
 #   work.sh --discussion <slug|url>      # default mode, then print a finished discussion's folder
 #
@@ -14,6 +15,9 @@
 #     transition to In Progress, assign the current user, dump issue context for
 #     the Claude session. No branch is cut — see below.
 #   - For --retrieve: fetch the remote branch, fast-forward any local copy, switch.
+#   - For a number that is a pull request (GitHub numbers issues and PRs from one
+#     sequence, so a number is never both): switch to the PR's branch as --retrieve
+#     does. The readiness wait and the hand-off to /triage or /merge are work.md's.
 #   - For --discussion: find the discussion folder the analysis skill wrote (by its
 #     slug or by the artifact URL recorded in its pointer), run the default mode,
 #     then print the pointer and the folder's files. Reading the published page and
@@ -148,25 +152,23 @@ tree_is_clean() {
         [ -z "$(git ls-files --others --exclude-standard 2>/dev/null)" ]
 }
 
-# ─── Helper: refresh main, tolerating a dirty tree ─────────────────────────
-# fast_forward_local_main refuses on a dirty tree by design — it is also used
-# by /catchup, where a dirty tree means something is wrong. Here it does not:
-# starting work with edits already in the tree is ordinary (you noticed
-# something before you typed /work), and those edits stay exactly where they are.
+# ─── Helper: refresh main, never blocking ──────────────────────────────────
+# Starting work with edits already in the tree is ordinary (you noticed something
+# before you typed /work). fast_forward_local_main carries them across the
+# fast-forward, so the work continues on the newest main.
 #
 # So: refresh when we can, say so loudly when we cannot, and never block.
-# Nothing is lost either way — main is simply left at the commit you already had.
 refresh_main_if_possible() {
-    if tree_is_clean; then
-        if ! fast_forward_local_main; then
-            echo "work.sh: could not refresh main from origin (cause above)." >&2
-            echo "  Branching off local main as it stands. /catchup once you are online." >&2
-        fi
-    else
-        echo "work.sh: uncommitted changes present — NOT refreshing main from origin." >&2
-        echo "  Your changes are untouched." >&2
-        main_drift_report main work.sh || true
-    fi
+    local rc=0
+    fast_forward_local_main || rc=$?
+    case "$rc" in
+        0) ;;
+        8) echo "work.sh: main is refreshed, but your changes conflict with what came in (files above)." >&2
+           echo "  Resolve those before anything else." >&2 ;;
+        *) echo "work.sh: could not refresh main from origin (cause above)." >&2
+           echo "  Your changes are untouched; main is left at the commit you had. /catchup once it is fixed." >&2
+           main_drift_report main work.sh || true ;;
+    esac
 }
 
 # ─── Mode: default ─────────────────────────────────────────────────────────
@@ -299,6 +301,35 @@ mode_retrieve() {
     echo "work.sh: on '$branch'. Your own branch is untouched — 'git switch <yours>' when you are done here." >&2
 }
 
+# ─── Mode: <PR#> — pick up a pull request ──────────────────────────────────
+# An issue number and a PR number never collide, so `/work <N>` asks GitHub which
+# one N is. A PR is picked up: its branch fetched and switched to. A PR mixed into a
+# list of issues is refused before anything is linked.
+is_pull_request() {
+    gh api "repos/{owner}/{repo}/issues/$1" --jq 'has("pull_request")' 2>/dev/null | grep -qx true
+}
+
+mode_pickup_pr() {
+    local pr="$1" info state branch cross url
+    if ! info=$(gh pr view "$pr" --json state,headRefName,isCrossRepository,url \
+            --jq '[.state, .headRefName, (.isCrossRepository|tostring), .url] | @tsv' 2>&1); then
+        echo "work.sh: could not read PR #$pr: $info" >&2
+        exit 4
+    fi
+    IFS=$'\t' read -r state branch cross url <<< "$info"
+    if [ "$state" != "OPEN" ]; then
+        echo "work.sh: PR #$pr is $(printf '%s' "$state" | tr '[:upper:]' '[:lower:]') — nothing to pick up. ($url)" >&2
+        exit 0
+    fi
+    if [ "$cross" = "true" ]; then
+        echo "work.sh: PR #$pr comes from a fork; its branch is not on origin. Review it on GitHub: $url" >&2
+        exit 4
+    fi
+    ARG="$branch"
+    mode_retrieve
+    echo "work.sh: picked up PR #$pr ($url)." >&2
+}
+
 # ─── Mode: --discussion <slug|url> ─────────────────────────────────────────
 # A discussion lives in project-documentation/temporary/discussion-<slug>/, with a
 # pointer <slug>-discussion.md whose front matter records the artifact URL. The human
@@ -414,7 +445,21 @@ sync_local_branch() {
 # ─── Dispatch ──────────────────────────────────────────────────────────────
 case "$MODE" in
     "")         mode_default ;;
-    "issue")    mode_issue ;;
+    "issue")
+        # One PR on its own is picked up; a PR among issues is refused.
+        nums=$(parse_issue_csv "$ARG")
+        prs=""
+        for n in $nums; do is_pull_request "$n" && prs="${prs:+$prs }$n"; done
+        if [ -n "$prs" ]; then
+            if [ "$prs" != "$nums" ] || [ "$(wc -w <<< "$prs")" -ne 1 ]; then
+                echo "work.sh: $(format_issue_refs "$prs") is a pull request; pick it up on its own (/work <PR#>)." >&2
+                exit 2
+            fi
+            mode_pickup_pr "$prs"
+        else
+            mode_issue
+        fi
+        ;;
     "retrieve") mode_retrieve ;;
     "discussion") mode_discussion ;;
     *)

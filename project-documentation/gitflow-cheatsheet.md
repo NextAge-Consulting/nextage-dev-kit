@@ -11,6 +11,7 @@ Every coding session starts with `/work`. It puts you on the branch your work be
 ```
 /work                              # on main: refresh main and stay there. On a branch: resume it.
 /work 23                           # link issue #23 to wherever you are standing. No branch is cut.
+/work 76                           # 76 is a PR: switch to its branch, wait for CI and its review, then triage or merge
 /work --retrieve feat/teammate-fix # fetch a teammate's branch and switch to it (refuses if your tree is dirty)
 /work --discussion session-timeout # pull a finished discussion (slug or artifact URL) into an action plan
 ```
@@ -18,7 +19,7 @@ Every coding session starts with `/work`. It puts you on the branch your work be
 **`/work` never cuts a branch.** At session-init nobody knows yet whether this is a feature, an infra change, or a question answered from the handoff — and because `/ship-main` runs only on `main`, cutting a branch here would block the infra path before the session began. The branch arrives from the command that actually declares the path: `/commit` names it from your commit message.
 
 What happens automatically (no issue, on `main`):
-- **Local main is fast-forwarded from `origin/main`**, unless the tree is dirty or the fetch fails — both say so plainly rather than blocking.
+- **Local main is fast-forwarded from `origin/main`**, and changes you already made come along. If the fetch fails it says so plainly rather than blocking.
 - You stay on `main`. Any issue link parked by an earlier session is surfaced.
 
 What happens automatically (issue mode, anywhere):
@@ -123,6 +124,30 @@ Watch for:
 
 ---
 
+## Handing a PR to someone else
+
+When someone else reviews, merges and deploys your work — a designer handing to a
+developer, or you when something more urgent comes up:
+
+```
+/open-pr --to bob    # open the PR, assigned to bob with their review requested
+/open-pr --to        # no name: pick from the repository's collaborators
+/open-pr --to bob    # on a branch whose PR is already open: re-assign it to bob
+```
+
+Your part ends when the PR opens: CI and the Gemini review are now the taker's job.
+**Keep working where you are.** Your local app still has the PR's changes, and your next
+`/commit` sees that the PR is with someone else and starts a new branch stacked on it.
+`/open-pr` there opens a PR that shows only the new work. When the first PR merges, `/merge`
+re-points the second at `main`, and `/catchup` brings `main` in.
+
+The taker picks it up with `/work <PR#>` — it switches to the branch, waits for CI and the
+review, then hands over `/triage` or `/merge`. A PR assigned to you, or to nobody, is still
+yours: commits land on it, as review fixes should. Merging someone else's PR records your
+approval on it first.
+
+---
+
 ## After `/open-pr` — triaging the PR
 
 CI (4 jobs) runs on every PR push. Gemini Code Assist runs only when a `/gemini review` comment is posted on the PR (auto-trigger is OFF in `.gemini/config.yaml`). `/open-pr` always posts the trigger; `/commit` asks you whether to post (or pass `--review` / `--no-review` to skip the prompt); `/deploy` never posts on release PRs.
@@ -224,6 +249,21 @@ Picking up tomorrow on unfinished work: same launch, just `/work` (no args). You
 
 ---
 
+## Your own defaults
+
+Settings that change how gitflow behaves for you alone go in the `env` block of
+`.claude/settings.local.json` — Claude Code's per-developer file, never committed:
+
+```json
+{ "env": { "GITFLOW_PR_TO": "ask" } }
+```
+
+| Setting | Values | Effect |
+|---|---|---|
+| `GITFLOW_PR_TO` | unset · `ask` · a GitHub login | Who `/open-pr` gives the PR to. Unset: you keep it. `ask`: pick from the collaborators every time. A login: that person, unless you name someone else or say `--to me`. |
+
+---
+
 ## What NOT to do
 
 - Raw `git commit`, `git push`, `git merge`, `git checkout <file>`, `git reset`, `git revert`, `git clean`, `git restore` — **blocked by `git-guard.sh`**. If you genuinely need one, prefix with `SKIP_GIT_GUARD=1` and state the reason.
@@ -249,7 +289,8 @@ Picking up tomorrow on unfinished work: same launch, just `/work` (no args). You
 | `--complete` exits 2 | It named an issue not linked on this branch, or an issue reaching Staged has no Staged comment in `--notes`. Nothing was committed or pushed — link it with `/work <N>`, fix the number, or write the missing comment. |
 | Exit 13 from `/commit`, `/ship-main` or `/open-pr` | Everything landed — commit, push, board — except a Staged comment. The script printed the exact `gh issue comment` that posts it. |
 | Issue closed too early, or never closed | GitHub configuration, not gitflow: the repository's auto-close setting and the board's "Auto-close issue" workflow. See `github-project-board-setup.md` §3. |
-| `/work` says it could not refresh main | The fast-forward failed (usually `gh` auth scope or network) or the tree was dirty. `/work` does not block — you stay on local `main` and it tells you. Fix `gh auth status`, then `/catchup`. |
+| `/work` says it could not refresh main | The fast-forward failed (usually `gh` auth scope or network, or an untracked file of yours has the name of one coming in). `/work` does not block — you stay on local `main` and it tells you. Fix the cause, then `/catchup`. |
+| `/work` or `/catchup` says your changes conflict with what came in | Main is up to date; your edits and the new commits changed the same lines. Your changes are safe in the stash. Resolve the conflict markers in the files it names, then `git stash drop`. |
 | `/catchup` aborts: "local main is AHEAD" or "DIVERGED" | Local main has commits not on origin/main. Anomalous under gitflow: work lands on `main` only through `/merge` or `/ship-main`. Inspect with `git log origin/main..HEAD`. Most likely cause is a `/ship-main` commit that has not been pushed, or a commit made outside gitflow. Inspect, push or resolve manually, then retry `/catchup`. |
 | `/sync-dev-kit` keeps flagging `.claude/settings.json` as `kit-only` (or `conflict`) every sync even though you haven't touched it | settings.json is compared as jq-canonicalized JSON (kitmaintainer-handbook.md §9.6), so key order and indentation should never surface as a diff. If it still flags with no real difference, the canonicalization in `sync-dev-kit.sh` (`canonicalize_settings` / `sha256_settings_kit`) is broken — open a kit bug. |
 | `/commit` succeeded at commit but failed at push with "upstream branch ... does not match the name of your current branch" | The branch is tracking `origin/main` rather than its own remote ref. Re-trigger just the push: `.claude/skills/gitflow/scripts/commit.sh --push-only`. `safe_push` (in `branch_helpers.sh`) corrects the upstream and pushes. See kitmaintainer-handbook.md §4.5. |

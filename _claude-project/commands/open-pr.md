@@ -6,6 +6,10 @@ $ARGUMENTS
 
 ## Procedure
 
+**A PR already open for this branch, and a taker named** (`/open-pr --to bob`, "hand
+this PR to Bob"): that is a re-assign. Run `.claude/skills/gitflow/scripts/open-pr.sh --to
+<login>` alone, report what it printed, and stop — no other step applies.
+
 ### Step 1: Verify branch state
 
 ```bash
@@ -119,7 +123,22 @@ directory outside the repo (`mktemp -d`). Pass it as `--notes <notes_dir>`. Writ
 move on — never put the wording to the human for approval. The script refuses before
 committing (exit 2) when one is missing, and posts each once the board has moved.
 
-### Step 6: Invoke the script
+### Step 6: Who takes the PR
+
+The author keeps it unless a taker is named:
+
+- **The human named someone** — `--to bob`, "open a PR for Bob": pass `--to bob`.
+- **`--to` with no name, or `GITFLOW_PR_TO` is `ask`** (`echo "$GITFLOW_PR_TO"`): list the
+  collaborators and ask which, in prose, then wait and pass `--to <login>`.
+
+  ```bash
+  bash -c 'source .claude/skills/gitflow/scripts/branch_helpers.sh && list_collaborators'
+  ```
+- **"Keep it"**, or `--to me`: pass `--to me`.
+- **Otherwise** pass nothing. The script takes a login in `GITFLOW_PR_TO` as the taker on
+  its own, and assigns the author when there is none.
+
+### Step 7: Invoke the script
 
 `/open-pr` does NOT touch `changelog.md`. The changelog is owned exclusively by `/deploy`, which composes the consolidated release entry from commit subjects since the last tag at version-bump time. Earlier versions of this command wrote a per-PR entry here too, which produced duplicate bullets in main's changelog after `/deploy` ran (one from the feature-branch insertion, one from the release-branch insertion). Single-writer fixes the duplication structurally — there is no flag to opt back into per-PR changelog inserts.
 
@@ -127,7 +146,7 @@ committing (exit 2) when one is missing, and posts each once the board has moved
 .claude/skills/gitflow/scripts/open-pr.sh \
   --title "<conventional title>" \
   --body "<PR body markdown>" \
-  [--complete "<N,N>"] [--notes <notes_dir>]
+  [--complete "<N,N>"] [--notes <notes_dir>] [--to <login|me>]
 ```
 
 Optional: `--draft` to open as draft PR, `--base <branch>` if targeting something other than main.
@@ -136,7 +155,11 @@ If the script reports `main has moved`, relay the commits behind and the files c
 both sides. Where files overlap, recommend `/catchup` before triaging: the review ran on code
 that may not merge, and `/merge` refuses a real conflict (exit 23).
 
-### Step 7: Wait for PR readiness
+### Step 8: Wait for PR readiness — only when the PR stayed with you
+
+**Handed to someone else:** stop here. Report the PR URL and who has it; CI and the
+review are theirs, and they pick it up with `/work <PR#>`. Tell the human to keep working
+on this branch — their next `/commit` stacks a new branch on it.
 
 `open-pr.sh` has already posted an explicit `/gemini review` comment on the PR (Gemini's auto-review on PR open is disabled in `.gemini/config.yaml: pull_request_opened.code_review: false`; reviews are comment-driven). If the post failed, the script exited 9 — surface the failure; do not proceed to wait.
 
@@ -149,12 +172,12 @@ Invoke the readiness wait — blocks until CI required checks pass AND (unless `
 Status updates print every poll cycle (~30s). The user is sitting at the keyboard during this — that's the point of the wait, no other infra needed.
 
 Exit handling:
-- `0` → PR is ready. Continue to Step 8.
+- `0` → PR is ready. Continue to Step 9.
 - `2` → CI failed. Surface the failing check name and PR URL; stop. The user fixes locally and pushes; the failing CI gate is the signal to act.
 - `3` → timeout (default 15min). Surface the diagnostic message the script printed (likely Gemini queued/rate-limited, or CI legitimately slow). The user decides: re-invoke with `--timeout-min <larger>`, or — only if Gemini is genuinely absent — set `GEMINI_NOT_INSTALLED="true"` in `.claude/sync-substitutions.json` to opt out.
 - `5` → user pressed Ctrl-C. Stop cleanly, no further steps.
 
-### Step 8: Hand off based on Gemini findings count
+### Step 9: Hand off based on Gemini findings count
 
 The wait script's ready message includes a `findings=N` count whenever Gemini posted a review. Surface that count to the user and tailor the handoff prompt to it:
 
@@ -169,14 +192,14 @@ Do NOT auto-invoke `/triage` and do NOT auto-invoke `/merge`. The user decides p
 
 If the user runs `/triage` and lands a fix commit via `/commit --review`, that push posts a fresh `/gemini review` comment which arms a new review cycle. The next `/merge` will re-run `wait-for-pr-ready.sh` (called from `merge.sh`) and gate on the new cycle automatically. If the fix commit went out via `/commit --no-review`, no trigger is posted and `/merge` proceeds on CI alone.
 
-### Step 9: Report
+### Step 10: Report
 
 - PR created: surface the PR URL
-- Script failure modes (Step 6 — open-pr.sh):
+- Script failure modes (Step 7 — open-pr.sh):
   - No gh CLI and no $GITHUB_TOKEN: user setup issue
   - Branch not pushed / push rejected: git state issue
   - API error: surface GitHub's response
-- Wait failure modes (Step 7 — wait-for-pr-ready.sh): see exit handling above
+- Wait failure modes (Step 8 — wait-for-pr-ready.sh): see exit handling above
 
 ## What happens after
 

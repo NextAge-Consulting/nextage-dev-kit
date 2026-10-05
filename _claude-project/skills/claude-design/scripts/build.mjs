@@ -7,7 +7,9 @@
  * The project's paths come from .claude/sync-substitutions.json, its content from
  * the config (references/config-example.mjs) — config.mjs reads both. `--release`
  * is the number /ui-design publish-system gives this publish; the system's README,
- * its cover and its index carry "Release <n> · built <date> from <sha>".
+ * its cover and its index carry "Release <n> · built <date> from <sha>". The index's
+ * note adds "· content <hash>", the fingerprint (fingerprint.mjs) the next publish
+ * compares to send nothing when nothing changed.
  *
  * Writes the generated safelist and class-merge files into the UI package
  * (generate.mjs), then <package>/<out>/project/ — tokens.json, README.md, the
@@ -29,6 +31,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { checkPrerequisites, iconsSpecifier, loadConfig, packageRequire } from './config.mjs'
+import { contentFingerprint } from './fingerprint.mjs'
 import { writeGenerated } from './generate.mjs'
 import { buildModel, promisedClasses, readText } from './model.mjs'
 
@@ -198,6 +201,8 @@ if (CONFIG.cover) {
 if (CONFIG.assets) fs.cpSync(path.join(CONFIG_DIR, CONFIG.assets), path.join(PROJECT, 'assets'), { recursive: true })
 fs.writeFileSync(path.join(PROJECT, 'README.md'), readme())
 await buildComponents()
+// What the publish compares with the release note it reads, to send nothing when nothing changed.
+const CONTENT = contentFingerprint(PROJECT, [STAMP, ref, SYNC_DATE])
 
 fs.writeFileSync(
   path.join(OUT, 'index-fields.json'),
@@ -206,7 +211,7 @@ fs.writeFileSync(
       title: CONFIG.title,
       namespace: NS,
       libraries: PAGE_REACT.map(({ name, global, file }) => ({ name, version: PAGE_REACT_VERSION, global, file })),
-      lastChange: { by: 'Claude', via: `Claude Code · ${CONFIG.package}@${ref}`, note: `${STAMP}.` },
+      lastChange: { by: 'Claude', via: `Claude Code · ${CONFIG.package}@${ref}`, note: `${STAMP} · content ${CONTENT}.` },
     },
     null,
     2,
@@ -215,7 +220,7 @@ fs.writeFileSync(
 
 const styleCount = groups.reduce((n, g) => n + g.styles.length, 0)
 console.log(
-  `design-system build: ${colorTokens.length} colours, ${styleCount} type roles, ${spacing.length} spacing, ${radius.length} radii, ${shadow.length} shadow, ${fonts.length} font, ${COMPONENTS.length} components → ${path.relative(REPO, OUT)} · ${STAMP}`,
+  `design-system build: ${colorTokens.length} colours, ${styleCount} type roles, ${spacing.length} spacing, ${radius.length} radii, ${shadow.length} shadow, ${fonts.length} font, ${COMPONENTS.length} components → ${path.relative(REPO, OUT)} · ${STAMP} · content ${CONTENT}`,
 )
 if (generated.length) console.log(`design-system build: rewrote ${generated.map((g) => `${CONFIG.package}/${g}`).join(', ')} — commit them with the token change`)
 

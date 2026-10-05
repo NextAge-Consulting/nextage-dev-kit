@@ -45,6 +45,8 @@ Run these through gitflow, never directly: `git commit`, `git add`, `git push`, 
 | "continue the merge", "finish catching up" | `/catchup --continue` |
 | "abort the catchup", "bail on the merge" | `/catchup --abort` |
 | "open pr", "open a pull request", "submit for review" | `/open-pr` |
+| "open a PR for Bob", "hand this PR to Bob", "give the PR to Carol" | `/open-pr --to <login>` — opens it, or re-assigns one already open |
+| "pick up PR 76", "review PR 76", "take over PR 76" | `/work 76` |
 | "triage", "work the review", "go through gemini", "walk the review" | `/triage` |
 | "merge", "merge to main", "ship it" | `/merge` |
 | "ship to main", "commit straight to main", "infra commit", "emergency commit to main" | `/ship-main` |

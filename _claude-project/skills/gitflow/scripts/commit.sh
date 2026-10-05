@@ -139,10 +139,31 @@ main_drift_report main commit.sh || true
 # folded content against it; the fold itself waits until they have all passed.
 FOLD_BASE=$(checkpoint_fold_base)
 
-# Branch resolution
-if is_protected_branch "$CURRENT_BRANCH"; then
+# Branch resolution. A new branch is cut from main, and from a branch whose PR was
+# handed to someone else: that PR is theirs to review, so new work stacks on top of
+# it rather than landing in it. A PR assigned to you, or to nobody, takes the commit.
+HANDED_TO=""
+if ! is_protected_branch "$CURRENT_BRANCH"; then
+    set +e
+    HANDED_TO=$(pr_handed_off "$CURRENT_BRANCH")
+    handoff_rc=$?
+    set -e
+    if [ "$handoff_rc" -eq 2 ]; then
+        HANDED_TO=""
+        echo "commit.sh: could not ask GitHub who has this branch's PR; committing on $CURRENT_BRANCH." >&2
+        echo "  If its PR was handed to someone else, this commit joins their review." >&2
+    elif [ "$handoff_rc" -ne 0 ]; then
+        HANDED_TO=""
+    fi
+fi
+
+if is_protected_branch "$CURRENT_BRANCH" || [ -n "$HANDED_TO" ]; then
     TARGET_NAME=$(resolve_collision "$(derive_branch_from_message "$MESSAGE")")
-    echo "gitflow: on $CURRENT_BRANCH — auto-creating $TARGET_NAME for commit." >&2
+    if [ -n "$HANDED_TO" ]; then
+        echo "gitflow: $CURRENT_BRANCH's PR is with @${HANDED_TO// /, @} — stacking $TARGET_NAME on it for this commit." >&2
+    else
+        echo "gitflow: on $CURRENT_BRANCH — auto-creating $TARGET_NAME for commit." >&2
+    fi
     PREVIOUS_BRANCH="$CURRENT_BRANCH"
     create_and_switch "$TARGET_NAME"
     CURRENT_BRANCH="$TARGET_NAME"
@@ -152,9 +173,15 @@ if is_protected_branch "$CURRENT_BRANCH"; then
     if [ "$FOLD_BASE" != "$(git rev-parse HEAD)" ]; then
         git branch -f "$PREVIOUS_BRANCH" "$FOLD_BASE"
     fi
-    # /work <issue#> parks its link on main rather than cutting a branch, so the
-    # branch created HERE is the one the issue belongs to.
-    migrate_branch_linked_issues "$PREVIOUS_BRANCH" "$CURRENT_BRANCH"
+    if [ -n "$HANDED_TO" ]; then
+        # The handed-off PR keeps the issues it closes; only those linked since go along.
+        set_branch_parent "$CURRENT_BRANCH" "$PREVIOUS_BRANCH"
+        carry_incomplete_issues "$PREVIOUS_BRANCH" "$CURRENT_BRANCH"
+    else
+        # /work <issue#> parks its link on main rather than cutting a branch, so the
+        # branch created HERE is the one the issue belongs to.
+        migrate_branch_linked_issues "$PREVIOUS_BRANCH" "$CURRENT_BRANCH"
+    fi
 fi
 
 # Typecheck, biome and semgrep — gates.sh holds each gate and why it is shaped
@@ -245,7 +272,7 @@ if [ "$REVIEW" -eq 1 ]; then
             echo "gitflow: --review passed but no open PR for branch $CURRENT_BRANCH — skipping trigger." >&2
             return 0
         fi
-        if gh pr comment "$pr_number" --body "/gemini review" >/dev/null 2>&1; then
+        if post_gemini_review "$pr_number" >/dev/null 2>&1; then
             echo "gitflow: posted /gemini review on PR #$pr_number — Gemini will re-review within ~5 min" >&2
             return 0
         fi

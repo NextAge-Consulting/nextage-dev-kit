@@ -1,6 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { checkPage, requiredFrom } from './check-design.mjs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { checkPage, elementsFor, loadPageChecks, pageRules, parseMarkup, requiredFrom, runPageChecks } from './check-design.mjs'
 
 const page = (css, body) => `<!doctype html><html><head></head><body><x-dc><helmet><style>
 ${css}
@@ -197,4 +202,103 @@ test('the command checks every page it is given, the first included, with or wit
   }
   assert.match(out, /Bare\.dc\.html: 1 fail/)
   assert.match(out, /check-design: 1 page\(s\)/)
+})
+
+// --- project page checks ------------------------------------------------------
+
+// The case that asked for them: a page sizing a field inside a FormRow.
+const fieldWidths = async ({ rules, elementsFor, enclosingComponent, componentName, add }) => {
+  for (const rule of rules) {
+    const sizing = rule.decls.filter((d) => /^(width|grid-template-columns)$/.test(d.prop))
+    if (!sizing.length) continue
+    for (const el of elementsFor(rule)) {
+      const comp = enclosingComponent(el)
+      if (comp && componentName(comp) === 'NS.FormRow') {
+        add(rule.line, `"${rule.selector}" sets ${sizing.map((d) => d.prop).join(', ')}`, 'a field in a FormRow brings its own width')
+        break
+      }
+    }
+  }
+}
+const formRow = (inner) => `<x-import component-from-global-scope="NS.FormRow">${inner}</x-import>`
+
+test('elementsFor: a rule lands on the elements carrying each selector\'s last class', () => {
+  const src = page('.pg-a, .pg-b .pg-c{display:grid}', '<div class="pg-a"></div><div class="pg-b"><span class="pg-c"></span></div><p class="pg-b"></p>')
+  const els = []
+  const walk = (n) => { for (const c of n.children) { els.push(c); walk(c) } }
+  walk(parseMarkup(src))
+  const [rule] = pageRules(src)
+  assert.deepEqual(elementsFor(rule, els).map((e) => e.tag).sort(), ['div', 'span'])
+})
+
+test('a project page check reports at the page line, naming its file', async () => {
+  const src = page('.pg-date{width:150px}', formRow('<div class="pg-date">date</div>'))
+  const fails = await runPageChecks(src, [{ file: 'field-widths.mjs', run: fieldWidths }], { page: 'p.dc.html', config: null })
+  assert.equal(fails.length, 1)
+  assert.equal(fails[0].line, pageRules(src)[0].line)
+  assert.match(fails[0].msg, /"\.pg-date" sets width — a field in a FormRow brings its own width \(project check field-widths\.mjs\)/)
+})
+
+test('a project page check passes layout it does not own, and never sees a PREVIEW block', async () => {
+  const src = page(`.pg-main{grid-template-columns:1fr 2fr}
+/* PREVIEW — wider date */
+.pg-date{width:200px}
+/* END PREVIEW */`, `<main class="pg-main">${formRow('<div class="pg-date">date</div>')}</main>`)
+  const seen = []
+  const spy = ({ rules }) => { seen.push(...rules.map((r) => r.selector)) }
+  const fails = await runPageChecks(src, [{ file: 'a.mjs', run: fieldWidths }, { file: 'b.mjs', run: spy }], {})
+  assert.deepEqual(fails, [])
+  assert.deepEqual(seen, ['.pg-main'])
+})
+
+test('loadPageChecks: every .mjs, sorted; a file exporting no function is a problem; no folder is none', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'page-checks-'))
+  try {
+    fs.writeFileSync(path.join(dir, 'b.mjs'), 'export default () => {}\n')
+    fs.writeFileSync(path.join(dir, 'a.mjs'), 'export default () => {}\n')
+    fs.writeFileSync(path.join(dir, 'bad.mjs'), 'export const x = 1\n')
+    fs.writeFileSync(path.join(dir, 'notes.md'), 'not a check\n')
+    const { checks, problems } = await loadPageChecks(dir)
+    assert.deepEqual(checks.map((c) => c.file), ['a.mjs', 'b.mjs'])
+    assert.equal(problems.length, 1)
+    assert.match(problems[0], /bad\.mjs — a page check default-exports a function/)
+    assert.deepEqual(await loadPageChecks(path.join(dir, 'none')), { checks: [], problems: [] })
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a run with --config finds page-checks beside the config, fails the page, and counts the checks', () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'check-design-repo-'))
+  try {
+    execFileSync('git', ['init', '-q'], { cwd: repo })
+    fs.mkdirSync(path.join(repo, '.claude'))
+    fs.writeFileSync(path.join(repo, '.claude', 'sync-substitutions.json'), JSON.stringify({
+      DESIGN_UI_PACKAGE: 'ui', DESIGN_FEED_BARREL: 'src/index.ts', DESIGN_TOKEN_FILES: 'src/tokens.css', DESIGN_TYPE_FILE: '', DESIGN_STYLES_FILE: '',
+    }))
+    const ds = path.join(repo, 'ui', 'design-system')
+    fs.mkdirSync(path.join(ds, 'page-checks'), { recursive: true })
+    const config = path.join(ds, 'design-system.config.mjs')
+    fs.writeFileSync(config, `export default ${JSON.stringify({
+      title: 'Acme', namespace: 'NS', artifact: '', timeZone: 'America/Chicago', spacing: { steps: [0, 1] },
+      css: { build: 'npm run build:css', file: 'dist/feed.css' },
+      components: [{ name: 'Button', group: 'Actions', height: 80, doc: { inventory: 'Button' }, render: "h(U.Button, null, 'Save')" }],
+    })}\n`)
+    const pagePath = path.join(repo, 'p.dc.html')
+    fs.writeFileSync(pagePath, page('.pg-date{width:150px}', formRow('<div class="pg-date">date</div>')))
+    const script = fileURLToPath(new URL('./check-design.mjs', import.meta.url))
+    const run = () => spawnSync(process.execPath, [script, '--config', config, pagePath], { encoding: 'utf8' })
+
+    let r = run()
+    assert.equal(r.status, 0, r.stdout + r.stderr)
+    assert.match(r.stdout, /; 0 project checks$/m)
+
+    fs.writeFileSync(path.join(ds, 'page-checks', 'field-widths.mjs'), `export default ${fieldWidths.toString()}\n`)
+    r = run()
+    assert.equal(r.status, 1, r.stdout + r.stderr)
+    assert.match(r.stdout, /FAIL p\.dc\.html:\d+ {2}"\.pg-date" sets width .*\(project check field-widths\.mjs\)/)
+    assert.match(r.stdout, /; 1 project checks$/m)
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true })
+  }
 })

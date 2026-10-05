@@ -24,10 +24,10 @@ An issue number says what the work is *about*, never which pipeline it belongs i
 
 So `/work <issue#>` parks the issue link on the branch you are standing on and cuts nothing. The first commit carries the link onto whatever branch it creates, and `/ship-main` consumes it instead as a `Closes #N` line once the issue is answered code complete — no PR anywhere in the picture. Whether that line closes the issue is GitHub configuration, not gitflow's.
 
-**Local main is refreshed when it can be.** The script fast-forwards `main` from `origin/main` via the shared `fast_forward_local_main` helper. Two cases skip the refresh and say so plainly rather than blocking: a dirty tree, and a failed fetch (offline, expired auth, missing gh scope). Neither loses anything — run `/catchup` when you want the latest. Resuming an existing branch refreshes nothing by design; you are mid-body-of-work.
+**Local main is refreshed when it can be.** The script fast-forwards `main` from `origin/main` via the shared `fast_forward_local_main` helper. Uncommitted changes are carried across the fast-forward. A failed fetch (offline, expired auth, missing gh scope) skips the refresh and says so plainly rather than blocking; nothing is lost — run `/catchup` when you want the latest. When the carried changes conflict with what came in, the script names the files: resolve them first. Resuming an existing branch refreshes nothing by design; you are mid-body-of-work.
 
-**A moved `main` is always reported.** Resuming a branch, or skipping the refresh over a
-dirty tree, runs `main_drift_report`: how many commits behind, which ones, and which files
+**A moved `main` is always reported.** Resuming a branch, or a refresh that could not run,
+runs `main_drift_report`: how many commits behind, which ones, and which files
 changed on both sides. Relay it and recommend `/catchup` when files overlap — the earliest
 point the drift can be caught.
 
@@ -38,6 +38,7 @@ point the drift can be caught.
 | `/work` | On `main`: refresh `main` and stay on it — no branch cut. On a feature branch: resume it. |
 | `/work <free text>` | Same as bare `/work`, then handle the free text as the session's opening prompt. The command runs first; the text is the prompt, not a mode. |
 | `/work <issue#>` | Links the issue to the branch you are on — **no branch is cut**, on `main` or anywhere else. Transitions it to In Progress, assigns to the current user, dumps body + comments. |
+| `/work <PR#>` | Picks up a pull request — yours, or one handed to you. The number is checked against GitHub first (issues and PRs share one number sequence), so the same spelling serves both. Switches to the PR's branch as `--retrieve` does, waits until CI and any requested review are done, then hands off: `/triage` when the review raised findings, `/merge` when it did not. A PR mixed into a list of issues is refused. |
 | `/work <#N,#N…>` | Several issues at once — `27,28`, `#27 #28`, spaces or commas, `#` optional. Every issue is validated BEFORE any is linked, so one bad number aborts the whole call rather than leaving a half-linked state. Linking a further issue mid-work is the same act as linking the first, so it is the same command — run it again on the branch you are already on. |
 | `/work --retrieve <branch>` | Fetch `<branch>` from origin, fast-forward any local copy, and switch to it. Refuses on a dirty tree — `/checkpoint` first. Your own branch is untouched; `git switch` back when you are done. |
 | `/work --discussion <slug or artifact URL>` | Same as bare `/work`, then pull a finished discussion back: the published page, every comment thread and any outside feedback become an action plan, and the discussion folder the `analysis` skill wrote is removed. |
@@ -74,6 +75,19 @@ The script handles the branch mechanics. Do NOT call `EnterWorktree` — there i
 The script dumps the issue's title, body, and comments to stdout. Read that output now. The response comes in Step 6, where it is combined with the handoff so the session gets one orientation rather than two summaries back to back.
 
 This is the whole point of linking issues at session-init time — Claude consumes the context up front and the human can correct the plan before any implementation starts.
+
+### Step 3a: A pull request picked up
+
+The script printed `picked up PR #<N>`. Run the readiness wait for it, exactly as
+`/open-pr` Step 8 describes, with the PR named:
+
+```bash
+.claude/skills/gitflow/scripts/wait-for-pr-ready.sh --pr <N>
+```
+
+Then hand off by its result as `/open-pr` Step 9 does — `/triage` only when a review
+raised findings, otherwise `/merge` when they are set. Run neither yourself. A PR the
+script reported merged or closed has nothing to wait for: report its state.
 
 ### Step 3b: For `--discussion` mode, pull the discussion back
 

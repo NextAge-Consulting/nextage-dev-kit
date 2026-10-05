@@ -71,4 +71,49 @@ run --discussion
 run --discussion session-timeout --retrieve main
 [ "$rc" -eq 2 ] && ok "conflicting mode exits 2" || bad "conflicting mode exits 2 (rc=$rc)"
 
+
+# Started on a stale main with edits already made: /work refreshes main and the edits ride along.
+git clone -q "$tmp/origin.git" "$tmp/up" 2>/dev/null
+git -C "$tmp/up" config user.email t@example.com; git -C "$tmp/up" config user.name t
+push_up(){ printf '%s\n' "$2" > "$tmp/up/$1"; git -C "$tmp/up" add -A; git -C "$tmp/up" commit -qm "up $1"; git -C "$tmp/up" push -q origin main; }
+git checkout -q main 2>/dev/null
+push_up tracked.txt base
+run
+push_up upstream.txt new
+printf 'started before catching up\n' > tracked.txt
+run
+{ [ "$rc" -eq 0 ] && [ -f upstream.txt ] && [ "$(cat tracked.txt)" = 'started before catching up' ] \
+  && [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] && [ -z "$(git stash list)" ]; } \
+    && ok "/work on a stale main with an uncommitted edit refreshes main and keeps the edit" || bad "dirty refresh (rc=$rc): $err"
+
+
+# /work <N> asks GitHub whether N is a pull request; a PR is picked up by switching to its branch.
+git checkout -q main 2>/dev/null; git checkout -q -- . 2>/dev/null; git clean -qfd 2>/dev/null
+git -C "$tmp/up" checkout -q -b feat/alice-design
+printf 'design\n' > "$tmp/up/design.txt"; git -C "$tmp/up" add -A; git -C "$tmp/up" commit -qm "feat: design"; git -C "$tmp/up" push -q origin feat/alice-design 2>/dev/null
+mkdir -p "$tmp/fakegh"
+cat > "$tmp/fakegh/gh" <<'EOF'
+#!/bin/bash
+case "$*" in
+  "api repos/{owner}/{repo}/issues/"*) n=${2##*/}; case " $FAKE_PRS " in *" $n "*) echo true ;; *) echo false ;; esac ;;
+  "pr view "*) printf '%s\tfeat/alice-design\tfalse\thttps://github.com/acme/app/pull/76\n' "$FAKE_STATE" ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$tmp/fakegh/gh"
+runpr(){ out=$(PATH="$tmp/fakegh:$PATH" FAKE_PRS="76" FAKE_STATE="${STATE:-OPEN}" "$W" "$@" 2>"$tmp/err"); rc=$?; err=$(cat "$tmp/err"); }
+
+runpr 76
+{ [ "$rc" -eq 0 ] && [ "$(git branch --show-current)" = feat/alice-design ] && grep -q "picked up PR #76" <<<"$err"; } \
+    && ok "/work <PR#> switches to the PR's branch" || bad "pickup (rc=$rc): $err"
+git checkout -q main
+STATE=MERGED runpr 76
+{ [ "$rc" -eq 0 ] && [ "$(git branch --show-current)" = main ] && grep -q "merged — nothing to pick up" <<<"$err"; } \
+    && ok "a merged PR says so and switches nothing" || bad "merged (rc=$rc): $err"
+runpr 42 76
+{ [ "$rc" -eq 2 ] && grep -q "#76 is a pull request" <<<"$err"; } \
+    && ok "a PR among issues is refused before anything is linked" || bad "mixed (rc=$rc): $err"
+runpr 42
+! grep -q "pull request\|picked up" <<<"$err" && ok "an issue number still takes the issue path" || bad "issue path: $err"
+
 exit "$fail"

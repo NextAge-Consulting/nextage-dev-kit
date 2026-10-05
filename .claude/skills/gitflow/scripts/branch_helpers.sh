@@ -2,6 +2,84 @@
 # gitflow branch helpers: shared functions for branch creation and rename.
 # Sourced by the gitflow command scripts. Every function is safe under `set -e`.
 
+# post_gemini_review <pr_number> — posts the `/gemini review` trigger comment on the
+# PR; returns gh's exit status. The text goes on stdin, never as an argument: Git Bash
+# rewrites an argument that starts with "/" into a Windows path before gh sees it, and
+# the PR would get "C:/Program Files/Git/gemini review", which triggers nothing.
+post_gemini_review() {
+    printf '%s' "/gemini review" | gh pr comment "$1" --body-file -
+}
+
+# ─── PR hand-off ────────────────────────────────────────────────────────────
+# A PR assigned to someone other than you has left your hands: the review is
+# theirs, and the next thing you commit belongs on a branch of its own, cut from
+# this one (a stacked branch). GitHub's assignee is the record; nothing is kept
+# locally except which branch a stacked one was cut from.
+
+# gh_login — the GitHub login gh is signed in as; returns 1, printing nothing,
+# when gh cannot say.
+gh_login() {
+    local login
+    login=$(gh api user --jq .login 2>/dev/null) || return 1
+    [ -n "$login" ] || return 1
+    printf '%s\n' "$login"
+}
+
+# open_pr_for_branch <branch> — the number of the branch's open PR, or nothing.
+open_pr_for_branch() {
+    gh pr list --head "$1" --state open --json number --jq '.[0].number // empty' 2>/dev/null || true
+}
+
+# pr_state_for_branch <branch> — OPEN, MERGED or CLOSED for the newest PR whose head
+# is <branch>, or nothing when it has none or gh cannot say.
+pr_state_for_branch() {
+    gh pr list --head "$1" --state all --json state --jq '.[0].state // empty' 2>/dev/null || true
+}
+
+# pr_handed_off <branch> — returns 0, printing the assignees, when the branch's open
+# PR is assigned and not to you. Returns 1 when it is yours: assigned to you, to
+# nobody, or there is no open PR. Returns 2 when gh cannot answer.
+pr_handed_off() {
+    local me assignees a
+    me=$(gh_login) || return 2
+    assignees=$(gh pr list --head "$1" --state open --json assignees \
+        --jq '.[0].assignees // [] | map(.login) | join(" ")' 2>/dev/null) || return 2
+    [ -n "$assignees" ] || return 1
+    for a in $assignees; do [ "$a" = "$me" ] && return 1; done
+    printf '%s\n' "$assignees"
+}
+
+# list_collaborators — the repository's collaborators, one login per line, without you.
+list_collaborators() {
+    local me all
+    me=$(gh_login) || me=""
+    all=$(gh api "repos/{owner}/{repo}/collaborators" --paginate --jq '.[].login') || return 1
+    printf '%s\n' "$all" | awk -v me="$me" 'NF && $0 != me'
+}
+
+# hand_pr_to <pr_number> <login> — make <login> the PR's only assignee, and request
+# their review unless they wrote it (GitHub refuses an author's own review request).
+hand_pr_to() {
+    local pr="$1" who="$2" info author current remove="" a
+    info=$(gh pr view "$pr" --json author,assignees \
+        --jq '[.author.login, (.assignees | map(.login) | join(" "))] | @tsv') || return 1
+    author=${info%%$'\t'*}
+    current=${info#*$'\t'}
+    for a in $current; do [ "$a" = "$who" ] || remove="${remove:+$remove,}$a"; done
+    local args=(pr edit "$pr" --add-assignee "$who")
+    [ -n "$remove" ] && args+=(--remove-assignee "$remove")
+    [ "$who" != "$author" ] && args+=(--add-reviewer "$who")
+    gh "${args[@]}" >/dev/null
+}
+
+# set_branch_parent <branch> <parent> · branch_parent <branch> · clear_branch_parent <branch>
+# The handed-off branch a stacked branch was cut from, in git config
+# (branch.<name>.gitflow-parent). /open-pr points the stacked PR at it while it is
+# open; /catchup follows it, and drops it once the parent has merged.
+set_branch_parent() { git config --local "branch.$1.gitflow-parent" "$2"; }
+branch_parent() { git config --local --get "branch.$1.gitflow-parent" 2>/dev/null || true; }
+clear_branch_parent() { git config --local --unset-all "branch.$1.gitflow-parent" 2>/dev/null || true; }
+
 # is_protected_branch <name> — returns 0 if branch is main or master.
 is_protected_branch() {
     [ "$1" = "main" ] || [ "$1" = "master" ]
@@ -160,21 +238,28 @@ fold_checkpoints() {
 # Used in two places:
 #   1. /catchup invoked while standing on main (no body of work in flight, or
 #      the user is just reviewing) — updates local main.
-#   2. /work cutting a NEW body-of-work branch — ensures the branch is
-#      branched off freshly-pulled main, not a stale local copy.
+#   2. /work started on main — so work begins on freshly-pulled main, not a
+#      stale local copy.
 #
 # Caller MUST be standing on main when invoking — this fast-forwards the
 # checked-out branch.
 #
+# Uncommitted changes on main are carried across the fast-forward
+# (`git merge --ff-only --autostash`): the usual case is work started before
+# catching up, and the person needs the new commits under it without choosing a
+# branch first.
+#
 # Failure semantics (fail-loud):
 #   - Not on main/master → exit 3, instruct caller
-#   - Working tree dirty → exit 5, refuse (a fast-forward would either fail or
-#     silently strand the edits; /work handles the dirty case separately)
+#   - An untracked file has the name of one the pull adds → exit 5; main and the
+#     changes are both left as they were, and git's message names the file
 #   - `git fetch origin main` fails → exit 6 (network / auth / scope)
 #   - Local main has commits origin/main lacks → exit 7. Checkpoints are the
 #     one ordinary cause (they are local by design), and the message names
 #     /commit or /ship-main as the way out; anything else is anomalous
-#   - Already up-to-date → exit 0 with informational message
+#   - Main moved but the uncommitted changes conflict with the pulled commits →
+#     exit 8; the changes are kept in the stash, the conflicted files named
+#   - Already up-to-date → exit 0 with informational message, nothing stashed
 #   - Fast-forward succeeds → exit 0, report old → new SHA + commits pulled
 fast_forward_local_main() {
     local branch
@@ -188,13 +273,9 @@ fast_forward_local_main() {
         return 3
     fi
 
-    if ! git diff --quiet 2>/dev/null \
-       || ! git diff --cached --quiet 2>/dev/null \
-       || [ -n "$(git ls-files --others --exclude-standard 2>/dev/null)" ]; then
-        echo "fast_forward_local_main: working tree on $branch has uncommitted or untracked changes." >&2
-        echo "  Commit, checkpoint, or stash them before refreshing main." >&2
-        echo "  Inspect with 'git status' and resolve before re-running." >&2
-        return 5
+    local dirty=0
+    if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
+        dirty=1
     fi
 
     echo "gitflow: fetching origin/$branch." >&2
@@ -219,10 +300,34 @@ fast_forward_local_main() {
         local n
         n=$(git rev-list --count "$local_sha..$remote_sha")
         echo "gitflow: fast-forwarding $branch: ${local_sha:0:8} → ${remote_sha:0:8} (+$n commit(s))." >&2
-        if ! git merge --ff-only "origin/$branch"; then
-            echo "fast_forward_local_main: merge --ff-only failed unexpectedly." >&2
-            return 6
+        if [ "$dirty" -eq 0 ]; then
+            local ff_out
+            if ! ff_out=$(git merge --ff-only "origin/$branch" 2>&1); then
+                printf '%s\n' "$ff_out" >&2
+                echo "fast_forward_local_main: could not fast-forward $branch (git's reason above)." >&2
+                echo "  $branch and your files are unchanged. Usually an untracked file has the name of one the pull adds; move it aside and re-run." >&2
+                return 5
+            fi
+            return 0
         fi
+        local stashes_before merge_out conflicted
+        stashes_before=$(git stash list | wc -l)
+        echo "gitflow: carrying your uncommitted changes across the fast-forward." >&2
+        if ! merge_out=$(git merge --ff-only --autostash "origin/$branch" 2>&1); then
+            printf '%s\n' "$merge_out" >&2
+            echo "fast_forward_local_main: could not fast-forward $branch (git's reason above)." >&2
+            echo "  $branch and your changes are unchanged. Usually an untracked file has the name of one the pull adds; move it aside and re-run." >&2
+            return 5
+        fi
+        conflicted=$(git diff --name-only --diff-filter=U)
+        if [ -n "$conflicted" ] || [ "$(git stash list | wc -l)" -gt "$stashes_before" ]; then
+            echo "fast_forward_local_main: $branch is up to date, but your uncommitted changes and the pulled commits changed the same lines." >&2
+            [ -n "$conflicted" ] && printf '%s\n' "$conflicted" | sed 's/^/  conflicted: /' >&2
+            echo "  Your changes are safe in the stash (the top entry of 'git stash list')." >&2
+            echo "  Resolve the conflict markers in the files above, then 'git stash drop' that entry." >&2
+            return 8
+        fi
+        echo "gitflow: your uncommitted changes are back in place on the new $branch." >&2
         return 0
     fi
 

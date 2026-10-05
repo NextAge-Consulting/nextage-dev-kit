@@ -141,6 +141,13 @@ brew install --cask iterm2
 Make it your default terminal and enable **iTerm2 → Install Shell Integration** from the
 menu; it is what makes tab titles and marks behave.
 
+### Shift+Enter for a new line
+
+Run `/terminal-setup` once, inside Claude Code in iTerm2. It adds an iTerm2 key binding
+(Settings → Keys → Key Bindings) so Shift+Enter puts a new line in your prompt instead of
+sending it. The binding is iTerm2's, so it holds in every session on this machine; a new
+machine needs the command run again.
+
 ### The two dynamic profiles
 
 The kit ships both — you never build one by hand — but they install differently, and
@@ -388,6 +395,8 @@ for c in brew git gh node npm jq rg shellcheck uv pipx psql aws docker claude; d
 done
 echo "EDITOR=$EDITOR"
 echo "secrets file: $(ls -l ~/.zshrc.secrets 2>/dev/null | awk '{print $1}' || echo 'not created')"
+echo "shift+enter: $(defaults read com.googlecode.iterm2 GlobalKeyMap 2>/dev/null | grep -q '"0xd-0x20000' && echo 'new line' || echo 'MISSING — run /terminal-setup in Claude Code')"
 ```
 
-`psql` should resolve from Homebrew, and the secrets file should read `-rw-------`.
+`psql` should resolve from Homebrew, the secrets file should read `-rw-------`, and
+Shift+Enter should read `new line`.

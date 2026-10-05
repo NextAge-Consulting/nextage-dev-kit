@@ -20,10 +20,14 @@
  *   - spacing, fill, border or shape classes on plain markup inside a component;
  *   - a mounted component missing a prop the design system requires on every use
  *     (the config's `requiredProps`, read with --config);
+ *   - whatever the project's own page checks report: every `*.mjs` in
+ *     `page-checks/` beside the --config file, each default-exporting a function
+ *     called once per page with the page check API (`pageCheckApi`);
  *   - a page that mounts no component of the system and embeds no other page;
  *   - a `data-props` that is not JSON, since no gap on the page can then be read.
  *
- * Every run prints how many components, elements and style rules it inspected.
+ * Every run prints how many components, elements and style rules it inspected, and
+ * how many project page checks ran.
  *
  * OPEN (listed, not failed) — decisions in front of the person:
  *   - the rules inside a `/* PREVIEW — … *\/` block, each switched by a tweak;
@@ -105,18 +109,29 @@ export function parseMarkup(src) {
 
 function* walk(n) { for (const c of n.children) { yield c; yield* walk(c) } }
 
-const isComponent = (el) => el.tag === 'x-import'
-const componentName = (el) => el.attrs['component-from-global-scope'] || 'component'
+export const isComponent = (el) => el.tag === 'x-import'
+export const componentName = (el) => el.attrs['component-from-global-scope'] || 'component'
 // A provider wraps the page without drawing anything, and a shell (`AppShell`, `DialogShell`) draws
 // chrome around content its caller composes: neither is a component the page sits "inside".
 const isTransparent = (el) => /(Provider|Shell)$/.test(componentName(el))
 
 /** The nearest drawing component enclosing an element, if any. */
-function enclosingComponent(el) {
+export function enclosingComponent(el) {
   for (let p = el.parent; p; p = p.parent) if (isComponent(p) && !isTransparent(p)) return p
   return null
 }
-const classesOf = (el) => (el.attrs.class || el.attrs['class-name'] || '').split(/\s+/).filter(Boolean)
+export const classesOf = (el) => (el.attrs.class || el.attrs['class-name'] || '').split(/\s+/).filter(Boolean)
+
+/** The elements one selector lands on: those carrying its last class. */
+const selectorHits = (sel, els) => {
+  const classes = [...sel.matchAll(/\.([A-Za-z0-9_-]+)/g)].map((x) => x[1])
+  return classes.length ? els.filter((e) => classesOf(e).includes(classes[classes.length - 1])) : []
+}
+
+/** The elements a style rule lands on, over every selector in its list. */
+export function elementsFor(rule, els) {
+  return [...new Set(rule.selector.split(',').flatMap((sel) => selectorHits(sel.trim(), els)))]
+}
 
 /** Split the page's <helmet> CSS into rules, marking those inside a PREVIEW block. */
 export function parseCss(css, lineOffset = 0) {
@@ -151,6 +166,18 @@ export function parseCss(css, lineOffset = 0) {
     })
     rules.push({ selector: prelude, decls, line: lineAt(i + (css.slice(i, open).length - css.slice(i, open).trimStart().length)), preview: preview ? preview.text : null })
     i = end + 1
+  }
+  return rules
+}
+
+/** Every style rule on the page, from each <style> block, with its page line. */
+export function pageRules(src) {
+  const rules = []
+  const styleRe = /<style[^>]*>([\s\S]*?)<\/style>/g
+  let sm
+  while ((sm = styleRe.exec(src))) {
+    const lineOffset = src.slice(0, sm.index + sm[0].indexOf('>') + 1).split('\n').length
+    rules.push(...parseCss(sm[1], lineOffset))
   }
   return rules
 }
@@ -218,50 +245,43 @@ export function checkPage(src, { implement = false, required = {} } = {}) {
   for (const c of candidates.values()) open.push({ line: c.line, msg: c.text })
 
   // The page's style rules.
-  const styleRe = /<style[^>]*>([\s\S]*?)<\/style>/g
-  let sm
-  let ruleCount = 0
+  const allRules = pageRules(src)
+  const ruleCount = allRules.length
   const previews = new Map()
-  while ((sm = styleRe.exec(src))) {
-    const lineOffset = src.slice(0, sm.index + sm[0].indexOf('>') + 1).split('\n').length
-    const rules = parseCss(sm[1], lineOffset)
-    ruleCount += rules.length
-    for (const rule of rules) {
-      if (rule.preview) { if (!previews.has(rule.preview)) previews.set(rule.preview, rule.line); continue }
-      for (const sel of rule.selector.split(',').map((s) => s.trim())) {
-        if (ALLOWED_TAG_SELECTORS.test(sel)) continue
-        const classes = [...sel.matchAll(/\.([A-Za-z0-9_-]+)/g)].map((x) => x[1])
-        if (!classes.length) {
-          fails.push({ line: rule.line, msg: `"${sel}" styles bare tags — the design system's base styles own them.` })
-          continue
+  for (const rule of allRules) {
+    if (rule.preview) { if (!previews.has(rule.preview)) previews.set(rule.preview, rule.line); continue }
+    for (const sel of rule.selector.split(',').map((s) => s.trim())) {
+      if (ALLOWED_TAG_SELECTORS.test(sel)) continue
+      const classes = [...sel.matchAll(/\.([A-Za-z0-9_-]+)/g)].map((x) => x[1])
+      if (!classes.length) {
+        fails.push({ line: rule.line, msg: `"${sel}" styles bare tags — the design system's base styles own them.` })
+        continue
+      }
+      const system = rule.decls.filter((d) => SYSTEM_PROPS.test(d.prop))
+      if (system.length) {
+        fails.push({ line: rule.line, msg: `"${sel}" sets ${system.map((d) => d.prop).join(', ')} — colour, type and shape come from the design system. Use its classes, or raise the gap.` })
+        continue
+      }
+      // Where do elements matching the rule's last class sit?
+      const hits = selectorHits(sel, els)
+      const descends = /[\s>+~]/.test(sel.replace(/\[[^\]]*\]|:[a-z-]+\([^)]*\)/g, ''))
+      for (const el of hits) {
+        const comp = enclosingComponent(el)
+        const inside = !!comp
+        const onComponent = isComponent(el) && !isTransparent(el)
+        const drawn = rule.decls.filter((d) => !PLACEMENT.test(d.prop))
+        if (inside && drawn.length) {
+          fails.push({ line: rule.line, msg: `"${sel}" reaches inside ${componentName(comp)} (line ${el.line}) and sets ${drawn.map((d) => d.prop).join(', ')} — spacing and size inside a component are the design system's. The page arranges; it does not space.` })
+          break
         }
-        const system = rule.decls.filter((d) => SYSTEM_PROPS.test(d.prop))
-        if (system.length) {
-          fails.push({ line: rule.line, msg: `"${sel}" sets ${system.map((d) => d.prop).join(', ')} — colour, type and shape come from the design system. Use its classes, or raise the gap.` })
-          continue
+        if (onComponent && descends) {
+          fails.push({ line: rule.line, msg: `"${sel}" styles the inside of ${componentName(el)} (line ${el.line}) — pass the component a prop or class-name, or raise the gap.` })
+          break
         }
-        // Where do elements matching the rule's last class sit?
-        const target = classes[classes.length - 1]
-        const hits = els.filter((e) => classesOf(e).includes(target))
-        const descends = /[\s>+~]/.test(sel.replace(/\[[^\]]*\]|:[a-z-]+\([^)]*\)/g, ''))
-        for (const el of hits) {
-          const comp = enclosingComponent(el)
-          const inside = !!comp
-          const onComponent = isComponent(el) && !isTransparent(el)
-          const drawn = rule.decls.filter((d) => !PLACEMENT.test(d.prop))
-          if (inside && drawn.length) {
-            fails.push({ line: rule.line, msg: `"${sel}" reaches inside ${componentName(comp)} (line ${el.line}) and sets ${drawn.map((d) => d.prop).join(', ')} — spacing and size inside a component are the design system's. The page arranges; it does not space.` })
-            break
-          }
-          if (onComponent && descends) {
-            fails.push({ line: rule.line, msg: `"${sel}" styles the inside of ${componentName(el)} (line ${el.line}) — pass the component a prop or class-name, or raise the gap.` })
-            break
-          }
-          const spacing = rule.decls.filter((d) => SPACING_PROPS.test(d.prop) && !/^margin/.test(d.prop))
-          if (onComponent && spacing.length) {
-            fails.push({ line: rule.line, msg: `"${sel}" sets ${spacing.map((d) => d.prop).join(', ')} on ${componentName(el)} (line ${el.line}) — a component's spacing and height are its own. The page places it; it does not size its inside.` })
-            break
-          }
+        const spacing = rule.decls.filter((d) => SPACING_PROPS.test(d.prop) && !/^margin/.test(d.prop))
+        if (onComponent && spacing.length) {
+          fails.push({ line: rule.line, msg: `"${sel}" sets ${spacing.map((d) => d.prop).join(', ')} on ${componentName(el)} (line ${el.line}) — a component's spacing and height are its own. The page places it; it does not size its inside.` })
+          break
         }
       }
     }
@@ -298,6 +318,49 @@ export function requiredFrom(config) {
   return out
 }
 
+/** The project's page checks: every `*.mjs` in `dir`, sorted. A file whose default export is
+ * not a function is a problem, never silently skipped. */
+export async function loadPageChecks(dir) {
+  const checks = []
+  const problems = []
+  if (!fs.existsSync(dir)) return { checks, problems }
+  for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.mjs')).sort()) {
+    const mod = await import(pathToFileURL(path.join(dir, file)).href)
+    if (typeof mod.default === 'function') checks.push({ file, run: mod.default })
+    else problems.push(`${path.join(dir, file)} — a page check default-exports a function given the page check API`)
+  }
+  return { checks, problems }
+}
+
+/** What a page check is given for one page. `add(line, what, why)` reports a FAIL. Style
+ * rules inside a PREVIEW block are left out: a gap's styling is the person's decision,
+ * listed open, and --implement fails while any is left. */
+export function pageCheckApi(src, { page, config, add }) {
+  const elements = [...walk(parseMarkup(src))]
+  return {
+    page,
+    elements,
+    rules: pageRules(src).filter((r) => !r.preview),
+    config,
+    elementsFor: (rule) => elementsFor(rule, elements),
+    isComponent,
+    componentName,
+    enclosingComponent,
+    classesOf,
+    add,
+  }
+}
+
+/** Run every page check on one page; returns its fails, each naming the check. */
+export async function runPageChecks(src, checks, { page, config } = {}) {
+  const fails = []
+  for (const { file, run } of checks) {
+    const add = (line, what, why) => fails.push({ line, msg: `${what} — ${why} (project check ${file})` })
+    await run(pageCheckApi(src, { page, config, add }))
+  }
+  return fails
+}
+
 async function main(args) {
   const implement = args.includes('--implement')
   const at = args.indexOf('--config')
@@ -307,12 +370,17 @@ async function main(args) {
     console.error('usage: check-design.mjs [--implement] [--config <design-system.config.mjs>] <page.dc.html> [more pages…]')
     process.exit(2)
   }
-  const required = configPath ? requiredFrom((await loadConfig(configPath, { tool: 'check-design.mjs' })).CONFIG) : {}
-  if (!configPath) console.log('(no --config: props the design system requires are not checked)')
-  let failed = 0
+  const config = configPath ? (await loadConfig(configPath, { tool: 'check-design.mjs' })).CONFIG : null
+  const required = config ? requiredFrom(config) : {}
+  if (!configPath) console.log('(no --config: props the design system requires and the project\'s page checks are not checked)')
+  const { checks, problems } = configPath ? await loadPageChecks(path.join(path.dirname(configPath), 'page-checks')) : { checks: [], problems: [] }
+  for (const p of problems) console.log(`  FAIL ${p}`)
+  let failed = problems.length
   const total = { elements: 0, components: 0, rules: 0 }
   for (const f of files) {
-    const { fails, open, tweaks, counts } = checkPage(fs.readFileSync(f, 'utf8').replace(/\r\n/g, '\n'), { implement, required })
+    const src = fs.readFileSync(f, 'utf8').replace(/\r\n/g, '\n')
+    const { fails, open, tweaks, counts } = checkPage(src, { implement, required })
+    fails.push(...(await runPageChecks(src, checks, { page: f, config })))
     const name = path.basename(f)
     const count = (st) => tweaks.filter((t) => t.state === st).length
     for (const k of Object.keys(total)) total[k] += counts[k]
@@ -322,7 +390,7 @@ async function main(args) {
     for (const x of open.sort((a, b) => a.line - b.line)) console.log(`  OPEN ${name}:${x.line}  ${x.msg}`)
     failed += fails.length
   }
-  console.log(`\ncheck-design: ${files.length} page(s) — ${total.components} components, ${total.elements} elements, ${total.rules} style rules inspected`)
+  console.log(`\ncheck-design: ${files.length} page(s) — ${total.components} components, ${total.elements} elements, ${total.rules} style rules inspected; ${checks.length} project checks`)
   if (failed) {
     console.log(implement
       ? `${failed} failure(s). Implement waits until every gap is decided and landed in the design system.`

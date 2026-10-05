@@ -203,6 +203,7 @@ All Claude-driven editing happens on a branch in the project checkout. One check
 
 - `/work` — on `main`, refresh from `origin/main` and stay there; no branch is cut until the first `/commit`. On a feature branch, resume it. Idempotent within a body of work.
 - `/work <issue#[,issue#…]>` — links the issue(s) to the branch you are standing on and cuts no branch, on `main` or anywhere else. Re-run it on a branch that already carries links to add more.
+- `/work <PR#>` — the number is checked against GitHub first (issues and PRs share one sequence). A pull request is picked up: its branch fetched and switched to, the readiness wait run, then `/triage` or `/merge` handed over. A PR mixed into a list of issues is refused.
 - `/work --retrieve <branch>` — fetch a teammate's branch, fast-forward any local copy, switch to it. Refuses on a dirty tree; `/checkpoint` first.
 - `/work --discussion <slug or artifact URL>` — pull a finished discussion back: the `analysis` skill's published page, its comment threads and any feedback that arrived outside it become `project-documentation/temporary/<slug>-plan.md`, and the discussion folder is removed.
 
@@ -274,7 +275,7 @@ Any of:
    - Multi-feature: primary type + bullet list
 5. Claude invokes `/commit` (or the skill auto-invokes on natural language)
 6. The command calls `skills/gitflow/scripts/commit.sh` with the message
-7. Script stages all changes, commits with `--no-verify`, pushes to origin (if on non-main branch)
+7. Script picks the branch: on `main` it cuts `<type>/<slug>` from the message; on a branch whose PR is assigned to someone else (`pr_handed_off`) it cuts one stacked on it, records the parent, and carries only the issue links added since the hand-off; anywhere else it commits in place. Then it stages all changes, commits with `--no-verify`, and pushes.
 8. `git-guard.sh` never fires on that commit — the script's `git commit` is a subprocess, not a top-level tool call (§3.1). No token is involved.
 9. Before staging, the script runs the gates that MIRROR CI so a failure costs a second here rather than a round trip after the PR is open: typecheck, Biome lint, and Semgrep over the files this commit touches (gated on CI declaring a `semgrep` job, and scoped to changed files so it stays seconds — CI still scans everything). Then the rule review (`rule-review.sh`): every rule-prose file changed since the fold base — the set `hooks/rule-prose.sh` defines — goes to a headless `claude -p` with no tools, no settings and no CLAUDE.md, which reports history, justification and counted lists in added lines only. It runs on the developer's Claude subscription; a missing CLI or a failed call fails the gate. Each exits 4. commitlint is the one gate that remains CI-only, because it validates the PR title, which does not exist yet at commit time. Last, the project gate: when `.claude/project-gate.sh` exists it runs with the fold base, and a failure exits 4 — the kit's own is §9.11.
 
@@ -321,8 +322,9 @@ The script reads `git branch --show-current` against cwd's git context, so it op
 
 `/catchup` is the single command for "refresh the branch I'm on from origin." Behavior depends on which branch is checked out at invocation:
 
-- **On main (between bodies of work, or just reviewing):** fetch `origin/main`, fast-forward local main. Fail-loud on dirty main or local-only commits (anomalous under gitflow). This is what you run when starting a session after someone else has merged + deployed and you want your local repo current before doing anything else.
+- **On main (between bodies of work, or just reviewing):** fetch `origin/main`, fast-forward local main, carrying any uncommitted changes across (`--autostash`): the usual case is work started before catching up, and the person needs the new commits without choosing a branch first. Fail-loud on local-only commits (anomalous under gitflow), and with exit 8 when the carried changes conflict with what came in — they stay safe in the stash. This is what you run when starting a session after someone else has merged + deployed and you want your local repo current before doing anything else.
 - **On a feature branch:** merge `origin/<base>` (default `main`) INTO the feature branch via `--no-ff`. Push via `safe_push`.
+- **On a stacked branch** (`branch.<name>.gitflow-parent` set by `/commit`): the base is the parent while its PR is open, so reviewers' fixes reach the work built on it. Once the parent merged or closed, the branch's own PR is re-pointed at `main` if `/merge` has not already done it (a parent merged some other way), the parent record is dropped, and `main` is the base.
 
 One mental model: "catchup brings the branch I'm on up to date with origin."
 
@@ -341,7 +343,7 @@ Without this primitive the only paths would be `git merge origin/main` or `git r
 
 | Invocation | Branch | Behavior |
 |---|---|---|
-| `/catchup` | main | Fetch `origin/main`, fast-forward local main. Refuse on dirty or diverged main. Report old → new SHA + commit count pulled. |
+| `/catchup` | main | Fetch `origin/main`, fast-forward local main with uncommitted changes carried across. Refuse on diverged main. Report old → new SHA + commit count pulled. |
 | `/catchup` | feature | Fetch `origin/main`. If HEAD already contains it, no-op. Otherwise `git merge --no-ff origin/main` and push via `safe_push`. |
 | `/catchup --base <branch>` | feature | Same as above against `origin/<branch>`. Ignored on main. |
 | `/catchup --continue` | feature | After conflict resolution: stage all, complete merge commit, push. |
@@ -414,19 +416,24 @@ Dev actions per PR: `/open-pr` to start, `/triage` if Gemini has items, `/merge`
 
 1. Claude analyzes branch diff vs main: `git diff --stat main..HEAD` + `git log --oneline main..HEAD`
 2. Claude generates PR title in conventional format (emoji + type + description)
-3. Claude generates PR body from diff analysis. The body template (see `commands/open-pr.md` Step 4) MANDATES a `## Caller-scan attestations` section: Claude greps the branch diff for renamed/removed/reshaped exported declarations + Zod/schema field renames, runs `findReferences` (LSP) or `grep -rn` on each, and emits one `Callers scanned: <symbol> → N references across M files, all updated.` line per surfaced symbol — OR the literal `No signature changes.` if the greps return nothing. Empty-scan attestation is REQUIRED. This is the in-house enforcement surface for constitution §XIV (no paid cross-file code-graph review needed).
-4. Command calls `skills/gitflow/scripts/open-pr.sh`:
-   - Push branch with `-u origin HEAD`
+3. Claude generates PR body from diff analysis. The body template (`commands/open-pr.md` Step 4) carries a `## Signature-change attestations` section: one type-check line for every type-visible change, plus a `Callers scanned: <symbol> → <file:line>, …` line for each compiler-blind seam change (raw-SQL names, string-keyed dispatch, cross-process payloads). This is the in-house enforcement surface for constitution §XIV (no paid cross-file code-graph review needed).
+4. Claude settles who takes the PR: the author, unless the human names someone (`--to <login>`), asks to choose (`--to` alone, or `GITFLOW_PR_TO=ask` — Claude lists the collaborators), or their `GITFLOW_PR_TO` names a login.
+5. Command calls `skills/gitflow/scripts/open-pr.sh`:
+   - On a branch whose PR is already open, `--to` re-assigns it and nothing else runs.
+   - Push the branch (`safe_push`).
+   - A stacked branch — one `/commit` cut from a handed-off PR, recorded as `branch.<name>.gitflow-parent` — opens against that parent while the parent's PR is open, so its review shows only its own changes.
    - Detect `gh` availability — if present, `gh pr create --title ... --body ...`
    - If no `gh` (cloud containers), fall back to GitHub REST API via `curl` + `$GITHUB_TOKEN`
-5. Command invokes `skills/gitflow/scripts/wait-for-pr-ready.sh`:
+   - Assign the PR: to the author, or to the taker with their review requested (`hand_pr_to` in `branch_helpers.sh`).
+6. **Handed to someone else:** the author's run ends here. The taker picks the PR up with `/work <PR#>`, which runs the readiness wait below in their session. The author keeps working on the branch; `/commit` there sees the PR is assigned to someone else and stacks a new branch on it, and `/catchup` follows the parent until it merges.
+7. Otherwise the command invokes `skills/gitflow/scripts/wait-for-pr-ready.sh`:
    - **Trigger-aware** (2026-05-28): reads PR comments to decide whether to expect a Gemini review for the current HEAD. A `/gemini review` comment with `created_at` > HEAD's committer date arms the Gemini wait; absence means CI-only readiness. No author filter — manual triggers from the user are honored identically to scripted triggers.
    - Polls every 30s. Re-reads HEAD + trigger state each cycle (handles mid-wait pushes). Re-reads `GEMINI_NOT_INSTALLED` from `.claude/sync-substitutions.json` each cycle.
    - Ready = required CI checks pass AND (`GEMINI_NOT_INSTALLED=="true"` OR no `/gemini review` trigger for current HEAD OR Gemini Code Assist has posted a review on current HEAD).
    - Times out fail-loud after 15min with diagnostic naming likely causes (Gemini queued/rate-limited despite trigger, App not actually installed, PR in draft state, CI legitimately slow).
    - Exit 2 on CI failure, 3 on timeout, 5 on Ctrl-C.
-6. commitlint CI check gates PR title format — blocks merge if malformed.
-7. On wait exit 0: command prompts the user to run `/triage` (if Gemini items expected) or `/merge` (if not). Explicit handoff — never auto-invokes.
+8. commitlint CI check gates PR title format — blocks merge if malformed.
+9. On wait exit 0: command prompts the user to run `/triage` (if Gemini items expected) or `/merge` (if not). Explicit handoff — never auto-invokes.
 
 Note: `/open-pr` does NOT touch `changelog.md`; `/deploy` is the single changelog writer (pipeline.md §2.1).
 
@@ -437,8 +444,10 @@ Note: `/open-pr` does NOT touch `changelog.md`; `/deploy` is the single changelo
 3. Command calls `skills/gitflow/scripts/merge.sh`:
    - **Base drift gate** — first of all. When `origin/main` has moved past the branch, a trial merge (`git merge-tree`, which touches no file, index or ref) decides: a conflict refuses with exit 23 before any build or wait, and drift that merges cleanly is reported and the merge continues. The same drift report (`main_drift_report` in `branch_helpers.sh`) runs as a warning in `/work`, `/commit` and `/open-pr`, so a branch cut from a stale `main` is flagged when it is cut rather than at the squash. `--force-unchecked` bypasses it.
    - **Local production build gate** — every workspace that declares a `build` script (or the root, in a single-package repo) builds before the readiness wait and before the squash (exit 15 on failure, nothing merged). The gate counts the declared build scripts first and reports how many it built; with none it says so rather than reporting a build that never ran (`run_build_gate` in `gates.sh`). CI type-checks, lints and tests but never builds, so a build-only break (bundler / Tailwind / an import alias a package's own tsconfig doesn't map) is invisible to every earlier gate. `/merge` is the last moment the PR is still OPEN — a failure here is fixed on the branch that caused it, inside the PR already under review, instead of needing a second PR to repair the first. Not in CI on purpose: CI fires on every push, so building there would tax every commit, `/open-pr` and triage fix; once per merge is the right frequency. `--workspaces` is added only when `package.json` actually declares a `workspaces` key (jq-tested — it errors on a single-package repo); a repo with no `package.json` skips the gate entirely. `--force-unchecked` bypasses it along with the CI gate.
-   - Invokes `wait-for-pr-ready.sh` (same poll as `/open-pr` step 5) — trigger-aware: catches the post-`/triage` case where the user invoked `/commit --review` and a fresh Gemini review is expected on the new HEAD. `/commit --no-review` posts no trigger and the wait proceeds CI-only. Bypassable via `--force-unchecked` for emergency hotfixes only (skips CI too).
-   - On wait exit 0: `gh pr merge --squash` with the PR's own title and body as the commit message — explicit, because GitHub's default squash message depends on a per-repository setting, and its "commit messages" option drops the PR body and with it the `Closes #N` line `/deploy` reads (exit 22 if the title or body cannot be read, nothing merged). The remote branch is deleted afterwards as a separate, best-effort step.
+   - **Stacked PR whose parent is not merged** — refused with exit 24 before anything else: squashing it would land it in the parent's branch, not `main`. Merging the parent re-points it.
+   - Invokes `wait-for-pr-ready.sh` (same poll as `/open-pr` step 7) — trigger-aware: catches the post-`/triage` case where the user invoked `/commit --review` and a fresh Gemini review is expected on the new HEAD. `/commit --no-review` posts no trigger and the wait proceeds CI-only. Bypassable via `--force-unchecked` for emergency hotfixes only (skips CI too).
+   - **Someone else's PR** gets an approving review from the person merging, posted before the squash, so the PR records who wrote, reviewed and merged it. A failed approval is reported and the merge goes ahead.
+   - On wait exit 0: `gh pr merge --squash` with the PR's own title and body as the commit message — explicit, because GitHub's default squash message depends on a per-repository setting, and its "commit messages" option drops the PR body and with it the `Closes #N` line `/deploy` reads (exit 22 if the title or body cannot be read, nothing merged). Open PRs stacked on the branch are then re-pointed at `main` — deleting a PR's base branch through the API closes that PR rather than moving it — and the remote branch is deleted as a separate, best-effort step, its absence confirmed.
    - **Post-merge cleanup**: switch this checkout to `main`, fast-forward it to the merged tip, delete the now-merged local branch, and reinstall dependencies if landing on the new `main` changed a package manifest.
 4. **No further action needed from Claude.** The checkout is standing on the merged `main`; the next `/work` cuts a fresh branch from there.
 5. **No automated post-merge action.** No version bump, no tag, no deploy. The squash commit sits on main until `/deploy` is invoked. Multiple merges may accumulate between deploys.

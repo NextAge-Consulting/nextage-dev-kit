@@ -22,9 +22,8 @@
 #     the branch's assumptions, surfacing as runtime breakage post-merge.
 #   - Local main goes stale between sessions. A dev starts /work two days
 #     after another dev's merges + deploys; /work fast-forwards main when it
-#     can but skips on a dirty tree or a failed fetch, and the next branch is
-#     then cut off a stale main. This primitive makes the refresh explicit and
-#     fail-loud.
+#     can but skips on a failed fetch, and the next branch is then cut off a
+#     stale main. This primitive makes the refresh explicit and fail-loud.
 #
 # Before this primitive existed, the only paths were (a) `git merge origin/main`
 # (forbidden direct git per .claude/rules/git.md), (b) `git rebase origin/main`
@@ -34,7 +33,8 @@
 #
 # Mode = default — main path (on protected branch):
 #   - Delegates to fast_forward_local_main in branch_helpers.sh.
-#   - Refuses if dirty (main should never be dirty under gitflow's model).
+#   - Carries uncommitted changes across the fast-forward (work started before
+#     catching up); exit 8 when they conflict with what came in, kept in the stash.
 #   - Refuses if local main has commits not on origin/main (anomalous).
 #   - Fast-forwards on a clean ancestry path. Reports old → new SHA.
 #
@@ -84,11 +84,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/branch_helpers.sh"
 
 BASE="main"
+BASE_GIVEN=""
 MODE="default"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --base)       BASE="$2"; shift 2 ;;
+        --base)       BASE="$2"; BASE_GIVEN=1; shift 2 ;;
         --continue)   MODE="continue"; shift 1 ;;
         --abort)      MODE="abort"; shift 1 ;;
         *) echo "catchup.sh: unknown option: $1" >&2; exit 2 ;;
@@ -184,6 +185,35 @@ if ! git diff --quiet 2>/dev/null \
     echo "catchup.sh: working tree has uncommitted or untracked changes." >&2
     echo "  /commit or /checkpoint first (or stash), then re-run catchup.sh." >&2
     exit 5
+fi
+
+# A stacked branch catches up with what it is built on: the handed-off branch it
+# was cut from while that PR is open, and main once it has merged or closed. Its own
+# PR is moved to main then too, for a parent merged some other way than /merge,
+# which re-points stacked PRs itself.
+PARENT=$(branch_parent "$CURRENT_BRANCH")
+if [ -z "$BASE_GIVEN" ] && [ -n "$PARENT" ]; then
+    case "$(pr_state_for_branch "$PARENT")" in
+        OPEN)
+            BASE="$PARENT"
+            echo "gitflow: $CURRENT_BRANCH is stacked on $PARENT, whose PR is still open — catching up from it." >&2
+            ;;
+        MERGED|CLOSED)
+            OWN_PR=$(open_pr_for_branch "$CURRENT_BRANCH")
+            if [ -n "$OWN_PR" ] && [ "$(gh pr view "$OWN_PR" --json baseRefName --jq .baseRefName 2>/dev/null)" = "$PARENT" ]; then
+                if gh pr edit "$OWN_PR" --base "$BASE" >/dev/null; then
+                    echo "gitflow: PR #$OWN_PR now targets $BASE ($PARENT is done)." >&2
+                else
+                    echo "catchup.sh: could not re-point PR #$OWN_PR at $BASE — do it on GitHub before /merge." >&2
+                fi
+            fi
+            clear_branch_parent "$CURRENT_BRANCH"
+            echo "gitflow: $PARENT is done — $CURRENT_BRANCH now catches up from $BASE." >&2
+            ;;
+        *)
+            echo "gitflow: could not ask GitHub about $PARENT, the branch this one is stacked on — catching up from $BASE." >&2
+            ;;
+    esac
 fi
 
 echo "gitflow: fetching origin/$BASE." >&2

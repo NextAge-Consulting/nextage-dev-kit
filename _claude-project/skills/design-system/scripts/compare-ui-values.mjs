@@ -483,13 +483,16 @@ export async function compilerFor(root, entry, { inherited = new Set() } = {}) {
 }
 
 /** The base tree, extracted read-only, with node_modules mirrored so its own workspaces resolve. */
-function extractBase(repo, ref) {
+export function extractBase(repo, ref) {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'ui-values-'))
   // Two plain processes, no shell: git and tar both ship on Windows as well.
   const archive = path.join(mkdtempSync(path.join(os.tmpdir(), 'ui-values-tar-')), 'base.tar')
   try {
     execFileSync('git', ['-C', repo, 'archive', '--output', archive, ref])
-    execFileSync('tar', ['-xf', archive, '-C', dir])
+    // From inside the destination with a relative archive: Git for Windows puts GNU tar
+    // on PATH, which reads an absolute `C:\...` name as host `C`. Both live under the
+    // temp directory, so they share a drive and the relative path always exists.
+    execFileSync('tar', ['-xf', path.relative(dir, archive)], { cwd: dir })
   } finally {
     rmSync(path.dirname(archive), { recursive: true, force: true })
   }

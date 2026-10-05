@@ -1,6 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { INITIAL, arithmetic, conditionalVars, elementScope, stripComments, isOtherElement, winner, baseDefaults, canonicalColors, specificity, visibleShadow, candidates, cssEvents, variants, declarations, explainMoves, hunks, ownSelector, pairLines, resolveVars, themeVars, toPx } from './compare-ui-values.mjs'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { INITIAL, arithmetic, conditionalVars, elementScope, stripComments, isOtherElement, winner, baseDefaults, canonicalColors, specificity, visibleShadow, candidates, cssEvents, variants, declarations, explainMoves, hunks, ownSelector, pairLines, resolveVars, themeVars, toPx, extractBase } from './compare-ui-values.mjs'
 
 test('candidates are the words of every string literal on a line', () => {
   assert.deepEqual(candidates(`<p className="text-sm font-medium" data-x='a b'>`), ['text-sm', 'font-medium'])
@@ -327,4 +331,23 @@ test('a role-name list fed to a merge config is not a class list; a class helper
   const [roles, call] = classText(src).split('\n')
   assert.deepEqual(candidates(roles), [])
   assert.deepEqual(candidates(call), ['inline', 'p-2'])
+})
+
+test('extractBase writes the base tree, including a name with a space, into a fresh directory', () => {
+  const repo = mkdtempSync(path.join(os.tmpdir(), 'ui-values-repo-'))
+  let base
+  try {
+    const git = (...args) => execFileSync('git', ['-C', repo, '-c', 'user.email=t@example.com', '-c', 'user.name=t', ...args])
+    git('init', '-q')
+    mkdirSync(path.join(repo, 'src dir'))
+    writeFileSync(path.join(repo, 'src dir', 'a.tsx'), 'committed\n')
+    git('add', '-A')
+    git('commit', '-qm', 'base')
+    writeFileSync(path.join(repo, 'src dir', 'a.tsx'), 'working tree\n')
+    base = extractBase(repo, 'HEAD')
+    assert.equal(readFileSync(path.join(base, 'src dir', 'a.tsx'), 'utf8'), 'committed\n')
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+    if (base) rmSync(base, { recursive: true, force: true })
+  }
 })

@@ -112,6 +112,23 @@ fi
 echo "gitflow: target PR #$PR_NUMBER" >&2
 echo "gitflow: merging '$CURRENT_BRANCH' in $REPO_ROOT" >&2
 
+# ─── Stacked PR whose parent is not merged (exit 24) ───────────────────────
+# A stacked PR targets the handed-off branch it was cut from. Squashing it now
+# would land it in that branch, not in $BASE; merging the parent re-points it at
+# $BASE (below), and then it merges like any other.
+if ! PR_META=$(gh pr view "$PR_NUMBER" --json author,baseRefName --jq '[.author.login, .baseRefName] | @tsv'); then
+    echo "merge.sh: could not read PR #$PR_NUMBER — nothing merged." >&2
+    exit 22
+fi
+PR_AUTHOR=${PR_META%%$'\t'*}
+PR_BASE=${PR_META#*$'\t'}
+if [ "$PR_BASE" != "$BASE" ]; then
+    PARENT_PR=$(open_pr_for_branch "$PR_BASE")
+    echo "merge.sh: PR #$PR_NUMBER is stacked on '$PR_BASE'${PARENT_PR:+ (PR #$PARENT_PR)}, which is not merged yet." >&2
+    echo "  Merge that first; this PR then targets $BASE and merges as usual." >&2
+    exit 24
+fi
+
 # ─── Base drift gate (exit 23) ─────────────────────────────────────────────
 # Before the build and the readiness wait: a PR that conflicts with its base
 # cannot squash, and finding that out after several minutes of building and
@@ -205,6 +222,16 @@ if ! PR_BODY=$(gh -R "$REMOTE_REPO" pr view "$PR_NUMBER" --json body -q .body); 
     echo "merge.sh: could not read PR #$PR_NUMBER's body — nothing merged." >&2
     exit 22
 fi
+# Merging someone else's PR leaves an approving review first, so the PR records who
+# wrote it, who reviewed it and who merged it. A failed approval is reported and the
+# merge goes ahead: the record is wanted, never a gate.
+if MERGER=$(gh_login) && [ -n "$PR_AUTHOR" ] && [ "$MERGER" != "$PR_AUTHOR" ]; then
+    if ( cd /tmp && gh -R "$REMOTE_REPO" pr review "$PR_NUMBER" --approve --body "Reviewed and merged by @$MERGER." >/dev/null ); then
+        echo "gitflow: approved PR #$PR_NUMBER as @$MERGER (written by @$PR_AUTHOR)." >&2
+    else
+        echo "gitflow: could not record @$MERGER's approval on PR #$PR_NUMBER — merging anyway; approve it on GitHub for the record." >&2
+    fi
+fi
 echo "gitflow: squash-merging PR #$PR_NUMBER (invoking gh from /tmp so it does no local git)..." >&2
 # Pre-check /tmp accessibility BEFORE the subshell so a 'cd' failure
 # does not get mis-blamed on 'gh pr merge'. Under any sane POSIX-ish
@@ -228,27 +255,36 @@ if ! (
     exit 20
 fi
 
+# PRs stacked on this branch (opened against it while it was under review) move to
+# $BASE before the branch goes. Deleting a PR's base branch through the API closes
+# that PR rather than re-pointing it, so gitflow re-points them itself instead of
+# relying on GitHub to. Best effort: one that fails is named, and /catchup on that
+# branch re-points it too.
+STACKED=$( cd /tmp && gh -R "$REMOTE_REPO" pr list --base "$CURRENT_BRANCH" --state open --json number --jq '.[].number' 2>/dev/null ) || STACKED=""
+for n in $STACKED; do
+    if ( cd /tmp && gh -R "$REMOTE_REPO" pr edit "$n" --base "$BASE" >/dev/null 2>&1 ); then
+        echo "gitflow: PR #$n was stacked on '$CURRENT_BRANCH' — it now targets $BASE." >&2
+    else
+        echo "gitflow: could not re-point PR #$n at $BASE — do it before the branch goes (gh pr edit $n --base $BASE)." >&2
+    fi
+done
+
 # Delete the remote branch — BEST-EFFORT, non-fatal. A transient API failure
 # here (GitHub 503, etc.) must NOT abort the script before the base-branch
 # sync + npm ci below: the merge already landed and this checkout MUST end up
 # on a current base. On failure the remote branch simply lingers — the next
 # `git fetch --prune`, or a manual `git push origin --delete`, clears it.
 #
-# `|| true` is load-bearing: when deleteBranchOnMerge is enabled (repo default
-# for many), the squash-merge above already removed the head branch, so this
-# DELETE 404s and exits non-zero. Under `set -eo pipefail` a bare subshell that
-# exits non-zero ABORTS the whole script — stranding this checkout on the merged
-# feature branch after a merge that actually landed. `|| true` keeps it
-# best-effort as documented.
-( cd /tmp && gh -R "$REMOTE_REPO" api -X DELETE "repos/$REMOTE_REPO/git/refs/heads/$CURRENT_BRANCH" >/dev/null 2>&1 ) || true
-# Verify the ACTUAL outcome rather than trusting the DELETE's exit code. When the
-# repo has deleteBranchOnMerge enabled (common), GitHub removes the head branch
-# during the squash-merge above, so this explicit DELETE 404s on an already-gone
-# ref and exits non-zero — a success, not a failure. Only warn if the branch
-# genuinely still exists afterward (the auto-delete-off case where our DELETE
-# truly failed). A lingering ref returns 200 here; an absent one returns 404.
-if ( cd /tmp && gh -R "$REMOTE_REPO" api "repos/$REMOTE_REPO/git/refs/heads/$CURRENT_BRANCH" >/dev/null 2>&1 ); then
+# The DELETE may 404 when the repository deletes head branches on merge itself;
+# `|| true` keeps that from aborting the script under `set -e`. `gh api` takes
+# the repository in its path — it has no -R.
+( cd /tmp && gh api -X DELETE "repos/$REMOTE_REPO/git/refs/heads/$CURRENT_BRANCH" >/dev/null 2>&1 ) || true
+# Verify the ACTUAL outcome rather than trusting the DELETE's exit code: present
+# means the delete did not take; a 404 means gone; anything else is unknown.
+if REF_CHECK=$( cd /tmp && gh api "repos/$REMOTE_REPO/git/ref/heads/$CURRENT_BRANCH" 2>&1 ); then
     echo "gitflow: remote-branch delete for '$CURRENT_BRANCH' did not take — branch still exists; delete it with: git push origin --delete $CURRENT_BRANCH" >&2
+elif ! printf '%s' "$REF_CHECK" | grep -q "HTTP 404"; then
+    echo "gitflow: could not confirm '$CURRENT_BRANCH' is gone from origin — check on GitHub." >&2
 fi
 
 # ─── Land on the base branch ───────────────────────────────────────────────

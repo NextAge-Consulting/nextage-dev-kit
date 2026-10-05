@@ -19,14 +19,17 @@
  *
  *   node .claude/skills/claude-design/scripts/render-check.mjs <path/to/design-system.config.mjs>
  *
- * Drives agent-browser's Chromium, headless, in its own named session. Writes
- * light, dark and canvas screenshots of each preview to <out>/render/ for
- * review. */
+ * Drives agent-browser's Chromium, headless, in a few named sessions side by side,
+ * each rendering its share of the components. A render waits for what the page needs
+ * — fonts loaded, two frames painted, an overlay preview's overlay open — never a
+ * fixed time. Writes light, dark and canvas screenshots of each preview to
+ * <out>/render/ for review. */
 
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { promisify } from 'node:util'
 import zlib from 'node:zlib'
 import { loadConfig } from './config.mjs'
 
@@ -51,16 +54,18 @@ fs.mkdirSync(RENDER, { recursive: true })
 // start; each argument is quoted for cmd.exe, and the probe travels as base64 so
 // nothing inside it needs quoting at all.
 const WINDOWS = process.platform === 'win32'
-const browser = (args, opts = {}) =>
-  WINDOWS
-    ? execFileSync('agent-browser.cmd', ['--session', SESSION, ...args].map((a) => `"${a}"`), { encoding: 'utf8', shell: true, ...opts })
-    : execFileSync('agent-browser', ['--session', SESSION, ...args], { encoding: 'utf8', ...opts })
-// The call that starts the session's browser daemon runs with no pipes attached. On
+const LANES = Math.min(4, CONFIG.components.length || 1)
+const sessionOf = (lane) => `${SESSION}-${lane}`
+const argv = (session, args) => (WINDOWS ? ['--session', session, ...args].map((a) => `"${a}"`) : ['--session', session, ...args])
+const CMD = WINDOWS ? 'agent-browser.cmd' : 'agent-browser'
+const run = promisify(execFile)
+const browser = async (session, args) => (await run(CMD, argv(session, args), { encoding: 'utf8', shell: WINDOWS })).stdout
+// The call that starts a session's browser daemon runs with no pipes attached. On
 // Windows a child process inherits every inheritable handle its parent holds
 // (rust-lang/rust#161158, #54760), so the daemon that first call starts keeps this
-// script's stdout pipe open for as long as it runs, and execFileSync never sees EOF.
+// script's stdout pipe open for as long as it runs, and the call never sees EOF.
 // Every later call reaches the running daemon and captures output as usual.
-const launch = () => browser(['open', 'about:blank'], { stdio: 'ignore' })
+const launch = (session) => execFileSync(CMD, argv(session, ['open', 'about:blank']), { stdio: 'ignore', shell: WINDOWS })
 const failures = []
 const components = CONFIG.components
 if (!components.length) {
@@ -82,6 +87,22 @@ const PROBE = `JSON.stringify({
     return gap > 24 || a.right < b.left || a.left > b.right;
   })()
 })`
+
+// The probe, once the page is ready: fonts loaded, two frames painted, and — when an
+// overlay is expected — the overlay open, or 1.5s gone without it. One call where a
+// fixed wait and a probe took two, and no longer than the page needs.
+const settled = (expectOverlay) => `(async function () {
+  await document.fonts.ready;
+  await new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r) }) });
+  if (${expectOverlay ? 'true' : 'false'}) {
+    var until = Date.now() + 1500;
+    while (Date.now() < until && !document.querySelector("[data-radix-popper-content-wrapper], [role=dialog], [role=tooltip], [role=menu], [role=listbox]"))
+      await new Promise(function (r) { setTimeout(r, 25) });
+    await new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r) }) });
+  }
+  return ${PROBE};
+})()`
+const evalB64 = (session, js) => browser(session, ['eval', '-b', Buffer.from(js).toString('base64')])
 
 // The first closed popup trigger in a preview, marked so the check can click it with a
 // real pointer: a Radix menu opens on pointerdown, which a scripted .click() never sends.
@@ -150,63 +171,83 @@ function pixelsDiffering(fileA, fileB) {
 const CANVAS_H =
   'h = function (t, p) { var k = [].slice.call(arguments, 2); var el = k.length ? React.createElement(t, Object.assign({}, p, { children: k })) : React.createElement(t, p); return typeof t === "string" ? el : React.createElement("div", { className: "sc-host-x", "data-dc-tpl": "t", style: { display: "contents" }, key: p && p.key }, el) }'
 
-try {
-  try {
-    launch()
-  } catch (e) {
-    console.error(`render-check: could not start agent-browser (${e.code ?? e.status ?? 'failed'}) — it must be installed on this machine; see rules/integrations/agent-browser.md`)
-    process.exit(1)
-  }
-  browser(['set', 'viewport', '1200', '800'])
-  for (const c of components) {
-    const preview = fs.readFileSync(path.join(COMPONENTS_DIR, c.name, 'preview.html'), 'utf8')
-    const body = /<body>([\s\S]*)<\/body>/.exec(preview)[1]
-    const style = /<style>([\s\S]*?)<\/style>/.exec(preview)?.[1] ?? ''
-    for (const mode of ['light', 'dark', 'canvas']) {
-      const harness = path.join(RENDER, `${c.name}.${mode}.html`)
-      const mount = mode === 'canvas' ? body.replace('h = React.createElement', CANVAS_H) : body
-      // A local harness page around this repository's own build output, opened
-      // headless by this check and never served — no outside input reaches it.
-      fs.writeFileSync(
-        harness, // nosemgrep: javascript.lang.security.audit.unknown-value-with-script-tag.unknown-value-with-script-tag
-        `<!doctype html><html data-theme="${mode === 'dark' ? 'dark' : 'light'}"><head><meta charset="utf-8">
+/** Render one component in light, dark and canvas mounting; returns its failures. */
+async function renderComponent(session, c) {
+  const found = []
+  const preview = fs.readFileSync(path.join(COMPONENTS_DIR, c.name, 'preview.html'), 'utf8')
+  const body = /<body>([\s\S]*)<\/body>/.exec(preview)[1]
+  const style = /<style>([\s\S]*?)<\/style>/.exec(preview)?.[1] ?? ''
+  for (const mode of ['light', 'dark', 'canvas']) {
+    const harness = path.join(RENDER, `${c.name}.${mode}.html`)
+    const mount = mode === 'canvas' ? body.replace('h = React.createElement', CANVAS_H) : body
+    // A local harness page around this repository's own build output, opened
+    // headless by this check and never served — no outside input reaches it.
+    fs.writeFileSync(
+      harness, // nosemgrep: javascript.lang.security.audit.unknown-value-with-script-tag.unknown-value-with-script-tag
+      `<!doctype html><html data-theme="${mode === 'dark' ? 'dark' : 'light'}"><head><meta charset="utf-8">
 <script>window.__errors=[];addEventListener('error',function(e){__errors.push(String(e.message))});var ce=console.error;console.error=function(){__errors.push([].slice.call(arguments).join(' '));ce.apply(console,arguments)};</script>
 <link rel="stylesheet" href="../project/components/bundle.css"><style>${style}</style>
 <style>*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}</style>
 <script src="${REACT}"></script><script src="${REACT_DOM}"></script>
 <script src="../project/components/bundle.js"></script>
 </head><body>${mount}</body></html>`,
-      )
-      browser(['open', pathToFileURL(harness).href])
-      browser(['wait', '600'])
-      const report = JSON.parse(JSON.parse(browser(['eval', '-b', Buffer.from(PROBE).toString('base64')])))
-      browser(['screenshot', path.join(RENDER, `${c.name}.${mode}.png`)])
-      if (report.errors.length) failures.push(`${c.name} (${mode}): ${report.errors[0].slice(0, 200)}`)
-      else if (report.drawn === 0) failures.push(`${c.name} (${mode}): drew nothing`)
-      else if (c.cardMode === 'overlay' && report.overlay === 0) failures.push(`${c.name} (${mode}): the overlay did not open`)
-      else if (report.detached) failures.push(`${c.name} (${mode}): the overlay is not attached to its trigger`)
-      else if (mode === 'canvas' && c.cardMode !== 'overlay') {
-        // A preview that shows its trigger closed: open it as a person would, and fail
-        // when nothing opens or it opens away from the trigger. A trigger inside a
-        // component, cloned by Radix's `asChild`, only shows that defect once clicked.
-        if (browser(['eval', '-b', Buffer.from(MARK_TRIGGER).toString('base64')]).includes('marked')) {
-          browser(['click', '[data-rc-trigger]'])
-          browser(['wait', '400'])
-          const opened = JSON.parse(JSON.parse(browser(['eval', '-b', Buffer.from(PROBE).toString('base64')])))
-          if (opened.errors.length) failures.push(`${c.name} (opened): ${opened.errors[0].slice(0, 200)}`)
-          else if (opened.overlay === 0) failures.push(`${c.name} (opened): clicking its trigger opened nothing`)
-          else if (opened.detached) failures.push(`${c.name} (opened): it opens away from its trigger`)
-        }
+    )
+    await browser(session, ['open', pathToFileURL(harness).href])
+    const report = JSON.parse(JSON.parse(await evalB64(session, settled(c.cardMode === 'overlay'))))
+    await browser(session, ['screenshot', path.join(RENDER, `${c.name}.${mode}.png`)])
+    if (report.errors.length) found.push(`${c.name} (${mode}): ${report.errors[0].slice(0, 200)}`)
+    else if (report.drawn === 0) found.push(`${c.name} (${mode}): drew nothing`)
+    else if (c.cardMode === 'overlay' && report.overlay === 0) found.push(`${c.name} (${mode}): the overlay did not open`)
+    else if (report.detached) found.push(`${c.name} (${mode}): the overlay is not attached to its trigger`)
+    else if (mode === 'canvas' && c.cardMode !== 'overlay') {
+      // A preview that shows its trigger closed: open it as a person would, and fail
+      // when nothing opens or it opens away from the trigger. A trigger inside a
+      // component, cloned by Radix's `asChild`, only shows that defect once clicked.
+      if ((await evalB64(session, MARK_TRIGGER)).includes('marked')) {
+        await browser(session, ['click', '[data-rc-trigger]'])
+        const opened = JSON.parse(JSON.parse(await evalB64(session, settled(true))))
+        if (opened.errors.length) found.push(`${c.name} (opened): ${opened.errors[0].slice(0, 200)}`)
+        else if (opened.overlay === 0) found.push(`${c.name} (opened): clicking its trigger opened nothing`)
+        else if (opened.detached) found.push(`${c.name} (opened): it opens away from its trigger`)
       }
     }
-    const differing = pixelsDiffering(path.join(RENDER, `${c.name}.light.png`), path.join(RENDER, `${c.name}.canvas.png`))
-    if (differing)
-      failures.push(`${c.name} (canvas): ${differing} pixels differ between the plain render and the one inside the design tool's wrappers — part of its look depends on its siblings or position, which a design changes. Compare ${c.name}.light.png with ${c.name}.canvas.png in render/`)
   }
+  const differing = pixelsDiffering(path.join(RENDER, `${c.name}.light.png`), path.join(RENDER, `${c.name}.canvas.png`))
+  if (differing)
+    found.push(`${c.name} (canvas): ${differing} pixels differ between the plain render and the one inside the design tool's wrappers — part of its look depends on its siblings or position, which a design changes. Compare ${c.name}.light.png with ${c.name}.canvas.png in render/`)
+  return found
+}
+
+const launched = []
+try {
+  for (let lane = 0; lane < LANES; lane++) {
+    try {
+      launch(sessionOf(lane))
+      launched.push(sessionOf(lane))
+    } catch (e) {
+      console.error(`render-check: could not start agent-browser (${e.code ?? e.status ?? 'failed'}) — it must be installed on this machine; see rules/integrations/agent-browser.md`)
+      process.exit(1)
+    }
+  }
+  // Each lane takes the next component not yet started; results keep the config's order.
+  const results = new Array(components.length)
+  let next = 0
+  await Promise.all(
+    launched.map(async (session) => {
+      await browser(session, ['set', 'viewport', '1200', '800'])
+      while (next < components.length) {
+        const i = next++
+        results[i] = await renderComponent(session, components[i])
+      }
+    }),
+  )
+  for (const r of results) failures.push(...r)
 } finally {
-  try {
-    browser(['close'])
-  } catch {}
+  for (const session of launched) {
+    try {
+      execFileSync(CMD, argv(session, ['close']), { stdio: 'ignore', shell: WINDOWS })
+    } catch {}
+  }
 }
 
 if (failures.length) {

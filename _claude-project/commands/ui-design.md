@@ -160,8 +160,8 @@ or rejected but not removed — refuse to start, and list them. Land and remove 
 
 ## publish-system
 
-Number the release, build the design system from code, verify it, publish it, then apply
-it to designs.
+Number the release, build the design system from code, and stop there when it matches the
+published release. Otherwise verify it, publish it, then apply it to designs.
 
 ### 1. Find or create the target, and number the release
 
@@ -175,12 +175,20 @@ the returned address into the config's `artifact` field.
 the number after the one its `lastChange.note` opens with (`Release 11 · …` → 12), or 1
 when it has none.
 
-### 2. Build and verify
+### 2. Build, compare, and verify
 
 From the UI package:
 
 ```bash
 npm run build:design-system -- --release <n>
+```
+
+The build prints `content <hash>`. When the note read in step 1 ends with the same
+`· content <hash>`, the code matches the published release: report "Release <n − 1>
+already matches the code; nothing published" and stop — no check, no publish, no
+apply-system. A note without one, or a different hash, carries on:
+
+```bash
 npm run check:design-system
 ```
 

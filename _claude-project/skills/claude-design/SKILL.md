@@ -97,6 +97,12 @@ guide wherever it lays screens out as fixed-size artboards per device on one can
   system; it lists every preview and candidate as an open decision. A failure is a gap to
   raise. Moving the value somewhere the check does not look is the same failure with
   extra steps.
+- **A rule about design pages that only this project has is a page check:** a `*.mjs` in
+  `<UI package>/design-system/page-checks/` default-exporting a function, async or not.
+  `check-design.mjs` calls it once per page with one object: `page`, `elements`, the
+  page's `rules` outside PREVIEW blocks, `config`, `elementsFor(rule)`, `isComponent`,
+  `componentName`, `enclosingComponent`, `classesOf`, and `add(line, what, why)` to report
+  a FAIL.
 - **On a mounted component, write `class-name`, never `class`.** The runtime maps `class`
   to `className` only on plain elements; on an `x-import` it passes `class` through, and it
   replaces every class the component sets — a card loses its border, fill and padding.
@@ -146,7 +152,7 @@ generated files (`scripts/generate.mjs <config>` writes only those);
 `scripts/render-check.mjs <config>` renders every preview in light, dark and canvas
 mounting; `scripts/resolve.mjs` translates token CSS into the format;
 `scripts/check-design.mjs --config <config> <pages>` fails a design page that draws what
-the system owns or leaves out a required prop. `scripts/config.mjs` reads the config for
+the system owns, leaves out a required prop, or fails one of the project's page checks. `scripts/config.mjs` reads the config for
 all of them. Tests: `node --test scripts/*.test.mjs`.
 
 **The engine is built for the kit's UI stack** — Tailwind v4, shadcn on Radix,

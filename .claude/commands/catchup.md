@@ -2,8 +2,9 @@
 
 Refresh local code from origin. **Behavior depends on which branch is checked out** at invocation:
 
-- **On main (between bodies of work, or just reviewing):** fetch + fast-forward local `main` from `origin/main`. Fail-loud on dirty / diverged main.
+- **On main (between bodies of work, or just reviewing):** fetch + fast-forward local `main` from `origin/main`, carrying any uncommitted changes across. Fail-loud on diverged main.
 - **On a feature branch:** merge `origin/main` (or `--base <other>`) INTO the feature branch via an explicit merge commit (`--no-ff`).
+- **On a stacked branch** (one `/commit` cut from a PR handed to someone else): merge the branch it was cut from while that PR is open, so reviewers' fixes come in. Once it has merged or closed, re-point this branch's own PR at `main` if `/merge` has not already, and merge `main`.
 
 One command, one mental model: "catch the branch I'm on up to date with origin." If that branch is main, fast-forward it. If it's a feature branch, merge main into it.
 
@@ -30,8 +31,9 @@ Do NOT invoke when:
 
 | Input | Branch | What happens |
 |-------|--------|--------------|
-| `/catchup` | main | Fetch `origin/main`, refuse on dirty or diverged main, fast-forward local main. Report old → new SHA + commit count pulled. |
+| `/catchup` | main | Fetch `origin/main`, refuse on diverged main, fast-forward local main with uncommitted changes carried across (`git merge --ff-only --autostash`). Report old → new SHA + commit count pulled. |
 | `/catchup` | feature branch | Fetch `origin/main`. If HEAD already contains it, no-op. Otherwise merge `origin/main` into the current branch with an explicit merge commit (`--no-ff`) and push via `safe_push`. |
+| `/catchup` | stacked branch | Parent PR open: merge `origin/<parent>`. Parent merged or closed: re-point this branch's PR at `main` (`gh pr edit --base main`), forget the parent, then merge `origin/main`. |
 | `/catchup --base <branch>` | feature branch | Same as above but `origin/<branch>`. Rare. (Ignored on main.) |
 | `/catchup --continue` | feature branch | After manual conflict resolution: stage all, complete the merge commit (default message), push. |
 | `/catchup --abort` | feature branch | Abandon an in-progress merge; restore the tree to its pre-merge state. |
@@ -42,7 +44,7 @@ Do NOT invoke when:
 
 ### Step 1: Pre-flight
 
-Confirm no merge is already in progress (`--continue` / `--abort` cover that case). On feature branches the tree must be clean; on main the tree must be clean too — a fast-forward over uncommitted edits would fail or strand them; `/checkpoint` first.
+Confirm no merge is already in progress (`--continue` / `--abort` cover that case). On a feature branch the tree must be clean. On main, run it with the changes in place: they are carried across the fast-forward.
 
 ### Step 2: Invoke the script
 
@@ -88,9 +90,10 @@ If you genuinely need a rebase (e.g. linearizing history before opening a PR), d
 | 2 | Bad arguments. |
 | 3 | Not in a git working tree / on detached HEAD. |
 | 4 | Mode conflict (e.g. `--continue` without MERGE_HEAD; default mode with MERGE_HEAD already present). |
-| 5 | Dirty tree (default mode) or conflict markers still present (continue mode). |
+| 5 | Dirty tree on a feature branch (default mode), conflict markers still present (continue mode), or on main an untracked file the pull would overwrite — main and the changes are left as they were, and git names the file. |
 | 6 | Conflicts during merge, `git fetch` failed, or `git merge` failed. |
 | 7 | (Main path only) Local main has diverged from origin/main — has local-only commits. Anomalous under gitflow; inspect `git log origin/main..HEAD`. |
+| 8 | (Main path only) Main is up to date, but the uncommitted changes conflict with what came in. They are kept in the stash; resolve the markers in the files named, then `git stash drop`. |
 
 ## What this command does NOT do
 

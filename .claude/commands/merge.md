@@ -66,6 +66,14 @@ After `/merge` completes, the squash commit is on main and this checkout is stan
 - `gh` CLI not available: squash-merge-via-API is not implemented in `merge.sh`; install gh or run the merge manually via GitHub web UI
 - The PR's title or body cannot be read: exit 22, nothing merged
 - The branch conflicts with its base: exit 23, nothing merged — `/catchup` first
+- The PR is stacked on a branch whose PR has not merged: exit 24, nothing merged — merge
+  that one first; this one then targets `main`
+
+## Merging someone else's PR
+
+`merge.sh` posts an approving review as you before it squashes a PR someone else wrote, so
+the PR records who wrote it, who reviewed it and who merged it. If the approval fails it
+says so and merges anyway. Your own PR gets no approval.
 
 ## Emergency bypass
 

@@ -300,6 +300,18 @@ migrate_branch_linked_issues() {
     echo "gitflow: carried issue link(s) $(format_issue_refs "$list") from $from onto $to." >&2
 }
 
+# carry_incomplete_issues <from_branch> <to_branch> — moves only the issues not yet
+# code complete. A handed-off PR keeps the issues it closes; anything linked after
+# the hand-off belongs to the work that follows it.
+carry_incomplete_issues() {
+    local from="$1" to="$2" list num
+    list=$(read_branch_incomplete_issues "$from")
+    [ -z "$list" ] && return 0
+    for num in $list; do link_issue_to_branch "$num" "$to"; done
+    unlink_issues_from_branch "$list" "$from"
+    echo "gitflow: carried issue link(s) $(format_issue_refs "$list") from $from onto $to." >&2
+}
+
 # stage_complete_issues "<space-separated nums>" [branch_name]
 # Marks each issue complete on the branch, then moves each to Staged on the
 # board. Called only AFTER the commit or PR it belongs to has landed, so a
