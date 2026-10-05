@@ -52,6 +52,19 @@ if bash "$KD" "$root" "$e" >/dev/null; then echo "  ✗ FAIL — direct run, not
 else echo "  ✓ run directly with nothing delivered, it exits 1"; fi
 rm -f "$g" "$e"
 
+echo "WINDOWS SPELLINGS — Claude Code on Windows names files with backslashes:"
+printf '{"files":{".claude/rules/a.md":{"sha":"%s","mode":"owned"}}}' "$sha" > "$lock"
+bs(){ printf '%s' "${1//\//\\}"; }
+broot=$(bs "$phys"); bfile=$(bs "$phys/.claude/rules/a.md")
+for case in "$phys|$bfile|forward-slash root, backslash file" \
+            "$broot|$f|backslash root, forward-slash file" \
+            "$broot|$bfile|backslash root and file" \
+            "$broot|.claude\\rules\\a.md|backslash root, backslash relative file"; do
+  r=${case%%|*}; rest=${case#*|}; p=${rest%%|*}; label=${rest#*|}
+  got=$(kit_delivered_among "$r" "$p")
+  if [ "$got" = "$p" ]; then echo "  ✓ $label"; else echo "  ✗ FAIL (got '$got') — $label"; fail=1; fi
+done
+
 echo "HASHING — shasum stands in where sha256sum is missing:"
 nosha=$(path_without sha256sum)
 if PATH="$nosha" bash -c 'source "$0"; is_kit_delivered "$1" "$2"' \

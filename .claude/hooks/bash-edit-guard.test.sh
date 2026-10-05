@@ -208,13 +208,18 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
   entries="$entries${entries:+,}\"src/many$i.ts\":\"$(shasum -a 256 "$repo/src/many$i.ts" | cut -d' ' -f1)\""
 done
 git -C "$repo" add src && git -C "$repo" commit -qm many
+# A sync writes new content over tracked files and records it in the lockfile.
+entries=""
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  printf 'synced\n' >> "$repo/src/many$i.ts"
+  entries="$entries${entries:+,}\"src/many$i.ts\":\"$(shasum -a 256 "$repo/src/many$i.ts" | cut -d' ' -f1)\""
+done
 printf '{"files":{%s}}' "$entries" > "$lock"
 counted "$(event "${many[@]}")"
-k=$(grep -c "kit-delivered.sh" "$log"); g=$(grep -c "^git$" "$log")
-if [ "$k" = 1 ] && [ "$g" = 0 ]; then echo "  ✓ 10 kit-delivered files: one kit-delivered.sh run, no git"
-else echo "  ✗ FAIL — 10 kit-delivered files: $k kit-delivered.sh runs, $g git runs"; fail=1; fi
+k=$(grep -c "kit-delivered.sh" "$log"); g=$(grep -c "^git$" "$log"); b=$(grep -c "^bash " "$log")
+if [ "$k" = 1 ] && [ "$g" = 2 ] && [ "$b" = 1 ]; then echo "  ✓ 10 synced files: two git runs, one kit-delivered.sh run, no guard run"
+else echo "  ✗ FAIL — 10 synced files: $g git, $k kit-delivered.sh, $b bash runs"; fail=1; fi
 rm -f "$lock"
-for f in "${many[@]}"; do printf 'more\n' >> "$f"; done
 counted "$(event "${many[@]}")"
 g=$(grep -c "^git$" "$log")
 if [ "$g" = 2 ]; then echo "  ✓ 10 tracked files: one git ls-files and one git diff"
@@ -236,8 +241,9 @@ cat > "$repo/.claude/settings.json" <<'EOF'
   {"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/lane-two.sh"}]}]}}
 EOF
 mkdir -p "$tmp/locks"
+printf 'ok\n' > "$repo/src/lane1.ts"; printf 'ok\n' > "$repo/src/lane2.ts"
 t0=$(now)
-got=$(printf '%s' "$(event "$repo/src/clean.ts" "$repo/src/fine.ts")" | LANE_LOCKS="$tmp/locks" CLAUDE_PROJECT_DIR="$repo" "$H" 2>/dev/null)
+got=$(printf '%s' "$(event "$repo/src/lane1.ts" "$repo/src/lane2.ts")" | LANE_LOCKS="$tmp/locks" CLAUDE_PROJECT_DIR="$repo" "$H" 2>/dev/null)
 t1=$(now)
 if [ -z "$got" ]; then echo "  ✓ no guard judged two files at once"; else echo "  ✗ FAIL — $got"; fail=1; fi
 if elapsed_under "$t0" "$t1" 3.5; then echo "  ✓ two guards × two files of 1s each finish in about 2s, not 4s"
@@ -248,14 +254,31 @@ cat > "$repo/.claude/settings.json" <<'EOF'
 {"hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/slow.sh"}]}],
  "PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/bash-edit-guard.sh","timeout":2}]}]}}
 EOF
+for i in 1 2 3; do printf 'ok\n' > "$repo/src/late$i.ts"; done
 t0=$(now)
-got=$(reason_of "$(event "$repo/src/clean.ts" "$repo/src/fine.ts" "$repo/src/two.ts")")
+got=$(reason_of "$(event "$repo/src/late1.ts" "$repo/src/late2.ts" "$repo/src/late3.ts")")
 t1=$(now)
-case "$got" in *"src/clean.ts, src/fine.ts, src/two.ts"*"ran out of time (1.5 seconds)"*) echo "  ✓ every file not finished is named as not checked" ;;
+case "$got" in *"src/late1.ts, src/late2.ts, src/late3.ts"*"ran out of time (1.5 seconds)"*) echo "  ✓ every file not finished is named as not checked" ;;
                *) echo "  ✗ FAIL — out-of-time files not reported: $got"; fail=1 ;; esac
 if elapsed_under "$t0" "$t1" 3; then echo "  ✓ the budget comes from the hook's own timeout in settings.json (2s → stops at 1.5s)"
 else echo "  ✗ FAIL — the run overran its own timeout"; fail=1; fi
 cp "$tmp/settings.saved" "$repo/.claude/settings.json"
+
+echo "FILES THE SAME AS HEAD ARE NOT JUDGED — git wrote them, or the command committed them:"
+printf 'x\n' > "$repo/src/forbidden-pulled.ts"; printf 'BAD(9)\n' > "$repo/src/pulled.ts"
+git -C "$repo" add src && git -C "$repo" commit -qm pulled
+t allow "$(event "$repo/src/forbidden-pulled.ts" "$repo/src/pulled.ts")" 'committed files unchanged on disk (a pull, a rebase, a commit in the command)'
+t allow "$(event "$repo/src/gone-before-and-after.ts")" 'a path in neither HEAD nor the working tree (a pull removed it)'
+git -C "$repo" rm -q src/forbidden-pulled.ts
+t block "$(event "$repo/src/forbidden-pulled.ts")" 'a tracked file removed by the command is still judged'
+git -C "$repo" add src && git -C "$repo" commit -qm removed
+many_same=()
+for i in $(seq 1 60); do printf 'x\n' > "$repo/src/forbidden-bulk$i.ts"; many_same+=("$repo/src/forbidden-bulk$i.ts"); done
+git -C "$repo" add src && git -C "$repo" commit -qm bulk
+counted "$(event "${many_same[@]}")"
+g=$(grep -c "^git$" "$log"); b=$(grep -c "^bash " "$log")
+if [ "$g" = 2 ] && [ "$b" = 0 ]; then echo "  ✓ 60 pulled files: two git runs, no guard run, nothing over the file cap"
+else echo "  ✗ FAIL — 60 pulled files: $g git runs, $b bash runs"; fail=1; fi
 
 echo "OVER THE FILE CAP — the files past it are named:"
 over=()

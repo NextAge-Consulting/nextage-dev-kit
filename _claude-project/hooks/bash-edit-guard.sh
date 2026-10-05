@@ -22,9 +22,13 @@
 # edit that follows. A real Edit cannot be skipped this way: its guards run before the
 # change lands.
 #
+# A file the same as HEAD is not replayed: git wrote it (a pull, rebase or checkout) or
+# the command committed it, and committed content passes the commit gates. Only lines
+# the working tree holds that HEAD does not are judged.
+#
 # Process starts are what a run costs on Windows, a fraction of a second each, so the
-# work is shaped around them: one kit-delivered.sh run for the whole list, one git
-# ls-files and one git diff for every file in the project repository, and each guard
+# work is shaped around them: one git ls-files and one git diff for every file in the
+# project repository, one kit-delivered.sh run for what still differs, and each guard
 # command in its own lane, walking the files in order. Lanes run at the same time; a
 # guard never judges two files at once, so one that keeps session state sees what a
 # series of Edits would show it.
@@ -148,11 +152,6 @@ def kit_delivered(paths):
             found.update(r.stdout.splitlines())
     return found
 
-delivered = kit_delivered(files)
-files = [f for f in files if f not in delivered]
-if not files:
-    sys.exit(0)
-
 pre = [h for e in ((settings.get("hooks") or {}).get("PreToolUse") or []) if matches(e, "Edit")
        for h in (e.get("hooks") or []) if h.get("type") == "command" and h.get("command")]
 post = [h for e in ((settings.get("hooks") or {}).get("PostToolUse") or []) if matches(e, "Edit")
@@ -160,10 +159,6 @@ post = [h for e in ((settings.get("hooks") or {}).get("PostToolUse") or []) if m
 pre, post = [h["command"] for h in pre], [h["command"] for h in post]
 if not pre and not post:
     sys.exit(0)
-
-MAX_FILES = 40
-unchecked = files[MAX_FILES:]
-files = files[:MAX_FILES]
 
 def git(args, cwd):
     return subprocess.run(["git", "-c", "core.quotepath=off", "--literal-pathspecs", *args], cwd=cwd,
@@ -185,21 +180,22 @@ def c_unquote(name):
             i += 1
     return out.decode("utf-8", "replace")
 
-# Added lines per file from one git diff -U0, keyed by the path after "b/". A line is
-# header until the first @@ of its file, so added content that itself begins "++ " is
-# still content.
+# Every file with a difference from HEAD, mapped to its added lines, from one git diff
+# -U0: keyed by the path after "b/", or after "a/" for a deletion, whose added lines are
+# none. A line is header until the first @@ of its file, so added content that itself
+# begins "++ " is still content.
 def parse_diff(text):
     added, cur, in_hunks = {}, None, False
     for line in text.split("\n"):
         if line.startswith("diff --git "):
             cur, in_hunks = None, False
         elif not in_hunks:
-            if line.startswith("+++ "):
+            if line.startswith("--- ") or line.startswith("+++ "):
                 name = line[4:]
                 if name.startswith("\""):
                     name = c_unquote(name)
-                cur = name[2:] if name.startswith("b/") else None
-                if cur is not None:
+                if name[:2] in ("a/", "b/"):
+                    cur = name[2:]
                     added.setdefault(cur, [])
             elif line.startswith("@@"):
                 in_hunks = True
@@ -213,13 +209,17 @@ def read_whole(path):
     except OSError:
         return ""
 
+# What to judge in a file asked about on its own: its whole content when untracked, its
+# added lines when it differs from HEAD, or None when it is the same as HEAD.
 def added_lines_alone(path):
     cwd = os.path.dirname(path)
     if git(["ls-files", "--error-unmatch", "--", path], cwd).returncode != 0:
         return read_whole(path)
     d = git(["diff", "-U0", "--no-color", "--no-ext-diff", "--no-renames", "--src-prefix=a/",
              "--dst-prefix=b/", "HEAD", "--", path], cwd)
-    return next(iter(parse_diff(d.stdout).values()), "") if d.returncode == 0 else ""
+    if d.returncode != 0:
+        return ""
+    return next(iter(parse_diff(d.stdout).values()), None)
 
 top = os.path.normcase(os.path.abspath(project))
 
@@ -240,30 +240,60 @@ def in_project_repo(path):
         d = parent
     return True
 
-# One ls-files and one diff for every file in the project repository; a file outside it,
-# or inside a nested repository, is asked about on its own.
+# Each changed file is judged on what it holds that HEAD does not: the whole file when
+# it is untracked, its added lines when it differs from HEAD (none for a deletion). A
+# file the same as HEAD (on disk unchanged, or in neither) is skipped: git wrote it in a
+# pull, rebase or checkout, or the command committed it, and committed content has its
+# own gates. One ls-files and one diff cover every file in the project repository, so a
+# large pull costs about what no change does; a file outside it, or inside a nested
+# repository, is asked about on its own.
 added = {}
-present = [p for p in files if os.path.isfile(p)]
-batch = [p for p in present if in_project_repo(p)]
+batch = [p for p in files if in_project_repo(p)]
 rel = {p: os.path.relpath(os.path.abspath(p), os.path.abspath(project)).replace(os.sep, "/") for p in batch}
 tracked = set()
 for part in chunks(list(rel.values())):
     r = git(["ls-files", "-z", "--", *part], project)
     if r.returncode == 0:
         tracked.update(x for x in r.stdout.split("\0") if x)
-folded = {t.casefold(): t for t in tracked}
-in_index = {p: (rel[p] if rel[p] in tracked else folded.get(rel[p].casefold())) for p in batch}
-diffs = {}
-for part in chunks([t for t in in_index.values() if t]):
+diffs, diff_ok = {}, True
+for part in chunks(list(rel.values())):
     r = git(["diff", "-U0", "--no-color", "--no-ext-diff", "--no-renames", "--src-prefix=a/",
              "--dst-prefix=b/", "--relative", "HEAD", "--", *part], project)
     if r.returncode == 0:
         diffs.update(parse_diff(r.stdout))
+    else:
+        diff_ok = False
+
+def known(name, names):
+    if name in names:
+        return name
+    return {n.casefold(): n for n in names}.get(name.casefold())
+
 for p in batch:
-    added[p] = diffs.get(in_index[p], "") if in_index[p] else read_whole(p)
-for p in present:
-    if p not in added:
-        added[p] = added_lines_alone(p)
+    on_disk = os.path.isfile(p)
+    d = known(rel[p], diffs)
+    if d is not None:
+        added[p] = diffs[d]
+    elif on_disk and known(rel[p], tracked) is None:
+        added[p] = read_whole(p)
+    elif not diff_ok:
+        # No HEAD to compare against (a repository with no commits yet): judge it.
+        added[p] = read_whole(p) if on_disk else ""
+for p in files:
+    if p not in rel:
+        added[p] = added_lines_alone(p) if os.path.isfile(p) else ""
+files = [p for p in files if added.get(p) is not None]
+if not files:
+    sys.exit(0)
+
+delivered = kit_delivered(files)
+files = [f for f in files if f not in delivered]
+if not files:
+    sys.exit(0)
+
+MAX_FILES = 40
+unchecked = files[MAX_FILES:]
+files = files[:MAX_FILES]
 
 def guard_name(cmd):
     toks = re.findall(r"[^\s\"\x27]+", cmd)
