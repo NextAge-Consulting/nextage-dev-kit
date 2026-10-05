@@ -52,6 +52,11 @@ want=ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
 eq "$want" "$(sha256_file "$tmp/h")" 'sha256_file'
 eq "$want" "$(sha256_stdin < "$tmp/h")" 'sha256_stdin'
 eq "$want" "$(PATH="$(path_without sha256sum)" bash -c 'source "$0"; sha256_file "$1"' "$L" "$tmp/h")" 'without sha256sum'
+printf '' > "$tmp/odd\\name"
+empty=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+eq "$want"$'\n'"$empty"$'\n'"$want" "$(sha256_files "$tmp/h" "$tmp/odd\\name" "$tmp/h")" 'sha256_files: one digest per file, in order, a backslash in a name'
+eq "$want"$'\n'"$empty" "$(PATH="$(path_without sha256sum)" bash -c 'source "$0"; sha256_files "$1" "$2"' "$L" "$tmp/h" "$tmp/odd\\name")" 'sha256_files without sha256sum'
+eq '|1' "$(out=$(sha256_files "$tmp/h" "$tmp/nope"); printf '%s|%s' "$out" "$?")" 'sha256_files: a missing file fails and prints nothing'
 
 echo "EVENT NAME without jq:"
 eq 'PostCompact' "$(hook_event_of '{"hook_event_name": "PostCompact","session_id":"x"}')" 'spaced JSON'
@@ -61,13 +66,17 @@ eq ''            "$(hook_event_of 'not json')" 'absent'
 echo "REQUIRE_TOOLS — present tools pass silently and are remembered:"
 out=$(require_tools PreToolUse jq python3; echo "returned")
 eq 'returned' "$out" 'jq and python3 present: returns, prints nothing'
-ls "$TMPDIR"/kit-toolchain-ok-* >/dev/null 2>&1 && echo "  ✓ a passing check leaves a marker" || { echo "  ✗ FAIL — no marker"; fail=1; }
+if ls "$TMPDIR"/kit-toolchain-ok-* >/dev/null 2>&1; then echo "  ✓ a passing check leaves a marker"; else echo "  ✗ FAIL — no marker"; fail=1; fi
 kit_clear_tool_markers
 ls "$TMPDIR"/kit-toolchain-ok-* >/dev/null 2>&1 && { echo "  ✗ FAIL — markers survive clearing"; fail=1; } || echo "  ✓ kit_clear_tool_markers removes them"
 
 echo "REQUIRE_TOOLS — a missing or broken tool refuses, in the event's own form:"
 mkdir -p "$tmp/hookdir"
-printf '#!/bin/bash\nsource "%s"\nrequire_tools "$1" jq python3\necho UNREACHED\n' "$L" > "$tmp/hookdir/my\"guard.sh"
+{ printf '#!/bin/bash\nsource "%s"\n' "$L"; cat <<'EOF'
+require_tools "$1" jq python3
+echo UNREACHED
+EOF
+} > "$tmp/hookdir/my\"guard.sh"
 chmod +x "$tmp/hookdir/my\"guard.sh"
 form(){ # $1 PATH  $2 event → "<kind> <tool-named?> <unreached?>"
   PATH="$1" "$tmp/hookdir/my\"guard.sh" "$2" 2>/dev/null | python3 -c '

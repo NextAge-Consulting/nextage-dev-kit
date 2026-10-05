@@ -30,6 +30,28 @@ t yes "$tmp/proj-link/.claude/rules/a.md" 'file named through a symlinked root'
 if is_kit_delivered "$tmp/proj-link" "$f"; then echo "  ✓ root given as the symlink, file as the target"
 else echo "  ✗ FAIL — symlinked root, target path"; fail=1; fi
 
+echo "BATCH — one call answers for every path, each as given, in order:"
+g="$root/.claude/rules/b c.md"; printf 'other\n' > "$g"
+gsha=$(shasum -a 256 "$g" | awk '{print $1}')
+e="$root/.claude/rules/edited.md"; printf 'edited\n' > "$e"
+printf '{"files":{".claude/rules/a.md":{"sha":"%s"},".claude/rules/b c.md":"%s",".claude/rules/edited.md":{"sha":"%s"}}}' "$sha" "$gsha" "$sha" > "$lock"
+want=$(printf '%s\n' "$g" ".claude/rules/a.md")
+got=$(kit_delivered_among "$root" "$e" "$g" "$root/nope.md" ".claude/rules/a.md")
+if [ "$got" = "$want" ]; then echo "  ✓ delivered paths only, as given, in order"
+else echo "  ✗ FAIL (got '$got') — batch"; fail=1; fi
+got=$(bash "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/kit-delivered.sh" "$root" "$e" "$g" "$root/nope.md" ".claude/rules/a.md")
+if [ "$got" = "$want" ]; then echo "  ✓ run directly, it prints the same"
+else echo "  ✗ FAIL (got '$got') — direct run"; fail=1; fi
+got=$(kit_delivered_among "$root" "$e" "$root/nope.md")
+if [ -z "$got" ]; then echo "  ✓ none delivered prints nothing"
+else echo "  ✗ FAIL (got '$got') — none delivered"; fail=1; fi
+KD="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/kit-delivered.sh"
+if bash "$KD" "$root" "$g" >/dev/null; then echo "  ✓ run directly on a delivered path, it exits 0"
+else echo "  ✗ FAIL — direct run, delivered path, non-zero exit"; fail=1; fi
+if bash "$KD" "$root" "$e" >/dev/null; then echo "  ✗ FAIL — direct run, nothing delivered, exit 0"; fail=1
+else echo "  ✓ run directly with nothing delivered, it exits 1"; fi
+rm -f "$g" "$e"
+
 echo "HASHING — shasum stands in where sha256sum is missing:"
 nosha=$(path_without sha256sum)
 if PATH="$nosha" bash -c 'source "$0"; is_kit_delivered "$1" "$2"' \

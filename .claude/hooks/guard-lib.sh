@@ -33,6 +33,10 @@
 #   sha256_file <file>      sha256_stdin
 #       The hex digest, from sha256sum or shasum, whichever this machine has.
 #
+#   sha256_files <file>...
+#       One hex digest per line, in argument order, from a single hasher run. Returns 1
+#       when any file is missing or the hasher fails, printing nothing.
+#
 #   install_hint <tool>
 #       The one-line install instruction for <tool> on this platform.
 #
@@ -258,4 +262,20 @@ sha256_stdin() {
 sha256_file() {
     [ -f "$1" ] || return 1
     sha256_stdin < "$1"
+}
+
+sha256_files() {
+    local f out line
+    [ "$#" -gt 0 ] || return 0
+    for f in "$@"; do [ -f "$f" ] || return 1; done
+    if command -v sha256sum >/dev/null 2>&1; then
+        out=$(sha256sum -- "$@") || return 1
+    else
+        out=$(shasum -a 256 -- "$@") || return 1
+    fi
+    # GNU marks a line whose file name it escaped with a leading backslash.
+    while IFS= read -r line; do
+        line=${line%% *}
+        printf '%s\n' "${line#\\}"
+    done <<< "$out"
 }

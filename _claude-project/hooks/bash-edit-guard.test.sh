@@ -165,6 +165,106 @@ got=$(shim "$(ev "$spaced" "$spaced/src/forbidden-kit.md")" "$spaced")
 if [ "$got" = allow ]; then echo "  ✓ a kit-delivered file is skipped, in a project path with spaces"
 else echo "  ✗ FAIL — kit-delivered file not skipped: $got"; fail=1; fi
 
+reason_of(){ printf '%s' "$1" | CLAUDE_PROJECT_DIR="$repo" "$H" 2>/dev/null \
+             | python3 -c 'import json,sys; s=sys.stdin.read().strip(); print(json.loads(s)["reason"] if s else "allow")' 2>/dev/null; }
+now(){ python3 -c 'import time; print(time.time())'; }
+elapsed_under(){ python3 -c 'import sys; sys.exit(0 if float(sys.argv[2]) - float(sys.argv[1]) < float(sys.argv[3]) else 1)' "$@"; }
+
+echo "ONE BATCH, EACH FILE ON ITS OWN ADDED LINES:"
+printf 'BAD(5)\nok\n' > "$repo/src/two.ts"; printf 'ok\n' > "$repo/src/three.ts"
+git -C "$repo" add src/two.ts src/three.ts && git -C "$repo" commit -qm more
+printf 'fine\n' >> "$repo/src/two.ts"
+printf '++ BAD(6)\n' >> "$repo/src/three.ts"
+got=$(reason_of "$(event "$repo/src/two.ts" "$repo/src/three.ts")")
+case "$got" in *"src/three.ts"*) echo "  ✓ an added line that itself begins \"++ \" is judged" ;;
+               *) echo "  ✗ FAIL — added \"++ \" line missed: $got"; fail=1 ;; esac
+case "$got" in *"src/two.ts"*) echo "  ✗ FAIL — committed content of another file in the batch was judged"; fail=1 ;;
+               *) echo "  ✓ committed content of another file in the same batch is not judged" ;; esac
+mkdir -p "$repo/vendor/lib"; git -C "$repo/vendor/lib" init -q
+git -C "$repo/vendor/lib" config user.email t@example.com && git -C "$repo/vendor/lib" config user.name t
+printf 'BAD(7)\n' > "$repo/vendor/lib/x.ts"; git -C "$repo/vendor/lib" add -A && git -C "$repo/vendor/lib" commit -qm v
+printf 'fine\n' >> "$repo/vendor/lib/x.ts"
+t allow "$(event "$repo/vendor/lib/x.ts")" 'a file in a nested repository is judged on its own added lines'
+printf 'BAD(8)\n' >> "$repo/vendor/lib/x.ts"
+t block "$(event "$repo/vendor/lib/x.ts")" '…and a bad line added there is caught'
+rm -rf "$repo/vendor"
+
+echo "PROCESS STARTS DO NOT GROW WITH THE FILE COUNT (each costs ~0.25s on Windows):"
+mkdir -p "$tmp/count"; log="$tmp/count/log"
+{ printf '#!%s\n' "$real_bash"; cat <<'EOF'; } > "$tmp/count/bash"
+echo "bash ${1##*/}" >> "$COUNT_LOG"
+exec "$REAL_BASH" "$@"
+EOF
+{ printf '#!%s\n' "$real_bash"; cat <<'EOF'; } > "$tmp/count/git"
+echo git >> "$COUNT_LOG"
+exec "$REAL_GIT" "$@"
+EOF
+chmod +x "$tmp/count/bash" "$tmp/count/git"
+counted(){ : > "$log"; printf '%s' "$1" | COUNT_LOG="$log" REAL_BASH="$real_bash" REAL_GIT="$(command -v git)" \
+           PATH="$tmp/count:$PATH" CLAUDE_PROJECT_DIR="$repo" "$H" >/dev/null 2>&1; }
+many=(); entries=""
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  printf 'ok %s\n' "$i" > "$repo/src/many$i.ts"; many+=("$repo/src/many$i.ts")
+  entries="$entries${entries:+,}\"src/many$i.ts\":\"$(shasum -a 256 "$repo/src/many$i.ts" | cut -d' ' -f1)\""
+done
+git -C "$repo" add src && git -C "$repo" commit -qm many
+printf '{"files":{%s}}' "$entries" > "$lock"
+counted "$(event "${many[@]}")"
+k=$(grep -c "kit-delivered.sh" "$log"); g=$(grep -c "^git$" "$log")
+if [ "$k" = 1 ] && [ "$g" = 0 ]; then echo "  ✓ 10 kit-delivered files: one kit-delivered.sh run, no git"
+else echo "  ✗ FAIL — 10 kit-delivered files: $k kit-delivered.sh runs, $g git runs"; fail=1; fi
+rm -f "$lock"
+for f in "${many[@]}"; do printf 'more\n' >> "$f"; done
+counted "$(event "${many[@]}")"
+g=$(grep -c "^git$" "$log")
+if [ "$g" = 2 ]; then echo "  ✓ 10 tracked files: one git ls-files and one git diff"
+else echo "  ✗ FAIL — 10 tracked files: $g git runs"; fail=1; fi
+
+echo "GUARDS RUN SIDE BY SIDE, EACH ON ONE FILE AT A TIME:"
+for g in one two; do
+  cat > "$repo/.claude/hooks/lane-$g.sh" <<'EOF'
+#!/bin/bash
+d="$LANE_LOCKS/${0##*/}"
+mkdir "$d" 2>/dev/null || { echo "two copies of ${0##*/} ran at once" >&2; exit 2; }
+sleep 1; rmdir "$d"
+EOF
+  chmod +x "$repo/.claude/hooks/lane-$g.sh"
+done
+cat > "$repo/.claude/settings.json" <<'EOF'
+{"hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[
+  {"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/lane-one.sh"},
+  {"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/lane-two.sh"}]}]}}
+EOF
+mkdir -p "$tmp/locks"
+t0=$(now)
+got=$(printf '%s' "$(event "$repo/src/clean.ts" "$repo/src/fine.ts")" | LANE_LOCKS="$tmp/locks" CLAUDE_PROJECT_DIR="$repo" "$H" 2>/dev/null)
+t1=$(now)
+if [ -z "$got" ]; then echo "  ✓ no guard judged two files at once"; else echo "  ✗ FAIL — $got"; fail=1; fi
+if elapsed_under "$t0" "$t1" 3.5; then echo "  ✓ two guards × two files of 1s each finish in about 2s, not 4s"
+else echo "  ✗ FAIL — guards ran one after another"; fail=1; fi
+
+echo "OUT OF TIME — the files not reached are named, never dropped in silence:"
+cat > "$repo/.claude/settings.json" <<'EOF'
+{"hooks":{"PreToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/slow.sh"}]}],
+ "PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/bash-edit-guard.sh","timeout":2}]}]}}
+EOF
+t0=$(now)
+got=$(reason_of "$(event "$repo/src/clean.ts" "$repo/src/fine.ts" "$repo/src/two.ts")")
+t1=$(now)
+case "$got" in *"src/clean.ts, src/fine.ts, src/two.ts"*"ran out of time (1.5 seconds)"*) echo "  ✓ every file not finished is named as not checked" ;;
+               *) echo "  ✗ FAIL — out-of-time files not reported: $got"; fail=1 ;; esac
+if elapsed_under "$t0" "$t1" 3; then echo "  ✓ the budget comes from the hook's own timeout in settings.json (2s → stops at 1.5s)"
+else echo "  ✗ FAIL — the run overran its own timeout"; fail=1; fi
+cp "$tmp/settings.saved" "$repo/.claude/settings.json"
+
+echo "OVER THE FILE CAP — the files past it are named:"
+over=()
+for i in $(seq 1 41); do printf 'ok\n' > "$repo/src/cap$i.ts"; over+=("$repo/src/cap$i.ts"); done
+got=$(reason_of "$(event "${over[@]}")")
+case "$got" in *"src/cap41.ts"*"at most 40 changed files"*) echo "  ✓ the 41st file is named as not checked" ;;
+               *) echo "  ✗ FAIL — cap not reported by name: $got"; fail=1 ;; esac
+rm -f "$repo"/src/cap*.ts
+
 echo "TOOL MISSING — python3 that does not run is reported, never a silent pass:"
 # shellcheck source=test-helpers.sh
 source "$(dirname "$H")/test-helpers.sh"
