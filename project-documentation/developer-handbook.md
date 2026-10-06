@@ -78,7 +78,11 @@ Setup and the flow format: `testing.md`.
 
 Screens use the project's design system: tokens and rules in `design.md` at the repo
 root, and the components listed in the UI inventory rule. Claude loads both when you touch
-a component or a stylesheet. When a screen should be worked out visually first, that's
+a component or a stylesheet. Every dialog, panel, header or toolbar is one of a short list
+of block types, and each app builds one component per type the first time it needs it; a
+screen's own content lives in `apps/<app>/src/features/<feature>/`, arranges those
+components and styles its own text from the semantic roles — every box comes from a
+component. When a screen should be worked out visually first, that's
 `designer-handbook.md`.
 
 Anything new Claude adds to the design system is marked pending until a human approves it,

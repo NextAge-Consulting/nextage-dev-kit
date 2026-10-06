@@ -27,10 +27,11 @@ import { pathToFileURL } from 'node:url'
 const P = '_claude-project'
 
 // What each check reads, so a change to it — or to a module it imports — replays it.
+const BLOCK_TYPES = [`${P}/skills/design-system/scripts/block-types.mjs`, `${P}/skills/design-system/references/block-types.md`]
 const CHECKS = [
-  { name: 'token check', files: [`${P}/skills/design-system/scripts/check-design-tokens.mjs`, `${P}/skills/claude-design/scripts/resolve.mjs`], run: tokenCheck },
+  { name: 'token check', files: [`${P}/skills/design-system/scripts/check-design-tokens.mjs`, `${P}/skills/claude-design/scripts/resolve.mjs`, ...BLOCK_TYPES], run: tokenCheck },
   { name: 'comparison tool', files: [`${P}/skills/design-system/scripts/compare-ui-values.mjs`, `${P}/skills/design-system/scripts/check-design-tokens.mjs`], run: compareTool },
-  { name: 'UI status check', files: [`${P}/skills/ui-patterns/scripts/check-ui-status.mjs`], run: statusCheck },
+  { name: 'UI status check', files: [`${P}/skills/ui-patterns/scripts/check-ui-status.mjs`, ...BLOCK_TYPES], run: statusCheck },
   { name: 'knip config', files: [`${P}/templates/knip.config.ts`], run: knipConfig },
   { name: 'check-stack', files: [`${P}/templates/scripts/check-stack.mjs`, `${P}/stack-manifest.json`], run: (o, n, c) => scriptCheck('check-stack.mjs', o, n, c) },
   { name: 'workspace tiers', files: [`${P}/templates/scripts/check-workspace-tiers.mjs`], run: (o, n, c) => scriptCheck('check-workspace-tiers.mjs', o, n, c) },
@@ -163,6 +164,8 @@ async function compareTool(OLD, NEW, consumer) {
 }
 
 async function statusCheck(OLD, NEW, consumer) {
+  // The check lists the project's files through git.
+  if (!existsSync(path.join(consumer, '.git'))) return { skip: 'not a git repository' }
   const rel = 'skills/ui-patterns/scripts/check-ui-status.mjs'
   const run = async (root) => (await import(pathToFileURL(path.join(root, rel)).href)).checkUiStatus(consumer)
   const now = await run(NEW)

@@ -4,8 +4,8 @@ paths: "{**/*.tsx,**/*.jsx}"
 
 # UI Inventory: What Already Exists (Zero Tolerance)
 
-**Read this list before composing a screen. Use what exists; never hand-roll
-anything listed here.**
+**Read this list before composing a screen. Name the block type you need, use this
+app's part of that type, and never hand-roll anything listed here.**
 
 ---
 
@@ -17,9 +17,12 @@ anything listed here.**
 
 ## How this list works
 
-- **It lists what exists — every pattern, component and hook, one line each on what
-  it is for — and nothing else.** A rule about how a kind of screen works goes in
-  that pattern's reference.
+- **It lists the building blocks — every pattern, part and hook, one line each on what
+  it is for — and nothing else.** A screen's content in its feature folder is never
+  listed. A rule about how a kind of screen works goes in that pattern's reference.
+- **Each part carries its block type** from the `design-system` skill's
+  `references/block-types.md`, or `<none>` when no type fits; a vendored atom carries
+  none. A second part of one type says on its line what sets it apart.
 - **Each pattern and component carries its status**, `approved` or `pending`, the
   same as the `ui-status` line in its file. Pending means built and not yet approved
   by the human.
@@ -46,10 +49,11 @@ Read the matching reference IN FULL before composing that kind of surface.
 <!-- project:begin components -->
 ### _[`@acme/ui/components/` — the project's own display vocabulary]_
 
-| Component | Use for | Status |
-|---|---|---|
-| _[`IconButton`]_ | _[**every** icon-only button; its required label feeds both `aria-label` and the tooltip]_ | _[approved]_ |
-| _[…]_ | _[one line each: what it is for]_ | |
+| Component | Use for | Type | Status |
+|---|---|---|---|
+| _[`ModalShell`]_ | _[screen content in a popup that ends with Close]_ | _[ModalShell]_ | _[approved]_ |
+| _[`IconButton`]_ | _[**every** icon-only button; its required label feeds both `aria-label` and the tooltip]_ | _[<none>]_ | _[approved]_ |
+| _[…]_ | _[one line each: what it is for]_ | | |
 
 ### _[`@acme/ui/components/ui/` — vendored atoms (shadcn or equivalent)]_
 
@@ -58,13 +62,13 @@ Read the matching reference IN FULL before composing that kind of surface.
 | _[`button`]_ | _[approved]_ |
 | _[…one row per installed atom…]_ | |
 
-### _[`@/components/` — app-level composites]_
+### _[`@/components/` — app-level parts]_
 
-| Component | Use for | Status |
-|---|---|---|
-| _[`form/FormActions`]_ | _[the submit control of every record form — gating, busy state and status wording in one place]_ | _[approved]_ |
-| _[`form/fields`]_ | _[the bound field set: label, hint and error wired to the form library]_ | _[approved]_ |
-| _[…]_ | | |
+| Component | Use for | Type | Status |
+|---|---|---|---|
+| _[`form/FormActions`]_ | _[the submit control of every record form — gating, busy state and status wording in one place]_ | _[FormActions]_ | _[approved]_ |
+| _[`form/fields`]_ | _[the bound field set: label, hint and error wired to the form library]_ | _[<none>]_ | _[approved]_ |
+| _[…]_ | | | |
 <!-- project:end components -->
 
 ## Hooks

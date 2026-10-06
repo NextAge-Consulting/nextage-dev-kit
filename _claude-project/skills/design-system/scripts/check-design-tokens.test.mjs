@@ -125,15 +125,26 @@ const BUTTON = `export function Button({ className, ...props }: { className?: st
 }
 `
 
+const PAGE = `export function Page({ children }: { children?: unknown }) {
+  return <main className="scroll-region bg-background text-foreground">{children}</main>
+}
+export function Lead({ children }: { children?: unknown }) {
+  return <p className="type-body font-strong leading-prose font-sans">{children}</p>
+}
+`
+
 const SCREEN = `import { Button } from "@acme/ui/components/button"
 import { Spinner } from "@acme/ui/components/spinner"
+import { Lead, Page } from "@acme/ui/components/page"
 export function Screen() {
   return (
-    <main className="scroll-region bg-background text-foreground">
-      <Button className="mt-2 w-full">Save</Button>
-      <Spinner className="size-4 text-primary" />
-      <p className="type-body font-strong leading-prose font-sans">x</p>
-    </main>
+    <Page>
+      <div className="flex flex-col gap-2 mt-4 w-full">
+        <Button className="mt-2 w-full">Save</Button>
+        <Spinner className="size-4 text-primary" />
+        <Lead>x</Lead>
+      </div>
+    </Page>
   )
 }
 `
@@ -149,6 +160,7 @@ function fixture(files = {}, { keys = KEYS } = {}) {
     'packages/ui/src/styles.css': STYLES,
     'packages/ui/src/components/button.tsx': BUTTON,
     'apps/web/src/screen.tsx': SCREEN,
+    'packages/ui/src/components/page.tsx': PAGE,
     'packages/ui/src/components/field.tsx': 'export const field = "rounded-panel border-input bg-field font-body font-strong font-sans bg-background leading-prose"\n',
     ...files,
   }
@@ -161,19 +173,20 @@ function fixture(files = {}, { keys = KEYS } = {}) {
 }
 
 const run = async (files, opts) => checkDesignTokens(fixture(files, opts))
-const screen = (body, imports = '') => ({ 'apps/web/src/screen.tsx': `${imports}\nexport function S() {\n  return ${body}\n}\n` })
+const PIECE = 'apps/web/src/components/piece.tsx'
+const screen = (body, imports = '') => ({ [PIECE]: `${imports}\nexport function S() {\n  return ${body}\n}\n` })
 
 test('a clean project passes and says how much it inspected', async () => {
   const { problems, counts, notes } = await run()
   assert.deepEqual(problems, [])
-  assert.equal(counts.sourceFiles, 3)
+  assert.equal(counts.sourceFiles, 4)
   assert.equal(counts.stylesheets, 3)
   assert.ok(counts.classesChecked > 10)
   assert.match(notes.join(' '), /no claude-design config/)
 })
 
 test('no source files fails instead of passing', async () => {
-  const { problems } = await run({ 'apps/web/src/screen.tsx': null, 'packages/ui/src/components/button.tsx': null, 'packages/ui/src/components/field.tsx': null })
+  const { problems } = await run({ 'apps/web/src/screen.tsx': null, 'packages/ui/src/components/page.tsx': null, 'packages/ui/src/components/button.tsx': null, 'packages/ui/src/components/field.tsx': null })
   assert.match(problems.at(-1), /scanned 0 source file\(s\).*nothing to check/)
 })
 
@@ -291,14 +304,14 @@ test('only class lists are read: imports, URLs, logger names and prop values are
     'const url = "https://example.com/tracking-parcel.html?tracking-id=1"',
     'export const S = () => <Button size="text-meta" className="text-sm" />',
   ].join('\n')
-  const { problems } = await run({ 'apps/web/src/screen.tsx': src })
+  const { problems } = await run({ [PIECE]: src })
   assert.deepEqual(problems.map((p) => p.split('  ')[1]), ['text-sm'])
 })
 
 test('a class constant is checked where it is declared, used here or in another file', async () => {
   const { problems } = await run({
     'apps/web/src/styles.ts': 'export const cell = "px-[10px]"\nexport const notClasses = "text-only"\n',
-    'apps/web/src/screen.tsx': 'import { cell } from "./styles"\nexport const S = () => <td className={cn(cell)} />\n',
+    [PIECE]: 'import { cell } from "./styles"\nexport const S = () => <td className={cn(cell)} />\n',
   })
   assert.deepEqual(problems.map((p) => p.split('  ')[1]), ['px-[10px]'])
 })
@@ -316,7 +329,7 @@ test('a function a class list calls is checked — directly, through a variable 
       'export const pad = (n: number) => (n ? "px-[3px]" : "")',
       'export function unused() { return "text-sm" }',
     ].join('\n'),
-    'apps/web/src/screen.tsx': 'import { toneFor, edge, pad } from "./tone"\nexport const S = () => {\n  const tone = toneFor(true)\n  return <Row toneClasses={tone} className={cn(edge(2), pad(1))} />\n}\n',
+    [PIECE]: 'import { toneFor, edge, pad } from "./tone"\nexport const S = () => {\n  const tone = toneFor(true)\n  return <Row toneClasses={tone} className={cn(edge(2), pad(1))} />\n}\n',
   })
   assert.deepEqual(problems.map((p) => p.split('  ')[1]).sort(), ['px-[3px]', 'rounded-lg', 'text-blue-500'])
 })
@@ -466,4 +479,81 @@ test('DESIGN_UI_PACKAGE missing: fails naming the key and both choices', async (
   const { problems } = await run({}, { keys })
   assert.equal(problems.length, 1)
   assert.match(problems[0], /DESIGN_UI_PACKAGE: not set .*set it to the UI package .*or set it to ""/)
+})
+
+const PAINTS = 'a screen or feature file'
+
+test('a screen or feature file places, arranges and picks text roles; a box it draws fails, wherever the file sits outside a part', async () => {
+  const body = '<div className="flex flex-col gap-2 mt-4 w-full md:grid-cols-2 type-body font-strong text-foreground uppercase border-t-2 border-input pt-4" />'
+  for (const file of ['apps/web/src/routes/orders.tsx', 'apps/web/src/features/orders/review.tsx', 'apps/web/src/features/orders/components/review.tsx']) {
+    const { problems } = await run({ [file]: `export const S = () => ${body}\n` })
+    const found = problems.filter((p) => p.includes(PAINTS))
+    assert.deepEqual(found.map((p) => p.split('  ')[1]), ['<div> border-t-2', '<div> border-input', '<div> pt-4'], file)
+  }
+})
+
+test('the same look inside a part passes', async () => {
+  const { problems } = await run({ 'apps/web/src/components/review-dialog.tsx': 'export const R = () => <div className="flex border-t-2 border-input pt-4" />\n' })
+  assert.deepEqual(problems.filter((p) => p.includes(PAINTS)), [])
+})
+
+test('a glyph a screen colours passes; a box drawn on a third-party component fails', async () => {
+  const { problems } = await run({
+    'apps/web/src/routes/orders.tsx': 'import { Check } from "lucide-react"\nimport { Link } from "@tanstack/react-router"\nexport const S = () => <><Check className="size-4 text-primary" /><Link className="text-primary mt-2 bg-primary px-4" to="/" /></>\n',
+  })
+  assert.deepEqual(problems.filter((p) => p.includes(PAINTS)).map((p) => p.split('  ')[1]), ['<Link> bg-primary', '<Link> px-4'])
+})
+
+test('a class constant is read at the call site — declared here or imported — and a repaint through it fails', async () => {
+  const { problems } = await run({
+    'apps/web/src/routes/orders.tsx': [
+      'import { Button } from "@acme/ui/components/button"',
+      'import { EDGE } from "./styles"',
+      "const DIVIDED = 'border-t-2 pt-4'",
+      'export const S = () => <><Button className={DIVIDED}>a</Button><Button className={cn(EDGE, "mt-2")}>b</Button><div className={DIVIDED} /></>',
+      '',
+    ].join('\n'),
+    'apps/web/src/routes/styles.ts': 'export const EDGE = "rounded-panel"\n',
+  })
+  const at = (p) => p.split('  ')[1]
+  assert.deepEqual(problems.filter((p) => p.includes('never repaints it')).map(at), ['<Button> border-t-2', '<Button> pt-4', '<Button> rounded-panel'])
+  assert.deepEqual(problems.filter((p) => p.includes(PAINTS)).map(at), ['<div> border-t-2', '<div> pt-4'])
+})
+
+test('a frame atom is imported only inside a part, and the finding names the block types that wrap it', async () => {
+  const { problems } = await run({
+    'apps/web/src/routes/orders.tsx': 'import { Dialog, DialogContent } from "@acme/ui/components/ui/dialog"\nimport * as Sheet from "@radix-ui/react-dialog"\nexport const S = () => null\n',
+    'apps/web/src/routes/ask.tsx': 'import { AlertDialog } from "@/components/ui/alert-dialog"\nimport { Button } from "@/components/ui/button"\nexport const S = () => null\n',
+    'apps/web/src/components/review-dialog.tsx': 'import { Dialog } from "@acme/ui/components/ui/dialog"\nexport const R = () => null\n',
+  })
+  const frames = problems.filter((p) => p.includes('a frame atom is used only inside a part'))
+  assert.equal(frames.length, 3)
+  assert.match(frames[0], /^apps\/web\/src\/routes\/ask\.tsx:1 {2}AlertDialog {2}— .*ConfirmDialog part/)
+  assert.match(frames[1], /^apps\/web\/src\/routes\/orders\.tsx:1 {2}Dialog {2}— .*ModalShell \/ EntityModal/)
+  assert.match(frames[2], /^apps\/web\/src\/routes\/orders\.tsx:2 {2}Dialog {2}/)
+})
+
+test('a template class list is read as its text and the strings in each ${…}; an icon bound from data is a glyph', async () => {
+  const { problems } = await run({
+    'apps/web/src/routes/orders.tsx': [
+      'export const S = ({ busy, item, Icon }) => <>',
+      '  <button className={`w-full mt-2 ${busy ? "opacity-50" : "hover:underline"}`} />',
+      '  <Icon className="size-4 text-primary" />',
+      '  <item.icon className="size-6 text-primary" />',
+      '</>',
+      '',
+    ].join('\n'),
+  })
+  assert.deepEqual(problems.filter((p) => p.includes(PAINTS)).map((p) => p.split('  ')[1]), ['<button> opacity-50'])
+})
+
+test('a screen names a semantic colour, unfaded: a palette colour or an opacity modifier fails', async () => {
+  const { problems } = await run({
+    'packages/ui/src/styles.css': STYLES.replace('--color-primary: var(--primary);', '--color-primary: var(--primary);\n  --color-blue: var(--blue);'),
+    'apps/web/src/routes/orders.tsx': 'export const S = () => <><p className="type-body text-primary hover:text-foreground">a</p><p className="text-blue">b</p><p className="text-foreground/60">c</p></>\n',
+  })
+  const found = problems.filter((p) => p.includes(PAINTS))
+  assert.deepEqual(found.map((p) => p.split('  ')[1]), ['<p> text-blue', '<p> text-foreground/60'])
+  assert.match(found[0], /never a palette one/)
+  assert.match(found[1], /never fades a colour/)
 })

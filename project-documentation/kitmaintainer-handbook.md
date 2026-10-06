@@ -960,7 +960,7 @@ Kit ships a placeholder template at `_claude-project/gitflow-project.conf` with 
 
 ### 11.3. UI inventory rule (synced as `merge` mode)
 
-**What it is.** A per-project rule at `.claude/rules/project/ui-inventory.md`, path-targeted to `{**/*.tsx,**/*.jsx}` so it auto-loads on every UI edit. It enumerates, as content rather than as references: the project's list/detail patterns and which to use when, every pattern reference file and what it governs, the components that already exist, and the standing prohibitions.
+**What it is.** A per-project rule at `.claude/rules/project/ui-inventory.md`, path-targeted to `{**/*.tsx,**/*.jsx}` so it auto-loads on every UI edit. It enumerates, as content rather than as references: the project's list/detail patterns and which to use when, every pattern reference file and what it governs, the parts that already exist with each one's block type, and the standing prohibitions. A screen's content in its feature folder is never on it.
 
 **Why it is not just another pointer.** `rules/ui-patterns.md` and `rules/ui-design.md` already auto-load on the same globs, and both tell the reader to go and open a skill. Following a pointer is a separate act, taken at the moment you already feel ready to write — so it is the step that gets skipped, and a screen ships that reinvents a list pattern and hand-rolls a submit control whose component was one import away. The inventory carries the names themselves, in the forced read, which is what removes "I did not know it existed" as a possibility.
 
@@ -1202,7 +1202,7 @@ Per the spec, `design.md` covers **atom-level styling** — buttons, chips, list
 - User flow patterns (auth flows, multi-step wizards)
 - Code organization conventions
 
-When the task is at one of those layers, the project's own codebase is the cookbook — find a similar production component, adapt the pattern. The design-system skill does not duplicate the cookbook content; it directs Claude to read existing code.
+When the task is at one of those layers, the project's own codebase is the cookbook — find a similar production component, adapt the pattern. The design-system skill does not duplicate the cookbook content; it directs Claude to read existing code, after naming the composite's block type (§12a.9).
 
 ### 12a.6. Bootstrap for new projects
 
@@ -1277,8 +1277,9 @@ release it uses, and what tells a reader whether a design is behind the system.
 
 **The token checker** is kit-owned: `skills/design-system/scripts/check-design-tokens.mjs`,
 run as `npm run lint:tokens`. It reads its paths from the `DESIGN_*` keys, checks
-classes, call sites, token resolution and light/dark parity, `design.md`'s references,
-and the generated files, prints how many files and classes it inspected, and fails when
+classes, call sites (through class constants too), screen and feature files that draw a
+box, name a palette or faded colour, or import a frame atom (§12a.9), token resolution and light/dark parity, `design.md`'s
+references, and the generated files, prints how many files and classes it inspected, and fails when
 that is nothing. A project's own extra checks go in
 `<DESIGN_UI_PACKAGE>/design-system/checks/*.mjs`, each a default-exported function the
 checker runs with the API its header documents.
@@ -1295,6 +1296,35 @@ review and two-person processes.
 companion to `gitflow-cheatsheet.md`.
 
 Template-only, like the rest of this subsystem.
+
+### 12a.9. Block types
+
+`skills/design-system/references/block-types.md` is the kit-owned vocabulary of building
+blocks a business app is made of — overlays, screen frames, record, collection, filtering
+and feedback types — each with a definition, how it ends or how you recognise it, the
+neighbour it is not, and for a frame the atom it wraps. It names kinds, never looks: each
+app designs its own part for each type, the first time a screen needs one.
+
+Three things read it. The design-system skill's Step 2 sorts every frame by its type
+before building. The UI status check fails an inventory line whose Type is neither on the
+list nor `<none>`, and a pattern reference whose `block-types:` names an unknown type
+(`cross-cutting` is the value for a pattern that governs every type). The token check reads
+the Wraps column as the frame atoms, which a screen or feature file may not import.
+
+The split it rests on: a part is a `.tsx` under a `components/` folder outside
+`features/`; everything else a source tree holds is a screen or a feature file. A screen
+places and arranges, and styles its own text from the semantic roles; it draws no box
+(background, border, radius, shadow, padding) and names no palette or faded colour —
+those come from parts. A palette colour is one whose token holds a literal value other
+tokens are built on. Screen content lives in `apps/<app>/src/features/<feature>/`.
+
+**A type joins the list when it appears in two consumer apps or two primary-source design
+systems** (Fiori, Salesforce Lightning, PatternFly, Carbon, Primer, Pajamas, Polaris,
+Atlassian, Fluent), and only as a kind a business app has — never a website section, an
+atom, a field or a chart. A part typed `<none>` in two consumer apps is the signal to
+consider one. Adding a type is a kit change like any other; renaming or removing one
+breaks every inventory line that names it, so it ships with the migration that renames
+them.
 
 ---
 

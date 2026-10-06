@@ -11,6 +11,26 @@ components, and `implement` turns it into the real screens — prework, never th
 
 ---
 
+## The layers
+
+| Layer | What it is | Decides | Example |
+|---|---|---|---|
+| 1. Token | A named value | What values exist | `type-body`, `text-error`, `rounded-notice` |
+| 2. Atom | One basic control or piece of text, built on tokens | How the smallest things look | Button, Input, Dialog, Heading, Text |
+| 3. Part | A building block made from atoms, with a block type (or `<none>`) | How a kind of thing looks | ErrorState, RecordHeader, ReviewDialog |
+| 4. Pattern | A written rule for how parts are assembled and behave | How screens of a kind work | browse layout, pagination |
+| 5. Screen | Arranges parts and fills them with content | Nothing visual | the orders screen |
+
+Which layer a look belongs to:
+
+- **Text styling only** — a type role and a text colour → an **atom**: a Heading or Text
+  variant named for what the text is.
+- **A surface around something** — background, border, padding, radius → a **part**; its
+  block type says which.
+- **How things are arranged or behave**, not how they look → a **pattern**.
+
+---
+
 ## The commands
 
 ```

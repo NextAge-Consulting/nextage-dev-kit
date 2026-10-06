@@ -29,7 +29,13 @@
  *              areas — off a role, arbitrary, or off the 4px grid;
  *   call sites a component imported from the project's component trees placed, never
  *              repainted or sized by magnitude (`size="sm"`); a raw <input>/<textarea>
- *              painting the field look;
+ *              painting the field look; a className naming a constant is read as the
+ *              constant's classes;
+ *   screens    a file outside a part — a route, a feature folder — places, arranges and
+ *              picks text roles: it draws no box (background, border, radius, shadow,
+ *              padding), names no palette colour and fades none, and imports no frame
+ *              atom (the Wraps column of references/block-types.md); a part is a .tsx
+ *              under a `components/` folder outside `features/`;
  *   names      every role — type, radius, weight, shadow, spacing, leading, tracking —
  *              named for what it is, never a size (`md`, `2xl`, `semibold`);
  *   tokens     every var() resolves, every token is reached, and the dark theme
@@ -49,6 +55,7 @@ import { existsSync, globSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parseTokenBlocks } from '../../claude-design/scripts/resolve.mjs'
+import { atomModule, readBlockTypes } from './block-types.mjs'
 
 export const KEYS = [
   'DESIGN_UI_PACKAGE', 'DESIGN_TOKEN_FILES', 'DESIGN_TYPE_FILE', 'DESIGN_STYLES_FILE', 'DESIGN_SOURCE_DIRS',
@@ -89,6 +96,49 @@ const PLACEMENT = new RegExp(
     ].join('|') +
     ')$',
 )
+/** What a screen or feature file may write on its own elements: placement, and the
+ * arrangement of the parts it holds — never a look. */
+const ARRANGEMENT = new RegExp(
+  '^(?:' +
+    [
+      'flex', 'inline-flex', 'grid', 'inline-grid', 'contents',
+      'flex-(?:row|col)(?:-reverse)?', 'flex-(?:wrap|nowrap|wrap-reverse)',
+      'items-.+', 'justify-.+', 'content-(?:start|end|center|between|around|evenly|stretch|normal|baseline)',
+      'place-(?:content|items)-.+', 'gap(?:-[xy])?-.+',
+      'grid-cols-.+', 'grid-rows-.+', 'grid-flow-.+', 'auto-cols-.+', 'auto-rows-.+',
+    ].join('|') +
+    ')$',
+)
+/** A token a class list can hold — never an operator or a stray quote. */
+const CLASS_SHAPE = /^!?-?[a-z0-9@*[][^\s'"`{}]*$/i
+/** Text styling a screen or feature file may choose — a role, emphasis, case, decoration —
+ * besides placement and arrangement. Its colour is checked on its own: semantic, unfaded. */
+const TEXT_STYLE = new RegExp(
+  '^(?:' +
+    [
+      'type-.+', 'font-.+', 'leading-.+', 'tracking-.+', 'italic', 'not-italic',
+      'uppercase', 'lowercase', 'capitalize', 'normal-case', 'underline', 'no-underline', 'line-through',
+      'underline-offset-.+', 'decoration-(?:solid|dotted|dashed|wavy|from-font|auto|\\d+)',
+      'tabular-nums', 'proportional-nums', 'lining-nums', 'oldstyle-nums', 'slashed-zero', 'ordinal',
+      'line-clamp-.+', 'text-(?:ellipsis|clip|wrap|nowrap|balance|pretty)', 'list-(?:none|disc|decimal|inside|outside)',
+      'cursor-.+', 'select-.+', 'transition-colors', 'duration-.+', 'antialiased', 'subpixel-antialiased',
+      'prose(?:-.+)?',
+      // arrangement and fit a screen decides: stacking, clipping, an image's fit, the page container
+      'space-[xy]-.+', 'overflow-(?:hidden|clip|visible)', 'object-.+', 'container', 'group(?:/.+)?', 'peer(?:/.+)?',
+      'flex-(?:shrink|grow)(?:-.+)?', 'resize(?:-.+)?', 'scroll-.+',
+    ].join('|') +
+    ')$',
+)
+/** A box: what a part draws and a screen never does. */
+const BOX = /^-?(?:bg-|border|rounded|shadow|p[xytrblse]?-|ring|outline|divide-)/
+/** Where a file sits: a part draws, a screen or feature file places, arranges and picks text roles. */
+export const isPart = (file) => {
+  const parts = file.split('/')
+  return parts.includes('components') && !parts.includes('features')
+}
+const isContent = (file) => file.endsWith('.tsx') && !isPart(file) && !/\.(test|spec|stories)\.tsx$/.test(file)
+/** Modules whose components are glyphs, painting in currentColor. */
+const GLYPH_MODULE = /(?:^|\/)icons?$|^lucide-react$|^@tabler\/icons-react$|^@heroicons\/|^@phosphor-icons\/|^@radix-ui\/react-icons$/
 const NOT_TEXT = /\stype="(?:radio|checkbox|file|hidden|range|color)"/
 /** A role name that is a size, not a thing: `md`, `2xl`, `base`, `semibold`, `tight`. */
 const MAGNITUDE_NAME = /^(?:\d*x[sl]|sm|md|lg|base|thin|extralight|light|normal|medium|semibold|bold|extrabold|black|tighter|tight|snug|relaxed|loose|wide|wider|widest)$/
@@ -168,10 +218,22 @@ export function* openingTags(src, pattern) {
         .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '')
         .replace(/[!=]==?\s*(["'`])[^"'`]*\1|(["'`])[^"'`]*\2\s*[!=]==?/g, '')
     }
-    const classes = []
-    for (const lit of value.matchAll(/"([^"]*)"|'([^']*)'|`([^`]*)`/g))
-      for (const cls of (lit[1] ?? lit[2] ?? lit[3]).split(/\s+/).filter(Boolean)) if (!cls.includes('${')) classes.push(cls)
-    yield { name: tag[1], open, line: src.slice(0, tag.index).split('\n').length, classes }
+    // A template's text and the strings inside each of its `${…}` are class lists; the
+    // expression around them (`x ? … : …`) is not.
+    const lists = []
+    for (const lit of value.matchAll(/"([^"]*)"|'([^']*)'|`([^`]*)`/g)) {
+      if (lit[3] === undefined) {
+        lists.push(lit[1] ?? lit[2])
+        continue
+      }
+      lists.push(lit[3].replace(/\$\{[^}]*\}/g, ' '))
+      for (const expr of lit[3].matchAll(/\$\{([^}]*)\}/g)) for (const q of expr[1].matchAll(/"([^"]*)"|'([^']*)'/g)) lists.push(q[1] ?? q[2])
+    }
+    const classes = lists.flatMap((l) => l.split(/\s+/)).filter((c) => CLASS_SHAPE.test(c))
+    // The bare names the className reads — a constant (`DIVIDED`), a map (`tone[x]`) —
+    // never a call (`cn(`) or a property after a dot.
+    const ids = [...value.replace(/"[^"]*"|'[^']*'|`[^`]*`/g, '').matchAll(/(?<![\w$.])[A-Za-z_$][\w$]*(?![\w$]*\s*\()/g)].map((m) => m[0])
+    yield { name: tag[1], open, line: src.slice(0, tag.index).split('\n').length, classes, ids }
   }
 }
 
@@ -223,6 +285,32 @@ function closeOf(src, start, open, close) {
 }
 
 /** The class-merge helpers whose arguments are class lists. */
+/** Every constant a file declares, with the classes in its initialiser — a string, a
+ * template, a class-merge call, an array or a map — so a className that names it is read
+ * as those classes. `exported` collects the ones another file may import. */
+export function constantClasses(src, exported = new Map()) {
+  const local = new Map()
+  for (const d of src.matchAll(/(\bexport\s+)?\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*/g)) {
+    const at = d.index + d[0].length
+    const ch = src[at]
+    let span = ''
+    if (ch === '"' || ch === "'" || ch === '`') span = src.slice(at, src.indexOf(ch, at + 1) + 1)
+    else if (ch === '[' || ch === '{' || ch === '(') span = src.slice(at, closeOf(src, at, ch, { '[': ']', '{': '}', '(': ')' }[ch]) + 1)
+    else {
+      const call = src.slice(at).match(/^(?:cn|clsx|twMerge|twJoin|cx)\s*\(/)
+      if (call) span = src.slice(at, closeOf(src, at + call[0].length - 1, '(', ')') + 1)
+    }
+    if (!span) continue
+    const classes = []
+    for (const lit of span.matchAll(/"([^"]*)"|'([^']*)'|`([^`]*)`/g))
+      for (const cls of (lit[1] ?? lit[2] ?? lit[3]).split(/\s+/).filter(Boolean)) if (!cls.includes('${')) classes.push(cls)
+    if (!classes.length) continue
+    local.set(d[2], classes)
+    if (d[1]) exported.set(d[2], classes)
+  }
+  return local
+}
+
 const CLASS_CALLS = /\b(?:cn|clsx|cva|tv|twMerge|twJoin|cx)\s*\(/g
 
 /**
@@ -360,6 +448,21 @@ export async function checkDesignTokens(repo, { keys: given } = {}) {
   for (const [, s] of css) for (const m of s.matchAll(/--([a-z0-9-]+)\s*:/g)) themeDecls.push(m[1])
   const themeKeys = (prefix) => new Set(themeDecls.filter((k) => k.startsWith(`${prefix}-`)).map((k) => k.slice(prefix.length + 1)))
   const colours = themeKeys('color')
+  // A palette colour: a literal value other tokens build on (the ramp under the semantic
+  // aliases), reached by a colour role. Screens name the alias.
+  const decl = new Map()
+  // A declaration that only re-exports itself (Tailwind's `--x: var(--x)` idiom) is not its value.
+  for (const [, s] of css)
+    for (const m of s.matchAll(/(--[A-Za-z0-9-]+)\s*:\s*([^;]+);/g)) if (!decl.has(m[1]) && m[2].trim() !== `var(${m[1]})`) decl.set(m[1], m[2].trim())
+  const primitive = new Set()
+  for (const c of colours) {
+    const own = decl.get(`--color-${c}`) ?? ''
+    const target = own.match(/^var\((--[A-Za-z0-9-]+)\)$/)?.[1] ?? `--color-${c}`
+    const value = decl.get(target) ?? ''
+    if (!value || /^(?:var|color-mix)\(/.test(value)) continue
+    const built = [...decl].some(([n, v]) => n !== target && n !== `--color-${c}` && v.includes(`var(${target})`))
+    if (built) primitive.add(c)
+  }
   const radiusRoles = themeKeys('radius')
   const weightRoles = themeKeys('font-weight')
   const fontFamilies = new Set([...themeKeys('font')].filter((k) => !k.startsWith('weight-')))
@@ -486,43 +589,91 @@ export async function checkDesignTokens(repo, { keys: given } = {}) {
   }
 
   // --- a call site places a component; it never repaints it ------------------
+  // A className naming a constant is read as the constant's classes, whether the
+  // file declares it or imports it from another.
+  const exportedConsts = new Map()
+  const fileConsts = new Map([...sources].map(([f, s]) => [f, constantClasses(s, exportedConsts)]))
+  let blockTypes = { frames: new Map() }
+  try {
+    blockTypes = readBlockTypes()
+  } catch (err) {
+    problems.push(`${err.message} — the frame-atom rule cannot run`)
+  }
+  const frameModules = new Map([...blockTypes.frames].map(([atom, types]) => [atomModule(atom), { atom, types }]))
   const fieldClass = (cls) => /^rounded-(?!none$).+/.test(cls) || fieldLook.has(cls)
+  // A screen or feature file arranges parts and picks text roles; a box it draws, a
+  // palette colour or a faded one is a look that belongs in a part.
+  const screenFinding = (base) => {
+    if (BOX.test(base)) return 'a screen or feature file draws no box; a background, border, radius, shadow or padding comes from a part (block-types.md)'
+    const colour = base.match(/^text-(.+?)(\/\d+)?$/)
+    if (colour && colours.has(colour[1])) {
+      if (colour[2]) return 'a screen or feature file never fades a colour; a muted look is a semantic colour'
+      if (primitive.has(colour[1])) return 'a screen or feature file names a semantic colour, never a palette one'
+      return null
+    }
+    if (PLACEMENT.test(base) || ARRANGEMENT.test(base) || TEXT_STYLE.test(base)) return null
+    return 'a screen or feature file places, arranges and picks text roles; this look belongs in a part (block-types.md)'
+  }
+  const placesOnly = (file, t, classes) => {
+    for (const cls of classes) {
+      classesChecked++
+      const why = screenFinding(cls.split(':').pop())
+      if (why) add(`${file}:${t.line}`, `<${t.name}> ${cls}`, why)
+    }
+  }
   for (const [file, src] of sources) {
     if (!file.endsWith('.tsx')) continue
     const isVendored = vendored && file.startsWith(vendored)
+    const consts = fileConsts.get(file)
+    const classesOf = (t) => [...t.classes, ...t.ids.flatMap((id) => consts.get(id) ?? exportedConsts.get(id) ?? [])]
     if (!isVendored || restyled) {
       for (const t of openingTags(src, /<(input|textarea)\b/g)) {
         if (NOT_TEXT.test(t.open)) continue
-        for (const cls of t.classes) {
+        for (const cls of classesOf(t)) {
           classesChecked++
           if (fieldClass(cls.split(':').pop())) add(`${file}:${t.line}`, `<${t.name}> ${cls}`, "a text field's look is the field atom's; render Input/Textarea")
         }
       }
     }
     if (isVendored) continue
+    const content = isContent(file)
+    // Every import form — named, default, namespace — of a frame atom's module.
+    if (content)
+      for (const m of src.matchAll(/\bimport\s[^'"]*?from\s*["']([^"']+)["']/g)) {
+        const frame = frameModules.get(m[1].split('/').pop()) ?? frameModules.get(m[1].replace(/^@radix-ui\/react-/, ''))
+        if (frame)
+          add(`${file}:${src.slice(0, m.index).split('\n').length}`, frame.atom, `a frame atom is used only inside a part; build or use the ${frame.types.join(' / ')} part (block-types.md)`)
+      }
     const ours = new Set()
+    const glyphs = new Set()
     for (const m of src.matchAll(/import\s+(?:type\s+)?(?:(\w+)\s*,?\s*)?(?:\{([^}]*)\})?\s*from\s*["']([^"']+)["']/g)) {
       const from = m[3]
-      // Glyph modules paint in currentColor; a relative import outside the
-      // component trees is a route module, not a component.
-      if (/icons?$/.test(from)) continue
-      if (from.startsWith('.') ? !/components\//.test(file) && !/\/components\//.test(from) : !/(^|\/)components\//.test(from)) continue
-      if (m[1] && /^[A-Z]/.test(m[1])) ours.add(m[1])
-      for (const n of (m[2] ?? '').split(',')) {
-        const name = n.trim().replace(/^type\s+/, '').split(/\s+as\s+/).pop()
-        if (name && /^[A-Z]/.test(name)) ours.add(name)
+      const names = [m[1], ...(m[2] ?? '').split(',').map((n) => n.trim().replace(/^type\s+/, '').split(/\s+as\s+/).pop())].filter((n) => n && /^[A-Z]/.test(n))
+      // Glyph modules paint in currentColor; their caller naming the colour is the design.
+      if (GLYPH_MODULE.test(from)) {
+        for (const n of names) glyphs.add(n)
+        continue
       }
+      // A relative import outside the component trees is a route module, not a component.
+      if (from.startsWith('.') ? !/components\//.test(file) && !/\/components\//.test(from) : !/(^|\/)components\//.test(from)) continue
+      for (const n of names) ours.add(n)
     }
-    if (!ours.size) continue
     for (const t of openingTags(src, /<([A-Z][\w.]*)\b/g)) {
-      if (!ours.has(t.name) || exempt.has(t.name)) continue
-      for (const cls of t.classes) {
+      // A glyph — imported from an icon set, or an icon bound from a map (`Icon`, `item.Icon`).
+      if (exempt.has(t.name) || glyphs.has(t.name) || /(?:^|\.)\w*Icon$/.test(t.name)) continue
+      if (!ours.has(t.name)) {
+        if (content) placesOnly(file, t, classesOf(t))
+        continue
+      }
+      for (const cls of classesOf(t)) {
         classesChecked++
         if (!PLACEMENT.test(cls.split(':').pop())) add(`${file}:${t.line}`, `<${t.name}> ${cls}`, 'a call site places a component, never repaints it; add a variant')
       }
       const size = t.open.match(MAGNITUDE_SIZE)
       if (size) add(`${file}:${t.line}`, `<${t.name}> size="${size[1] ?? size[2]}"`, 'a size named by magnitude; the component names the role (a size or variant for what the control is), and a call site never picks how big it is')
     }
+    // A lowercase tag is an element; `<item.icon>` is a component bound from data, a glyph.
+    if (content) for (const t of openingTags(src, /<([a-z][\w-]*)\b(?!\.)/g)) placesOnly(file, t, classesOf(t))
   }
 
   // --- the tokens those roles rest on resolve… ------------------------------

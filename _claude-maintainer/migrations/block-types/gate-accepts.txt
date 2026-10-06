@@ -1,0 +1,13 @@
+# Findings the kit gate's replay accepts while this migration ships: the block-type rules
+# raise them in every project with UI, and the migration's steps resolve each kind.
+a screen or feature file draws no box
+a screen or feature file never fades a colour
+a screen or feature file names a semantic colour, never a palette one
+a screen or feature file places, arranges and picks text roles
+a frame atom is used only inside a part
+a call site places a component, never repaints it
+a text field's look is the field atom's
+has no block type
+no block-types line
+which is not on the block-type list
+has a status but no component or pattern file is named that

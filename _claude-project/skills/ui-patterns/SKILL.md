@@ -67,7 +67,8 @@ codebase does not belong in one.
 ## How to use it
 
 1. **Look in `references/`** — one file per pattern, named for the pattern, first
-   line summarising it. Read the matching one **before** implementing.
+   line summarising it. Read the matching one **before** implementing, and every
+   reference whose `block-types:` names the block type you are building.
 2. **No reference for what you need? Research primary sources first.**
    Real design systems — GitHub Primer, Nielsen Norman, GitLab Pajamas, Material,
    PatternFly, Oracle's grid guidance — not model memory. Then build it, write its
@@ -123,5 +124,9 @@ cut it.
 ## Adding a reference
 
 One file per pattern in this project's `references/`, which the kit ships empty
-and a sync never overwrites. Open with frontmatter carrying its `ui-status`, lead
-with a one-line summary of the rule, then the rules themselves. Keep it short.
+and a sync never overwrites, named for what it governs — `row-actions.md`, never the
+project's own data. Open with frontmatter carrying its `ui-status` and its
+`block-types:` — the types from the `design-system` skill's `references/block-types.md`
+it governs, as a list (`[BrowseScreen, Pager]`), or `cross-cutting` when it governs
+every type. Lead with a one-line summary of the rule, then the rules themselves. Keep
+it short.

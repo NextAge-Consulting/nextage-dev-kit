@@ -26,6 +26,8 @@ This rule is path-targeted because JSX and TSX consume tokens, CSS and SCSS hold
 
 **Check every UI change at phone, tablet and desktop widths** — horizontal space on a phone, text that overflows or wraps, how grid and flex layouts shift across the `sm:` / `md:` / `lg:` / `xl:` breakpoints.
 
+**Name the block type of every frame before you build it** — a dialog, drawer, header, toolbar, row or screen layout — from the `design-system` skill's `references/block-types.md`. Use this app's part of that type; the first frame of a type builds the part. A screen or feature file then arranges parts and styles its own text from the semantic roles; a box it needs — background, border, radius, shadow, padding — is a part's.
+
 **A change the human asks for is made in the part** — the token, component or pattern — never on one screen, and you tell them what else it changes before you make it.
 
 **A change that leaves what the user sees exactly the same needs no review and no approval.** Prove it first with `node .claude/skills/design-system/scripts/compare-ui-values.mjs`; only what it lists as changed goes to the human.
@@ -36,9 +38,9 @@ This rule is path-targeted because JSX and TSX consume tokens, CSS and SCSS hold
 
 `design.md` is the authority for what the design system contains, and it is not auto-loaded — this rule is. So a component can exist, be specified, and still get hand-rolled, because nothing put its name in front of whoever wrote the screen.
 
-The project's `rules/project/ui-inventory.md` — path-targeted to the same globs — carries the list of components that exist, one line each on what they are for. `design.md` keeps the spec; the inventory answers "does this already exist", which is the question actually being got wrong.
+The project's `rules/project/ui-inventory.md` — path-targeted to the same globs — carries the list of components that exist, one line each on what they are for and which block type each one is. `design.md` keeps the spec; the inventory answers "does this already exist", which is the question actually being got wrong.
 
-Add a new component to both, in the same change as the component itself, with its status.
+Add a new component to both, in the same change as the component itself, with its block type and status.
 
 ## Authority chain
 

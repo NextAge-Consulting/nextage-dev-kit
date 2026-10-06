@@ -48,11 +48,17 @@ This is a search you run every time. No hardcoded paths, no per-project list —
 3. **Read the top 1–3 matches in full.** Extract the *real* patterns: every class they use for elevation, hover, transition/animation, borders, and spacing — not just the color tokens. This is the step that carries the feel.
 4. **Build from those patterns** — the tokens, the construction (how a card/row/chip is assembled), the status language, the motion idioms. Where exemplars differ, take the most polished one, never the average or the oldest.
 
+**Split what you build into frame and content before writing it.** The frame — a dialog, a drawer, a header, a toolbar, a row, a screen's layout — is a part. The content is what this screen puts in it: wording, data, server calls, the arrangement of parts.
+
+**Sort every frame by its block type** — read `references/block-types.md` and follow its "Sort before you build". Name the type, use this app's part of that type, and when it has none, build that part now, from this first use. Parts are one per type, so a new screen usually adds none and nothing to approve.
+
 **Where the system covers the piece, use it as it is.** An improvement you would make to how it looks is a proposal to the human, never a local restyle at this one site.
 
 **Where nothing fits, build the new piece and keep going.** Research how primary-source design systems handle it — never invent from `design.md` prose alone. Build it from the existing tokens and components as a real part — a token, a component or variant, a pattern reference — and mark it pending. Never stop the work to ask about each one; the review below is where the human sees them.
 
-**A token, a variant, a pattern, or anything a second screen uses is a part.** A layout block only one screen uses stays in that screen's file and is not a part; it still takes every value from a token. When a second screen needs it, it becomes a part.
+**A screen or feature file draws no box.** It places and arranges what it holds — margin, width, its slot in a flex or grid, `gap` — and styles its own text freely from the semantic roles: a type role, a weight, a semantic text colour. A background, border, radius, shadow or padding is a box, and a box comes from a part: the part of its block type, or a part typed `<none>` when no type covers it. Colour in a screen is always a semantic role, never a palette colour and never faded with an opacity modifier. Approval is still one review at the end of the work, never a stop per screen.
+
+**Screen content lives in its feature's folder, `apps/<app>/src/features/<feature>/`**, and a `components/` folder holds parts only. Content carries no status and no inventory line. A piece that fits no block type and draws no box stays in the feature folder; when a second screen needs it, it becomes a part typed `<none>`.
 
 **Changing how an approved part looks or behaves — a new variant included — sets it to pending**, unless the human asked for that change. A change `compare-ui-values.mjs` proves leaves every value the same stays approved.
 
@@ -70,7 +76,7 @@ The same words everywhere, so one search finds them all:
 - a component — `// ui-status: pending` as its first line;
 - a pattern reference — `ui-status: pending` in its frontmatter;
 - a token — in its comment: `/* a hover fill inside a card · ui-status: pending */`;
-- the UI inventory — the same status on a component's or pattern's line, added in the same change as the part.
+- the UI inventory — the same status on a component's or pattern's line, with a component's block type, added in the same change as the part.
 
 Every component and pattern carries one, `approved` or `pending`; an approved token carries none.
 
@@ -78,7 +84,7 @@ Every component and pattern carries one, `approved` or `pending`; an approved to
 
 **First prove what did not change.** `node .claude/skills/design-system/scripts/compare-ui-values.mjs [--base <ref>]` resolves the classes on every changed line, before and after, through the project's own Tailwind build, and lists only the values a user would see differently — grouped, with file and line — plus any line it could not compare. A line it proves identical needs no review. It resolves every value in light and dark mode, and lists a style that leaves one line and arrives unchanged on another — a shared look pulled into one place — as moved, not changed.
 
-**At the end of a body of work — a feature, a conversion, a mockup session, and at the latest before `/deploy` — walk the human through every pending part and every change the comparison lists.** List them with `node .claude/skills/ui-patterns/scripts/check-ui-status.mjs`, each with the screens that use it. Each one the human approves becomes `approved`, in its file and on its inventory line. One they reject is replaced by an existing part, or folded back into the screens that use it. `/deploy` refuses while anything is pending.
+**At the end of a body of work — a feature, a conversion, a mockup session, and at the latest before `/deploy` — walk the human through every pending part and every change the comparison lists.** List them with `node .claude/skills/ui-patterns/scripts/check-ui-status.mjs`, each with the screens that use it. Each one the human approves becomes `approved`, in its file and on its inventory line. One they reject is replaced by an existing part, or changed until they approve it. `/deploy` refuses while anything is pending.
 
 ### Step 3: Identify the right tokens for the task
 
@@ -118,7 +124,7 @@ If the lint fails for a reason that isn't your edit (pre-existing issue), surfac
 
 **Stateful atoms and computed tokens go in prose, not the YAML.** The `components:` YAML accepts only the spec's fixed property set (`backgroundColor`, `textColor`, `typography`, `rounded`, `padding`, `size`, `height`, `width`). Stateful atoms (tone maps, rings, variant escalation) and computed tokens don't fit those and will fail `lint:design` — describe them in `design.md` prose instead.
 
-**Don't run checks during pre-approval UI iteration.** While iterating on layout, don't run tsc / biome / screenshots / `lint:design` after each tweak — the human inspects live via HMR. Do the reconciliation pass and run the checks once, when the iteration settles. The reconciliation pass is: tokenize raw values, document new patterns in `design.md`, **and if the work produced a reusable component, add it to `design.md`'s component section AND to the project's UI inventory rule, with its status — in that same pass,** with the `rule-authoring` skill invoked for the inventory line.
+**Don't run checks during pre-approval UI iteration.** While iterating on layout, don't run tsc / biome / screenshots / `lint:design` after each tweak — the human inspects live via HMR. Do the reconciliation pass and run the checks once, when the iteration settles. The reconciliation pass is: tokenize raw values, document new patterns in `design.md`, **and if the work produced a reusable component, add it to `design.md`'s component section AND to the project's UI inventory rule, with its status — in that same pass,** with its block type, with the `rule-authoring` skill invoked for the inventory line.
 
 ## The build-from gate (non-negotiable)
 
@@ -129,8 +135,8 @@ Built from: <path(s) to the existing component(s)/screen(s) you matched in Step 
 ```
 
 - Matched an analog → cite the exact path(s).
-- Built a new part → cite the analog and name the part: `Built from: <path> (new, pending: <token, component, variant or pattern>)`.
-- Kept a piece in its one screen → `Built from: <path> (in-screen: <the piece>)`.
+- Built a new part → cite the analog and name the part with its block type: `Built from: <path> (new, pending: ReviewDialog <the part>)`.
+- Kept a piece in its feature folder → `Built from: <path> (content: <the piece>)`.
 - Nothing similar exists → `Built from: none — new, pending: <the part>`, naming the primary sources researched.
 
 No citation means Step 2 didn't happen and the work is **incomplete** — the same standard as shipping a signature change without the caller scan. This gate exists because "ground in the real components" only sticks when it's *cited*, not merely encouraged: the constitution's caller-scan attestation (§XIV) works for exactly this reason. An uncited UI change is presumed to have been invented from prose, and prose produces off-brand output.
@@ -193,6 +199,8 @@ failure one level up.
 - **A variant is complete.** It carries every visual property — padding, size,
   colour, type, radius, border — and every state: hover, disabled, selected,
   read-only. It never expects a caller to finish it.
+- **A class held in a constant is the call site's class.** `className={DIVIDED}` is
+  read as the constant's classes, and the rules below apply through it.
 - **A call site's `className` places the component and nothing else**: margin,
   width and height, its share of a flex or grid row, position, text alignment.
   Padding, a fixed size, colour, type, border or radius at a call site is a variant
@@ -276,8 +284,10 @@ what makes the rule real; without one it is a preference.
 `.claude/skills/design-system/scripts/check-design-tokens.mjs`, and CI runs it whenever
 `design.md` exists.** It reads the roles live from the stylesheets and the project's
 paths and named sets from the design keys in `.claude/sync-substitutions.json`, and
-fails on a class off a role, a call site repainting a component, a raw field painting
-the field look, a token that resolves to nothing or that nothing reaches, a light/dark
+fails on a class off a role, a call site repainting a component (through a constant
+too), a screen or feature file drawing a box or naming a palette or faded colour, a frame
+atom imported outside a part, a
+raw field painting the field look, a token that resolves to nothing or that nothing reaches, a light/dark
 mismatch, `design.md` naming what does not exist, and a stale generated file.
 
 - **Name the exemptions in the keys, never in code.** Vendored atoms are
@@ -359,7 +369,7 @@ An app's own composites never enter the design system and may use anything. The
 - User flow patterns (auth flows, multi-step wizards)
 - Code organization (shared constants, file structure)
 
-Everything on that list is exactly what **Step 2 (Ground in the existing implementation)** handles: the project's own codebase is the authoritative cookbook for composites, interaction, flows, and look-and-feel. That is not an optional fallback for "harder" tasks — it is the mandatory, cited step for *every* composite UI task (see the build-from gate above). `design.md` owns tokens and atoms; the real components own everything else. Find the analog and build from it; where none exists, Step 2 says how the new piece is built and approved.
+Everything on that list is exactly what **Step 2 (Ground in the existing implementation)** handles: the project's own codebase is the authoritative cookbook for composites, interaction, flows, and look-and-feel. That is not an optional fallback for "harder" tasks — it is the mandatory, cited step for *every* composite UI task (see the build-from gate above). `design.md` owns tokens and atoms; `references/block-types.md` names the kinds of composite; the real components own everything else. Find the analog and build from it; where none exists, Step 2 says how the new piece is built and approved.
 
 ## Brand voice and tone
 
@@ -373,6 +383,7 @@ These vary per project; check `design.md`'s prose for the actual paths. Typical 
 - `<project-root>/<ui-home>/src/styles.css` — Tailwind v4 `@theme` block where tokens are declared as CSS variables
 - `<project-root>/<ui-home>/src/components/ui/` — shadcn atoms (button, input, label, dialog, etc.)
 - `<project-root>/<ui-home>/src/lib/utils.ts` — `cn()` utility
+- `<project-root>/apps/<app>/src/features/<feature>/` — a screen's content, beside the routes that use it
 
 `<ui-home>` is where the project keeps its **client-clean** UI — either **per-app** (`apps/<app>/`) or a **dedicated client-only UI workspace** (`packages/ui/`) consumed by every front-end app. Which one is a project choice; check `design.md` / the project's rules. Either way the client/server wall in `ui-design.md` is a hard rule: the UI home holds no server/DB code.
 

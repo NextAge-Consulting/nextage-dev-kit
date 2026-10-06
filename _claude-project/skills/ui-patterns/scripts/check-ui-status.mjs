@@ -4,8 +4,8 @@
  *
  *   node .claude/skills/ui-patterns/scripts/check-ui-status.mjs
  *
- * Every component (a .tsx under a `components/` folder) and every pattern reference
- * (.claude/skills/ui-patterns/references/*.md) carries exactly one line
+ * Every component (a .tsx under a `components/` folder outside `features/`) and every
+ * pattern reference (.claude/skills/ui-patterns/references/*.md) carries exactly one line
  * `ui-status: approved` or `ui-status: pending`. A token awaiting approval carries
  * `ui-status: pending` in its comment. The UI inventory
  * (.claude/rules/project/ui-inventory.md) lists every component and pattern with the
@@ -16,7 +16,11 @@
  *   unmarked    a component or pattern with no status line, more than one, or an
  *               unknown value;
  *   catalogue   a component or pattern the inventory does not list, a line whose
- *               status differs from its file's, or a status line naming no file.
+ *               status differs from its file's, or a status line naming no file;
+ *   block type  a component's line — every component but a vendored atom — with no
+ *               Type, or one not on the design-system skill's references/block-types.md
+ *               and not `<none>`; a pattern with no `block-types:` frontmatter line, or
+ *               one naming a type not on the list and not `cross-cutting`.
  *
  * /deploy refuses while it fails; /work and /handoff run it to show what awaits
  * review. Prints what it inspected, and passes saying it does not apply when the
@@ -27,6 +31,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { CROSS_CUTTING, NO_TYPE, readBlockTypes } from '../../design-system/scripts/block-types.mjs'
 
 export const INVENTORY = '.claude/rules/project/ui-inventory.md'
 const REFERENCES = '.claude/skills/ui-patterns/references/'
@@ -48,7 +53,24 @@ function repoFiles(repo) {
 export function isComponent(file) {
   if (!file.endsWith('.tsx') || /\.(test|spec|stories)\.tsx$/.test(file)) return false
   const parts = file.split('/')
-  return parts.includes('components') && !parts.includes('node_modules')
+  // A feature folder holds one screen's content, never a part — whatever it names a subfolder.
+  return parts.includes('components') && !parts.includes('features') && !parts.includes('node_modules')
+}
+
+/** A vendored atom, which carries no block type: under DESIGN_VENDORED_DIR, or a
+ * `components/ui/` folder when the key is not set. */
+function atomTest(repo) {
+  const file = path.join(repo, '.claude/sync-substitutions.json')
+  const dir = existsSync(file) ? String(JSON.parse(readFileSync(file, 'utf8')).DESIGN_VENDORED_DIR ?? '').trim().replace(/\/$/, '') : ''
+  return dir ? (f) => f.startsWith(`${dir}/`) : (f) => f.includes('components/ui/')
+}
+
+/** A pattern's `block-types:` frontmatter value as a list, or null when it has none. */
+export function patternBlockTypes(text) {
+  const front = text.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? ''
+  const line = front.match(/^block-types:\s*(.*)$/m)
+  if (!line) return null
+  return line[1].replace(/[[\]]/g, '').split(',').map((t) => t.trim()).filter(Boolean)
 }
 
 /** A pattern reference: any .md directly under references/ except the kit's own README. */
@@ -77,16 +99,26 @@ function statuses(text) {
   return found
 }
 
-/** Inventory table rows: the first backticked name in the first cell, and a status cell if any. */
+/** Inventory table rows: the first backticked name in the first cell, a status cell if
+ * any, and the cell under a `Type` header when the table has one. */
 export function catalogueRows(text) {
   const rows = []
+  let header = null
   text.split('\n').forEach((line, i) => {
-    if (!line.trimStart().startsWith('|') || /^\s*\|[\s:|-]+\|\s*$/.test(line)) return
+    if (!line.trimStart().startsWith('|')) {
+      header = null
+      return
+    }
+    if (/^\s*\|[\s:|-]+\|\s*$/.test(line)) return
     const cells = line.split('|').slice(1, -1).map((c) => c.trim())
     const name = cells[0]?.match(/`([^`]+)`/)?.[1]
-    if (!name) return
+    if (!name) {
+      header ??= cells.map((c) => c.replace(/[*_]/g, '').trim())
+      return
+    }
     const status = cells.slice(1).map((c) => c.replace(/[*_]/g, '').trim().toLowerCase()).find((c) => VALUES.has(c))
-    rows.push({ name, status, line: i + 1 })
+    const at = header ? header.indexOf('Type') : -1
+    rows.push({ name, status, line: i + 1, ...(at > 0 ? { type: cells[at]?.replace(/[`*]/g, '').trim() ?? '' } : {}) })
   })
   return rows
 }
@@ -99,6 +131,13 @@ export function checkUiStatus(repo, { files = repoFiles(repo) } = {}) {
   const pending = []
   const problems = []
   const statusOf = new Map()
+  const isAtom = atomTest(repo)
+  let types = null
+  try {
+    types = readBlockTypes().names
+  } catch (err) {
+    problems.push(`${err.message} — block types cannot be checked`)
+  }
 
   for (const f of parts) {
     const found = statuses(readFileSync(path.join(repo, f), 'utf8'))
@@ -109,6 +148,13 @@ export function checkUiStatus(repo, { files = repoFiles(repo) } = {}) {
       statusOf.set(f, found[0].value)
       if (found[0].value === 'pending') pending.push(`${f} (${isPattern(f) ? 'pattern' : 'component'})`)
     }
+  }
+
+  for (const f of parts.filter(isPattern)) {
+    const named = patternBlockTypes(readFileSync(path.join(repo, f), 'utf8'))
+    if (!named?.length) problems.push(`${f}: no block-types line — list the block types it governs in its frontmatter, or ${CROSS_CUTTING}`)
+    else if (types)
+      for (const t of named) if (t !== CROSS_CUTTING && !types.has(t)) problems.push(`${f}: block-types names \`${t}\`, which is not on the block-type list`)
   }
 
   for (const f of stylesheets) {
@@ -134,6 +180,10 @@ export function checkUiStatus(repo, { files = repoFiles(repo) } = {}) {
     if (matches.length === 0) {
       if (row.status) problems.push(`${INVENTORY}:${row.line}: \`${row.name}\` has a status but no component or pattern file is named that`)
       continue
+    }
+    if (kind === isComponent && matches.some((f) => !isAtom(f))) {
+      if (!row.type) problems.push(`${INVENTORY}:${row.line}: \`${row.name}\` has no block type — name its type from the block-type list in a Type column, or ${NO_TYPE}`)
+      else if (types && row.type !== NO_TYPE && !types.has(row.type)) problems.push(`${INVENTORY}:${row.line}: \`${row.name}\` names block type \`${row.type}\`, which is not on the block-type list`)
     }
     for (const f of matches) {
       listed.add(f)

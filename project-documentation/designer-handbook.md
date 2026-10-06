@@ -15,7 +15,10 @@ The project's look is defined once, in code, and everything else reads from it:
 - **The token stylesheet** holds the same values in the form the browser uses. If the two
   disagree, the stylesheet wins, and `design.md` gets corrected.
 - **The components** in the project's UI package are the building blocks every screen is
-  made of. The UI inventory lists them, and Claude reads it before building any screen.
+  made of. Each is one of a standard list of block types — a review dialog, a record
+  header, a browse toolbar — and an app has one per type, built the first time a screen
+  needs it. The UI inventory lists them with their type, and Claude reads it before
+  building any screen.
 
 Claude won't style a screen in a project that has no `design.md`. That refusal is what
 stops a design from drifting one screen at a time.
@@ -26,7 +29,7 @@ Claude builds screens from what the system already has. When a screen needs some
 the system lacks (a component, a variant, a token, a pattern), Claude builds it and keeps
 going, marking it **pending** rather than stopping to ask. You review everything pending
 together, at the end of the work: each piece is approved, swapped for an existing part, or
-folded back into its one screen.
+changed until you approve it.
 
 - `/work` lists what is pending at the start of each session, and `/handoff` tells you how
   many are left when you finish.

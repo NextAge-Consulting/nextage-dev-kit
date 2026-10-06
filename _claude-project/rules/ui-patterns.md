@@ -16,14 +16,14 @@ Skill({skill: "ui-patterns"})
 
 ## The project keeps an inventory
 
-Every project maintains `rules/project/ui-inventory.md`, with the same `paths:` frontmatter as this file: the list of every pattern, component and hook the project has, one line each, with each pattern's and component's status. Read it before composing a screen, and update it in the same change that adds a pattern or a component.
+Every project maintains `rules/project/ui-inventory.md`, with the same `paths:` frontmatter as this file: the list of every pattern, part and hook the project has, one line each, with each part's block type and each pattern's and part's status. Screen content in a feature folder is not on it. Read it before composing a screen, and update it in the same change that adds a pattern or a part.
 
 ## Name the pattern while agreeing the work
 
-**Name a screen's pattern in the plan document, in the sentence that agrees the screen.** A plan deliverable that produces a screen, dialog, panel or report names its pattern.
+**Name a screen's block type and pattern in the plan document, in the sentence that agrees the screen.** A plan deliverable that produces a screen, dialog, panel or report names both.
 
 - **Writing a plan** → name the pattern in the same sentence that agrees the screen.
-- **Reading a plan before executing it** → a screen step with no named pattern gets one before it starts: an existing pattern, or a new one built pending.
+- **Reading a plan before executing it** → a screen step with no named block type or pattern gets them before it starts: an existing part and pattern, or new ones built pending.
 
 ## Is it even a pattern?
 
