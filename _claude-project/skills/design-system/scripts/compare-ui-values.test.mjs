@@ -413,3 +413,25 @@ test('a deleted file nothing moved into is compared as removed lines, so a merge
     rmSync(repo, { recursive: true, force: true })
   }
 })
+
+test('identical wrappers collapsing into one part line that adds styles of its own are moves', () => {
+  const wrap = () => new Map([['|display', 'flex'], ['|flex-direction', 'column'], ['|gap', '8px']])
+  const diffs = [
+    { where: 'a.tsx:1', lost: wrap(), gained: new Map() },
+    { where: 'b.tsx:1', lost: wrap(), gained: new Map() },
+    { where: 'part.tsx:9', lost: new Map(), gained: new Map([...wrap(), ['|padding-block', '16px'], ['|border-top-width', '2px']]) },
+  ]
+  const { moved, remaining } = explainMoves(diffs)
+  assert.deepEqual(moved.map((m) => m.from).sort(), ['a.tsx:1', 'b.tsx:1'])
+  assert.deepEqual(remaining.map((r) => r.where), ['part.tsx:9'])
+})
+
+test('of two lines gaining the same styles, a line moves first to the one it explains entirely', () => {
+  const text = () => new Map([['|font-size', '14px'], ['|color', 'grey']])
+  const diffs = [
+    { where: 'screen.tsx:5', lost: text(), gained: new Map() },
+    { where: 'footer.tsx:9', lost: new Map(), gained: new Map([...text(), ['|padding-top', '8px']]) },
+    { where: 'empty.tsx:2', lost: new Map(), gained: text() },
+  ]
+  assert.equal(explainMoves(diffs).moved[0].to, 'empty.tsx:2')
+})

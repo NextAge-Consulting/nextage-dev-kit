@@ -557,9 +557,8 @@ export function pairLines(removed, added) {
 /**
  * Styles that moved rather than changed. Each line carries what it lost outright, what it
  * gained outright, and what changed value in place. A line's lost styles that another line
- * gained — same context, same value — moved there, when they are at least half of what
- * each side lost and gained: one shared property, or a few common layout styles between
- * unrelated elements, is coincidence. Several lines may move into one; a destination's
+ * gained — same context, same value — moved there, when they are at least half of what it
+ * lost: one shared property is coincidence. Several lines may move into one; a destination's
  * gains still unexplained after that may come from a line that already moved elsewhere —
  * one look copied into two places. A value that changed in place is never explained by a
  * move.
@@ -584,9 +583,11 @@ export function explainMoves(diffs) {
     for (const t of diffs) {
       if (t === src || !t.gained.size) continue
       const keys = overlap(src.lost, t.gained)
-      if (keys.length && (!best || keys.length > best.keys.length)) best = { t, keys }
+      // More shared styles wins; on a tie, the line this one explains more of.
+      const fit = keys.length / t.gained.size
+      if (keys.length && (!best || keys.length > best.keys.length || (keys.length === best.keys.length && fit > best.fit))) best = { t, keys, fit }
     }
-    if (!best || best.keys.length * 2 < src.lost.size || best.keys.length * 2 < best.t.gained.size) continue
+    if (!best || best.keys.length * 2 < src.lost.size) continue
     move(src, best.t, best.keys)
   }
   for (const t of diffs) {
