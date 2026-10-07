@@ -43,7 +43,7 @@ A screen styles its own text from the semantic roles; every finding that starts 
 4. **A thing drawn more than one way** — a notice at two paddings, muted text at three opacities, a page gutter three ways — is a decision for me, put to me as a comparison page built exactly as `.claude/skills/design-system/references/comparison-pages.md` says. Present only looks that differ on screen; code variants that render the same are unified without asking. Move every use onto the pick.
 5. A class constant shared between screens becomes a variant on the part, and the constant goes.
 
-Then prove the rest did not change: `node .claude/skills/design-system/scripts/compare-ui-values.mjs`. A line it proves identical needs nothing. Every change it lists is one I picked in step 4, or is corrected until identical.
+Then prove the rest did not change: `node .claude/skills/design-system/scripts/compare-ui-values.mjs`. A line it proves identical needs nothing. A look handed to an existing component that already draws it lists as removed — confirm it against that component's classes. Every other change it lists is one I picked in step 4, or is corrected until identical.
 
 ## 7. Repaints through constants
 

@@ -557,31 +557,49 @@ export function pairLines(removed, added) {
 /**
  * Styles that moved rather than changed. Each line carries what it lost outright, what it
  * gained outright, and what changed value in place. A line's lost styles that another line
- * gained — same context, same value — moved there, when that line holds at least half of
- * them: one shared property is coincidence. A value that changed in place is never
- * explained by a move.
+ * gained — same context, same value — moved there, when they are at least half of what
+ * each side lost and gained: one shared property, or a few common layout styles between
+ * unrelated elements, is coincidence. Several lines may move into one; a destination's
+ * gains still unexplained after that may come from a line that already moved elsewhere —
+ * one look copied into two places. A value that changed in place is never explained by a
+ * move.
  */
 export function explainMoves(diffs) {
-  const overlap = (src, t) => [...src.lost].filter(([k, v]) => t.gained.get(k) === v).map(([k]) => k)
+  const overlap = (srcLost, tGained) => [...srcLost].filter(([k, v]) => tGained.get(k) === v).map(([k]) => k)
   const lost = new Map(diffs.map((d) => [d, new Map(d.lost)]))
   const gained = new Map(diffs.map((d) => [d, new Map(d.gained)]))
   const moves = new Map()
+  const move = (src, t, keys) => {
+    const key = `${src.where} → ${t.where}`
+    if (!moves.has(key)) moves.set(key, { from: src.where, to: t.where, styles: 0 })
+    moves.get(key).styles += keys.length
+    for (const k of keys) {
+      lost.get(src).delete(k)
+      gained.get(t).delete(k)
+    }
+  }
   for (const src of diffs) {
     if (!src.lost.size) continue
     let best = null
     for (const t of diffs) {
       if (t === src || !t.gained.size) continue
-      const keys = overlap(src, t)
+      const keys = overlap(src.lost, t.gained)
       if (keys.length && (!best || keys.length > best.keys.length)) best = { t, keys }
     }
-    if (!best || best.keys.length * 2 < src.lost.size) continue
-    const key = `${src.where} → ${best.t.where}`
-    if (!moves.has(key)) moves.set(key, { from: src.where, to: best.t.where, styles: 0 })
-    moves.get(key).styles += best.keys.length
-    for (const k of best.keys) {
-      lost.get(src).delete(k)
-      gained.get(best.t).delete(k)
+    if (!best || best.keys.length * 2 < src.lost.size || best.keys.length * 2 < best.t.gained.size) continue
+    move(src, best.t, best.keys)
+  }
+  for (const t of diffs) {
+    const left = gained.get(t)
+    if (!left.size) continue
+    let best = null
+    for (const src of diffs) {
+      if (src === t || !src.lost.size) continue
+      const keys = overlap(src.lost, left)
+      if (keys.length && (!best || keys.length > best.keys.length)) best = { src, keys }
     }
+    if (!best || best.keys.length * 2 < left.size || best.keys.length * 2 < best.src.lost.size) continue
+    move(best.src, t, best.keys)
   }
   const remaining = diffs
     .map((d) => ({ ...d, lost: lost.get(d), gained: gained.get(d), changed: d.changed ?? new Map() }))
@@ -724,7 +742,8 @@ export function hunks(diff) {
 /** Every changed .ts/.tsx hunk since `base`. A file git does not track yet is compared too:
  * against the deleted file of the same name when there is one — a file moved, say into a
  * feature folder — so only its real edits show; otherwise as all added lines — a part just
- * extracted — so a style that left a screen for it reads as moved. */
+ * extracted — so a style that left a screen for it reads as moved. A deleted file nothing
+ * moved into is all removed lines. */
 export function changedHunks(repo, base) {
   const tracked = hunks(git(repo, ['diff', '-U0', base, '--', '*.ts', '*.tsx']))
   const deleted = git(repo, ['diff', '--name-only', '--diff-filter=D', base, '--', '*.ts', '*.tsx']).split('\n').filter(Boolean)
@@ -751,7 +770,12 @@ export function changedHunks(repo, base) {
       rmSync(dir, { recursive: true, force: true })
     }
   }
-  return [...tracked, ...untracked]
+  // A deleted file nothing moved into is all removed lines, so a style that left it — merged
+  // into another file — is compared, and reads as moved.
+  const gone = deleted
+    .filter((d) => !claimed.has(d))
+    .map((file) => ({ file, oldLine: 1, line: 0, removed: git(repo, ['show', `${base}:${file}`]).replace(/\r\n/g, '\n').replace(/\n$/, '').split('\n'), added: [] }))
+  return [...tracked, ...untracked, ...gone]
 }
 
 function entryFor(entries, file) {

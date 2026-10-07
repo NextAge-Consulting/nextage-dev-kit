@@ -393,3 +393,23 @@ test('a file moved without git knowing is compared against the deleted file of i
     rmSync(repo, { recursive: true, force: true })
   }
 })
+
+test('a deleted file nothing moved into is compared as removed lines, so a merge into another file can read as a move', () => {
+  const repo = mkdtempSync(path.join(os.tmpdir(), 'ui-values-repo-'))
+  try {
+    const git = (...args) => execFileSync('git', ['-C', repo, '-c', 'user.email=t@example.com', '-c', 'user.name=t', ...args])
+    git('init', '-q')
+    mkdirSync(path.join(repo, 'src'))
+    writeFileSync(path.join(repo, 'src', 'Footer.tsx'), '<div className="flex gap-3">f</div>\n')
+    writeFileSync(path.join(repo, 'src', 'Pager.tsx'), 'p\n')
+    git('add', '-A')
+    git('commit', '-qm', 'base')
+    rmSync(path.join(repo, 'src', 'Footer.tsx'))
+    writeFileSync(path.join(repo, 'src', 'Pager.tsx'), 'p\n<div className="flex gap-3">f</div>\n')
+    const changes = changedHunks(repo, 'HEAD')
+    assert.deepEqual(changes.find((h) => h.file === 'src/Footer.tsx'), { file: 'src/Footer.tsx', oldLine: 1, line: 0, removed: ['<div className="flex gap-3">f</div>'], added: [] })
+    assert.ok(changes.some((h) => h.file === 'src/Pager.tsx' && h.added.length === 1))
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
