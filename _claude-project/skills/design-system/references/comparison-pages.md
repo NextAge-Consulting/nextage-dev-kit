@@ -6,6 +6,10 @@ that render the same.
 
 ## Only real differences
 
+**Group by what a thing is before building a page.** Two looks are a decision only when
+they draw the same thing — the same role, holding the same kind of content. Different
+things that happen to look alike are separate parts, and never share a page.
+
 **Present a choice only when the options look different on screen.** Variants that differ
 in code but render the same are unified without asking; prove it with
 `compare-ui-values.mjs`.

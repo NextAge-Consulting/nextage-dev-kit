@@ -22,7 +22,7 @@ app's part of that type, and never hand-roll anything listed here.**
   listed. A rule about how a kind of screen works goes in that pattern's reference.
 - **Each part carries its block type** from the `design-system` skill's
   `references/block-types.md`, or `<none>` when no type fits; a vendored atom carries
-  none. A second part of one type says on its line what sets it apart.
+  none. A second part of one type carries, on its line, the human's reason it is not the first.
 - **Each pattern and component carries its status**, `approved` or `pending`, the
   same as the `ui-status` line in its file. Pending means built and not yet approved
   by the human.

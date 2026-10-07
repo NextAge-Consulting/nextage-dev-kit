@@ -277,7 +277,7 @@ Any of:
 6. The command calls `skills/gitflow/scripts/commit.sh` with the message
 7. Script picks the branch: on `main` it cuts `<type>/<slug>` from the message; on a branch whose PR is assigned to someone else (`pr_handed_off`) it cuts one stacked on it, records the parent, and carries only the issue links added since the hand-off; anywhere else it commits in place. Then it stages all changes, commits with `--no-verify`, and pushes.
 8. `git-guard.sh` never fires on that commit — the script's `git commit` is a subprocess, not a top-level tool call (§3.1). No token is involved.
-9. Before staging, the script runs the gates that MIRROR CI so a failure costs a second here rather than a round trip after the PR is open: typecheck, Biome lint, and Semgrep over the files this commit touches (gated on CI declaring a `semgrep` job, and scoped to changed files so it stays seconds — CI still scans everything). Then the rule review (`rule-review.sh`): every rule-prose file changed since the fold base — the set `hooks/rule-prose.sh` defines — goes to a headless `claude -p` with no tools, no settings and no CLAUDE.md, which reports history, justification and counted lists in added lines only. It runs on the developer's Claude subscription; a missing CLI or a failed call fails the gate. Each exits 4. commitlint is the one gate that remains CI-only, because it validates the PR title, which does not exist yet at commit time. Last, the project gate: when `.claude/project-gate.sh` exists it runs with the fold base, and a failure exits 4 — the kit's own is §9.11.
+9. Before staging, the script runs the gates that MIRROR CI so a failure costs a second here rather than a round trip after the PR is open: typecheck, Biome lint, and Semgrep over the files this commit touches (gated on CI declaring a `semgrep` job, and scoped to changed files so it stays seconds — CI still scans everything). Then the rule review (`rule-review.sh`): every rule-prose file changed since the fold base — the set `hooks/rule-prose.sh` defines — goes to a headless `claude -p` with no tools, no settings and no CLAUDE.md, which reports history, justification and counted lists in added lines only. Then the part review (`part-review.sh`): every part added since the fold base — a `.tsx` under `components/` outside `features/` and the vendored atoms, new rather than moved — goes to a headless `claude -p` with the UI inventory and the block-type list, which reports a part that duplicates one the inventory already lists; the human decides, and a "different" answer is recorded on the new part's inventory line. Both run on the developer's Claude subscription; a missing CLI or a failed call fails the gate. Each exits 4. commitlint is the one gate that remains CI-only, because it validates the PR title, which does not exist yet at commit time. Last, the project gate: when `.claude/project-gate.sh` exists it runs with the fold base, and a failure exits 4 — the kit's own is §9.11.
 
 ### 4.3. What the script does NOT do
 
@@ -1278,7 +1278,7 @@ release it uses, and what tells a reader whether a design is behind the system.
 **The token checker** is kit-owned: `skills/design-system/scripts/check-design-tokens.mjs`,
 run as `npm run lint:tokens`. It reads its paths from the `DESIGN_*` keys, checks
 classes, call sites (through class constants too), screen and feature files that draw a
-box, name a palette or faded colour, or import a frame atom (§12a.9), token resolution and light/dark parity, `design.md`'s
+box, fade a colour, or import a frame atom on a line the change touched (§12a.9), token resolution and light/dark parity, `design.md`'s
 references, and the generated files, prints how many files and classes it inspected, and fails when
 that is nothing. A project's own extra checks go in
 `<DESIGN_UI_PACKAGE>/design-system/checks/*.mjs`, each a default-exported function the
@@ -1314,9 +1314,12 @@ the Wraps column as the frame atoms, which a screen or feature file may not impo
 The split it rests on: a part is a `.tsx` under a `components/` folder outside
 `features/`; everything else a source tree holds is a screen or a feature file. A screen
 places and arranges, and styles its own text from the semantic roles; it draws no box
-(background, border, radius, shadow, padding) and names no palette or faded colour —
-those come from parts. A palette colour is one whose token holds a literal value other
-tokens are built on. Screen content lives in `apps/<app>/src/features/<feature>/`.
+(background, border, radius, shadow, padding) and fades no colour — those come from
+parts. These screen rules judge only lines changed since the base — `--base`,
+`DESIGN_TOKENS_BASE` (CI passes the PR's base branch), or where the work left
+`origin/main` — and a moved file is judged by its edits, so a screen nobody touches is
+left alone and copied drawing fails where it is written. `--all` judges every line. A
+commit that adds a part runs the part review (§4). Screen content lives in the app's `src/features/<feature>/` — `apps/<app>/src/features/<feature>/` in a monorepo.
 
 **A type joins the list when it appears in two consumer apps or two primary-source design
 systems** (Fiori, Salesforce Lightning, PatternFly, Carbon, Primer, Pajamas, Polaris,

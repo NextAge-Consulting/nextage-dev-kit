@@ -17,9 +17,9 @@ building.
    feature folder until a second screen needs it, then becomes a part typed `<none>`.
    Drawing a box, it is a part typed `<none>` from the start.
 
-**One part per type is the norm.** A second part of the same type is either a duplicate
-or a different type. Keep one only when its inventory line says what sets it apart, such
-as another app's chrome in the same repository.
+**One part per type is the norm.** A second part of the same type is a question for the
+human: same thing, and it folds into the first; different, and their reason goes on its
+inventory line.
 
 **Two overlays that end differently are two types.** A popup that ends Close is not a
 popup that ends Save.

@@ -2,7 +2,12 @@
 /**
  * Every design token family is set by a ROLE, and the tokens underneath resolve.
  *
- *   node .claude/skills/design-system/scripts/check-design-tokens.mjs   (npm run lint:tokens)
+ *   node .claude/skills/design-system/scripts/check-design-tokens.mjs [--base <ref> | --all]   (npm run lint:tokens)
+ *
+ * The screen rules judge only lines changed since --base (or DESIGN_TOKENS_BASE; default:
+ * where this work left origin/main), so new code is held to the design language and an
+ * untouched line is left alone; --all judges every line. Every other check reads the
+ * whole tree.
  *
  * A raw `text-sm` or `rounded-[6px]` is valid Tailwind and valid TSX, so no
  * ordinary linter objects — and that is how one thing ends up at four sizes across
@@ -31,9 +36,8 @@
  *              repainted or sized by magnitude (`size="sm"`); a raw <input>/<textarea>
  *              painting the field look; a className naming a constant is read as the
  *              constant's classes;
- *   screens    a file outside a part — a route, a feature folder — places, arranges and
- *              picks text roles: it draws no box (background, border, radius, shadow,
- *              padding), names no palette colour and fades none, and imports no frame
+ *   screens    a file outside a part — a route, a feature folder — draws no box
+ *              (background, border, radius, shadow, padding), fades no colour, and imports no frame
  *              atom (the Wraps column of references/block-types.md); a part is a .tsx
  *              under a `components/` folder outside `features/`;
  *   names      every role — type, radius, weight, shadow, spacing, leading, tracking —
@@ -51,6 +55,7 @@
  * Prints what it inspected, and fails when that is nothing.
  */
 
+import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, globSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -96,42 +101,11 @@ const PLACEMENT = new RegExp(
     ].join('|') +
     ')$',
 )
-/** What a screen or feature file may write on its own elements: placement, and the
- * arrangement of the parts it holds — never a look. */
-const ARRANGEMENT = new RegExp(
-  '^(?:' +
-    [
-      'flex', 'inline-flex', 'grid', 'inline-grid', 'contents',
-      'flex-(?:row|col)(?:-reverse)?', 'flex-(?:wrap|nowrap|wrap-reverse)',
-      'items-.+', 'justify-.+', 'content-(?:start|end|center|between|around|evenly|stretch|normal|baseline)',
-      'place-(?:content|items)-.+', 'gap(?:-[xy])?-.+',
-      'grid-cols-.+', 'grid-rows-.+', 'grid-flow-.+', 'auto-cols-.+', 'auto-rows-.+',
-    ].join('|') +
-    ')$',
-)
 /** A token a class list can hold — never an operator or a stray quote. */
 const CLASS_SHAPE = /^!?-?[a-z0-9@*[][^\s'"`{}]*$/i
-/** Text styling a screen or feature file may choose — a role, emphasis, case, decoration —
- * besides placement and arrangement. Its colour is checked on its own: semantic, unfaded. */
-const TEXT_STYLE = new RegExp(
-  '^(?:' +
-    [
-      'type-.+', 'font-.+', 'leading-.+', 'tracking-.+', 'italic', 'not-italic',
-      'uppercase', 'lowercase', 'capitalize', 'normal-case', 'underline', 'no-underline', 'line-through',
-      'underline-offset-.+', 'decoration-(?:solid|dotted|dashed|wavy|from-font|auto|\\d+)',
-      'tabular-nums', 'proportional-nums', 'lining-nums', 'oldstyle-nums', 'slashed-zero', 'ordinal',
-      'line-clamp-.+', 'text-(?:ellipsis|clip|wrap|nowrap|balance|pretty)', 'list-(?:none|disc|decimal|inside|outside)',
-      'cursor-.+', 'select-.+', 'transition-colors', 'duration-.+', 'antialiased', 'subpixel-antialiased',
-      'prose(?:-.+)?',
-      // arrangement and fit a screen decides: stacking, clipping, an image's fit, the page container
-      'space-[xy]-.+', 'overflow-(?:hidden|clip|visible)', 'object-.+', 'container', 'group(?:/.+)?', 'peer(?:/.+)?',
-      'flex-(?:shrink|grow)(?:-.+)?', 'resize(?:-.+)?', 'scroll-.+',
-    ].join('|') +
-    ')$',
-)
 /** A box: what a part draws and a screen never does. */
 const BOX = /^-?(?:bg-|border|rounded|shadow|p[xytrblse]?-|ring|outline|divide-)/
-/** Where a file sits: a part draws, a screen or feature file places, arranges and picks text roles. */
+/** Where a file sits: a part draws its box; a screen or feature file never does. */
 export const isPart = (file) => {
   const parts = file.split('/')
   return parts.includes('components') && !parts.includes('features')
@@ -182,6 +156,26 @@ export function readKeys(repo) {
   return { keys, problems }
 }
 
+/** The class-merge helpers: their arguments are class lists. */
+const CLASS_HELPERS = new Set(['cn', 'clsx', 'cva', 'tv', 'twMerge', 'twJoin', 'cx'])
+
+/** An expression with the arguments of every other call blanked — `colourFor(x, "submitted")`
+ * returns classes, but its arguments are values, not class lists. */
+export function withoutCallArguments(expr) {
+  let out = ''
+  let i = 0
+  for (const m of expr.matchAll(/([A-Za-z_$][\w$.]*)\s*\(/g)) {
+    if (m.index < i) continue
+    const open = m.index + m[0].length - 1
+    if (CLASS_HELPERS.has(m[1].split('.').pop())) continue
+    const close = closeOf(expr, open, '(', ')')
+    if (close < 0) break
+    out += `${expr.slice(i, open + 1)}${' '.repeat(close - open - 1)})`
+    i = close + 1
+  }
+  return out + expr.slice(i)
+}
+
 /** Every JSX opening tag matching `pattern`, with the string literals of its OWN
  * `className` — read at brace depth 0, so JSX passed in a prop is not mistaken for
  * it, with comments inside a `cn(…)` stripped and a compared value
@@ -217,6 +211,7 @@ export function* openingTags(src, pattern) {
         .slice(at0 + 1, i - 1)
         .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '')
         .replace(/[!=]==?\s*(["'`])[^"'`]*\1|(["'`])[^"'`]*\2\s*[!=]==?/g, '')
+      value = withoutCallArguments(value)
     }
     // A template's text and the strings inside each of its `${…}` are class lists; the
     // expression around them (`x ? … : …`) is not.
@@ -408,9 +403,61 @@ export function classNames(sources) {
   return names
 }
 
+/** Every file and line a change touched since `base`, tracked or not: a Map of file to its
+ * changed line numbers, or to ALL for a file git does not track yet. */
+export const ALL = 'all'
+export function changedLines(repo, base) {
+  const git = (...args) => execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
+  const out = new Map()
+  let file = null
+  const addHunks = (diff, as) => {
+    for (const line of diff.split('\n')) {
+      if (line.startsWith('+++ ')) file = as ?? line.slice(4).replace(/^b\//, '')
+      const m = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/)
+      if (!m || !file || file === '/dev/null') continue
+      if (!out.has(file)) out.set(file, new Set())
+      for (let n = Number(m[1]), end = n + Number(m[2] ?? 1); n < end; n++) out.get(file).add(n)
+    }
+  }
+  // A moved file is judged by its edits, not as new: git pairs committed moves (-M), and an
+  // uncommitted one pairs with the deleted file of its name.
+  addHunks(git('diff', '-M', '-U0', '--no-color', base, '--', '*.ts', '*.tsx'))
+  const deleted = git('diff', '-M', '--name-only', '--diff-filter=D', base, '--', '*.ts', '*.tsx').split('\n').filter(Boolean)
+  const claimed = new Set()
+  for (const f of git('ls-files', '--others', '--exclude-standard', '--', '*.ts', '*.tsx').split('\n')) {
+    if (!f) continue
+    const from = deleted.find((d) => !claimed.has(d) && path.basename(d) === path.basename(f))
+    if (!from) {
+      out.set(f, ALL)
+      continue
+    }
+    claimed.add(from)
+    const r = spawnSync('git', ['-C', repo, 'diff', '--no-index', '-U0', '--no-color', '-', f], { input: git('show', `${base}:${from}`), encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
+    if (r.status !== 0 && r.status !== 1) throw new Error(`git diff --no-index ${from} ${f}: ${r.stderr.trim()}`)
+    out.set(f, new Set())
+    addHunks(r.stdout, f)
+  }
+  return out
+}
+
+/** The base the screen rules measure against: the given ref, or where this work left
+ * `origin/main`. Null — every line is checked — outside a git repository or without it. */
+export function screenBase(repo, base) {
+  try {
+    const ref = base ?? execFileSync('git', ['-C', repo, 'merge-base', 'HEAD', 'origin/main'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+    execFileSync('git', ['-C', repo, 'rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { stdio: 'ignore' })
+    return ref
+  } catch {
+    if (base) throw new Error(`${base}: not a commit this repository has — the screen rules need it to know what changed`)
+    return null
+  }
+}
+
 /** Run every check over a repository. `keys` replaces the substitutions read from
- * the repository — for running the check against a tree that has none yet. */
-export async function checkDesignTokens(repo, { keys: given } = {}) {
+ * the repository — for running the check against a tree that has none yet. The screen
+ * rules judge only the lines changed since `base` (default: where this work left
+ * `origin/main`); `all: true` judges every line. */
+export async function checkDesignTokens(repo, { keys: given, base, all = false } = {}) {
   const problems = []
   const notes = []
   const add = (at, cls, why) => problems.push(`${at}  ${cls}  — ${why}`)
@@ -448,21 +495,6 @@ export async function checkDesignTokens(repo, { keys: given } = {}) {
   for (const [, s] of css) for (const m of s.matchAll(/--([a-z0-9-]+)\s*:/g)) themeDecls.push(m[1])
   const themeKeys = (prefix) => new Set(themeDecls.filter((k) => k.startsWith(`${prefix}-`)).map((k) => k.slice(prefix.length + 1)))
   const colours = themeKeys('color')
-  // A palette colour: a literal value other tokens build on (the ramp under the semantic
-  // aliases), reached by a colour role. Screens name the alias.
-  const decl = new Map()
-  // A declaration that only re-exports itself (Tailwind's `--x: var(--x)` idiom) is not its value.
-  for (const [, s] of css)
-    for (const m of s.matchAll(/(--[A-Za-z0-9-]+)\s*:\s*([^;]+);/g)) if (!decl.has(m[1]) && m[2].trim() !== `var(${m[1]})`) decl.set(m[1], m[2].trim())
-  const primitive = new Set()
-  for (const c of colours) {
-    const own = decl.get(`--color-${c}`) ?? ''
-    const target = own.match(/^var\((--[A-Za-z0-9-]+)\)$/)?.[1] ?? `--color-${c}`
-    const value = decl.get(target) ?? ''
-    if (!value || /^(?:var|color-mix)\(/.test(value)) continue
-    const built = [...decl].some(([n, v]) => n !== target && n !== `--color-${c}` && v.includes(`var(${target})`))
-    if (built) primitive.add(c)
-  }
   const radiusRoles = themeKeys('radius')
   const weightRoles = themeKeys('font-weight')
   const fontFamilies = new Set([...themeKeys('font')].filter((k) => !k.startsWith('weight-')))
@@ -510,6 +542,27 @@ export async function checkDesignTokens(repo, { keys: given } = {}) {
   const arbitrarySpacing = new RegExp(`(?<![\\w-])-?(?:${SPACE_PROPS})-\\[[^\\]]*\\]`, 'g')
   const sources = new Map(sourceFiles.map((f) => [f, readFileSync(path.join(repo, f), 'utf8').replace(/\r\n/g, '\n')]))
   const exported = classNames(sources.values())
+  // The screen rules hold new and changed code to the design language and leave a line
+  // nobody has touched alone.
+  let screenScope = null
+  if (!all) {
+    const ref = screenBase(repo, base)
+    if (ref) {
+      screenScope = changedLines(repo, ref)
+      const lines = [...screenScope.values()].reduce((n, v) => n + (v === ALL ? 0 : v.size), 0)
+      const fresh = [...screenScope.values()].filter((v) => v === ALL).length
+      notes.push(`screen rules: ${lines} changed line(s) and ${fresh} new file(s) since ${ref.slice(0, 12)}; untouched lines are not judged`)
+    }
+  }
+  if (!screenScope) notes.push('screen rules: every line judged')
+  const touched = (file, from, to = from) => {
+    if (!screenScope) return true
+    const lines = screenScope.get(file)
+    if (!lines) return false
+    if (lines === ALL) return true
+    for (let n = from; n <= to; n++) if (lines.has(n)) return true
+    return false
+  }
   for (const [file, src] of sources) {
     const isVendored = vendored && file.startsWith(vendored)
     // Only class lists are checked; the rest of the file is blanked, line numbers kept.
@@ -601,20 +654,15 @@ export async function checkDesignTokens(repo, { keys: given } = {}) {
   }
   const frameModules = new Map([...blockTypes.frames].map(([atom, types]) => [atomModule(atom), { atom, types }]))
   const fieldClass = (cls) => /^rounded-(?!none$).+/.test(cls) || fieldLook.has(cls)
-  // A screen or feature file arranges parts and picks text roles; a box it draws, a
-  // palette colour or a faded one is a look that belongs in a part.
+  // A box a screen or feature file draws, or a colour it fades, belongs in a part.
   const screenFinding = (base) => {
     if (BOX.test(base)) return 'a screen or feature file draws no box; a background, border, radius, shadow or padding comes from a part (block-types.md)'
-    const colour = base.match(/^text-(.+?)(\/\d+)?$/)
-    if (colour && colours.has(colour[1])) {
-      if (colour[2]) return 'a screen or feature file never fades a colour; a muted look is a semantic colour'
-      if (primitive.has(colour[1])) return 'a screen or feature file names a semantic colour, never a palette one'
-      return null
-    }
-    if (PLACEMENT.test(base) || ARRANGEMENT.test(base) || TEXT_STYLE.test(base)) return null
-    return 'a screen or feature file places, arranges and picks text roles; this look belongs in a part (block-types.md)'
+    const colour = base.match(/^text-(.+?)\/\d+$/)
+    if (colour && colours.has(colour[1])) return 'a screen or feature file never fades a colour; a muted look is a colour role of its own'
+    return null
   }
   const placesOnly = (file, t, classes) => {
+    if (!touched(file, t.line, t.line + t.open.split('\n').length - 1)) return
     for (const cls of classes) {
       classesChecked++
       const why = screenFinding(cls.split(':').pop())
@@ -641,8 +689,9 @@ export async function checkDesignTokens(repo, { keys: given } = {}) {
     if (content)
       for (const m of src.matchAll(/\bimport\s[^'"]*?from\s*["']([^"']+)["']/g)) {
         const frame = frameModules.get(m[1].split('/').pop()) ?? frameModules.get(m[1].replace(/^@radix-ui\/react-/, ''))
-        if (frame)
-          add(`${file}:${src.slice(0, m.index).split('\n').length}`, frame.atom, `a frame atom is used only inside a part; build or use the ${frame.types.join(' / ')} part (block-types.md)`)
+        const at = src.slice(0, m.index).split('\n').length
+        if (frame && touched(file, at, at + m[0].split('\n').length - 1))
+          add(`${file}:${at}`, frame.atom, `a frame atom is used only inside a part; build or use the ${frame.types.join(' / ')} part (block-types.md)`)
       }
     const ours = new Set()
     const glyphs = new Set()
@@ -862,7 +911,10 @@ export async function checkDesignTokens(repo, { keys: given } = {}) {
 async function main() {
   // The repository root, from this script's own place: .claude/skills/design-system/scripts/.
   const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
-  const { problems, notes, counts, notApplicable } = await checkDesignTokens(repo)
+  const argv = process.argv.slice(2)
+  const at = argv.indexOf('--base')
+  const base = at >= 0 ? argv[at + 1] : process.env.DESIGN_TOKENS_BASE || undefined
+  const { problems, notes, counts, notApplicable } = await checkDesignTokens(repo, { base, all: argv.includes('--all') })
   if (notApplicable) {
     console.log(`✓ ${notApplicable}`)
     return

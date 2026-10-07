@@ -537,23 +537,60 @@ test('a template class list is read as its text and the strings in each ${…}; 
   const { problems } = await run({
     'apps/web/src/routes/orders.tsx': [
       'export const S = ({ busy, item, Icon }) => <>',
-      '  <button className={`w-full mt-2 ${busy ? "opacity-50" : "hover:underline"}`} />',
+      '  <button className={`w-full mt-2 ${busy ? "bg-primary" : "hover:underline"}`} />',
       '  <Icon className="size-4 text-primary" />',
       '  <item.icon className="size-6 text-primary" />',
       '</>',
       '',
     ].join('\n'),
   })
-  assert.deepEqual(problems.filter((p) => p.includes(PAINTS)).map((p) => p.split('  ')[1]), ['<button> opacity-50'])
+  assert.deepEqual(problems.filter((p) => p.includes(PAINTS)).map((p) => p.split('  ')[1]), ['<button> bg-primary'])
 })
 
-test('a screen names a semantic colour, unfaded: a palette colour or an opacity modifier fails', async () => {
+test('a screen may name any colour role, brand colours included; a faded one fails', async () => {
   const { problems } = await run({
     'packages/ui/src/styles.css': STYLES.replace('--color-primary: var(--primary);', '--color-primary: var(--primary);\n  --color-blue: var(--blue);'),
     'apps/web/src/routes/orders.tsx': 'export const S = () => <><p className="type-body text-primary hover:text-foreground">a</p><p className="text-blue">b</p><p className="text-foreground/60">c</p></>\n',
   })
   const found = problems.filter((p) => p.includes(PAINTS))
-  assert.deepEqual(found.map((p) => p.split('  ')[1]), ['<p> text-blue', '<p> text-foreground/60'])
-  assert.match(found[0], /never a palette one/)
-  assert.match(found[1], /never fades a colour/)
+  assert.deepEqual(found.map((p) => p.split('  ')[1]), ['<p> text-foreground/60'])
+  assert.match(found[0], /never fades a colour/)
+})
+
+test('the arguments of a helper that returns classes are values, not classes; a class-merge helper\'s arguments are classes', async () => {
+  const { problems } = await run({
+    'apps/web/src/routes/orders.tsx': 'export const S = ({ o, tz }) => <><p className={colourFor(o.date, "border", tz)} /><p className={cn("rounded-panel", o.x)} /></>\n',
+  })
+  assert.deepEqual(problems.filter((p) => p.includes(PAINTS)).map((p) => p.split('  ')[1]), ['<p> rounded-panel'])
+})
+
+test('the screen rules judge only lines changed since the base; untouched lines pass, all: true judges every line', async () => {
+  const dir = fixture({ 'apps/web/src/routes/orders.tsx': 'export const S = () => <>\n  <div className="border-t-2 pt-4" />\n</>\n' })
+  const git = (...args) => execFileSync('git', ['-C', dir, '-c', 'user.email=t@example.com', '-c', 'user.name=t', ...args])
+  git('init', '-q')
+  git('add', '-A')
+  git('commit', '-qm', 'base')
+  const base = String(git('rev-parse', 'HEAD')).trim()
+  fs.writeFileSync(path.join(dir, 'apps/web/src/routes/orders.tsx'), 'export const S = () => <>\n  <div className="border-t-2 pt-4" />\n  <p className="bg-primary">new</p>\n</>\n')
+  fs.writeFileSync(path.join(dir, 'apps/web/src/routes/fresh.tsx'), 'export const F = () => <div className="rounded-panel" />\n')
+  const at = (r) => r.problems.filter((p) => p.includes(PAINTS)).map((p) => p.split('  ').slice(0, 2).join(' '))
+  const scoped = await checkDesignTokens(dir, { base })
+  assert.deepEqual(at(scoped).sort(), ['apps/web/src/routes/fresh.tsx:1 <div> rounded-panel', 'apps/web/src/routes/orders.tsx:3 <p> bg-primary'])
+  assert.ok(scoped.notes.some((n) => /screen rules: 1 changed line\(s\) and 1 new file\(s\)/.test(n)))
+  const everything = await checkDesignTokens(dir, { all: true })
+  assert.equal(at(everything).length, 4)
+})
+
+test('a screen moved into a feature folder is judged by its edits, not as a new file', async () => {
+  const dir = fixture({ 'apps/web/src/components/Roles.tsx': 'export const R = () => <>\n  <div className="border-t-2 pt-4" />\n</>\n' })
+  const git = (...args) => execFileSync('git', ['-C', dir, '-c', 'user.email=t@example.com', '-c', 'user.name=t', ...args])
+  git('init', '-q')
+  git('add', '-A')
+  git('commit', '-qm', 'base')
+  const base = String(git('rev-parse', 'HEAD')).trim()
+  fs.rmSync(path.join(dir, 'apps/web/src/components/Roles.tsx'))
+  fs.mkdirSync(path.join(dir, 'apps/web/src/features/admin'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'apps/web/src/features/admin/Roles.tsx'), 'export const R = () => <>\n  <div className="border-t-2 pt-4" />\n  <p className="bg-primary">new</p>\n</>\n')
+  const { problems } = await checkDesignTokens(dir, { base })
+  assert.deepEqual(problems.filter((p) => p.includes(PAINTS)).map((p) => p.split('  ').slice(0, 2).join(' ')), ['apps/web/src/features/admin/Roles.tsx:3 <p> bg-primary'])
 })

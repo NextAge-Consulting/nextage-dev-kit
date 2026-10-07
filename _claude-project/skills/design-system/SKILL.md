@@ -39,14 +39,12 @@ Why hard-stop: ad-hoc styling without a design system spec is how token drift st
 
 ### Step 2: Ground in the existing implementation (MANDATORY — this is where look-and-feel comes from)
 
-`design.md` gives you tokens and atom specs. It does **NOT** give you the project's *look and feel* — elevation, shadows, motion, hover behavior, border treatments, density, polish level. That lives **only in the real components.** A prose description of "the vibe" cannot be executed reliably; a real component can. So before writing ANY composite UI (a card, a row, a panel, a form, a dashboard, a whole screen), **find the closest existing analog in THIS repo and build from it.** Not a fallback — the primary source of fidelity.
+`design.md` gives you tokens and atom specs. It does **NOT** give you the project's *look and feel* — elevation, shadows, motion, hover behavior, border treatments, density, polish level. That lives **only in the parts** — the components on `rules/project/ui-inventory.md`. A prose description of "the vibe" cannot be executed reliably; a real part can. So before writing ANY composite UI (a card, a row, a panel, a form, a dashboard, a whole screen), **build from this app's parts.** Not a fallback — the primary source of fidelity.
 
-This is a search you run every time. No hardcoded paths, no per-project list — it works in any repo because it keys off the project's own structure:
-
-1. **Name the role** of what you're building — card / table / list-row / form field / dashboard / modal / nav / status chip / empty-state, etc.
-2. **Find the nearest existing instance in the repo.** Glob the component and route trees; grep for the role and for the distinctive utilities it would use — e.g. `Grep "rounded-2xl" --glob "**/components/**/*.tsx"` for the card treatment, `Grep "border-l-" ...` / `Grep "hover:scale" ...` / `Grep "shadow-" ...` to see how the project *actually* does elevation and motion, `Glob "**/routes/**"` for the closest whole screen. **Do not ask the user for the path — find it yourself.**
-3. **Read the top 1–3 matches in full.** Extract the *real* patterns: every class they use for elevation, hover, transition/animation, borders, and spacing — not just the color tokens. This is the step that carries the feel.
-4. **Build from those patterns** — the tokens, the construction (how a card/row/chip is assembled), the status language, the motion idioms. Where exemplars differ, take the most polished one, never the average or the oldest.
+1. **Name the block type** of what you're building, from `references/block-types.md`.
+2. **Find this app's part of that type** on the inventory — its Type column — and read it in full, with every pattern reference whose `block-types:` names the type.
+3. **No part of that type yet → read the parts nearest in kind** and build the new part from their construction: the tokens, how a card, row or chip is assembled, the status language, the motion idioms.
+4. **A screen is never the analog.** Screens arrange parts; never copy a look a screen draws itself.
 
 **Split what you build into frame and content before writing it.** The frame — a dialog, a drawer, a header, a toolbar, a row, a screen's layout — is a part. The content is what this screen puts in it: wording, data, server calls, the arrangement of parts.
 
@@ -56,13 +54,15 @@ This is a search you run every time. No hardcoded paths, no per-project list —
 
 **Where nothing fits, build the new piece and keep going.** Research how primary-source design systems handle it — never invent from `design.md` prose alone. Build it from the existing tokens and components as a real part — a token, a component or variant, a pattern reference — and mark it pending. Never stop the work to ask about each one; the review below is where the human sees them.
 
-**A screen or feature file draws no box.** It places and arranges what it holds — margin, width, its slot in a flex or grid, `gap` — and styles its own text freely from the semantic roles: a type role, a weight, a semantic text colour. A background, border, radius, shadow or padding is a box, and a box comes from a part: the part of its block type, or a part typed `<none>` when no type covers it. Colour in a screen is always a semantic role, never a palette colour and never faded with an opacity modifier. Approval is still one review at the end of the work, never a stop per screen.
+**A screen or feature file draws no box.** It places and arranges what it holds — margin, width, its slot in a flex or grid, `gap` — and styles its own text freely from the semantic roles: a type role, a weight, a semantic text colour. A background, border, radius, shadow or padding is a box, and a box comes from a part: the part of its block type, or a part typed `<none>` when no type covers it. Colour in a screen is any colour role, brand colours included, and never faded with an opacity modifier. Approval is still one review at the end of the work, never a stop per screen.
 
-**Screen content lives in its feature's folder, `apps/<app>/src/features/<feature>/`**, and a `components/` folder holds parts only. Content carries no status and no inventory line. A piece that fits no block type and draws no box stays in the feature folder; when a second screen needs it, it becomes a part typed `<none>`.
+**Screen content lives in its feature's folder, the app's `src/features/<feature>/`** (`apps/<app>/src/features/<feature>/` in a monorepo), and a `components/` folder holds parts only. Content carries no status and no inventory line. A piece that fits no block type and draws no box stays in the feature folder; when a second screen needs it, it becomes a part typed `<none>`.
 
 **Changing how an approved part looks or behaves — a new variant included — sets it to pending**, unless the human asked for that change. A change `compare-ui-values.mjs` proves leaves every value the same stays approved.
 
 **A part is pending only when it brings a look the human has not seen.** A part extracted from screens that `compare-ui-values.mjs` proves draws exactly what they drew is written approved. So is a part carrying a look the human picked on a comparison page — the pick is the approval.
+
+**A commit that adds a part runs the part review** (`part-review.sh`, in `/commit` and `/ship-main`): a headless review compares it with the parts the inventory lists. When it suspects a duplicate the commit stops and the question goes to the human. Same thing: use the existing part and remove the new one. Different: write their reason on the new part's inventory line, which the next review reads.
 
 #### Each kind of work
 
@@ -133,10 +133,10 @@ If the lint fails for a reason that isn't your edit (pre-existing issue), surfac
 Before delivering any composite UI, state — in your response to the user — the reference you built from:
 
 ```
-Built from: <path(s) to the existing component(s)/screen(s) you matched in Step 2>
+Built from: <path(s) to the part(s) you built from in Step 2>
 ```
 
-- Matched an analog → cite the exact path(s).
+- Built from a part → cite the exact path(s).
 - Built a new part → cite the analog and name the part with its block type: `Built from: <path> (new, pending: ReviewDialog <the part>)`.
 - Kept a piece in its feature folder → `Built from: <path> (content: <the piece>)`.
 - Nothing similar exists → `Built from: none — new, pending: <the part>`, naming the primary sources researched.
@@ -287,7 +287,8 @@ what makes the rule real; without one it is a preference.
 `design.md` exists.** It reads the roles live from the stylesheets and the project's
 paths and named sets from the design keys in `.claude/sync-substitutions.json`, and
 fails on a class off a role, a call site repainting a component (through a constant
-too), a screen or feature file drawing a box or naming a palette or faded colour, a frame
+too), a screen or feature file drawing a box or fading a colour on a line the change
+touched, a frame
 atom imported outside a part, a
 raw field painting the field look, a token that resolves to nothing or that nothing reaches, a light/dark
 mismatch, `design.md` naming what does not exist, and a stale generated file.
@@ -385,7 +386,7 @@ These vary per project; check `design.md`'s prose for the actual paths. Typical 
 - `<project-root>/<ui-home>/src/styles.css` — Tailwind v4 `@theme` block where tokens are declared as CSS variables
 - `<project-root>/<ui-home>/src/components/ui/` — shadcn atoms (button, input, label, dialog, etc.)
 - `<project-root>/<ui-home>/src/lib/utils.ts` — `cn()` utility
-- `<project-root>/apps/<app>/src/features/<feature>/` — a screen's content, beside the routes that use it
+- `<app>/src/features/<feature>/` — a screen's content, beside the routes that use it
 
 `<ui-home>` is where the project keeps its **client-clean** UI — either **per-app** (`apps/<app>/`) or a **dedicated client-only UI workspace** (`packages/ui/`) consumed by every front-end app. Which one is a project choice; check `design.md` / the project's rules. Either way the client/server wall in `ui-design.md` is a hard rule: the UI home holds no server/DB code.
 

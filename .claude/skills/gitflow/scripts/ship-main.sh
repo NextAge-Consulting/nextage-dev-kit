@@ -99,6 +99,10 @@ run_project_gate "$FOLD_BASE" "shipping to main" || exit $?
 # FOLD_BASE, reviewed by a headless Claude against the rule-authoring standard.
 "$SCRIPT_DIR/rule-review.sh" "$FOLD_BASE" || exit 4
 
+# New-part review: every part added since FOLD_BASE, checked by a headless Claude against
+# the parts the UI inventory already lists. A suspected duplicate goes to the human.
+"$SCRIPT_DIR/part-review.sh" "$FOLD_BASE" || exit 4
+
 # --- Fold checkpoints, stage + commit directly on main ---------------------
 fold_checkpoints "$FOLD_BASE"
 git add -A
