@@ -32,10 +32,11 @@ Full pattern, install steps and the integration model: testing.md §1.
 | `project.ts` | The seed. The project's settings, read by every other file here. |
 | `vitest.config.ts` | Finds the repository root, then runs `unit` and — only on Postgres with Neon credentials — `integration`, plus any projects `project.ts` adds. Resolves each app's `@/` alias per importing file. |
 | `globalSetup.ts` | Integration branch lifecycle: forks the default branch once per run, migrates every database on it, runs `afterMigrate`, sets the URLs before workers spawn, deletes the branch in teardown. |
-| `integration-helpers.ts` | `dbTest(name, fn)` and `dbTestOn(envVar)` — the only database entry points. Each runs its body in an always-rolled-back transaction. |
+| `integration-helpers.ts` | `dbTest(name, fn)` and `dbTestOn(envVar)` — the only database entry points. Each runs its body in an always-rolled-back drizzle transaction, so a nested `db.transaction` is a savepoint. |
 | `auth-mocks.ts` | Typed `MockAuthedUser` plus `mockAuthedUser()` / `mockUnauthed()`, with roles from `project.ts`. |
 | `test-utils.ts` | Setup file. Loads the allowed `.env` keys, pins `TZ` to `project.timezone`, and exposes a deterministic UUID-v7-like helper. |
 | `smoke.test.ts` | Proves vitest picks up the config, runs the setup file, resolves imports, and runs in the project's timezone. |
+| `harness.integration.test.ts` | Proves `dbTest` keeps a test's writes in its rolled-back transaction when the code under test opens its own `db.transaction`. |
 
 TypeScript diagnostics on these files inside the kit repo are expected — the kit has no
 npm dependencies and no `src/db/schema`, so the imports do not resolve here. They resolve

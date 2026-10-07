@@ -9,9 +9,14 @@
 // a database handle. There is no exported pool or committing handle, so a test cannot
 // write outside a rolled-back transaction: the API enforces it.
 //
+// The test receives a drizzle TRANSACTION, not a plain client, so code under test that calls
+// `db.transaction(...)` itself gets a savepoint. On a plain client drizzle would send its own
+// BEGIN/COMMIT, and that COMMIT ends the test's transaction and persists its writes.
+//
 // Code that takes a SESSION-level advisory lock is not released by ROLLBACK: its test
 // releases the lock itself, or the code uses a transaction-scoped lock.
 
+import { TransactionRollbackError } from "drizzle-orm/errors";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { it } from "vitest";
@@ -43,11 +48,20 @@ function transactionTest<S extends Record<string, unknown>>(envVar: string, sche
       name,
       async () => {
         const client = await poolFor(envVar).connect();
-        await client.query("BEGIN");
+        let finished = false;
         try {
-          await fn(drizzle(client, { schema }));
+          await drizzle(client, { schema }).transaction(async (tx) => {
+            // A transaction has no `$client`; data functions take the schema-typed database
+            // without it, and every query method they call is present on `tx`.
+            await fn(tx as unknown as NodePgDatabase<S>);
+            finished = true;
+            tx.rollback();
+          });
+        } catch (error) {
+          // Only the harness's own rollback, after the body finished, is a pass. A rollback
+          // the code under test raised mid-body is the test's failure.
+          if (!(finished && error instanceof TransactionRollbackError)) throw error;
         } finally {
-          await client.query("ROLLBACK");
           client.release();
         }
       },
