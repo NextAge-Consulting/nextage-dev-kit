@@ -19,8 +19,8 @@
  * Prints what it inspected, and fails when that is nothing.
  */
 
-import { execFileSync } from 'node:child_process'
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
@@ -721,6 +721,39 @@ export function hunks(diff) {
   return out.filter((h) => h.file && h.file !== '/dev/null')
 }
 
+/** Every changed .ts/.tsx hunk since `base`. A file git does not track yet is compared too:
+ * against the deleted file of the same name when there is one — a file moved, say into a
+ * feature folder — so only its real edits show; otherwise as all added lines — a part just
+ * extracted — so a style that left a screen for it reads as moved. */
+export function changedHunks(repo, base) {
+  const tracked = hunks(git(repo, ['diff', '-U0', base, '--', '*.ts', '*.tsx']))
+  const deleted = git(repo, ['diff', '--name-only', '--diff-filter=D', base, '--', '*.ts', '*.tsx']).split('\n').filter(Boolean)
+  const claimed = new Set()
+  const untracked = []
+  for (const file of git(repo, ['ls-files', '--others', '--exclude-standard', '--', '*.ts', '*.tsx']).split('\n')) {
+    if (!file || file.includes('node_modules') || !existsSync(path.join(repo, file))) continue
+    const text = readFileSync(path.join(repo, file), 'utf8').replace(/\r\n/g, '\n')
+    const from = deleted.find((d) => !claimed.has(d) && path.basename(d) === path.basename(file))
+    if (!from) {
+      untracked.push({ file, oldLine: 0, line: 1, removed: [], added: text.replace(/\n$/, '').split('\n') })
+      continue
+    }
+    claimed.add(from)
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'ui-values-moved-'))
+    try {
+      const old = path.join(dir, 'old')
+      writeFileSync(old, git(repo, ['show', `${base}:${from}`]))
+      // `git diff --no-index` exits 1 when the files differ; its output is the diff either way.
+      const r = spawnSync('git', ['diff', '--no-index', '-U0', old, path.join(repo, file)], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
+      if (r.status !== 0 && r.status !== 1) throw new Error(`git diff --no-index ${from} ${file}: ${r.stderr.trim()}`)
+      for (const h of hunks(r.stdout)) untracked.push({ ...h, file, from })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+  return [...tracked, ...untracked]
+}
+
 function entryFor(entries, file) {
   const scored = entries.map((e) => [e, path.dirname(e).split('/').filter((p, i) => file.split('/')[i] === p).length])
   scored.sort((a, b) => b[1] - a[1] || (a[0].startsWith('apps/') ? -1 : 1))
@@ -728,8 +761,7 @@ function entryFor(entries, file) {
 }
 
 export async function compareUiValues(repo, { base = 'HEAD' } = {}) {
-  const diff = git(repo, ['diff', '-U0', base, '--', '*.ts', '*.tsx'])
-  const changes = hunks(diff)
+  const changes = changedHunks(repo, base)
   const tracked = git(repo, ['ls-files', '--cached', '--others', '--exclude-standard', '--', '*.css']).split('\n').filter(Boolean)
   const entries = tracked.filter((f) => !f.includes('node_modules') && ENTRY.test(readFileSync(path.join(repo, f), 'utf8')))
   if (!entries.length) return { problems: ['no stylesheet imports tailwindcss — nothing to compile the classes with'], changed: [], uncompared: [], counts: null }

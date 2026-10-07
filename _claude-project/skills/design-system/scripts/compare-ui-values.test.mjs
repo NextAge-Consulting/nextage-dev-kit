@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { INITIAL, arithmetic, conditionalVars, elementScope, stripComments, isOtherElement, winner, baseDefaults, canonicalColors, specificity, visibleShadow, candidates, cssEvents, variants, declarations, explainMoves, hunks, ownSelector, pairLines, resolveVars, themeVars, toPx, extractBase } from './compare-ui-values.mjs'
+import { INITIAL, arithmetic, changedHunks, conditionalVars, elementScope, stripComments, isOtherElement, winner, baseDefaults, canonicalColors, specificity, visibleShadow, candidates, cssEvents, variants, declarations, explainMoves, hunks, ownSelector, pairLines, resolveVars, themeVars, toPx, extractBase } from './compare-ui-values.mjs'
 
 test('candidates are the words of every string literal on a line', () => {
   assert.deepEqual(candidates(`<p className="text-sm font-medium" data-x='a b'>`), ['text-sm', 'font-medium'])
@@ -349,5 +349,47 @@ test('extractBase writes the base tree, including a name with a space, into a fr
   } finally {
     rmSync(repo, { recursive: true, force: true })
     if (base) rmSync(base, { recursive: true, force: true })
+  }
+})
+
+test('a part just extracted into a file git does not track yet is compared as added lines', () => {
+  const repo = mkdtempSync(path.join(os.tmpdir(), 'ui-values-repo-'))
+  try {
+    const git = (...args) => execFileSync('git', ['-C', repo, '-c', 'user.email=t@example.com', '-c', 'user.name=t', ...args])
+    git('init', '-q')
+    mkdirSync(path.join(repo, 'src'))
+    writeFileSync(path.join(repo, 'src', 'screen.tsx'), '<div className="border-t-2 pt-4">x</div>\n')
+    git('add', '-A')
+    git('commit', '-qm', 'base')
+    writeFileSync(path.join(repo, 'src', 'screen.tsx'), '<Divided>x</Divided>\n')
+    mkdirSync(path.join(repo, 'src', 'components'))
+    writeFileSync(path.join(repo, 'src', 'components', 'divided.tsx'), 'export const Divided = () => (\n  <div className="border-t-2 pt-4" />\n)\n')
+    const changes = changedHunks(repo, 'HEAD')
+    const part = changes.find((h) => h.file === 'src/components/divided.tsx')
+    assert.deepEqual(part, { file: 'src/components/divided.tsx', oldLine: 0, line: 1, removed: [], added: ['export const Divided = () => (', '  <div className="border-t-2 pt-4" />', ')'] })
+    assert.ok(changes.some((h) => h.file === 'src/screen.tsx' && h.removed.length === 1))
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+test('a file moved without git knowing is compared against the deleted file of its name, so only its edits show', () => {
+  const repo = mkdtempSync(path.join(os.tmpdir(), 'ui-values-repo-'))
+  try {
+    const git = (...args) => execFileSync('git', ['-C', repo, '-c', 'user.email=t@example.com', '-c', 'user.name=t', ...args])
+    git('init', '-q')
+    mkdirSync(path.join(repo, 'src', 'components'), { recursive: true })
+    writeFileSync(path.join(repo, 'src', 'components', 'Roles.tsx'), 'a\n<div className="flex gap-2">b</div>\nc\n')
+    git('add', '-A')
+    git('commit', '-qm', 'base')
+    rmSync(path.join(repo, 'src', 'components', 'Roles.tsx'))
+    mkdirSync(path.join(repo, 'src', 'features', 'admin'), { recursive: true })
+    writeFileSync(path.join(repo, 'src', 'features', 'admin', 'Roles.tsx'), 'a\n<div className="flex gap-3">b</div>\nc\n')
+    const moved = changedHunks(repo, 'HEAD').filter((h) => h.file === 'src/features/admin/Roles.tsx')
+    assert.deepEqual(moved.map(({ removed, added, line, from }) => ({ removed, added, line, from })), [
+      { removed: ['<div className="flex gap-2">b</div>'], added: ['<div className="flex gap-3">b</div>'], line: 2, from: 'src/components/Roles.tsx' },
+    ])
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
   }
 })

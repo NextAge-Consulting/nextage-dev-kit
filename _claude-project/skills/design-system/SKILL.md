@@ -62,6 +62,8 @@ This is a search you run every time. No hardcoded paths, no per-project list —
 
 **Changing how an approved part looks or behaves — a new variant included — sets it to pending**, unless the human asked for that change. A change `compare-ui-values.mjs` proves leaves every value the same stays approved.
 
+**A part is pending only when it brings a look the human has not seen.** A part extracted from screens that `compare-ui-values.mjs` proves draws exactly what they drew is written approved. So is a part carrying a look the human picked on a comparison page — the pick is the approval.
+
 #### Each kind of work
 
 - **Converting a legacy screen** — rebuild what it does, not how it looked, from the parts that exist. Values come from the scale, never measured from the old app ("Converting a legacy app" below).
@@ -84,7 +86,7 @@ Every component and pattern carries one, `approved` or `pending`; an approved to
 
 **First prove what did not change.** `node .claude/skills/design-system/scripts/compare-ui-values.mjs [--base <ref>]` resolves the classes on every changed line, before and after, through the project's own Tailwind build, and lists only the values a user would see differently — grouped, with file and line — plus any line it could not compare. A line it proves identical needs no review. It resolves every value in light and dark mode, and lists a style that leaves one line and arrives unchanged on another — a shared look pulled into one place — as moved, not changed.
 
-**At the end of a body of work — a feature, a conversion, a mockup session, and at the latest before `/deploy` — walk the human through every pending part and every change the comparison lists.** List them with `node .claude/skills/ui-patterns/scripts/check-ui-status.mjs`, each with the screens that use it. Each one the human approves becomes `approved`, in its file and on its inventory line. One they reject is replaced by an existing part, or changed until they approve it. `/deploy` refuses while anything is pending.
+**At the end of a body of work — a feature, a conversion, a mockup session, and at the latest before `/deploy` — walk the human through every pending part and every change the comparison lists.** List them with `node .claude/skills/ui-patterns/scripts/check-ui-status.mjs`, each with the screens that use it. Two competing looks for the same thing go to them as a comparison page — `references/comparison-pages.md` — never in prose, and never with a recommendation. Each one the human approves becomes `approved`, in its file and on its inventory line. One they reject is replaced by an existing part, or changed until they approve it. `/deploy` refuses while anything is pending.
 
 ### Step 3: Identify the right tokens for the task
 

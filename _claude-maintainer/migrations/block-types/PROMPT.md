@@ -40,7 +40,7 @@ A screen styles its own text from the semantic roles; every finding that starts 
 1. **Group the findings into looks** — one element's classes, merged where they differ only by placement — and count each look's uses.
 2. **Match each look to the component that already draws it.** A palette colour whose semantic token holds the same value becomes that token. A look an existing atom or part already draws exactly moves onto it. Neither changes anything on screen.
 3. **A look no component draws** becomes the part of its block type — new, pending — or a part typed `<none>`, or an atom variant when it is text or a single control.
-4. **A thing drawn more than one way** — a notice at two paddings, muted text at three opacities, a page gutter three ways — is a decision for me. Build one page in `project-documentation/temporary/` that renders every variant side by side with the app's own stylesheet, in light and in dark, each labelled with its uses; open it, and ask me to pick. Move every use onto the pick.
+4. **A thing drawn more than one way** — a notice at two paddings, muted text at three opacities, a page gutter three ways — is a decision for me, put to me as a comparison page built exactly as `.claude/skills/design-system/references/comparison-pages.md` says. Present only looks that differ on screen; code variants that render the same are unified without asking. Move every use onto the pick.
 5. A class constant shared between screens becomes a variant on the part, and the constant goes.
 
 Then prove the rest did not change: `node .claude/skills/design-system/scripts/compare-ui-values.mjs`. A line it proves identical needs nothing. Every change it lists is one I picked in step 4, or is corrected until identical.
@@ -51,7 +51,9 @@ For each "a call site places a component, never repaints it" finding the sync in
 
 ## 8. Prove it
 
-Run `npm run lint:tokens`, `node .claude/skills/ui-patterns/scripts/check-ui-status.mjs`, `npm run check-types`, `npx --no-install @biomejs/biome lint --max-diagnostics=none`, `npm run lint:design`, the project's knip script and `npm test`, and fix every failure. The UI status check then fails only on parts awaiting approval; walk me through each one, as the `design-system` skill's review describes, before calling this done.
+Run `npm run lint:tokens`, `node .claude/skills/ui-patterns/scripts/check-ui-status.mjs`, `npm run check-types`, `npx --no-install @biomejs/biome lint --max-diagnostics=none`, `npm run lint:design`, the project's knip script and `npm test`, and fix every failure.
+
+A part extracted unchanged — `compare-ui-values.mjs` lists its styles as moved — or carrying a look I picked in step 6 is written `approved`. Only a part bringing a look I have not seen is pending; walk me through those, as the `design-system` skill's review describes, before calling this done.
 
 ## Report
 
