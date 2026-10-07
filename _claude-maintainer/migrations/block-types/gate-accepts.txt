@@ -11,3 +11,7 @@ has no block type
 no block-types line
 which is not on the block-type list
 has a status but no component or pattern file is named that
+# compare-ui-values lists a look copied to a second place as added there, rather than
+# explaining it as moved; step 6 has the project correct each listed change or put it to
+# the human.
+more item(s) for review than the committed version lists

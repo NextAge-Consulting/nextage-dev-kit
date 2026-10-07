@@ -558,10 +558,10 @@ export function pairLines(removed, added) {
  * Styles that moved rather than changed. Each line carries what it lost outright, what it
  * gained outright, and what changed value in place. A line's lost styles that another line
  * gained — same context, same value — moved there, when they are at least half of what it
- * lost: one shared property is coincidence. Several lines may move into one; a destination's
- * gains still unexplained after that may come from a line that already moved elsewhere —
- * one look copied into two places. A value that changed in place is never explained by a
- * move.
+ * lost: one shared property is coincidence. Several lines may move into one; one line's
+ * styles explain one destination, so a look copied to a second place lists as added there —
+ * a wrong "moved" would hide a change. A value that changed in place is never explained by
+ * a move.
  */
 export function explainMoves(diffs) {
   const overlap = (srcLost, tGained) => [...srcLost].filter(([k, v]) => tGained.get(k) === v).map(([k]) => k)
@@ -589,18 +589,6 @@ export function explainMoves(diffs) {
     }
     if (!best || best.keys.length * 2 < src.lost.size) continue
     move(src, best.t, best.keys)
-  }
-  for (const t of diffs) {
-    const left = gained.get(t)
-    if (!left.size) continue
-    let best = null
-    for (const src of diffs) {
-      if (src === t || !src.lost.size) continue
-      const keys = overlap(src.lost, left)
-      if (keys.length && (!best || keys.length > best.keys.length)) best = { src, keys }
-    }
-    if (!best || best.keys.length * 2 < left.size || best.keys.length * 2 < best.src.lost.size) continue
-    move(best.src, t, best.keys)
   }
   const remaining = diffs
     .map((d) => ({ ...d, lost: lost.get(d), gained: gained.get(d), changed: d.changed ?? new Map() }))
