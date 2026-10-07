@@ -14,7 +14,7 @@
 # Guardrails:
 #   - Refuses unless on main/master (a body of work in progress is on its own
 #     branch, so it can't trip this by accident).
-#   - Runs the same typecheck, biome and semgrep gates as /commit (gates.sh);
+#   - Runs the same typecheck, biome, knip and semgrep gates as /commit (gates.sh);
 #     --skip-typecheck for a true emergency.
 #   - Folds any unpushed /checkpoint commits into the one commit it makes, so no
 #     `🔖 wip:` subject reaches main for /deploy to read.
@@ -85,13 +85,14 @@ fi
 # against it; the fold itself waits until they have all passed.
 FOLD_BASE=$(checkpoint_fold_base)
 
-# Typecheck, biome and semgrep — gates.sh holds each gate and why it is shaped
-# the way it is. Only the typecheck honours --skip-typecheck. Biome and semgrep
-# always run: this commits straight to main, so a finding that slips through does
-# not wait on a branch for review — it lands on the default branch and breaks CI
-# for everyone.
+# Typecheck, biome, knip and semgrep — gates.sh holds each gate and why it is shaped
+# the way it is. Only the typecheck honours --skip-typecheck. Biome, knip and
+# semgrep always run: this commits straight to main, so a finding that slips
+# through does not wait on a branch for review — it lands on the default branch
+# and breaks CI for everyone.
 run_typecheck_gate "$SKIP_TYPECHECK" "shipping to main (or --skip-typecheck for a true emergency)" || exit $?
 run_biome_gate "shipping to main" || exit $?
+run_knip_gate "shipping to main" || exit $?
 run_semgrep_gate "$FOLD_BASE" "shipping to main" || exit $?
 run_project_gate "$FOLD_BASE" "shipping to main" || exit $?
 

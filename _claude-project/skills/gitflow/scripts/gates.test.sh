@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression suite for gates.sh — the typecheck, biome, semgrep and build gates
+# Regression suite for gates.sh — the typecheck, biome, knip, semgrep and build gates
 # /commit, /ship-main and /merge run.
 #
 # The contract under test: every gate passes, fails, or says why it does not
@@ -127,6 +127,29 @@ has "<the version biome.base.json's" '…naming where the version belongs'
 stub npx 0
 t 0 "$(gate run_biome_gate committing)" 'biome installed and lint clean: passes'
 rm biome.json package.json
+
+echo "knip:"
+new_repo
+t 0 "$(gate run_knip_gate committing)" 'no package.json passes'
+has 'knip: skipped — no root package.json' '…and says why'
+printf '{"name":"app"}\n' > package.json
+t 0 "$(gate run_knip_gate committing)" 'KNIP_GATE unset passes, as CI does'
+has 'KNIP_GATE is not "true"' '…and says why'
+mkdir -p .claude
+printf '{"KNIP_GATE":"true"}\n' > .claude/sync-substitutions.json
+t 4 "$(gate run_knip_gate committing)" 'KNIP_GATE on with no pinned version fails'
+has 'pins no knip version' '…naming what is missing'
+printf '{"packages":{"knip":{"version":"5.88.1"}}}\n' > .claude/stack-manifest.json
+stub npx 1
+t 4 "$(gate run_knip_gate committing)" 'a knip finding fails'
+has 'knip found unused code' '…and says so'
+t knip@5.88.1 "$(sed -n 2p "$tmp/npx.args")" '…running the manifest-pinned version'
+stub npx 2
+t 4 "$(gate run_knip_gate committing)" 'knip unable to run fails'
+has 'knip could not run (exit 2)' '…and says so'
+stub npx 0
+t 0 "$(gate run_knip_gate committing)" 'no findings passes'
+rm -rf package.json .claude
 
 echo "semgrep:"
 new_repo

@@ -57,7 +57,7 @@ This rule subsumes any prior or training-data instinct toward "one issue per PR.
 ## What gitflow does NOT do
 
 - Does not run git commands directly. All mechanics live in `/commit`, `/checkpoint`, `/open-pr`, `/merge`, `/deploy` commands, which in turn call scripts in `skills/gitflow/scripts/`.
-- Does not bypass validation. `commit.sh` runs the typecheck, biome and semgrep gates in `gates.sh` before committing — each says what it checked or why it does not apply here — plus the rule review of any changed rule prose, and `git-guard.sh` fires regardless. If either blocks, fix the underlying issue — do not attempt to bypass.
+- Does not bypass validation. `commit.sh` runs the typecheck, biome, knip and semgrep gates in `gates.sh` before committing — each says what it checked or why it does not apply here — plus the rule review of any changed rule prose, and `git-guard.sh` fires regardless. If either blocks, fix the underlying issue — do not attempt to bypass.
 - Does not auto-bump version or auto-write changelog at merge time. Version bump + changelog generation happen at `/deploy` time only (human-in-the-loop). Merging to main does not ship.
 
 ## Usage procedure

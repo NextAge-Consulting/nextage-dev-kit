@@ -60,7 +60,7 @@ committing (exit 2) when one is missing, and posts each once the board has moved
 
 The script:
 - Refuses unless on `main`/`master` — a body of work in progress is on its own branch and cannot trip it.
-- Runs `check-types`, `biome lint`, `semgrep` and the rule review over the files the commit touches — the same gates `/commit` runs, mirroring CI so a failure costs a second here rather than landing on `main`. **`--skip-typecheck` skips the TYPECHECK only.** Biome, semgrep and the rule review sit outside that guard and always run; there is no flag that bypasses them, which is deliberate on the one path that writes straight to the default branch.
+- Runs `check-types`, `biome lint`, `knip` (when `KNIP_GATE` is on), `semgrep` and the rule review over the files the commit touches — the same gates `/commit` runs, mirroring CI so a failure costs a second here rather than landing on `main`. **`--skip-typecheck` skips the TYPECHECK only.** Biome, knip, semgrep and the rule review sit outside that guard and always run; there is no flag that bypasses them, which is deliberate on the one path that writes straight to the default branch.
 - Stages all changes, commits directly on `main` with `--no-verify` (validation already ran).
 - Pushes straight to `main`. If `origin/main` advanced, it rebases the commit onto it and re-pushes; on conflict it stops and tells you to resolve + push.
 
@@ -73,7 +73,7 @@ The script:
 - A Staged comment did not post after the push: exit 13. The commit is live and the board updated; the script prints the exact `gh issue comment` to run.
 - Refused (not on main): tell the user they're on `<branch>`; use `/commit` for branch work.
 - Typecheck failure — including a root `package.json` with no `check-types` script while the repository has TypeScript sources, or a `pyproject.toml` with neither pyright nor mypy installed: surface the command to run; offer `--skip-typecheck` only if the user explicitly accepts shipping unverified.
-- Biome, semgrep or rule-review failure: surface the finding. `--skip-typecheck` does not apply — fix it, or ship the change through `/commit` and a PR instead. A rule-review finding the human judges wrong: they may re-run with `SKIP_RULE_REVIEW=1`.
+- Biome, knip, semgrep or rule-review failure: surface the finding. `--skip-typecheck` does not apply — fix it, or ship the change through `/commit` and a PR instead. A rule-review finding the human judges wrong: they may re-run with `SKIP_RULE_REVIEW=1`.
 - Rebase conflict: surface the conflict; the user resolves then `git push origin main`.
 
 ## Naming issues without a PR

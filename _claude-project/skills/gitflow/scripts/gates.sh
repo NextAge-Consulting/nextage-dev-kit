@@ -179,6 +179,61 @@ run_biome_gate() {
     fi
 }
 
+# knip_pin — the knip version the stack manifest pins, or nothing.
+knip_pin() {
+    [ -f .claude/stack-manifest.json ] || return 0
+    jq -r '.packages.knip.version // "" | strings' .claude/stack-manifest.json 2>/dev/null
+}
+
+# run_knip_gate <action>
+#
+# Unused code — the CI `knip` job, run before the push rather than after it. It
+# applies exactly where that job does: a root package.json, and KNIP_GATE set to
+# "true" in .claude/sync-substitutions.json. A repository that has not reached
+# zero findings leaves KNIP_GATE unset, and the gate says so and passes, as CI
+# does.
+#
+# The version is the stack manifest's — the one CI runs — because another knip
+# reads the kit's knip.config.ts differently. knip exits 1 on any finding and 2
+# when it cannot run; both fail.
+run_knip_gate() {
+    local action="$1" gate version
+    if [ ! -f "package.json" ]; then
+        echo "gitflow: knip: skipped — no root package.json." >&2
+        return 0
+    fi
+    gate=""
+    if [ -f .claude/sync-substitutions.json ]; then
+        gate=$(jq -r '.KNIP_GATE // "" | strings' .claude/sync-substitutions.json 2>/dev/null)
+    fi
+    if [ "$gate" != "true" ]; then
+        echo "gitflow: knip: skipped — KNIP_GATE is not \"true\" in .claude/sync-substitutions.json." >&2
+        return 0
+    fi
+    version=$(knip_pin)
+    if [ -z "$version" ]; then
+        echo "" >&2
+        echo "gitflow: KNIP_GATE is on but .claude/stack-manifest.json pins no knip version." >&2
+        echo "  A gate that cannot run must not report success, so this is a failure." >&2
+        return 4
+    fi
+    echo "gitflow: running knip $version..." >&2
+    local out rc=0
+    out=$(npx --yes "knip@$version" --no-progress --no-config-hints --reporter symbols 2>&1) || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        echo "" >&2
+        printf '%s\n' "$out" | grep -v 'injected env' >&2
+        echo "" >&2
+        if [ "$rc" -eq 1 ]; then
+            echo "gitflow: knip found unused code. Fix before $action." >&2
+        else
+            echo "gitflow: knip could not run (exit $rc). Fix before $action." >&2
+        fi
+        echo "  Run: npx --yes knip@$version --no-progress --no-config-hints --reporter symbols" >&2
+        return 4
+    fi
+}
+
 # semgrep_include_pattern <path> — the `--include` pattern matching exactly that
 # repository-relative path. The leading `/` anchors it to the scan root, so
 # `a.js` does not also select `src/a.js`; gitignore-syntax metacharacters and
