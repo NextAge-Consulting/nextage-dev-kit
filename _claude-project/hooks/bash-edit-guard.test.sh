@@ -187,6 +187,10 @@ printf 'fine\n' >> "$repo/vendor/lib/x.ts"
 t allow "$(event "$repo/vendor/lib/x.ts")" 'a file in a nested repository is judged on its own added lines'
 printf 'BAD(8)\n' >> "$repo/vendor/lib/x.ts"
 t block "$(event "$repo/vendor/lib/x.ts")" '…and a bad line added there is caught'
+got=$(cd "$repo/vendor/lib" && verdict "$(event x.ts)")
+[ "$got" = block ] && echo "  ✓ a bare file name is judged, not a crash" || { echo "  ✗ FAIL (got $got) — bare file name"; fail=1; }
+got=$(cd "$repo" && verdict "$(event vendor/lib/x.ts)")
+[ "$got" = block ] && echo "  ✓ a relative path into a nested repository is judged on its own added lines" || { echo "  ✗ FAIL (got $got) — relative path"; fail=1; }
 rm -rf "$repo/vendor"
 
 echo "PROCESS STARTS DO NOT GROW WITH THE FILE COUNT (each costs ~0.25s on Windows):"

@@ -421,6 +421,8 @@ export function changedLines(repo, base) {
   }
   // A moved file is judged by its edits, not as new: git pairs committed moves (-M), and an
   // uncommitted one pairs with the deleted file of its name.
+  // No --ignore-cr-at-eol: the kit's .gitattributes (`* text=auto eol=lf`) checks tracked files
+  // out as LF on every platform, and a CRLF untracked file can only over-judge, never hide a line.
   addHunks(git('diff', '-M', '-U0', '--no-color', base, '--', '*.ts', '*.tsx'))
   const deleted = git('diff', '-M', '--name-only', '--diff-filter=D', base, '--', '*.ts', '*.tsx').split('\n').filter(Boolean)
   const claimed = new Set()

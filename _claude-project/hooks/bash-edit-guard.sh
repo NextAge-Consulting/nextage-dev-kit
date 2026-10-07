@@ -212,6 +212,9 @@ def read_whole(path):
 # What to judge in a file asked about on its own: its whole content when untracked, its
 # added lines when it differs from HEAD, or None when it is the same as HEAD.
 def added_lines_alone(path):
+    # Absolute, so git runs in the folder holding the file and finds it there: a bare
+    # name has no folder, and a relative one would be looked up from inside itself.
+    path = os.path.abspath(path)
     cwd = os.path.dirname(path)
     if git(["ls-files", "--error-unmatch", "--", path], cwd).returncode != 0:
         return read_whole(path)
