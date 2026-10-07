@@ -188,6 +188,17 @@ has '1 workspace(s) declare a build script' '…counting it'
 grep -q built-a "$tmp/out" && echo "  ✓ …and it really ran" || { echo "  ✗ FAIL — build did not run"; fail=1; }
 printf '{"name":"b","scripts":{"build":"exit 3"}}\n' > "$mono/packages/b/package.json"
 t 15 "$(build "$mono")" 'a failing build fails with 15'
+# npm 12 answers each workspace with an object, not the bare script string.
+npm12="$tmp/npm12"; mkdir -p "$npm12"
+cat > "$npm12/npm" <<'NPM'
+#!/bin/bash
+if [ "$1" = pkg ]; then printf '{"a":{},"b":{"scripts.build":"echo built-12"}}\n'; else echo built-12; fi
+NPM
+chmod +x "$npm12/npm"
+build12(){ ( PATH="$npm12:$PATH"; source "$D/gates.sh"; run_build_gate "$1" ) >"$tmp/out" 2>"$tmp/err"; echo $?; }
+t 0 "$(build12 "$mono")" 'npm 12 object answer: builds and passes'
+has '1 workspace(s) declare a build script' '…counting the workspace that declares one'
+grep -q built-12 "$tmp/out" && echo "  ✓ …and it really ran" || { echo "  ✗ FAIL — build did not run"; fail=1; }
 single="$tmp/single"; mkdir -p "$single"
 printf '{"name":"s"}\n' > "$single/package.json"
 t 0 "$(build "$single")" 'single package without a build: passes'

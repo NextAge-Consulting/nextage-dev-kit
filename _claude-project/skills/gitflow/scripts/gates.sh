@@ -316,9 +316,11 @@ run_build_gate() {
     local root="$1" builds count scope
     if jq -e 'has("workspaces")' "$root/package.json" >/dev/null 2>&1; then
         scope="workspace"
-        # `npm pkg get` answers per workspace: the script, or {} where there is none.
+        # `npm pkg get` answers per workspace, {} where there is none. npm 11 and earlier
+        # give the script as a string; npm 12 gives an object keyed "scripts.build".
         if ! builds=$(cd "$root" && npm pkg get scripts.build --workspaces --json 2>&1) \
-            || ! count=$(printf '%s' "$builds" | jq '[.[] | strings] | length' 2>/dev/null); then
+            || ! count=$(printf '%s' "$builds" \
+                | jq '[.[] | if type == "object" then .[] else . end | strings] | length' 2>/dev/null); then
             echo "merge.sh: could not read the workspaces' build scripts — nothing merged." >&2
             printf '%s\n' "$builds" | sed 's/^/  /' >&2
             return 15
