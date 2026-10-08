@@ -519,7 +519,7 @@ Result: one monthly grouped wave per ecosystem + majors individually after 30-da
 
 **Ignore rules — one ships by default:**
 
-- `dependency-name: "node"` / `update-types: ["version-update:semver-major"]` in the docker block. **Why:** Dependabot doesn't understand Node's LTS policy. Odd-numbered Node releases (25, 27, …) never become LTS; even-numbered ones enter Active LTS ~6 months after release. Without this ignore, every 6 months we'd get a wave of Node-major PRs we don't want to merge. Patches (24.x.y security fixes) still flow through. The ONE major bump we DO care about — the Active-LTS transition — is checked during the `dependency-triage` pass (§3.4), not by Dependabot.
+- `update-types: ["version-update:semver-major"]` for Node in the docker block, listed under both names Dependabot gives the image: `node` (Docker Hub) and `docker/library/node` (the ECR Public mirror, `public.ecr.aws/docker/library/node`). An image matching neither name is not held back. **Why:** Dependabot doesn't understand Node's LTS policy. Odd-numbered Node releases (25, 27, …) never become LTS; even-numbered ones enter Active LTS ~6 months after release. Without this ignore, every 6 months we'd get a wave of Node-major PRs we don't want to merge. Patches (24.x.y security fixes) still flow through. The ONE major bump we DO care about — the Active-LTS transition — is checked during the `dependency-triage` pass (§3.4), not by Dependabot.
 
 If a project adds other framework-specific holds (pinned transitive dep, known-broken major), add them in the consumer's `.github/dependabot.yml` as `locally-modified` overrides. Document the hold reason as a comment in the consumer's `.github/dependabot.yml`.
 

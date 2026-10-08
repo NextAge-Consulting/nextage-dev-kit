@@ -157,7 +157,12 @@ updates:
     # evens enter Active LTS ~6 months after release. Dependabot can't
     # distinguish. Active-LTS transitions are checked by the `dependency-triage`
     # pass instead. Patches (24.x.y) still flow.
+    # Both names: Docker Hub's image is "node", the ECR Public mirror's
+    # (public.ecr.aws/docker/library/node) is "docker/library/node".
     ignore:
       - dependency-name: "node"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "docker/library/node"
         update-types:
           - version-update:semver-major

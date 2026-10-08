@@ -60,7 +60,7 @@ committing (exit 2) when one is missing, and posts each once the board has moved
 
 The script:
 - Refuses unless on `main`/`master` — a body of work in progress is on its own branch and cannot trip it.
-- Runs `check-types`, `biome lint`, `knip` (when `KNIP_GATE` is on), `semgrep` and the rule review over the files the commit touches — the same gates `/commit` runs, mirroring CI so a failure costs a second here rather than landing on `main`. **`--skip-typecheck` skips the TYPECHECK only.** Biome, knip, semgrep and the rule review sit outside that guard and always run; there is no flag that bypasses them, which is deliberate on the one path that writes straight to the default branch.
+- Runs `check-types`, `biome lint`, `knip` (when `KNIP_GATE` is on), `semgrep` and the rule review over the files the commit touches — the same gates `/commit` runs. **`--skip-typecheck` skips the TYPECHECK only.** Biome, knip, semgrep and the rule review sit outside that guard and always run; there is no flag that bypasses them.
 - Stages all changes, commits directly on `main` with `--no-verify` (validation already ran).
 - Pushes straight to `main`. If `origin/main` advanced, it rebases the commit onto it and re-pushes; on conflict it stops and tells you to resolve + push.
 
