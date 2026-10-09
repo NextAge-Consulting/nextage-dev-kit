@@ -8,6 +8,9 @@ projects. The kit ships no buildspec because deploy targets vary (pipeline.md §
 what does not vary in practice is the shape below, and re-deriving it per project is
 how pieces get silently skipped.
 
+To own this shape as Terraform rather than console clicks and CLI commands — layout, state,
+credentials, adopting what already exists — see `infrastructure-terraform.md`.
+
 **Verify against the live configuration, never against this document.** Every claim
 here describes the intended shape. An infra doc written from intent drifts from the
 running system, and the drift is invisible until something is exploited or falls over.
@@ -427,6 +430,64 @@ A 200 on `/health` proves the process answers, not that it is well. A container 
 at its memory ceiling answers right up until it dies. Where a check is worth having, make
 it touch the thing that actually fails — a database round-trip, a cache read.
 
+## A deploy is done when the new version says so
+
+**A deploy succeeds only when the host is serving the release just built — confirmed by
+the release itself.** A 200 from `/health` after a restart is not that: if the restart
+never happened, the previous container answers the same 200 and the build goes green
+having changed nothing. This has happened, and it looked like a perfect deploy.
+
+The usual cause is the shape every kit deploy shares: the build sends its host-side steps
+over SSH as a heredoc on `bash`'s standard input. **Any command in that script that reads
+standard input swallows every line after it**, and `bash` then reaches end of input and
+exits 0. `docker compose run`, `docker exec -i` and anything prompting all read stdin by
+default. The restart and the health check simply never run.
+
+Three layers close it, and each covers a different way of failing:
+
+1. **The health endpoint reports the version, and the deploy waits for the right one.**
+   The app's `/health` returns the version baked into the image
+   (`{"status":"ok","version":"1.4.2"}`); the deploy polls until the version matches the
+   release it is deploying, not merely until it gets a 200.
+
+   ```bash
+   for i in $(seq 1 30); do
+     if curl -fsS http://127.0.0.1:3000/health | grep -q "\"version\":\"$VERSION\""; then
+       echo "serving v$VERSION"; break
+     fi
+     sleep 1
+   done
+   ```
+
+2. **The host script is read whole before any of it runs.** Wrap the heredoc's body in a
+   function and call it on the last line; `bash` must parse the whole function before
+   executing it, so nothing can consume lines that have not run. Give one-off containers
+   no stdin as well: `docker compose run --rm -T <service> … </dev/null`.
+
+3. **The build trusts only a completion marker.** The host script's very last act, after
+   the version check passes, prints `DEPLOY_COMPLETE v<version>`. The build captures the
+   script's output and fails unless that is the last line — so a script that ends early,
+   for any reason including an exit 0, fails the build and says the host is not updated.
+
+   ```bash
+   if ssh "$HOST" bash -s > /tmp/host.log 2>&1 <<EOF
+   deploy_on_host() {
+     # … pull, migrate, restart, wait for the version …
+     echo "DEPLOY_COMPLETE v$VERSION"
+   }
+   deploy_on_host
+   EOF
+   then rc=0; else rc=$?; fi
+   cat /tmp/host.log
+   [ "$rc" -eq 0 ] && [ "$(tail -n 1 /tmp/host.log)" = "DEPLOY_COMPLETE v$VERSION" ] \
+     || { echo "DEPLOY FAILED: v$VERSION is not confirmed serving"; exit 1; }
+   ```
+
+Test it the way it breaks, running the rendered host script through `bash -s` with stub
+`docker` and `curl`: with a `docker run` that reads all of stdin, the deploy must still
+complete; with the health stub answering the previous version, and with an `exit 0`
+injected before the restart, the build must fail.
+
 ## Logs
 
 A bind-mounted `logs/` volume fills the root disk given long enough. Rotate them, and
@@ -476,7 +537,7 @@ ones. An established project is where these hide, because nothing ever surfaced 
 | Check | Command | Wrong answer looks like |
 |---|---|---|
 | A WAF is actually attached | `aws wafv2 list-web-acls --scope REGIONAL` then `list-resources-for-web-acl` | An empty list. A project ran for months with an ALB and no WAF, and nothing anywhere reported it |
-| The public IP is Elastic, not auto-assigned | `aws ec2 describe-instances --query 'Reservations[].Instances[].NetworkInterfaces[].Association.IpOwnerId'` | `amazon` — the IP **moves on stop/start**, breaking anything that addresses the box by IP rather than by instance ID or through the load balancer |
+| Something reaches the box BY its IP, and that IP is Elastic | First ask whether anything does: an allowlist naming the box, a DNS record pointing at it, a partner connecting to it. Then `aws ec2 describe-instances --query 'Reservations[].Instances[].NetworkInterfaces[].Association.IpOwnerId'` | `amazon` while something depends on the IP — it **moves on stop/start**. A box reached only through the load balancer and SSM needs no Elastic IP, and the account's quota for them is small and shared |
 | The instance group is not world-open | `aws ec2 describe-security-groups` | Any `0.0.0.0/0` on the *instance* group. `:80` there bypasses the WAF entirely; `:22` there is a standing invitation |
 | Containers can reach the instance role | `aws ec2 describe-instances --query 'Reservations[].Instances[].MetadataOptions.HttpPutResponseHopLimit'` | A `1`. The host gets credentials and every container is refused them, reported as `Could not load credentials from any providers` |
 | SSH is closed and SSM works | `aws ssm describe-instance-information` | Agent absent while `:22` is open — the port cannot be closed until the agent is proven |

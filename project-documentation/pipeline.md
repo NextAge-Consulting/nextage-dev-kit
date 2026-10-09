@@ -393,8 +393,8 @@ Body shape:
 
 - **`install`** — the session-manager-plugin (the rollout reaches the host through SSM), and a `docker buildx` builder.
 - **`pre_build`** — assert the ECR repository and its lifecycle policy exist (§2.7.1, `new-project-setup.md` §7a), verify the client build-time variables (`infrastructure.md`), log in to ECR.
-- **`build`** — `docker buildx build --target production`, pushed tagged `latest`, the short sha and a timestamp, with a registry build cache. Base images come from the ECR Public mirror (`infrastructure.md`).
-- **`post_build`** — reach the host by **instance id** over SSH with an `aws ssm start-session` `ProxyCommand` (no inbound `:22`), take a host-side `flock` so concurrent service rollouts serialize, `docker compose pull <service>` then `docker compose up -d --force-recreate --no-deps <service>`, and poll the service's `/health` until it answers, dumping its logs if it never does.
+- **`build`** — `docker buildx build --target production`, pushed tagged with the release version (`v<package.json version>`) and the short sha, with a registry build cache. A version already in the registry is deployed, not rebuilt; with immutable version tags that is what lets a failed deploy be re-run. Base images come from the ECR Public mirror (`infrastructure.md`).
+- **`post_build`** — reach the host by **instance id** over SSH with an `aws ssm start-session` `ProxyCommand` (no inbound `:22`), take a host-side `flock` so concurrent service rollouts serialize, `docker compose pull <service>` then `docker compose up -d --force-recreate --no-deps <service>` with `IMAGE_TAG` set to the release, and poll `/health` until it answers **with that version**, dumping its logs if it never does. The host script is read whole before it runs and ends with a completion marker the build requires — `infrastructure.md`, "A deploy is done when the new version says so".
 
 Selective per-app deploy (rebuild only apps whose files changed) is NOT part of the model — `/deploy` ships everything since the last tag in one intentional release; `/deploy <service>` is the explicit way to ship less.
 
@@ -450,9 +450,22 @@ deploy buildspec. Checklist row: E67.
 - `18`: the migration could not be dispatched → same checks as `12`, for the migrate project
 - `19`: the migration failed → nothing app-side shipped; fix the migration, then re-dispatch the migration and the deploys by hand (`commands/deploy.md` Recovery) — never deploy apps against a failed migration
 - `20`: the `MIGRATE_PATHS` diff failed → the skip check errored, so nothing was skipped silently
-- `21`: the deploy-trigger AWS credential in `.env` is missing or invalid → fix it (`new-project-setup.md` §7c); caught before anything mutated
+- `21`: the deploy-trigger AWS credential in `.env` is missing or invalid → fix it (`new-project-setup.md` §7c); caught before anything mutated. Under `promote`, the promote key
+- `23`: `promote` named a version with no release tag on origin
+- `24`: `promote` succeeded and Prod is on the new version, but the GitHub Release was not created → run the `gh release create` the script printed
 
 A deploy build that fails after the migration ran leaves the new schema under the old code. Read the build log first: a failure outside the code — a registry rate limit, a transient network error — is fixed by re-dispatching the same builds, with no new bump and no second migration.
+
+## 2.9 `/deploy promote` — a separate Prod
+
+For a project whose Prod is its own environment, `/deploy` releases to Test and `/deploy promote <version>` puts a tested release onto Prod. Nothing is bumped, built or tagged.
+
+- **Its own CodeBuild project per service,** `<CODEBUILD_PROMOTE_PREFIX><service>`, under a prefix different from the deploy prefix — the deploy key may start anything under the deploy prefix, and every developer holds it. Its build steps are defined in the project's infrastructure code, not read from the repository, so a pushed branch cannot change what runs with Prod's permissions.
+- **Started with the release tag as its source** and `VERSION` set. It refuses a version whose image was never deployed to Test, or was built from another commit.
+- **Planned downtime:** stop, migrate, start. A failed migration restarts the previous version. The rollout has the same version-checked health and completion marker as a deploy.
+- **The image is tagged `prod-<version>`,** so a registry lifecycle can keep what Prod has run apart from Test's deploys.
+- **Then `deploy.sh` publishes the GitHub Release** for the tag. A version that already has one (a rollback) publishes nothing.
+- **Its own key,** `DEPLOY_PROMOTE_AWS_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY`, scoped to the promote projects (`new-project-setup.md` §7c). Whoever holds it may promote.
 
 ---
 

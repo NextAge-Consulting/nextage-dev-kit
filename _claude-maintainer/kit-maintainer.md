@@ -36,13 +36,11 @@ The consumer projects are private; the kit is not. A fact that is fine in a
 project's `project-documentation/` may be a leak in the kit's. When in doubt it
 stays in the project.
 
-**The kit's GitHub issues hold the instance.** Track every kit to-do as an issue
-on the kit repository — client reports and your own improvement ideas alike. The
-war story, the project it happened in, the decision history and the open
-questions go there, written to the issue standard in `memory-discipline.md`.
-Its when-to-file limit governs consumer sessions; you file any kit to-do, ideas
-included. The files and commits get the shape; a commit cites its issue by
-number.
+**A kit change made in the session is just the work — edit, propagate, done; no
+issue.** An issue is for kit work left for later, yours or a client's, and it is
+where the instance lives: the project it happened in, the war story, the open
+questions (`memory-discipline.md` sets what may go in one). The files and commits
+get only the shape. A commit that finishes an issue cites it by number.
 
 **Two independent mechanisms — don't conflate them.** The `~/.claude/kitmaster`
 marker gates the HOOK (present → `block-kit-edit.sh` inert). What gates THIS

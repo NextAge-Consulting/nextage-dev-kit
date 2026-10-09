@@ -32,7 +32,7 @@ for whoever filed them.
 reviewer's comments one at a time: fix it, skip it with a reason, or discuss it.
 
 **Land it with `/merge`.** It builds the app, confirms CI is green, squash-merges and puts
-you back on an up-to-date `main`. Merging does not deploy; `/deploy` is DevOps's step.
+you back on an up-to-date `main`. Merging does not deploy; `/deploy` and `/deploy promote` are DevOps's steps.
 
 **Stay current with `/catchup`.** It brings `main` into your branch when others have
 shipped, and fast-forwards `main` when you're on it.

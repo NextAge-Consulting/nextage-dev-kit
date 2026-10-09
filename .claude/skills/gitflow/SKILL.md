@@ -1,6 +1,6 @@
 ---
 name: gitflow
-description: This skill should be used when the user asks to "work on", "start work", "pick up where I left off", "open the project", "commit", "commit this", "commit the changes", "ship to main", "commit straight to main", "infra commit", "emergency commit to main", "checkpoint", "save progress", "wip commit", "link issue", "link this issue", "also works on issue", "open pr", "open a pull request", "submit for review", "triage", "work the review", "go through gemini", "merge", "merge to main", "ship it", "retrieve a branch", "catch up with main", "catch my branch up", "get latest main", "pull main into my branch", "update my branch with main", "continue the merge", "abort the catchup", or any natural-language request for git work-session, commit, checkpoint, issue-link, pull-request, review-triage, catchup, merge, or deploy operations. Routes to the corresponding slash command. The canonical and ONLY authorized path for starting work, committing, checkpointing, PR creation, review triage, catchup, and merges in this project.
+description: This skill should be used when the user asks to "work on", "start work", "pick up where I left off", "open the project", "commit", "commit this", "commit the changes", "ship to main", "commit straight to main", "infra commit", "emergency commit to main", "checkpoint", "save progress", "wip commit", "link issue", "link this issue", "also works on issue", "open pr", "open a pull request", "submit for review", "triage", "work the review", "go through gemini", "merge", "merge to main", "ship it", "promote to prod", "retrieve a branch", "catch up with main", "catch my branch up", "get latest main", "pull main into my branch", "update my branch with main", "continue the merge", "abort the catchup", or any natural-language request for git work-session, commit, checkpoint, issue-link, pull-request, review-triage, catchup, merge, deploy, or promotion operations. Routes to the corresponding slash command. The canonical and ONLY authorized path for starting work, committing, checkpointing, PR creation, review triage, catchup, and merges in this project.
 user-invocable: false
 ---
 
@@ -28,7 +28,8 @@ Invoke this skill when the user asks for any of:
 | "open pr", "open a pull request", "submit for review" | `/open-pr` |
 | "triage", "work the review", "go through gemini", "walk the review" | `/triage` |
 | "merge", "merge to main", "ship it", "land this" | `/merge` |
-| "deploy", "ship to prod", "release", "cut a release" | `/deploy` |
+| "deploy", "release", "cut a release" | `/deploy` |
+| "promote <version>", "promote to prod", "ship to prod", "release to production" | `/deploy promote <version>` when the project sets `CODEBUILD_PROMOTE_PREFIX`; otherwise `/deploy` |
 
 ## Workflow philosophy: bundle freely, ship when the user says ship
 

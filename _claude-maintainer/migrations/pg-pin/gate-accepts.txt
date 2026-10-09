@@ -1,0 +1,5 @@
+# Findings the kit gate's replay accepts while this migration ships: check-stack now
+# requires pg at its blessed version wherever a project declares it, and the steps below
+# pin it.
+: pg is "
+pg resolves to

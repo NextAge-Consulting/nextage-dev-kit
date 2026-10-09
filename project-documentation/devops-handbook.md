@@ -44,6 +44,22 @@ Run `/deploy` on an up-to-date `main`. In one pass it:
 Every failure exits with a code that says what went wrong and what to do.
 (`pipeline.md` §2.8)
 
+## Promoting a release to Prod
+
+A project with a separate Prod splits the release in two. `/deploy` releases to Test, as
+often as you like. `/deploy promote <version>` puts one of those releases onto Prod:
+the same image, never rebuilt, so what reaches clients is exactly what was tested.
+
+Promotion takes Prod down briefly: the running version stops, the migrations run, and
+the new version starts. A failed migration brings the previous version back. Nothing
+counts as promoted until Prod itself reports the new version, and then a GitHub Release
+records that it shipped and when. Promoting an older version is a rollback, but its
+database changes are not undone: the older version then runs on the newer schema. Roll
+back across a release that changed the schema only after checking the old code survives it.
+
+It runs with its own key, separate from the deploy key every developer holds. Whoever
+holds the promote key is who may promote. (`pipeline.md` §2.9)
+
 ## Setting a project up
 
 Hand `new-project-setup.md` to Claude: "walk me through new project setup". It works the
@@ -55,7 +71,8 @@ secrets. The parts that are yours:
   pattern. (`pipeline.md` §2.7)
 - **The servers.** `infrastructure.md` is how the box under an app is normally built: a
   load balancer in front, nginx and containers behind it, health checks, logs, and what
-  gets forgotten on the second box.
+  gets forgotten on the second box. `infrastructure-terraform.md` is how to own it as
+  Terraform, so Test and Prod come from one reviewed definition.
 - **Backups.** `db-backup-pattern.md` gives a daily offsite copy of the database with a
   monitor that alarms when a backup doesn't arrive.
 - **The review bot and the board.** `gemini-code-review-setup.md` and

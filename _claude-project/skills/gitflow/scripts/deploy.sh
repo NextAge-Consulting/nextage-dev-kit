@@ -6,6 +6,7 @@
 #                  [<service>...] [--workflow <file>]... [--migrate-workflow <file>]
 #                  [--migrate-paths <path>...] [--no-watch] [--timeout-min <minutes>]
 #        deploy.sh --check-only
+#        deploy.sh promote <version> [<service>...]
 #
 # A bare positional <service> (e.g. `worker`, `rest`) is sugar for the workflow
 # `deploy-<service>.yml` and mirrors /dev's bare-workspace form — e.g.
@@ -124,6 +125,22 @@
 # The migrate gate is identical on both dispatching backends: watched to completion, a real
 # failure aborts with exit 19 before any app ships.
 #
+# ─── Promotion (`promote <version>`) ─────────────────────────────────────
+# For a project with a separate Prod: puts a release that already ran on Test onto
+# Prod, by starting the promote project for each service with the release TAG as
+# its source version and VERSION set. Nothing is bumped, built, committed or
+# tagged, so none of the release gates apply. The promote project itself refuses a
+# version whose image Test never deployed, and confirms the new version is serving
+# before it reports success. A successful promotion then publishes the GitHub
+# Release for that tag; promoting a version that already has one (a rollback)
+# publishes nothing.
+#
+# It authenticates with DEPLOY_PROMOTE_AWS_ACCESS_KEY_ID / _SECRET_ACCESS_KEY, a key
+# separate from the deploy key: it may start <CODEBUILD_PROMOTE_PREFIX><service>
+# and read their status, nothing else, and whoever holds it is who may promote.
+# Promotion is codebuild-only; an empty CODEBUILD_PROMOTE_PREFIX means this project
+# has no promotion and the command stops.
+#
 # ─── Exit codes ──────────────────────────────────────────────────────────
 #   2  bad args; also DEPLOY_BACKEND=custom/none (this script does not deploy
 #      this project) or an unrecognized DEPLOY_BACKEND value — all raised
@@ -149,6 +166,8 @@
 #      fires after the bump/tag
 #  22  UI awaiting the human's approval, or out of step with the UI inventory
 #      (check-ui-status.mjs) — checked as a state gate before any mutation
+#  23  promote: no such release tag on origin
+#  24  promote: the promotion succeeded but the GitHub Release was not created
 #
 # ─── Recovery ────────────────────────────────────────────────────────────
 # The bump commit and the push to main happen together (steps 3–4). If the
@@ -189,6 +208,17 @@ MIGRATE_WF=""
 MIGRATE_PATHS=""
 WATCH=1
 CHECK_ONLY=0
+PROMOTE=0
+PROMOTE_VERSION=""
+
+# `promote <version>` is a mode, not an option: it ships an existing tag and skips
+# everything that cuts one. Any service names after the version narrow the fleet.
+if [ "${1:-}" = "promote" ]; then
+    PROMOTE=1
+    PROMOTE_VERSION="${2:-}"
+    shift
+    [ $# -gt 0 ] && shift
+fi
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -248,6 +278,7 @@ fi
 DEPLOY_BACKEND="codebuild"
 CODEBUILD_PROJECT_PREFIX=""
 CODEBUILD_MIGRATE_PROJECT=""
+CODEBUILD_PROMOTE_PREFIX=""
 CB_AWS_REGION=""
 if [ -f "$SUBS_FILE" ] && command -v jq >/dev/null 2>&1; then
     DEPLOY_BACKEND=$(jq -r '.DEPLOY_BACKEND // ""' "$SUBS_FILE")
@@ -257,8 +288,23 @@ if [ -f "$SUBS_FILE" ] && command -v jq >/dev/null 2>&1; then
     [ -n "$DEPLOY_BACKEND" ] || DEPLOY_BACKEND="codebuild"
     CODEBUILD_PROJECT_PREFIX=$(jq -r '.CODEBUILD_PROJECT_PREFIX // ""' "$SUBS_FILE")
     CODEBUILD_MIGRATE_PROJECT=$(jq -r '.CODEBUILD_MIGRATE_PROJECT // ""' "$SUBS_FILE")
+    CODEBUILD_PROMOTE_PREFIX=$(jq -r '.CODEBUILD_PROMOTE_PREFIX // ""' "$SUBS_FILE")
     CB_AWS_REGION=$(jq -r '.AWS_REGION // ""' "$SUBS_FILE")
 fi
+# A promotion's own arguments are checked before any credential, so a typo is
+# reported as a typo rather than as a key to go and provision.
+if [ "$PROMOTE" -eq 1 ]; then
+    [ "$DEPLOY_BACKEND" = "codebuild" ] || {
+        echo "deploy.sh: promote needs DEPLOY_BACKEND=codebuild (got: $DEPLOY_BACKEND)" >&2; exit 2; }
+    [ -n "$CODEBUILD_PROMOTE_PREFIX" ] || {
+        echo "deploy.sh: this project has no promotion — CODEBUILD_PROMOTE_PREFIX is empty in $SUBS_FILE" >&2; exit 2; }
+    [ -n "$PROMOTE_VERSION" ] || {
+        echo "deploy.sh: usage: deploy.sh promote <version> [<service>...]" >&2; exit 2; }
+    case "$PROMOTE_VERSION" in v*) ;; *) PROMOTE_VERSION="v$PROMOTE_VERSION" ;; esac
+    [[ "$PROMOTE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+        echo "deploy.sh: '$PROMOTE_VERSION' is not a release version (v<major>.<minor>.<patch>)" >&2; exit 2; }
+fi
+
 case "$DEPLOY_BACKEND" in
     github) ;;
     custom)
@@ -298,10 +344,14 @@ case "$DEPLOY_BACKEND" in
         # Read from .env, never from sync-substitutions.json (that file is
         # committed; this is a secret) — same grep|cut|xargs convention as every
         # other .env read in this repo (development-guidelines.md).
-        DEPLOY_AWS_ACCESS_KEY_ID=$(grep "^DEPLOY_AWS_ACCESS_KEY_ID=" .env 2>/dev/null | cut -d'=' -f2- | cut -d'#' -f1 | xargs || true)
-        DEPLOY_AWS_SECRET_ACCESS_KEY=$(grep "^DEPLOY_AWS_SECRET_ACCESS_KEY=" .env 2>/dev/null | cut -d'=' -f2- | cut -d'#' -f1 | xargs || true)
+        # A promotion uses its own key, so holding the deploy key never means
+        # being able to change Prod.
+        KEY_VAR="DEPLOY_AWS"
+        [ "$PROMOTE" -eq 1 ] && KEY_VAR="DEPLOY_PROMOTE_AWS"
+        DEPLOY_AWS_ACCESS_KEY_ID=$(grep "^${KEY_VAR}_ACCESS_KEY_ID=" .env 2>/dev/null | cut -d'=' -f2- | cut -d'#' -f1 | xargs || true)
+        DEPLOY_AWS_SECRET_ACCESS_KEY=$(grep "^${KEY_VAR}_SECRET_ACCESS_KEY=" .env 2>/dev/null | cut -d'=' -f2- | cut -d'#' -f1 | xargs || true)
         if [ -z "$DEPLOY_AWS_ACCESS_KEY_ID" ] || [ -z "$DEPLOY_AWS_SECRET_ACCESS_KEY" ]; then
-            echo "deploy.sh: DEPLOY_AWS_ACCESS_KEY_ID / DEPLOY_AWS_SECRET_ACCESS_KEY not set in .env" >&2
+            echo "deploy.sh: ${KEY_VAR}_ACCESS_KEY_ID / ${KEY_VAR}_SECRET_ACCESS_KEY not set in .env" >&2
             echo "  This is a separate, narrowly-scoped credential from your personal AWS_PROFILE —" >&2
             echo "  provision it per new-project-setup.md §7c (\"Deploy trigger credential\")." >&2
             exit 21
@@ -389,6 +439,65 @@ fi
 # deliberately ships no app artifact — do NOT inject the deploy.yml default.
 if [ ${#WORKFLOWS[@]} -eq 0 ] && [ -z "$MIGRATE_WF" ]; then
     WORKFLOWS=("deploy.yml")
+fi
+
+# ─── Promotion ───────────────────────────────────────────────────────────
+# Runs here, before the bump gates, and exits: a promotion ships a tag that
+# already exists, so "commits since the last tag", a clean tree and the rest are
+# about a release this command does not cut.
+if [ "$PROMOTE" -eq 1 ]; then
+    command -v gh >/dev/null 2>&1 || { echo "deploy.sh: gh CLI required to publish the release" >&2; exit 8; }
+
+    if ! git ls-remote --exit-code --tags origin "refs/tags/$PROMOTE_VERSION" >/dev/null 2>&1; then
+        echo "deploy.sh: no release tag $PROMOTE_VERSION on origin — only a version /deploy released can be promoted" >&2
+        exit 23
+    fi
+
+    PROMOTE_IDS=""
+    for WF in "${WORKFLOWS[@]}"; do
+        _svc=${WF#deploy-}; _svc=${_svc%.yml}
+        PROJECT="${CODEBUILD_PROMOTE_PREFIX}${_svc}"
+        BUILD_ID=""
+        # shellcheck disable=SC2086 # intentional word-splitting on the aws flag list
+        aws $CB_AWS_ARGS codebuild start-build --project-name "$PROJECT" \
+            --source-version "refs/tags/$PROMOTE_VERSION" \
+            --environment-variables-override "name=VERSION,value=$PROMOTE_VERSION,type=PLAINTEXT" \
+            --query 'build.id' --output text >/tmp/cb_id.$$ 2>/tmp/cb_err.$$ && BUILD_ID=$(cat /tmp/cb_id.$$)
+        [ -s /tmp/cb_err.$$ ] && sed 's/^/deploy.sh:   aws: /' /tmp/cb_err.$$ >&2
+        rm -f /tmp/cb_id.$$ /tmp/cb_err.$$
+        if [ -z "$BUILD_ID" ] || [ "$BUILD_ID" = "None" ]; then
+            echo "deploy.sh: could not start promotion project $PROJECT" >&2
+            exit 12
+        fi
+        PROMOTE_IDS="$PROMOTE_IDS $BUILD_ID"
+        echo "deploy.sh: promoting $PROMOTE_VERSION via $PROJECT ($BUILD_ID)" >&2
+    done
+
+    echo "deploy.sh: waiting on ${#WORKFLOWS[@]} promotion(s)..." >&2
+    # shellcheck disable=SC2086 # intentional word-splitting on the id list
+    PROMOTE_RESULT=$(cb_wait $PROMOTE_IDS) || exit 13
+    printf '%s\n' "$PROMOTE_RESULT" | while read -r _id _status; do
+        echo "deploy.sh:   $_id $_status" >&2
+    done
+    if printf '%s\n' "$PROMOTE_RESULT" | awk '{print $2}' | grep -qv '^SUCCEEDED$'; then
+        echo "deploy.sh: PROMOTION FAILED — read the build log above; Prod is not confirmed on $PROMOTE_VERSION" >&2
+        exit 13
+    fi
+
+    if gh release view "$PROMOTE_VERSION" >/dev/null 2>&1; then
+        echo "deploy.sh: $PROMOTE_VERSION already has a GitHub Release — promoted again, nothing to publish" >&2
+    else
+        PREV_RELEASE=$(gh release list --limit 1 --exclude-drafts --json tagName --jq '.[0].tagName // ""' 2>/dev/null || true)
+        RELEASE_ARGS=(release create "$PROMOTE_VERSION" --verify-tag --title "$PROMOTE_VERSION" --generate-notes)
+        [ -n "$PREV_RELEASE" ] && RELEASE_ARGS+=(--notes-start-tag "$PREV_RELEASE")
+        if ! gh "${RELEASE_ARGS[@]}" >&2; then
+            echo "deploy.sh: $PROMOTE_VERSION IS live, but the GitHub Release was not created. Create it with:" >&2
+            echo "  gh ${RELEASE_ARGS[*]}" >&2
+            exit 24
+        fi
+    fi
+    echo "deploy.sh: $PROMOTE_VERSION promoted across ${#WORKFLOWS[@]} project(s)." >&2
+    exit 0
 fi
 
 if [ "$CHECK_ONLY" -eq 0 ]; then

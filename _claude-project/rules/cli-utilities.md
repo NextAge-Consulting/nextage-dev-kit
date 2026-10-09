@@ -12,6 +12,8 @@ exports them, deliberately bypassing `AWS_PROFILE` and the hub-and-role chain.
 That key is scoped to `codebuild:StartBuild` and `BatchGetBuilds` on the named
 project ARNs and nothing else. It also validates itself as a state gate, before
 the bump, and exits 21 with instructions if it is missing or revoked.
+`/deploy promote` does the same with its own key, `DEPLOY_PROMOTE_AWS_ACCESS_KEY_ID`
+/ `_SECRET_ACCESS_KEY`, scoped to the promote projects.
 
 So running `aws sts get-caller-identity --profile <personal>` before `/deploy`
 checks a credential the deploy will never use. When that personal session

@@ -4,6 +4,8 @@ Cut a release: bump version + write changelog + push the bump directly to `main`
 
 Bare `/deploy` ships the full fleet. `/deploy <service>` (e.g. `/deploy worker`, `/deploy worker rest`) ships only those services — a bare service name mirrors `/dev <workspace>` and maps to `deploy-<service>.yml`, validated before any bump.
 
+`/deploy promote <version>` is a different act: in a project with a separate Prod (`CODEBUILD_PROMOTE_PREFIX` set), it puts a release that already ran on Test onto Prod. In such a project "ship to prod", "promote" and "release to production" mean this, never a bump — see **Promote a release to Prod** below.
+
 $ARGUMENTS
 
 ## Design
@@ -138,6 +140,31 @@ for wf in $(jq -r '.DEPLOY_WORKFLOWS // "deploy.yml"' .claude/sync-substitutions
     gh workflow run "$wf" --ref main
 done
 ```
+
+## Promote a release to Prod
+
+Only in a project with `CODEBUILD_PROMOTE_PREFIX` set. Nothing is bumped, built, committed or tagged, so none of Steps 1–4 apply.
+
+1. **Name the version.** It must be a release `/deploy` already put on Test. Promoting an older one is a rollback, and migrations are not undone: if a release since then changed the schema, say so before running it.
+2. **Say it is planned downtime.** Prod stops while its migrations run, then the new version starts.
+3. **Run it:**
+
+   ```bash
+   .claude/skills/gitflow/scripts/deploy.sh promote <version> [<service>...]
+   ```
+
+   It authenticates with `DEPLOY_PROMOTE_AWS_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` in `.env` — a key separate from the deploy key, scoped to the promote projects; whoever holds it may promote. It starts `<CODEBUILD_PROMOTE_PREFIX><service>` for each service with the release tag as the source and `VERSION` set, waits, and on success publishes the GitHub Release for that tag (none for a version that already has one).
+
+4. **Report** by exit code:
+
+| Exit | Meaning |
+|---|---|
+| 0 | Promoted; Prod confirmed serving the version; Release published or already present |
+| 2 | Not a promotion project, no version given, or not a `v<major>.<minor>.<patch>` |
+| 21 | The promote key is missing from `.env` or invalid |
+| 23 | No such release tag on origin |
+| 12 / 13 | The promotion did not start / did not succeed. The build log says whether Prod was touched; a failed migration restarts the previous version |
+| 24 | Prod IS on the new version, but the GitHub Release was not created — the script prints the command to create it |
 
 ## What this command does
 

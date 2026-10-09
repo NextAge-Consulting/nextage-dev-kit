@@ -49,11 +49,12 @@ Run these through gitflow, never directly: `git commit`, `git add`, `git push`, 
 | "pick up PR 76", "review PR 76", "take over PR 76" | `/work 76` |
 | "triage", "work the review", "go through gemini", "walk the review" | `/triage` |
 | "merge", "merge to main", "ship it" | `/merge` |
+| "promote 7.4.0", "promote to prod", "ship to prod" (a project with a separate Prod) | `/deploy promote <version>` |
 | "ship to main", "commit straight to main", "infra commit", "emergency commit to main" | `/ship-main` |
 
 **Bare "commit" always routes to `/commit`,** which auto-branches off main — the safety for editing on main by accident. `/ship-main` is the deliberate direct-to-main exception and fires only on its own triggers above. Never infer it from the human being on `main`.
 
-`/ship-main` and `/deploy` are human-triggered; never initiate either.
+`/ship-main`, `/deploy` and `/deploy promote` are human-triggered; never initiate any of them.
 
 ## Read-only git needs no gitflow
 

@@ -95,6 +95,9 @@ No new branch, no stash. Just link and keep working.
                 #   so node_modules isn't left stale (bites the next /merge build gate)
 /deploy       # bump version, tag, push, dispatch the deploy build(s)
                 # moves every issue named by `Closes #N` in the release → the deploy status
+/deploy promote <version>
+                # a project with a separate Prod: put a release Test already ran onto Prod
+                # (planned downtime while migrations run), then publish its GitHub Release
 
 /ship-main    # THE EXCEPTION: conventional commit straight onto main — no branch, no PR, no CI
                 # for quick infra / config / emergency work you accept shipping unreviewed
@@ -243,6 +246,7 @@ Dev server lifecycle governed by `.claude/rules/dev-server.md` — Claude checks
 /e2e                 ← optional manual verification
 /merge               ← ship after CI green: squash-merge, land back on main, delete the merged branch. Board state unchanged (still Staged).
 /deploy              ← release: bump version, tag, dispatch the deploy build(s). Board → the deploy status for every issue this release names in `Closes #N`.
+/deploy promote <v>  ← (separate Prod only) the tested release goes to Prod; the GitHub Release marks it shipped.
 ```
 
 Picking up tomorrow on unfinished work: same launch, just `/work` (no args). You are still on yesterday's branch; `/work` sees that and resumes exactly where you left off.

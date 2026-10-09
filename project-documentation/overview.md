@@ -25,7 +25,8 @@ is yours. Read this once; after that, read only your own guide.
    anything.
 4. **Release.** `/deploy` is the one step that ships: it bumps the version, writes the
    changelog, tags, runs any database migration, and starts the deploy. Several merges
-   usually ride one release.
+   usually ride one release. A project with a separate Prod releases to Test this way,
+   and `/deploy promote <version>` then puts a tested release onto Prod.
 
 You say what you want in plain words ("commit this", "open a PR", "ship it"), and Claude
 runs the matching command. Every git operation goes through these commands; raw git is

@@ -220,6 +220,14 @@
       "installedBy": "project",
       "blessedAt": "2026-10-04",
       "why": "The kit's templates/testing/globalSetup.ts creates and deletes the integration branch through it. Before 2.7.2 deleteProjectBranch took positional arguments, so the kit's object-argument call requests /projects/undefined/branches/undefined, 404s, and leaks a branch every run."
+    },
+    "pg": {
+      "version": "8.23.1",
+      "applies": "whenDeclared",
+      "severity": "required",
+      "installedBy": "project",
+      "blessedAt": "2026-10-09",
+      "why": "The Postgres driver under drizzle-orm/node-postgres, and the kit's templates/testing/integration-helpers.ts imports it directly. Its next major adopts libpq semantics, where sslmode=require stops verifying the certificate: nothing fails, TLS still negotiates, and verification is silently gone. Every connection seam pins verify-full against that, and the version that seam was proven on is this one. Pin exactly so the fleet runs the driver it tested, and treat the major as a change that re-checks every connection seam."
     }
   },
   "_packages_notes": {

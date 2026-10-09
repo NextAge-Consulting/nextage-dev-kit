@@ -94,7 +94,10 @@ const served = "**/static/**";
 const appEntries = [
   knipDefaults,
   `src/${knipDefaults}`,
+  // Both run by the app's container rather than imported: the server, and the
+  // one-off that migrates the app's databases from the same image before it starts.
   "server-start.mjs",
+  "migrate.mjs",
   "src/server.ts",
   "src/{start,router}.{ts,tsx}",
   "design-system/**/*.{mjs,ts,css}",

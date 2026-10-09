@@ -582,6 +582,22 @@ The same key is reused on a teammate's machine — just the `.env` line, nothing
 provision twice. Revoking access for everyone at once is `aws iam delete-access-key` +
 `aws iam delete-user`, same as any other credential.
 
+**A project with a separate Prod also has a promote key.** `/deploy promote <version>`
+puts a release that already ran on Test onto Prod, through promote projects named by
+`CODEBUILD_PROMOTE_PREFIX`. That prefix must differ from the deploy prefix, or the deploy
+key above could start a promotion. Create a second user the same way —
+`<project>-promote-trigger`, allowed `codebuild:StartBuild` and `codebuild:BatchGetBuilds`
+on `arn:aws:codebuild:<region>:<account>:project/<CODEBUILD_PROMOTE_PREFIX>*` and nothing
+else — and put its key in `.env` only on the machines of the people who may promote:
+
+```bash
+DEPLOY_PROMOTE_AWS_ACCESS_KEY_ID=<promote key>
+DEPLOY_PROMOTE_AWS_SECRET_ACCESS_KEY=<promote secret>
+```
+
+Holding the deploy key never means being able to change Prod; whoever holds this one is
+who may promote.
+
 ### 8 — Full verification `[claude]`
 
 Re-run each section's **Verify** block above, top to bottom, and read the output. Resolve anything that reports missing or unset before developing. The machine checks (P0) only need re-running if you changed toolchain since; the project checks (steps 4, 6, 7, 7-prereq, 7a) are the ones that catch a half-finished setup. Step 7a's verify is also worth running periodically against **established** projects — a missing lifecycle policy never fails a build, so nothing else will surface it.
