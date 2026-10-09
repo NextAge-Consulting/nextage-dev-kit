@@ -6,7 +6,9 @@
 # journal entry), whichever tool wrote it — bash-edit-guard.sh replays a shell-created
 # file as an Edit. A .sql the journal lists was generated, and filling in its body is
 # the correct workflow, so it must stay open. A guard that blocks both makes
-# db:generate useless, so both halves are pinned here.
+# db:generate useless, so both halves are pinned here. The same holds for the journal
+# and snapshot drizzle-kit generate writes: replayed from a pure generator command they
+# pass, and from any other shell text they are judged like a hand edit.
 set -uo pipefail
 H="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/block-drizzle-handroll.sh"
 fail=0
@@ -65,6 +67,49 @@ echo "MUST ALLOW — ordinary files:"
 t allow "$tmp/drizzle/migrations/README.md"                Write 'a README beside migrations'
 t allow "apps/shared/src/db/schema/user.ts"                Write 'a schema source file'
 t allow "$tmp/drizzle/migrations/meta/_journal.json"       Bash  'non-Edit/Write tool is out of scope'
+
+# A shell change replayed by bash-edit-guard.sh: $1 path, $2 replay flag (true/false),
+# $3 the bash_command that made it (omitted when empty).
+replay_decision(){
+  python3 -c '
+import json,sys
+p={"tool_name":"Edit","tool_input":{"file_path":sys.argv[1],"old_string":"","new_string":""}}
+if sys.argv[2]=="true": p["bash_edit_replay"]=True
+if sys.argv[3]: p["bash_command"]=sys.argv[3]
+print(json.dumps(p))' "$1" "$2" "$3" \
+  | "$H" 2>/dev/null | python3 -c '
+import json,sys
+raw=sys.stdin.read().strip()
+if not raw: print("allow"); raise SystemExit
+try: print((json.loads(raw).get("hookSpecificOutput") or {}).get("permissionDecision") or "allow")
+except Exception: print("malformed")
+'
+}
+r(){ d=$(replay_decision "$2" "$3" "$4"); d=${d:-allow}
+     if [ "$d" = "$1" ]; then echo "  ✓ $5"; else echo "  ✗ FAIL ($d, want $1) — $5"; fail=1; fi; }
+J="$tmp/drizzle/migrations/meta/_journal.json"; S="$tmp/drizzle/migrations/meta/0032_snapshot.json"
+N="$tmp/drizzle/migrations/0032_thing.sql"
+
+echo "MUST ALLOW — drizzle-kit generate's own output, replayed from the shell:"
+r allow "$J" true 'npm run db:generate'                                   'journal from npm run db:generate'
+r allow "$S" true 'npx drizzle-kit generate --name baseline'              'snapshot from npx drizzle-kit generate'
+r allow "$N" true 'npm run db:generate -- --custom --name=seed'           'new .sql from a --custom generate'
+r allow "$J" true 'cd /repo && DATABASE_URL_MIGRATE=postgresql://x@localhost/x npx drizzle-kit generate' 'one cd prefix and an env assignment'
+r allow "$S" true 'drizzle-kit generate'                                  'bare drizzle-kit generate'
+
+echo "MUST DENY — a replay whose command could have written the file some other way:"
+r deny "$J" true 'npx drizzle-kit generate; echo x > meta/_journal.json'  'generate; then a second command'
+r deny "$J" true 'npm run db:generate && echo x > meta/_journal.json'     'generate && a second command'
+r deny "$S" true 'npx drizzle-kit generate | tee out'                     'generate piped'
+r deny "$J" true 'npx drizzle-kit generate $(touch x)'                    'command substitution'
+r deny "$J" true 'npx drizzle-kit generate > meta/_journal.json'          'redirect into the journal'
+r deny "$J" true "sed -i '' s/a/b/ meta/_journal.json"                    'sed on the journal'
+r deny "$J" true 'npx drizzle-kit migrate'                                'drizzle-kit migrate is not generate'
+r deny "$J" true 'echo npm run db:generate'                               'generator named, not run'
+r deny "$N" true ''                                                       'replay with no command'
+
+echo "MUST DENY — a generator command on anything but a replay is ignored:"
+r deny "$J" false 'npm run db:generate'                                   'Edit carrying a bash_command, no replay flag'
 
 echo "DENY PAYLOAD MUST BE VALID JSON (a malformed deny is silently discarded):"
 tmpout=$(mktemp)

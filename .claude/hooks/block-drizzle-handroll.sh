@@ -19,8 +19,14 @@
 # What this ALLOWS:
 #   - Writing or editing a .sql the journal lists — pasting the SQL body into the
 #     file drizzle already generated is the correct workflow.
-#   - drizzle-kit itself: it writes via its CLI (a Bash subprocess), which this
-#     Write/Edit hook never sees.
+#   - drizzle-kit itself. Its CLI writes through a Bash subprocess, and
+#     bash-edit-guard.sh replays the files it changed here as Edits, carrying
+#     `bash_edit_replay: true` and the `bash_command` that ran. A replay whose command
+#     is exactly a generator run — `npx drizzle-kit generate …` or
+#     `npm run db:generate …`, optionally after one `cd <dir> &&` and `VAR=value`
+#     assignments — is the generator's own output and passes. Any other shell text in
+#     that command (`;`, `|`, a second `&&`, backticks, `$`, redirects, subshells)
+#     means something else may have written the file, so it is judged like any Edit.
 #
 # The journal decides, not the tool name: bash-edit-guard.sh replays a .sql created by
 # a shell command as an Edit, after it exists, so "Write means new" does not hold.
@@ -54,6 +60,26 @@ deny() {
       '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
     exit 0
 }
+
+# Exit 0 when the change is drizzle-kit's own output, replayed from the shell command
+# that generated it (see "What this ALLOWS" above). Only the replay flag makes the
+# command meaningful: a real Edit carries no command, and a bash_command on one is
+# ignored.
+is_generator_replay() {
+    local replay cmd rest
+    replay=$(printf '%s' "$INPUT" | jq -r '.bash_edit_replay // false' 2>/dev/null)
+    [ "$replay" = "true" ] || return 1
+    cmd=$(printf '%s' "$INPUT" | jq -r '.bash_command // ""' 2>/dev/null)
+    rest=$cmd
+    local cd_prefix='^cd [^;|&`$<>()]+ && (.*)$'
+    if [[ "$rest" =~ $cd_prefix ]]; then rest="${BASH_REMATCH[1]}"; fi
+    case "$rest" in
+        *[\;\|\&\`\$\<\>\(\)]*|*$'\n'*) return 1 ;;
+    esac
+    local generator='^([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]* +)*((npx +)?drizzle-kit +generate|npm +run +db:generate)( .*)?$'
+    [[ "$rest" =~ $generator ]]
+}
+is_generator_replay && exit 0
 
 GUIDANCE="Never hand-author Drizzle migration files. Run \`npm run db:generate\` (add \`--custom --name=<name>\` for a data-only migration) to scaffold the .sql + snapshot + journal entry together, then Edit ONLY the generated .sql body. See constitution §XI (canonical path, not the quick hack)."
 

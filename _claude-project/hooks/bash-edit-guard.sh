@@ -11,7 +11,10 @@
 # The payload's `new_string` is the file's lines added since HEAD (the whole file when
 # it is untracked; empty when deleted), which is what a content guard judges. It also
 # carries `bash_edit_replay: true`, so a guard that needs the whole change (the region
-# check in block-kit-edit.sh) knows the file on disk is already the new version.
+# check in block-kit-edit.sh) knows the file on disk is already the new version, and
+# `bash_command`, the shell command that made the change, so a guard can tell a
+# generator's output from a hand edit (block-drizzle-handroll.sh: `drizzle-kit generate`
+# writes the journal and snapshot it otherwise blocks).
 #
 # The change is already on disk, so nothing is refused: every objection is returned to
 # Claude as a PostToolUse block, to fix or undo.
@@ -360,6 +363,9 @@ def judge(cmd, r):
     return reason.strip() if blocked else None
 
 base = {k: event.get(k) for k in ("session_id", "transcript_path", "cwd") if event.get(k)}
+bash_command = (event.get("tool_input") or {}).get("command")
+if isinstance(bash_command, str):
+    base["bash_command"] = bash_command
 
 # One lane per guard command, walking the files in order: different guards run at the
 # same time, and no guard ever judges two files at once, so a guard that keeps state

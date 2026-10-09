@@ -161,6 +161,16 @@ by record, never as a zone, and a resource another team created stays out of the
   the line directly above the resource. A reason comment between the marker and the
   resource stops it matching. Use the full rule id the scan prints.
 
+## A generated reference
+
+Alongside the overview a person writes, generate the exhaustive one from Terraform
+itself, so it cannot drift: a script that runs `terraform show -json` and
+`terraform graph` for each root, and writes every managed resource (address, type, ARN)
+plus each root's dependency graph drawn by Graphviz (`dot -Tsvg`) into the project's
+documentation. Rerun it after an apply. Have it read everything before writing anything,
+and refuse to write a root that reports no resources, so a failed read never replaces a
+good reference with an empty one.
+
 ## What stays outside Terraform
 
 - Secret values and access keys (above).

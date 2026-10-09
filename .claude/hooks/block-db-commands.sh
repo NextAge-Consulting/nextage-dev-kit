@@ -113,20 +113,34 @@ print(json.dumps({"hookSpecificOutput": {
     # Word boundaries matter — `SELECT updatedat` must not read as UPDATE.
     # Only a segment that actually INVOKES psql counts. Merely naming it — in prose,
     # a grep pattern, a test fixture — is data, exactly like a heredoc body.
+    # A keyword inside a SQL string literal is a value, not a statement —
+    # `has_schema_privilege('dbo','CREATE')` is a read — so '…' literals are blanked
+    # after shell unquoting. Not in an argument carrying a dollar quote: a DO block's
+    # body can EXECUTE a quoted write. A segment shlex cannot parse is scanned raw.
     if python3 -c '
-import re, sys
+import re, shlex, sys
 cmd = sys.argv[1]
 WRITE = re.compile(r"(?<![A-Za-z0-9_])(INSERT|UPDATE|DELETE|TRUNCATE|DROP|ALTER|GRANT|REVOKE|CREATE)(?![A-Za-z0-9_])", re.I)
 FILE  = re.compile(r"(?:^|\s)-f(?:\s|=)")
+LIT   = re.compile(r"\x27(?:[^\x27]|\x27\x27)*\x27")
+DOLLAR = re.compile(r"\$[A-Za-z_]*\$")
+ENV   = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 for seg in re.split(r"\|\||&&|[|;\n]", cmd):
     toks = seg.strip().split()
-    while toks and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", toks[0]):
+    while toks and ENV.match(toks[0]):
         toks.pop(0)                      # step over VAR=value prefixes
     if not toks:
         continue
     if re.sub(r".*/", "", toks[0]) not in ("psql", "pgcli"):
         continue
     rest = " ".join(toks[1:])
+    try:
+        args = shlex.split(seg)
+        while args and ENV.match(args[0]):
+            args.pop(0)
+        rest = " ".join(a if DOLLAR.search(a) else LIT.sub("\x27\x27", a) for a in args[1:])
+    except ValueError:
+        pass                             # unparseable: keep the raw, stricter scan
     if WRITE.search(rest) or FILE.search(" " + rest):
         sys.exit(0)                      # a real hand-run write
 sys.exit(1)

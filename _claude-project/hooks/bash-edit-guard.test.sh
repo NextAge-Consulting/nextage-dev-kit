@@ -11,13 +11,15 @@ tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 repo="$tmp/repo"; mkdir -p "$repo/.claude/hooks" "$repo/src"
 git -C "$repo" init -q && git -C "$repo" config user.email t@example.com && git -C "$repo" config user.name t
 
-# Pre guard: denies any file whose path contains "forbidden", and any new_string with "BAD(".
+# Pre guard: denies any file whose path contains "forbidden", any new_string with "BAD(",
+# and any replay whose bash_command is MARK-CMD (proves the command is passed through).
 cat > "$repo/.claude/hooks/pre.sh" <<'EOF'
 #!/bin/bash
 python3 -c '
 import json,sys
 d=json.load(sys.stdin); ti=d["tool_input"]
 why = "path is forbidden" if "forbidden" in ti["file_path"] else ("added BAD(" if "BAD(" in ti["new_string"] else "")
+if not why and d.get("bash_command") == "MARK-CMD": why = "saw bash_command"
 if why: print(json.dumps({"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":why+" \"q\""}}))
 '
 EOF
@@ -169,6 +171,15 @@ reason_of(){ printf '%s' "$1" | CLAUDE_PROJECT_DIR="$repo" "$H" 2>/dev/null \
              | python3 -c 'import json,sys; s=sys.stdin.read().strip(); print(json.loads(s)["reason"] if s else "allow")' 2>/dev/null; }
 now(){ python3 -c 'import time; print(time.time())'; }
 elapsed_under(){ python3 -c 'import sys; sys.exit(0 if float(sys.argv[2]) - float(sys.argv[1]) < float(sys.argv[3]) else 1)' "$@"; }
+
+echo "THE SHELL COMMAND RIDES ALONG as bash_command (a guard can tell a generator from a hand edit):"
+printf 'ok\n' > "$repo/src/cmd.ts"
+cmd_event(){ python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","session_id":"s","cwd":sys.argv[1],"tool_input":{"command":sys.argv[2]},"tool_response":{"bashEditDiff":{"changedFiles":[sys.argv[3]]}}}))' "$repo" "$1" "$2"; }
+got=$(reason_of "$(cmd_event MARK-CMD "$repo/src/cmd.ts")")
+case "$got" in *"saw bash_command"*) echo "  ✓ the replayed payload carries the Bash command" ;;
+               *) echo "  ✗ FAIL — bash_command not passed to the replayed guard: $got"; fail=1 ;; esac
+t allow "$(cmd_event 'other command' "$repo/src/cmd.ts")" 'a different command is passed through unchanged'
+rm -f "$repo/src/cmd.ts"
 
 echo "ONE BATCH, EACH FILE ON ITS OWN ADDED LINES:"
 printf 'BAD(5)\nok\n' > "$repo/src/two.ts"; printf 'ok\n' > "$repo/src/three.ts"

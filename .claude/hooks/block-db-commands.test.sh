@@ -100,6 +100,13 @@ t deny 'psql "$DATABASE_URL" -c "GRANT SELECT ON part TO app_user"' 'GRANT'
 t deny 'psql "$DATABASE_URL" -f seed.sql'                          'script file (contents invisible)'
 t allow 'SKIP_DB_GUARD=1 psql "$DATABASE_URL" -c "INSERT INTO firmware VALUES (1)"' 'approved hand-run write'
 
+echo "A keyword inside a SQL string literal is a value, not a statement:"
+t allow "psql \"\$U\" -c \"SELECT has_schema_privilege('dbo','CREATE')\""  'privilege name as an argument'
+t allow "psql \"\$U\" -c \"SELECT * FROM log WHERE action = 'DELETE'\""     'keyword as a compared value'
+t deny  "psql \"\$U\" -c \"UPDATE t SET note = 'x'\""                       'a real write that also carries a literal'
+t deny  "psql \"\$U\" -c 'DELETE FROM t'"                                    'write in shell single quotes'
+t deny  "psql \"\$U\" -c \"DO \\\$\\\$ BEGIN EXECUTE 'DROP TABLE t'; END \\\$\\\$\"" 'quoted write inside a DO block'
+
 echo "DENY PAYLOAD MUST BE VALID JSON (a malformed deny is silently discarded):"
 jsonok(){
   printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
