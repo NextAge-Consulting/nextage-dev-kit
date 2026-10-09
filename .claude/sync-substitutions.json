@@ -14,9 +14,9 @@
     "DESIGN_VENDORED_RESTYLED"
   ],
   "_intentionally_empty_doc": "Walkthrough metadata used by /sync-dev-kit Step 1.5. Keys listed here are skipped by the per-key walkthrough (the user has already decided to leave them off). Empty values NOT in this list get re-surfaced on every sync until populated or explicitly disabled. The substitution engine ignores _-prefixed keys, so this metadata never affects {{KEY}} replacement behavior.",
-  "GITFLOW_PROJECT_ID": "",
-  "GITFLOW_STATUS_FIELD_ID": "",
-  "GITFLOW_STATUS_IN_PROGRESS_ID": "",
+  "GITFLOW_PROJECT_ID": "PVT_kwDODkXJEM4BmRaK",
+  "GITFLOW_STATUS_FIELD_ID": "PVTSSF_lADODkXJEM4BmRaKzhk7F4E",
+  "GITFLOW_STATUS_IN_PROGRESS_ID": "c2b8a7f8",
   "GEMINI_NOT_INSTALLED": "true",
   "DEPLOY_WORKFLOWS": "",
   "DEPLOY_BACKEND": "none",
@@ -61,5 +61,7 @@
   "DESIGN_VENDORED_DIR": "",
   "DESIGN_VENDORED_RESTYLED": "",
   "DESIGN_FIELD_LOOK_CLASSES": "",
-  "DESIGN_EXEMPT_COMPONENTS": ""
+  "DESIGN_EXEMPT_COMPONENTS": "",
+  "GITFLOW_STATUS_STAGED_ID": "de877221",
+  "GITFLOW_STATUS_DEPLOYED_ID": "302847c4"
 }

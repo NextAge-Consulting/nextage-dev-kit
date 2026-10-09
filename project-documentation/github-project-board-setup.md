@@ -47,7 +47,7 @@ mutation($fid: ID!) {
 gh project link 1 --owner "$ORG" --repo "$REPO"
 ```
 
-> Note: `updateProjectV2Field` with options that have no `id` **regenerates all option ids** — fine on a fresh board. Capture the printed `{id,name}` for the next step.
+> Note: `updateProjectV2Field` with options that have no `id` **regenerates all option ids** — fine on a fresh board. Capture the printed `{id,name}` for the next step. On a board projects are already wired to, pass each existing option's `id` (`{ id: "…", name: "Staged", … }`) and leave it off only the new one: the existing ids, and every card's status, are kept.
 
 **The deploy column.** `/deploy` moves shipped issues to one column. With no QA step that column is `Done`. When a person checks the work in production before it counts as finished, add a separate option after Staged and point gitflow at it instead:
 
@@ -87,25 +87,33 @@ Pick one way of working per repository:
 
 With QA, the deploy status is the separate `Deployed` column, so an issue waits there until a person moves it to Done. Without QA, the deploy status is usually `Done` itself.
 
-**Turn off the board's "Pull request linked to issue" workflow.** It moves an issue's card when a PR links to it — the moment `/open-pr` writes `Closes #N` and sets Staged — so the two race and the card lands wherever the last one put it. Gitflow already sets Staged, earlier: when the issue is answered code complete. Board → **⋯** → **Workflows** → **Pull request linked to issue** → off.
+**Turn off the board's "Pull request linked to issue" workflow.** It moves an issue's card when a PR links to it — the moment `/open-pr` writes `Closes #N` and sets Staged — so the two race and the card lands wherever the last one put it. Gitflow already sets Staged, earlier: when the issue is answered code complete. Board → **⋯** → **Workflows** → **Pull request linked to issue** → off. GitHub requires a status value before it saves the workflow even while it is off: set **Staged** — the status gitflow sets at that moment — so the card lands in the same place if the workflow is ever switched back on.
 
-## 4. Create views (UI — one per repo + a shared Staged)
+## 4. Create views (UI — one per repo, plus shared Staged, Deployed and Done)
 
-Board: `github.com/orgs/<org>/projects/1`
+Board: `github.com/orgs/<org>/projects/<N>`
 
-All view config (layout, group, save) is under the **View** button (gear icon, top-right) — NOT the tab's ▾ arrow.
+All view config is under the **View** button (gear icon, top-right) — NOT the tab's ▾ arrow. Every view uses the same settings, and differs only in its fields and filter:
 
-**Per-repo view:**
+- **View** gear → layout **Table**, **Group by** none, **Show hierarchy** on (sub-issues nest under their parent and collapse, in one list), **Show agent sessions** on.
+- Finish each view with **View** gear → **Save changes**.
+
+**Per-repo view** — the work queue for one repository:
+
 1. Double-click a tab name → rename to the repo/product.
-2. Filter bar (top) → `-status:Done,Staged repo:<org>/<repo> -is:draft`. The work queue excludes Staged and the deploy status, and Done when it is a separate column — with a `Deployed` column that is `-status:Done,Staged,Deployed …`.
-3. **View** (gear, top-right) → layout **Table**; **Group by** → **Parent issue**.
-4. **View** (gear) → **Save changes**.
+2. **Fields:** Title, Assignees, Status, Linked pull requests. Leave Parent issue off; the hierarchy already shows it.
+3. **Filter:** `-status:Done,Staged,Deployed repo:<org>/<repo> -is:draft,closed`
 
-**Shared Staged view (once per board):**
-1. **+ New view** → double-click → rename **Staged**.
-2. Filter bar → `status:Staged -is:draft`; **View** gear → Table, Group by none.
-3. **View** gear → **Save changes**.
+**Shared views** — one each per board, across every repo. **+ New view**, rename it, then:
 
-**Deploy-status view (optional, once per board):** same steps with `status:<deploy column> -is:draft` — with QA, this is the list waiting for someone to check it in production.
+| View | Filter |
+|---|---|
+| Staged | `status:Staged -is:draft,closed` |
+| Deployed | `status:Deployed -is:draft,closed` |
+| Done | `status:Done OR is:closed` |
 
-Add a repo later = new tab, same per-repo filter with its repo name (e.g. a legacy app being converted gets its own tab). Only the per-repo view is repeated; the board, field, and Staged view are one-time.
+**Fields** for all three: Title, Assignees, Status, Labels, Linked pull requests, Repository.
+
+The Deployed view is the QA queue: shipped, waiting for someone to check it in production. A repository with no deploy step never puts anything there.
+
+Add a repo later = a new per-repo tab with its repo name in the filter (e.g. a legacy app being converted gets its own tab). The board, the Status field and the shared views are one-time.

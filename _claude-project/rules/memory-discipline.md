@@ -18,4 +18,6 @@ A rule, a project rule or a doc written because a session thought something matt
 
 **File a kit issue only for a defect, a blocker, or a change a new feature or dependency forces** — never for "this could read better".
 
+**A kit issue and every comment on one is world-readable: the kit's repository is public, and editing or deleting text there does not unpublish it.** Name the project, the people and what happened as fully as the problem needs. Leave out anything that is or looks like a credential, all infrastructure identity — account ids, hostnames, domains, IPs, ports, ARNs, endpoint, bucket and database names, connection strings — and any business detail the client would treat as confidential: their data, schema drawn from their model, row counts, volumes. When unsure whether a detail qualifies, leave it out. A project whose client asked not to be named says so in `rules/project/`, and its kit issues call it "a consumer project".
+
 **When a kit-owned file stands in the way of the work, follow the script in `block-kit-edit.sh`'s deny message:** put the reason to the human, and change the file only as the temporary patch it describes, after their yes.

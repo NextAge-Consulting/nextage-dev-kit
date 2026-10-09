@@ -23,5 +23,5 @@ fi
 # Update iTerm2 tab/window title (ignores failure if not in iTerm2)
 ~/bin/it_title "$name" >/dev/null 2>&1 || true
 
-# Run Claude Code in foreground
-claude
+# Run Claude Code in foreground, from the fixed path cpl-claude maintains
+exec "$HOME/bin/cpl-claude"

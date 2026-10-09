@@ -65,6 +65,12 @@ Claude never writes in someone else's handoff unless you ask.
 Start dev servers yourself with `/dev` (`/dev shop`, `/dev shop dealer`). Claude never
 starts one on its own. `devserver-cheatsheet.md` has ports, tunnels and troubleshooting.
 
+## Your database
+
+On Postgres with Neon, work against a database branch of your own, never the shared one
+everyone branches from. Make it, point `.env` at it, reset it after a deploy, and change
+its schema only through migrations: `neon-branches.md`.
+
 ## Tests
 
 Write a test in the same change as the code it covers. Logic that lives in the code gets a

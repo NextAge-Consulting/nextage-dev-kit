@@ -8,7 +8,7 @@ CPL source lives in `_cpl/` within the [nextage-dev-kit](https://github.com/Next
 
 ```bash
 ./_cpl/sync-cpl.sh          # from the kit repo
-/sync-cpl                   # from any project (Claude Code slash command)
+/install-cpl                # from the kit repo (Claude Code slash command)
 ./_cpl/sync-cpl.sh --force  # non-interactive
 ```
 
@@ -36,6 +36,7 @@ Non-zero picker exit (Cancel or config-save) → no output → CPL.app aborts cl
 | `_cpl/bin/cpl-app.applescript` | `~/Applications/CPL.app` | `osacompile` |
 | `_cpl/bin/cpl-picker.swift` | `~/bin/cpl-picker` | `swiftc -O` |
 | `_cpl/bin/cpl-launch` | `~/bin/cpl-launch` | `cp` + `chmod +x` |
+| `_cpl/bin/cpl-claude` | `~/bin/cpl-claude` | `cp` + `chmod +x` |
 | `_cpl/bin/cpl-slot` | `~/bin/cpl-slot` | `cp` + `chmod +x` |
 | `_cpl/bin/cpl-cleanup` | `~/bin/cpl-cleanup` | `cp` + `chmod +x` |
 | `_cpl/bin/cpl` | `~/bin/cpl` | `cp` + `chmod +x` |
@@ -45,13 +46,21 @@ Non-zero picker exit (Cancel or config-save) → no output → CPL.app aborts cl
 
 The icon is a CPL wordmark; `_cpl/icon/make-icon.swift` regenerates the iconset/`.icns` if the design changes.
 
+## Claude runs from a fixed path
+
+Every Claude launch — the `claude` and `agents` actions and the `cpl` shell command — goes through `cpl-claude`. It copies the release `~/.local/bin/claude` points at to `~/.cpl-claude/claude`, refreshes the copy only when Claude has auto-updated to a new release, and runs the copy.
+
+macOS ties folder-access grants — Google Drive and other File Provider folders, Desktop, Documents — to the executable's path. Run from Claude's own versioned path, every update asks again (anthropics/claude-code#74068); run from the fixed copy, a grant is given once and kept. Auto-update is untouched: Claude still downloads each release itself, and the next launch picks it up. `claude doctor` run from the copy reports a normal native install.
+
+A custom `shell` action that starts Claude calls `~/bin/cpl-claude` (e.g. `cd "<folder>" && ~/bin/cpl-claude`), never `claude`. A Claude started outside CPL still runs the versioned binary and can still be asked. If `~/.local/bin/claude` is not a symlink (Homebrew, npm or a custom launcher), `cpl-claude` runs `claude` as-is.
+
 ## Config — `~/.cpl.json`
 
 Auto-created by `cpl-picker` on first launch (detects displays, fingerprints the layout, migrates `maxSlots` from any legacy `~/.cpl.conf`). Three layers; actions and pins are profile-agnostic, only display geometry varies per profile.
 
 ### Actions (global)
 
-Every launch button is one entry. The five defaults:
+Every launch button is one entry. The defaults:
 
 | id | command | dir | iTerm profile |
 |----|---------|-----|---------------|

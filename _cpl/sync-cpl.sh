@@ -216,7 +216,7 @@ mkdir -p "$DEST_APP"
 mkdir -p "$DEST_ITERM"
 
 # 1. Copy bash scripts to ~/bin/ and chmod +x
-BASH_SCRIPTS=(cpl cpl-launch cpl-slot cpl-cleanup)
+BASH_SCRIPTS=(cpl cpl-claude cpl-launch cpl-slot cpl-cleanup)
 for script in "${BASH_SCRIPTS[@]}"; do
   cp "$BIN_DIR/$script" "$DEST_BIN/$script"
   chmod +x "$DEST_BIN/$script"

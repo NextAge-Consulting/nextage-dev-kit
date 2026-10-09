@@ -7,14 +7,14 @@ pass straight through. (On a consumer machine there's no marker, so it blocks.)
 So you may edit kit files, from the kit repo or from inside any consumer
 project, and propagate them out.
 
-## THE KIT IS PUBLIC — sanitize everything that goes into it
+## THE KIT IS PUBLIC — sanitize everything that goes into its history
 
 `NextAge-Consulting/nextage-dev-kit` is a **public, open-source repository**.
 Anything written there is world-readable, permanently, including via forks and
 the commit history. A secret committed and reverted is still leaked.
 
 So every kit edit is also a publication decision. Before writing anything to the
-kit, strip:
+kit's files, commit messages, branch names or PR titles and bodies, strip:
 
 - **Client and project names** — no consumer project name, no customer or end-client
   name, no branding. Write "a consumer project", "the tenant database".
@@ -35,6 +35,14 @@ Examples must be **invented and generic**: `example.com`, `alice@example.com`,
 The consumer projects are private; the kit is not. A fact that is fine in a
 project's `project-documentation/` may be a leak in the kit's. When in doubt it
 stays in the project.
+
+**The kit's GitHub issues hold the instance.** Track every kit to-do as an issue
+on the kit repository — client reports and your own improvement ideas alike. The
+war story, the project it happened in, the decision history and the open
+questions go there, written to the issue standard in `memory-discipline.md`.
+Its when-to-file limit governs consumer sessions; you file any kit to-do, ideas
+included. The files and commits get the shape; a commit cites its issue by
+number.
 
 **Two independent mechanisms — don't conflate them.** The `~/.claude/kitmaster`
 marker gates the HOOK (present → `block-kit-edit.sh` inert). What gates THIS

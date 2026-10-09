@@ -185,7 +185,7 @@ func dieDialog(_ msg: String) -> Never {
 let defaultPlacement = Placement(monitor: 1, slotMode: "slotted", slot: nil, width: 1)
 
 // The fixed built-in buttons — identity only, defined in code, never persisted.
-// Agents runs `claude agents` (resolved in buildCommand).
+// Agents runs `claude agents`; both go through cpl-claude (resolved in buildCommand).
 func builtinActions() -> [Action] {
     return [
         Action(id: "claude", label: "Claude", command: "claude", shell: nil,
@@ -399,6 +399,7 @@ func projectPath(action: Action, project: String?, projectsDir: String) -> (path
 func buildCommand(action: Action, path: String, name: String, mon: Int, slot: Int) -> String {
     let cplSlot = shellQuote(home.appendingPathComponent("bin/cpl-slot").path)
     let cplLaunch = shellQuote(home.appendingPathComponent("bin/cpl-launch").path)
+    let cplClaude = shellQuote(home.appendingPathComponent("bin/cpl-claude").path)
     let rawCleanup = home.appendingPathComponent("bin/cpl-cleanup").path
     let qpath = shellQuote(path)
 
@@ -418,8 +419,8 @@ func buildCommand(action: Action, path: String, name: String, mon: Int, slot: In
     let exec: String
     switch action.command {
     case "shell":  exec = action.shell ?? ""
-    case "agents": exec = "claude agents"
-    default:       exec = "claude"
+    case "agents": exec = "\(cplClaude) agents"
+    default:       exec = cplClaude
     }
     return "cd \(qpath) && \(cplLaunch) \(mon) \(slot) \(shellQuote(name)) \(qpath) \(shellQuote(exec))"
 }

@@ -178,3 +178,7 @@ it has nothing to do with which AWS profile a developer authenticates with.
 The symptom is a bare 400 at `https://<region>.signin.aws.amazon.com/oauth?…&client_id=arn:aws:signin:::devtools/same-device&…` while the CLI hangs for minutes on a loopback callback that never fires. The cause is stale or absent browser session cookies — not a credential, region or profile problem. Nothing in `~/.aws/` is wrong, so don't go hunting there; the 400 happens before anything reaches the token cache.
 
 Upstream: https://github.com/aws/aws-cli/issues/10186
+
+## Neon
+
+**A Neon action beyond this project — listing organizations, managing members, another project — runs as the developer through `neonctl`, signed in with `neonctl auth`.** The project's `NEON_API_KEY` is scoped to this project and is used only for it. When a call `neonctl` has no command for needs the raw API, read the developer's access token from `~/.config/neonctl/credentials.json`; when `neonctl` is not signed in, ask the developer to run `! neonctl auth` and stop until they have.

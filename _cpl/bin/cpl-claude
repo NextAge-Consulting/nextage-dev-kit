@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Runs Claude Code from one fixed path so macOS privacy grants (Google Drive and
+# other File Provider folders, Desktop, Documents) survive Claude's auto-updates.
+#
+# The native installer keeps each release at ~/.local/share/claude/versions/<ver>
+# and repoints the ~/.local/bin/claude symlink at the newest. macOS ties those
+# grants to the executable's path, so every update asks again (anthropics/
+# claude-code#74068). This copies the release the symlink points at to
+# ~/.cpl-claude/claude, refreshes the copy only when the release changes, and
+# runs the copy. A copy keeps Anthropic's signature; a symlink or hard link would
+# resolve back to the versioned path. The updater is untouched and keeps working.
+#
+# Usage: cpl-claude [claude args...]   e.g. `cpl-claude`, `cpl-claude agents`
+
+link="$HOME/.local/bin/claude"
+dir="$HOME/.cpl-claude"
+runtime="$dir/claude"
+stamp="$dir/source"
+
+# Not the native install (Homebrew, npm, a custom launcher): nothing to pin.
+if [ ! -L "$link" ]; then
+  exec claude "$@"
+fi
+
+src=$(readlink "$link")
+case "$src" in /*) ;; *) src="$(dirname "$link")/$src" ;; esac
+
+if [ ! -f "$src" ]; then
+  echo "cpl-claude: $link points at $src, which does not exist — running claude unpinned." >&2
+  exec claude "$@"
+fi
+
+if [ ! -x "$runtime" ] || [ "$(cat "$stamp" 2>/dev/null || true)" != "$src" ]; then
+  mkdir -p "$dir"
+  tmp="$runtime.new.$$"
+  # Copy beside the target, verify, then rename over it: a running session keeps
+  # the old file, and a concurrent launch never sees a half-written binary.
+  if cp "$src" "$tmp" && chmod 755 "$tmp" && codesign --verify --strict "$tmp" 2>/dev/null; then
+    mv -f "$tmp" "$runtime"
+    printf '%s\n' "$src" > "$stamp"
+  else
+    rm -f "$tmp"
+    echo "cpl-claude: could not refresh the pinned copy from $src — running it directly; macOS may ask for folder access again." >&2
+    exec "$src" "$@"
+  fi
+fi
+
+exec "$runtime" "$@"
