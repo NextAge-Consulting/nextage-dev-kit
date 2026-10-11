@@ -108,13 +108,17 @@ For each file entry, the `state` field is one of:
 | `unsanctioned` | `owned` or `merge` file: the project changed kit-owned text with no register entry | Report loudly every sync. Recommend reverting to the kit (`--apply-file`) or registering it as a patch (Step 2.2) |
 | `conflict` | `owned` file, no register entry: both changed to different content from baseline | Three-way diff; compare `kit_sha`, `project_sha`, `baseline_sha`; recommend taking the kit's version. A project change that must stay is a patch: register it, then ACK (Step 2.2) |
 | `conflict-first` | First-ever sync; project and kit differ | Show both, ask user which direction |
-| `new-kit` | Kit has a new file not in project | Recommend apply. If the user does not want it, **decline it** (below) — never leave it unanswered |
+| `new-kit` | Kit has a new file not in project | Recommend apply — whether or not this repo uses it (Step 2.04). If the user does not want it, **decline it** (below) — never leave it unanswered |
 | `declined` | The project refused this file at its current content | Silent skip — do not list |
 | `removed-kit` | Kit deleted a file that still exists in project | Ask: delete from project or keep as project-owned? |
 | `project-deleted` | Baseline + kit still have file, but project deleted it | Ask: re-add from kit, or accept deletion? |
 | `template-kept` | A `template` seed the project already has, adapted, or deleted, which the kit has since changed | Silent skip — do not list. A seed is the project's from the moment it lands |
 | `merge-unmarked` | `merge` file whose project copy has no region markers | Never apply — it would discard the project's content. Move the project's content into the kit's regions by hand (Step 2.3), then re-scan |
 | `merge-invalid` | `merge` file whose project markers are malformed, or that has a region the kit lacks | Show `detail`. Fix the markers or move the orphan region's content into a kit region, then re-scan. Apply refuses until then |
+
+### Step 2.04: Take the kit, whether or not this repo uses it
+
+**Recommend applying every kit file and every `.gitignore` line, including those this repo has no use for** — JS tooling in a repo with no JavaScript, Terraform lines in a repo with no Terraform. Recommend declining only when the file would actively break something in this repo, and name what it breaks.
 
 ### Step 2.05: file modes — `owned`, `merge`, `template`
 
@@ -240,7 +244,7 @@ Do NOT try to reconstruct the kit path yourself. The kit→destination map is no
 
 If `gitignore_additions_missing` is non-empty:
 
-- List missing entries
+- List missing entries and recommend adding them all (Step 2.04).
 - Ask: "Add these to `.gitignore`?"
 - On accept: `~/.claude/scripts/sync-dev-kit.sh --apply-gitignore`
 
