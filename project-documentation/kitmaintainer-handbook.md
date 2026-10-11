@@ -500,9 +500,9 @@ only then merged — `main` there only ever holds what is live. Its people-facin
 
 **Two halves, one switch.** `repo_kind.sh` answers two questions — `repo_holds_infra`
 (`org`, `combo`) and `repo_holds_app` (`app`, `combo`) — and every script asks those,
-never the kind. A combo repo is a project that is its own org repo: each command runs the
-infrastructure half below for Terraform and the app half for code, with no logic of its
-own. `/deploy` hands to `deploy-org.sh` when the repo holds infrastructure and either holds
+never the kind. A combo repo is a project that keeps its own Terraform — its layout, state and docs, with
+no org setup: each command runs the infrastructure half below for Terraform and the app
+half for code, with no logic of its own. `/deploy` hands to `deploy-org.sh` when the repo holds infrastructure and either holds
 no app or runs on a PR branch; on main in a combo repo it releases the app. `/merge` in a
 combo repo refuses only a PR `changed-roots.sh` finds Terraform in.
 

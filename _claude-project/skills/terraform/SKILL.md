@@ -7,7 +7,7 @@ description: How AWS infrastructure is changed — always in the organization's 
 
 Every organization has one **org repo** per AWS account (`ORG_REPO` in `.claude/sync-substitutions.json`). It holds all of that account's Terraform, the ownership map, the register of what crosses between projects, and the infrastructure overview with one infra doc per project. Project repos hold no Terraform.
 
-Paths in this skill — `scripts/`, `references/`, `templates/` — are inside `.claude/skills/terraform/`. Run the scripts from the repository root. `REPO_KIND` says which repo you are in: `org` is the org repo; `combo` is a project that is its own org repo — its `ORG_REPO` names itself, its Terraform is in its own `infra/terraform/`, and it follows "In the org repo" below for infrastructure; anything else is a project.
+Paths in this skill — `scripts/`, `references/`, `templates/` — are inside `.claude/skills/terraform/`. Run the scripts from the repository root. `REPO_KIND` says which repo you are in: `org` is the org repo; `combo` is a project that keeps its own Terraform ("In a combo repo"); anything else is a project.
 
 ## In a project repo
 
@@ -64,6 +64,16 @@ The request arrives as an issue: `/work <N>`. While the org repo is first being 
 - Never run `apply` or `destroy` any other way.
 
 **A cross-org grant** — another organization's project reaching into this account — is written here, in the org that owns the resource, and recorded in both orgs' maps.
+
+## In a combo repo
+
+A project that keeps its own Terraform in its own repository (`REPO_KIND=combo`, `ORG_REPO` naming itself). Its layout, its state and its infrastructure docs stay as they are. Terraform runs through the kit's `scripts/tf.sh`, and `/deploy` regenerates the reference with `scripts/gen-reference.sh` into `project-documentation/infrastructure-reference.md` — a project's own copies of either are removed. From "In the org repo", only these apply:
+
+- **Before any change** — every root you will touch plans `No changes.` first.
+- **Writing it** — values from data sources, never `terraform_remote_state`; DNS record by record; `fmt`-clean and validated; and the table of resources that overwrite each other.
+- **Ship it** — `/open-pr` plans every changed root; `/deploy` on the PR branch applies and merges; never apply any other way.
+
+The org setup — the setup issue, the inventory, `org-map.md`, the org doc set, the `projects/<project>/<env>` layout, cross-org grants and the audit level — is for org repos only.
 
 ## Unforeseen work
 

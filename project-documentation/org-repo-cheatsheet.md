@@ -44,8 +44,9 @@ of what is added, changed and destroyed. CI on the PR is the real gate.
 
 ## A combo repo
 
-A project that is its own org repo (`REPO_KIND=combo`) — a client who wants the app and
-its infrastructure in one repository. It runs both flows, each exactly as above or as in
+A project that keeps its own Terraform (`REPO_KIND=combo`) — a client who wants the app
+and its infrastructure in one repository. It keeps its own layout, state and docs, with no
+org setup, and ships the way both flows do, each exactly as above or as in
 `gitflow-cheatsheet.md`:
 
 - **`/open-pr`** plans any Terraform the branch changes, and opens as usual when there is none.
