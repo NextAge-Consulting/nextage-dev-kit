@@ -24,9 +24,10 @@ off one setup issue on the org repo, and that issue is the only record setup nee
 decisions, findings and every change made directly in AWS go on it as comments, never as
 new issues.
 
-**Walk the person through it.** Before each step, say what it does and why; after it, what
-it achieved. Keep the setup issue's checklist current. End every turn with where setup
-stands, what is next, and what you need from the person.
+**Walk the person through it.** Track setup in your own task list, built from the setup
+issue's steps, and tick the issue's checklist only when a step lands. Before each step, say
+what it does and why; when it finishes, say where setup stands and what is left to land the
+issue.
 
 Work through these in order.
 
