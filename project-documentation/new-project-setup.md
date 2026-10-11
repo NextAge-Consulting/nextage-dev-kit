@@ -201,8 +201,8 @@ Skip if the project touches no AWS.
 Every organization has one org repo per AWS account, `<org>-org`. It holds all of the
 account's Terraform — this project's included — the org map of who owns what, and the
 infrastructure docs (`infrastructure-terraform.md`). Record its name in the project's
-`.claude/sync-substitutions.json` as `ORG_REPO`, and add a line to the project's README
-linking it.
+`.claude/sync-substitutions.json` as `ORG_REPO` and, unless the project is public, add a
+line to its README linking it.
 
 **A new organization gets its org repo before any project builds in it** — the repo, its
 state bucket, and the org map from an inventory of the account. Claude follows the

@@ -25,7 +25,7 @@ A project repo that already holds Terraform moves it here, keeping every resourc
 3. **The person moves the state**: `! .claude/skills/terraform/scripts/tf.sh projects/<project>/<root> init -migrate-state -force-copy`, which reads the state from its old location and writes it to the new one.
 4. **`scripts/tf.sh <root> plan` reports `No changes.`** for every root. Anything else is a difference in the copy — fix it before going further.
 5. **Land it** with `/open-pr` and `/deploy`; each root's plan block reads `no changes`, so nothing is applied.
-6. **Remove the Terraform from the project repo** in a project change, with a README line pointing to the org repo. The old state objects are deleted once every root has moved and planned clean.
+6. **Remove the Terraform from the project repo** in a project change, with a README line pointing to the org repo unless the project is public. The old state objects are deleted once every root has moved and planned clean.
 
 ## Rename, restructure, make conditional
 

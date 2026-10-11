@@ -323,6 +323,26 @@ run --scan >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 2 ] && ok "an unknown REPO_KIND stops the scan" || bad "bogus REPO_KIND (rc=$rc)"
 jq 'del(.REPO_KIND)' "$SUBS" > "$tmp/s" && mv "$tmp/s" "$SUBS"
 
+# ─── .gitignore additions: a covered section leaves no comments behind ────
+ADD="$KIT/_claude-project/templates/.gitignore-additions"
+cp "$ADD" "$tmp/additions.orig"
+cat > "$ADD" <<'EOF'
+# Covered header
+covered/
+# covered trailing note
+
+# Missing header
+missing/
+# missing inner note
+missing-two/
+EOF
+printf 'covered/\n' > "$PROJ/.gitignore"
+run --apply-gitignore 2>/dev/null
+printf 'covered/\n# Missing header\nmissing/\n# missing inner note\nmissing-two/\n' > "$tmp/gi.want"
+diff -u "$tmp/gi.want" "$PROJ/.gitignore" >/dev/null \
+    && ok "gitignore: only the added section's comments are written" || bad "gitignore: $(diff -u "$tmp/gi.want" "$PROJ/.gitignore")"
+cp "$tmp/additions.orig" "$ADD"
+
 # ─── A broken register fails the scan loudly ──────────────────────────────
 printf '{not json' > "$PROJ/.claude/.kit-patches.json"
 run --scan >/dev/null 2>&1; rc=$?

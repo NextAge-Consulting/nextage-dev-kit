@@ -51,8 +51,8 @@ organization, or that crosses between its projects:
 - **All of the account's Terraform** — every project's resources, what projects share,
   the legacy systems. Every existing resource is adopted; nothing stays hand-managed,
   because anything left out is exactly the resource whose blast radius nobody can see.
-- **The org map** — every project, who owns each resource, what is deliberately not
-  adopted and why.
+- **The org map** — every project with infrastructure in the account, who owns each
+  resource, what is deliberately not adopted and why.
 - **What crosses between projects** — one project calling another's API or using its
   login, which credential, which side owns it. And across organizations: when another
   org's project reaches in, the grant is written in the org that owns the resource and
@@ -61,9 +61,12 @@ organization, or that crosses between its projects:
   project, plus a reference generated from Terraform's own state.
 
 **Project repos hold no Terraform.** Everything about one project's code — its
-buildspecs, Dockerfiles, backup image — stays in the project. Each project's `ORG_REPO`
-setting and README point up to its org repo, so every project can find out what exists
-and who owns it, and one project can find another.
+buildspecs, Dockerfiles, backup image — stays in the project. Each project with infrastructure in the account points up to its
+org repo — its `ORG_REPO` setting, and its README unless the project is public, where a
+link to a private org repo is a dead end that advertises it exists — so it can find out
+what exists and who owns it, and one project can find another. A project with nothing in
+the account is not involved: it is not pointed at the org repo, and the org map does not
+list it. A dormant project with infrastructure is pointed the next time it is worked on.
 
 ```mermaid
 flowchart TB

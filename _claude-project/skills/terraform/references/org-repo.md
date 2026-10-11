@@ -12,7 +12,7 @@ One private repository per organization's AWS account, named `<org>-org`. A seco
 - cross-org grants — written here when this org owns the resource, recorded here when this org's project consumes another org's;
 - under `project-documentation/`: the organization's `infrastructure-overview.md`, one `projects/<project>/infrastructure.md` per project, the generated reference, and — at the audit level — `infrastructure-access-and-change.md`.
 
-**Everything about one project's code stays in that project** — its buildspecs, Dockerfiles, backup image, application config. A project's README links up to its org repo.
+**Everything about one project's code stays in that project** — its buildspecs, Dockerfiles, backup image, application config. A project with infrastructure in the account links up to its org repo from its README, unless the project is public.
 
 Every resource in the account is adopted into Terraform here. Nothing stays hand-managed except what the map lists as not adopted, each with its reason.
 
@@ -44,12 +44,12 @@ Work through these in order.
    aws s3api put-bucket-policy --bucket "$B" --region "$R" --profile "$P" --policy "$(jq -nc --arg b "$B" '{Version:"2012-10-17",Statement:[{Sid:"DenyInsecureTransport",Effect:"Deny",Principal:"*",Action:"s3:*",Resource:["arn:aws:s3:::\($b)","arn:aws:s3:::\($b)/*"],Condition:{Bool:{"aws:SecureTransport":"false"}}}]}')"
    ```
    For `us-east-1`, drop `--create-bucket-configuration`. Versioning is the recovery path for a damaged state file: restore the previous object version.
-3. **Write the map** from `templates/org-map.md` into `project-documentation/org-map.md`: the bucket, the projects, their name prefixes.
+3. **Write the map** from `templates/org-map.md` into `project-documentation/org-map.md`: the bucket, the projects that have infrastructure in the account, their name prefixes.
 4. **Take the inventory** (below) and record every resource in the map with its owner.
 5. **Retire what is dead.** A resource the inventory shows nothing uses, and the person agrees is dead, is deleted directly with the person's sign-in — never adopted only to be destroyed. Each one goes on the setup issue: what it was, why it was dead, who agreed.
 6. **Move in any Terraform a project repo already has** (`references/adopting.md`), then delete it from that project.
 7. **Adopt what projects share** into `shared/`, each project's own resources into `projects/<project>/…`, and each legacy system into its own `legacy-<system>/` — one PR at a time, each planning only imports (`Plan: N to import, 0 to add, 0 to change, 0 to destroy.`). Each is part of the setup issue: answer `/open-pr`'s question with "part of it", so merging leaves the setup issue open.
-8. **Point every project here**: its `ORG_REPO` setting, and a line in its README linking the org repo.
+8. **Point each project that has infrastructure in the account here**: its `ORG_REPO` setting, and a line in its README linking the org repo unless the project is public. A dormant project is pointed the next time it is worked on. A project with nothing in the account is neither pointed here nor in the map.
 9. **Write the docs**: the org overview and a `projects/<project>/infrastructure.md` per project (`references/docs.md`), and the generated reference.
 10. **End setup with the person**, closing the setup issue. Decide together whether this organization must show its process to anyone — an audit, a client's security review. If it does, turn on the audit level (below).
 

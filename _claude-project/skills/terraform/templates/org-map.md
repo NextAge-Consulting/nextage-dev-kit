@@ -20,7 +20,7 @@ behind it.
 |---|---|---|---|---|
 | <project> | `<owner>/<repo>` | `<prefix>-` | `projects/<project>/shared`, `…/test`, `…/prod` | `projects/<project>/infrastructure.md` |
 
-A resource named with a project's prefix belongs to that project.
+A resource named with a project's prefix belongs to that project. A project with nothing in the account is not listed.
 
 ## Shared
 

@@ -1543,11 +1543,16 @@ if [ "$MODE" = "apply-gitignore" ]; then
 
     # Comments are held back and flushed only ahead of a rule that is actually
     # being written, so a project that already covers everything gains no
-    # orphaned section headers explaining rules that were never added.
+    # orphaned section headers explaining rules that were never added. A blank
+    # line ends a section: comments still held there belonged to rules the
+    # project already covers, and are dropped rather than carried into the next.
     PENDING_COMMENTS=""
 
     while IFS= read -r line; do
-        [ -z "$line" ] && continue
+        if [ -z "$line" ]; then
+            PENDING_COMMENTS=""
+            continue
+        fi
         case "$line" in \#*)
             PENDING_COMMENTS="${PENDING_COMMENTS}${line}\n"
             continue

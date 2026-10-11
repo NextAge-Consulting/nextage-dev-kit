@@ -6,7 +6,7 @@ All of them live in the org repo's `project-documentation/`, and read top-down:
 2. **`projects/<project>/infrastructure.md`** — one per project: its pieces, how a request and a release reach it, who can reach what, how to operate it. Start it from `templates/project-infrastructure.md`.
 3. **`infrastructure-reference.md`** — generated: every resource of every root, with its identifier, and each root's dependency graph.
 
-Each project's README links to its org repo's overview; the overview links to every project's doc; every project doc links back up.
+Each project with infrastructure here links from its README to its org repo's overview, unless the project is public; the overview links to every project's doc; every project doc links back up.
 
 ## Writing the overview and the project docs
 
