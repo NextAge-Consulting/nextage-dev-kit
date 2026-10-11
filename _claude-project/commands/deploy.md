@@ -8,15 +8,17 @@ Bare `/deploy` ships the full fleet. `/deploy <service>` (e.g. `/deploy worker`,
 
 $ARGUMENTS
 
-## In an org repo
+## Releasing infrastructure
 
-When `REPO_KIND` is `org` in `.claude/sync-substitutions.json`, `/deploy` cuts no release: on the PR's branch, it applies the PR's Terraform and merges it. Ask nothing about a level or a changelog, and skip every step below. Run:
+In an org repo (`REPO_KIND` is `org` in `.claude/sync-substitutions.json`), and from a PR branch in a combo repo (`combo`), `/deploy` cuts no release: on the PR's branch, it applies the PR's Terraform and merges it. Ask nothing about a level or a changelog, and skip every step below. Run:
 
 ```bash
 .claude/skills/gitflow/scripts/deploy.sh
 ```
 
 It refuses a PR that targets another branch or lacks what main has, waits for green CI, re-plans each changed root and stops unless the plan matches the PR's plan block, applies, commits the regenerated infrastructure reference onto the branch, merges, then moves the issues the PR closes to the deploy status. Report what it applied and the merge, or its refusal as printed — a plan that no longer matches names the difference, and nothing has been applied.
+
+On `main` in a combo repo, `/deploy` releases the app: follow the steps below as in any app repo.
 
 ## Design
 

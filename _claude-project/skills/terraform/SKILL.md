@@ -7,7 +7,7 @@ description: How AWS infrastructure is changed — always in the organization's 
 
 Every organization has one **org repo** per AWS account (`ORG_REPO` in `.claude/sync-substitutions.json`). It holds all of that account's Terraform, the ownership map, the register of what crosses between projects, and the infrastructure overview with one infra doc per project. Project repos hold no Terraform.
 
-Paths in this skill — `scripts/`, `references/`, `templates/` — are inside `.claude/skills/terraform/`. Run the scripts from the repository root. `REPO_KIND` says which repo you are in: `org` is the org repo, anything else is a project.
+Paths in this skill — `scripts/`, `references/`, `templates/` — are inside `.claude/skills/terraform/`. Run the scripts from the repository root. `REPO_KIND` says which repo you are in: `org` is the org repo; `combo` is a project that is its own org repo — its `ORG_REPO` names itself, its Terraform is in its own `infra/terraform/`, and it follows "In the org repo" below for infrastructure; anything else is a project.
 
 ## In a project repo
 

@@ -228,9 +228,9 @@ load_substitutions() {
     # Read once: dest_for_kit_path consults it for every kit file.
     REPO_KIND=$(subst_value "REPO_KIND")
     case "$REPO_KIND" in
-        ""|app|org) ;;
+        ""|app|org|combo) ;;
         *)
-            echo "sync-dev-kit.sh: REPO_KIND in .claude/sync-substitutions.json is \"$REPO_KIND\" — it must be \"app\" or \"org\" (empty is undecided and syncs as app)." >&2
+            echo "sync-dev-kit.sh: REPO_KIND in .claude/sync-substitutions.json is \"$REPO_KIND\" — it must be \"app\", \"org\" or \"combo\" (empty is undecided and syncs as app)." >&2
             exit 2
             ;;
     esac

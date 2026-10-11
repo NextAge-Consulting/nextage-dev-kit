@@ -50,6 +50,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/issue_helpers.sh"
 # shellcheck source=_claude-project/skills/gitflow/scripts/branch_helpers.sh
 source "$SCRIPT_DIR/branch_helpers.sh"
+# shellcheck source=_claude-project/skills/gitflow/scripts/repo_kind.sh
+source "$SCRIPT_DIR/repo_kind.sh"
 
 TITLE=""
 BODY=""
@@ -151,15 +153,14 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
     exit 3
 fi
 
-# ─── Org repo: every changed Terraform root carries its plan ───────────────
+# ─── Infrastructure: every changed Terraform root carries its plan ─────────
 # /deploy applies a Terraform PR only when its fresh plan matches the one the PR
 # shows, so a PR missing a root's plan could never deploy. Refused here, before the
 # push. The command writes each block with plan-summary.sh --block.
-REPO_KIND_VALUE=$(jq -r '.REPO_KIND // ""' .claude/sync-substitutions.json 2>/dev/null || echo "")
-if [ "$REPO_KIND_VALUE" = "org" ]; then
+if repo_holds_infra; then
     CHANGED_ROOTS_SH=".claude/skills/terraform/scripts/changed-roots.sh"
     if [ ! -f "$CHANGED_ROOTS_SH" ]; then
-        echo "open-pr.sh: this is an org repo but $CHANGED_ROOTS_SH is missing — sync the kit." >&2
+        echo "open-pr.sh: this repo holds infrastructure but $CHANGED_ROOTS_SH is missing — sync the kit." >&2
         exit 14
     fi
     if ! ROOTS=$(bash "$CHANGED_ROOTS_SH" "$BASE"); then

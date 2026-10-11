@@ -498,6 +498,14 @@ An org repo (`REPO_KIND` = `org`) changes AWS, so its PR is released by applying
 only then merged — `main` there only ever holds what is live. Its people-facing page is
 `org-repo-cheatsheet.md`.
 
+**Two halves, one switch.** `repo_kind.sh` answers two questions — `repo_holds_infra`
+(`org`, `combo`) and `repo_holds_app` (`app`, `combo`) — and every script asks those,
+never the kind. A combo repo is a project that is its own org repo: each command runs the
+infrastructure half below for Terraform and the app half for code, with no logic of its
+own. `/deploy` hands to `deploy-org.sh` when the repo holds infrastructure and either holds
+no app or runs on a PR branch; on main in a combo repo it releases the app. `/merge` in a
+combo repo refuses only a PR `changed-roots.sh` finds Terraform in.
+
 - **`/open-pr`** commits uncommitted work through the `/commit` procedure, plans every root
   `changed-roots.sh` reports, and writes each root's `plan-summary.sh --block` into the
   body. `open-pr.sh` refuses a body missing a changed root's block (exit 14).
@@ -721,7 +729,7 @@ Current kit-referenced placeholders (authoritative list is in `_claude-project/s
 | `DESIGN_EXEMPT_COMPONENTS` | the token checker (runtime-read) | Headless primitives and `currentColor` glyphs a call site may style. Empty → none |
 | `ORG_AUDIT` | `open-pr.sh`, `deploy-org.sh` (runtime-read) | Org repos. `on` → `/deploy` refuses without `infrastructure-access-and-change.md` (exit 32) and an org `/open-pr` refuses a PR linking no issue (exit 15). Off during setup. Empty and listed in `_intentionally_empty` → off |
 | `ORG_DEPLOY_APPROVAL` | `deploy-org.sh` (runtime-read) | Org repos. `required` → `/deploy` applies only a PR whose GitHub review decision is `APPROVED` (exit 33). Empty and listed in `_intentionally_empty` → off |
-| `REPO_KIND` | `sync-dev-kit.sh` (read at scan and apply); `open-pr.sh`, `deploy.sh`, `merge.sh`, `ship-main.sh` (runtime-read) | `app` — every kit file syncs, gitflow as documented; `org` — an org repo: skips the application tooling (§9.12), and gitflow follows `org-repo-cheatsheet.md` (§6.6). Empty → undecided: behaves as `app`, re-surfaced every sync. Any other value stops the scan with exit 2 |
+| `REPO_KIND` | `sync-dev-kit.sh` (read at scan and apply); the gitflow scripts through `repo_kind.sh` (runtime-read) | `app` — every kit file syncs, gitflow as documented; `org` — an org repo: skips the application tooling (§9.12), and gitflow follows `org-repo-cheatsheet.md` (§6.6); `combo` — both: every kit file syncs, and each command runs both halves (§6.6). Empty → undecided: behaves as `app`, re-surfaced every sync. Any other value stops the scan with exit 2 |
 | `KNIP_GATE` | the `knip` job in `ci.yml` (runtime-read) | `"true"` → CI runs knip with the kit's `knip.config.ts` and fails on any finding. Empty and listed in `_intentionally_empty` → the gate is off. Missing, or empty and unlisted → undecided: the job passes with a warning naming the key. `pipeline.md` §3.9 |
 
 The kit ships a template at `_claude-project/sync-substitutions.json` with empty values and inline docs of every placeholder kit templates currently reference. Consumer projects bootstrap automatically: `load_substitutions` in `sync-dev-kit.sh` copies the kit template to `.claude/sync-substitutions.json` on first run if absent. Population is then walked through interactively — see §9.8.

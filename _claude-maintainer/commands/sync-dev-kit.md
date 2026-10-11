@@ -66,7 +66,7 @@ Filter out any key that's in `_intentionally_empty` — the user already decided
 
 If the list is empty, skip Step 1.5 entirely and proceed to Step 2.
 
-**Ask `REPO_KIND` first when it is in the list.** It decides which other keys matter. For an `org` repo, offer to settle the application keys in one step: `DB_ENGINE` = `None`, `GEMINI_NOT_INSTALLED` = `true` (an org repo is reviewed through its plans, not Gemini), `ORG_REPO` = this repository, and `SHARED_MODULE_DIR`, `DESIGN_UI_PACKAGE`, `KNIP_GATE`, `FORM_LIB_EXEMPT_APPS`, `DEPLOY_BACKEND`, `DEPLOY_WORKFLOWS`, `MIGRATE_WORKFLOW`, `MIGRATE_PATHS`, `CODEBUILD_PROJECT_PREFIX`, `CODEBUILD_MIGRATE_PROJECT` and `CODEBUILD_PROMOTE_PREFIX` added to `_intentionally_empty`. Then re-run `--scan`, because the kind changes which files are scanned.
+**Ask `REPO_KIND` first when it is in the list.** It decides which other keys matter. For an `org` repo, offer to settle the application keys in one step: `DB_ENGINE` = `None`, `GEMINI_NOT_INSTALLED` = `true` (an org repo is reviewed through its plans, not Gemini), `ORG_REPO` = this repository, and `SHARED_MODULE_DIR`, `DESIGN_UI_PACKAGE`, `KNIP_GATE`, `FORM_LIB_EXEMPT_APPS`, `DEPLOY_BACKEND`, `DEPLOY_WORKFLOWS`, `MIGRATE_WORKFLOW`, `MIGRATE_PATHS`, `CODEBUILD_PROJECT_PREFIX`, `CODEBUILD_MIGRATE_PROJECT` and `CODEBUILD_PROMOTE_PREFIX` added to `_intentionally_empty`. A `combo` repo — a project that is its own org repo — keeps its application settings and sets `ORG_REPO` to itself. Then re-run `--scan`, because the kind changes which files are scanned.
 
 **Per-key flow** (one at a time, sequentially — don't batch):
 

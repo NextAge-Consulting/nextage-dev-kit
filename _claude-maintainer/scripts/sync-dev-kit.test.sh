@@ -318,6 +318,10 @@ run --apply-file _claude-project/templates/knip.config.ts >/dev/null 2>"$tmp/err
 [ "$rc" -eq 4 ] && grep -q 'REPO_KIND is org' "$tmp/err" && ok "org: applying an application file is refused, naming why" || bad "org apply refused (rc=$rc): $(cat "$tmp/err")"
 run --apply-file knip.config.ts 2>/dev/null
 [ ! -f "$PROJ/knip.config.ts" ] && ok "org: the removal deletes it by its destination" || bad "org removal"
+setkind combo
+out=$(scan)
+jq -e '.repo_kind == "combo" and .skipped_by_repo_kind == 0' <<<"$out" >/dev/null \
+    && ok "combo: nothing is skipped — a combo repo gets the app tooling and the org tooling" || bad "combo skip: $(jq -c '{repo_kind, skipped_by_repo_kind}' <<<"$out")"
 setkind bogus
 run --scan >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 2 ] && ok "an unknown REPO_KIND stops the scan" || bad "bogus REPO_KIND (rc=$rc)"

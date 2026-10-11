@@ -52,4 +52,13 @@ rc=$(ship "📚 docs: notes")
 { [ "$rc" = 0 ] && [ "$(git rev-parse origin/main)" != "$before" ]; } \
     && ok "org repo: a docs change ships to main" || bad "docs ship (rc=$rc): $(cat "$tmp/out")"
 
+# ─── Combo: the same Terraform rule as an org repo ───────────────────────
+printf '{"REPO_KIND":"combo","GEMINI_NOT_INSTALLED":"true"}\n' > .claude/sync-substitutions.json
+git add -A; git commit -qm "chore: combo"; git push -q origin main; before=$(git rev-parse HEAD)
+printf 'resource "x" "z" {}\n' >> infra/terraform/shared/main.tf
+rc=$(FAKE_PLAN_RC=2 ship "✨ feat: bucket")
+{ [ "$rc" = 14 ] && [ "$(git rev-parse HEAD)" = "$before" ]; } \
+    && ok "combo: a Terraform change that changes AWS is refused" || bad "combo terraform (rc=$rc): $(cat "$tmp/out")"
+git checkout -q -- infra/terraform/shared/main.tf
+
 exit "$fail"

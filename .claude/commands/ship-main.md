@@ -20,7 +20,7 @@ $ARGUMENTS
 
 Whether a change goes straight to main is the developer's call — never switch to `/commit` on your own. When the change touches application code — the source the app is built from or runs, the kind of change a code reviewer like Gemini would review — ask, and wait: "This appears to contain code that should go through a PR — are you sure?" Yes → continue. No → stop; the developer picks the next step. Docs, kit files, CI and review configuration (`.github/`, `.gemini/`), Docker and build files are not application code.
 
-In an org repo the script refuses a Terraform change (exit 14) unless every root it touches plans "No changes" — removing a spent `imports.tf`, say. Anything that changes AWS reaches main only through `/open-pr` and `/deploy`, which apply it.
+In a repo holding infrastructure (`REPO_KIND` is `org` or `combo`) the script refuses a Terraform change (exit 14) unless every root it touches plans "No changes" — removing a spent `imports.tf`, say. Anything that changes AWS reaches main only through `/open-pr` and `/deploy`, which apply it.
 
 ### Step 2: Compose a conventional commit message
 

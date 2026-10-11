@@ -13,7 +13,7 @@ ok()  { echo "ok   $1"; }
 bad() { echo "FAIL $1"; fail=1; }
 
 bin="$tmp/scripts"; mkdir -p "$bin"
-cp "$D/deploy-org.sh" "$bin/"
+cp "$D/deploy-org.sh" "$D/repo_kind.sh" "$bin/"
 printf '#!/bin/bash\necho wait >> "%s/calls"; exit "${FAKE_CI:-0}"\n' "$tmp" > "$bin/wait-for-pr-ready.sh"
 printf '#!/bin/bash\necho "merge GITFLOW_ORG_DEPLOY=$GITFLOW_ORG_DEPLOY $*" >> "%s/calls"\nexit "${FAKE_MERGE:-0}"\n' "$tmp" > "$bin/merge.sh"
 printf 'move_issue_to_deployed() { echo "board deployed $1" >> "%s/calls"; }\n' "$tmp" > "$bin/issue_helpers.sh"
@@ -52,6 +52,7 @@ printf '#!/bin/bash\nmkdir -p project-documentation; date > project-documentatio
 chmod +x .claude/skills/terraform/scripts/*.sh
 for r in shared projects/web/prod; do printf 'terraform {}\n' > "infra/terraform/$r/main.tf"; touch "infra/terraform/$r/.terraform.lock.hcl"; done
 printf '*.tfplan\n' > .gitignore
+printf '{"REPO_KIND":"org"}\n' > .claude/sync-substitutions.json
 git add -A; git commit -qm base; git push -q origin main
 git checkout -q -b infra/bucket
 printf 'resource "aws_s3_bucket" "b" {}\n' >> infra/terraform/projects/web/prod/main.tf
@@ -125,6 +126,9 @@ git checkout -q main; git checkout -q -b docs/notes
 printf 'n\n' > notes.md; git add -A; git commit -qm "docs: notes"; git push -q -u origin docs/notes 2>/dev/null
 rc=$(run)
 [ "$rc" = 2 ] && grep -q "/ship-main" "$tmp/out" && ok "a PR changing no root: refused, pointing to /ship-main" || bad "docs PR (rc=$rc): $(cat "$tmp/out")"
+printf '{"REPO_KIND":"combo"}\n' > .claude/sync-substitutions.json; git add -A; git commit -qm "chore: combo"; git push -q origin docs/notes
+rc=$(run)
+[ "$rc" = 2 ] && grep -q "land it with /merge" "$tmp/out" && ok "combo: a PR changing no root points to /merge instead" || bad "combo docs PR (rc=$rc): $(cat "$tmp/out")"
 
 printf 'dirty\n' >> notes.md
 [ "$(run)" = 4 ] && ok "uncommitted work: refused" || bad "dirty: $(cat "$tmp/out")"

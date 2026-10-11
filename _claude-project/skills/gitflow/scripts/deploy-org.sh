@@ -1,6 +1,7 @@
 #!/bin/bash
 # gitflow deploy in an org repo: make the branch's Terraform PR real, then land it.
-# deploy.sh hands over to this when REPO_KIND is "org". Run from the repository root,
+# deploy.sh hands over to this in a repo holding infrastructure — always in an org
+# repo, from a PR branch in a combo repo (repo_kind.sh). Run from the repository root,
 # on the PR's branch:
 #
 #   deploy-org.sh
@@ -49,6 +50,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_claude-project/skills/gitflow/scripts/issue_helpers.sh
 source "$SCRIPT_DIR/issue_helpers.sh"
+# shellcheck source=_claude-project/skills/gitflow/scripts/repo_kind.sh
+source "$SCRIPT_DIR/repo_kind.sh"
 TF_DIR=".claude/skills/terraform/scripts"
 PLAN_NAME="deploy.tfplan"
 
@@ -132,7 +135,11 @@ if ! ROOTS=$(bash "$TF_DIR/changed-roots.sh" "$PR_BASE"); then
     exit 2
 fi
 if [ -z "$ROOTS" ]; then
-    echo "deploy-org.sh: PR #$PR_NUMBER changes no Terraform root. A docs change goes straight to main with /ship-main." >&2
+    if repo_holds_app; then
+        echo "deploy-org.sh: PR #$PR_NUMBER changes no Terraform root — land it with /merge, and release the app with /deploy on main." >&2
+    else
+        echo "deploy-org.sh: PR #$PR_NUMBER changes no Terraform root. A docs change goes straight to main with /ship-main." >&2
+    fi
     exit 2
 fi
 COUNT=$(printf '%s\n' "$ROOTS" | wc -l | tr -d ' ')

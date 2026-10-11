@@ -39,6 +39,8 @@ source "$SCRIPT_DIR/branch_helpers.sh"
 source "$SCRIPT_DIR/issue_helpers.sh"
 # shellcheck source=./gates.sh
 source "$SCRIPT_DIR/gates.sh"
+# shellcheck source=_claude-project/skills/gitflow/scripts/repo_kind.sh
+source "$SCRIPT_DIR/repo_kind.sh"
 
 MESSAGE=""
 MODEL_NAME="Claude"
@@ -87,10 +89,10 @@ fi
 # against it; the fold itself waits until they have all passed.
 FOLD_BASE=$(checkpoint_fold_base)
 
-# --- Org repo: Terraform reaches main only through /deploy ----------------
+# --- Infrastructure: Terraform reaches main only through /deploy ----------
 # /deploy applies a Terraform PR before merging it, so main holds only what is
 # live. Terraform shipped straight to main would be code nobody applied.
-if [ "$(jq -r '.REPO_KIND // ""' .claude/sync-substitutions.json 2>/dev/null || true)" = "org" ]; then
+if repo_holds_infra; then
     if ! ORG_ROOTS=$(bash .claude/skills/terraform/scripts/changed-roots.sh "$FOLD_BASE" 2>/dev/null); then
         echo "ship-main.sh: could not tell whether this change touches Terraform — nothing was shipped." >&2
         exit 14
@@ -113,7 +115,7 @@ if [ "$(jq -r '.REPO_KIND // ""' .claude/sync-substitutions.json 2>/dev/null || 
         [ "$plan_rc" -eq 0 ] || CHANGING="$CHANGING $root"
     done <<< "$ORG_ROOTS"
     if [ -n "$CHANGING" ]; then
-        echo "ship-main.sh: this change would change AWS, or could not be planned, in:$CHANGING — in an org repo that goes through /open-pr and /deploy, which applies it before it reaches main. Nothing was shipped." >&2
+        echo "ship-main.sh: this change would change AWS, or could not be planned, in:$CHANGING — Terraform that changes AWS goes through /open-pr and /deploy, which applies it before it reaches main. Nothing was shipped." >&2
         exit 14
     fi
 fi

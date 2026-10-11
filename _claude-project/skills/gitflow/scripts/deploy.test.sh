@@ -11,7 +11,7 @@ ok()  { echo "ok   $1"; }
 bad() { echo "FAIL $1"; fail=1; }
 
 bin="$tmp/scripts"; mkdir -p "$bin"
-cp "$D/deploy.sh" "$D/issue_helpers.sh" "$bin/"
+cp "$D/deploy.sh" "$D/issue_helpers.sh" "$D/repo_kind.sh" "$bin/"
 printf '#!/bin/bash\necho "deploy-org ran: $*"\n' > "$bin/deploy-org.sh"
 chmod +x "$bin"/*.sh
 
@@ -62,5 +62,16 @@ git checkout -q -b infra/x
 printf '{"REPO_KIND":"org"}\n' > .claude/sync-substitutions.json
 out=$(PATH="$tmp/fake:$PATH" bash "$bin/deploy.sh" --level patch 2>&1)
 [ "$out" = "deploy-org ran: --level patch" ] && ok "an org repo hands /deploy to deploy-org.sh, arguments intact" || bad "org handoff: $out"
+
+# ─── Combo: the branch decides which half /deploy runs ────────────────────
+printf '{"REPO_KIND":"combo"}\n' > .claude/sync-substitutions.json
+out=$(PATH="$tmp/fake:$PATH" bash "$bin/deploy.sh" --level patch 2>&1)
+[ "$out" = "deploy-org ran: --level patch" ] && ok "combo on a PR branch: /deploy applies the infrastructure (deploy-org.sh)" || bad "combo branch: $out"
+git checkout -q -- .claude/sync-substitutions.json 2>/dev/null; git checkout -q main
+printf '{"DEPLOY_BACKEND":"github","DEPLOY_WORKFLOWS":"deploy.yml","REPO_KIND":"combo"}\n' > .claude/sync-substitutions.json
+git add -A; git commit -qm "chore: combo"; git tag v1.1.0; git push -q origin main v1.1.0
+land "✨ feat: combo app"
+[ "$(run)" = 0 ] && ! grep -q "deploy-org ran" "$tmp/out" && grep -q "state gates OK" "$tmp/out" \
+    && ok "combo on main: /deploy releases the app, through the app's own gates" || bad "combo main: $(cat "$tmp/out")"
 
 exit "$fail"

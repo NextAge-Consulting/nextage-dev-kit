@@ -19,7 +19,7 @@ git branch --show-current
 
 If working tree is dirty, stop and prompt the user to `/commit` or `/checkpoint` first.
 
-**In an org repo** (`REPO_KIND` is `org` in `.claude/sync-substitutions.json`), a dirty tree is committed instead: run the `/commit` procedure first — its prechecks included — then continue here. After Step 2, plan every changed root:
+**In an org repo** (`REPO_KIND` is `org` in `.claude/sync-substitutions.json`), a dirty tree is committed instead: run the `/commit` procedure first — its prechecks included — then continue here. **In any repo holding infrastructure** (`org` or `combo`), after Step 2, plan every changed root:
 
 ```bash
 .claude/skills/terraform/scripts/changed-roots.sh main

@@ -134,4 +134,12 @@ open --part 9; rc=$?
 { [ "$rc" -eq 0 ] && grep -q "Part of #9" "$FAKE_LOG" && ! grep -qi "closes #9" "$FAKE_LOG"; } \
     && ok "--part: the PR opens saying Part of #9, and closes nothing" || bad "part (rc=$rc): $(cat "$tmp/out"; cat "$FAKE_LOG")"
 
+# ─── Combo: a Terraform change carries its plan, as in an org repo ───────
+git checkout -q main; git checkout -q -b combo/infra
+printf '{"GEMINI_NOT_INSTALLED":"true","REPO_KIND":"combo"}\n' > .claude/sync-substitutions.json
+printf 'resource "x" "c" {}\n' >> infra/terraform/shared/main.tf; git add -A; git commit -qm "feat: combo infra"
+open; rc=$?
+{ [ "$rc" -eq 14 ] && grep -q "no plan for: shared" "$tmp/out"; } \
+    && ok "combo: a changed root with no plan in the body is refused" || bad "combo no plan (rc=$rc): $(cat "$tmp/out")"
+
 exit "$fail"

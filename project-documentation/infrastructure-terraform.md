@@ -60,7 +60,9 @@ organization, or that crosses between its projects:
 - **The infrastructure docs** — the org overview at the top, linking down to one doc per
   project, plus a reference generated from Terraform's own state.
 
-**Project repos hold no Terraform.** Everything about one project's code — its
+**A project can be its own org repo** when an organization has one project and wants one repository: `REPO_KIND=combo` keeps the app and the Terraform together, running the org flow for infrastructure and the app flow for code (`org-repo-cheatsheet.md`).
+
+**Otherwise project repos hold no Terraform.** Everything about one project's code — its
 buildspecs, Dockerfiles, backup image — stays in the project. Each project with infrastructure in the account points up to its
 org repo — its `ORG_REPO` setting, and its README unless the project is public, where a
 link to a private org repo is a dead end that advertises it exists — so it can find out

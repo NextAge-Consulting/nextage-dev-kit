@@ -42,6 +42,20 @@ of what is added, changed and destroyed. CI on the PR is the real gate.
 
 ---
 
+## A combo repo
+
+A project that is its own org repo (`REPO_KIND=combo`) — a client who wants the app and
+its infrastructure in one repository. It runs both flows, each exactly as above or as in
+`gitflow-cheatsheet.md`:
+
+- **`/open-pr`** plans any Terraform the branch changes, and opens as usual when there is none.
+- **`/deploy` on a PR branch** applies that PR's Terraform and merges it. **`/deploy` on main**
+  releases the app.
+- **`/merge`** refuses only a PR that changes Terraform; every other PR merges as usual.
+
+A change that touches both lands in one PR: `/deploy` from the branch applies and merges,
+then `/deploy` from main releases the code.
+
 ## When `/deploy` stops
 
 | It says | Meaning | Next |

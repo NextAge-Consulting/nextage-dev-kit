@@ -73,4 +73,22 @@ FAKE_ME=alice FAKE_AUTHOR=alice FAKE_BASE=main merge; rc=$?
 { [ "$rc" -eq 0 ] && grep -q "pr merge" "$FAKE_LOG"; } \
     && ok "org repo: /deploy's call merges" || bad "org deploy merge (rc=$rc): $(cat "$tmp/out")"
 
+# ─── Combo: only a PR that changes Terraform must go through /deploy ──────
+git checkout -q main
+mkdir -p .claude/skills/terraform/scripts infra/terraform/shared
+cp "$(dirname "$M")/../../terraform/scripts/changed-roots.sh" .claude/skills/terraform/scripts/ 2>/dev/null \
+  || cp "$(git -C "$(dirname "$M")" rev-parse --show-toplevel)/_claude-project/skills/terraform/scripts/changed-roots.sh" .claude/skills/terraform/scripts/
+printf '{"REPO_KIND":"combo"}\n' > .claude/sync-substitutions.json
+printf 'terraform {}\n' > infra/terraform/shared/main.tf; touch infra/terraform/shared/.terraform.lock.hcl
+git add -A; git commit -qm "chore: combo"; git push -q origin main
+branch feat/combo-app
+FAKE_ME=alice FAKE_AUTHOR=alice FAKE_BASE=main merge; rc=$?
+{ [ "$rc" -eq 0 ] && grep -q "pr merge" "$FAKE_LOG"; } \
+    && ok "combo: a PR with no Terraform merges as usual" || bad "combo app merge (rc=$rc): $(cat "$tmp/out")"
+branch feat/combo-infra
+printf 'resource "x" "y" {}\n' >> infra/terraform/shared/main.tf; git add -A; git commit -qm "feat: infra"; git push -q origin feat/combo-infra 2>/dev/null
+FAKE_ME=alice FAKE_AUTHOR=alice FAKE_BASE=main merge; rc=$?
+{ [ "$rc" -eq 25 ] && grep -q "this PR changes Terraform (shared" "$tmp/out" && ! grep -q "pr merge" "$FAKE_LOG"; } \
+    && ok "combo: a PR that changes Terraform is refused, pointing to /deploy" || bad "combo infra merge (rc=$rc): $(cat "$tmp/out")"
+
 exit "$fail"

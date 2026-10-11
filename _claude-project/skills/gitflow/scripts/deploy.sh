@@ -74,7 +74,8 @@
 #   - No UI awaiting the human's approval: the ui-patterns status check passes
 #     (rules/ui-design.md, "One app, one look and feel")
 #
-# In an org repo (REPO_KIND=org) none of this applies: deploy-org.sh takes over.
+# In a repo holding infrastructure, /deploy on a PR branch — and in an org repo,
+# always — hands over to deploy-org.sh instead (repo_kind.sh).
 #
 # --check-only: runs all gates without mutating, exits 0 if clean.
 #
@@ -197,10 +198,15 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_claude-project/skills/gitflow/scripts/issue_helpers.sh
 source "$SCRIPT_DIR/issue_helpers.sh"
+# shellcheck source=_claude-project/skills/gitflow/scripts/repo_kind.sh
+source "$SCRIPT_DIR/repo_kind.sh"
 
-# An org repo has no release to cut: /deploy there applies the branch's Terraform PR
-# and merges it (deploy-org.sh, org-repo-cheatsheet.md).
-if [ "$(jq -r '.REPO_KIND // ""' .claude/sync-substitutions.json 2>/dev/null || true)" = "org" ]; then
+# Infrastructure is released by applying its PR and then merging it (deploy-org.sh,
+# org-repo-cheatsheet.md); an app is released from main below. A repo with no app
+# (org) always takes the first; one with both (combo) takes it from a PR branch and
+# releases the app from main.
+DEPLOY_BRANCH=$(git branch --show-current 2>/dev/null || true)
+if repo_holds_infra && { ! repo_holds_app || { [ "$DEPLOY_BRANCH" != "main" ] && [ "$DEPLOY_BRANCH" != "master" ]; }; }; then
     exec "$SCRIPT_DIR/deploy-org.sh" "$@"
 fi
 

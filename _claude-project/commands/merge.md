@@ -4,7 +4,7 @@ Squash-merge the current branch's PR after CI passes. Part of the gitflow subsys
 
 $ARGUMENTS
 
-**In an org repo** (`REPO_KIND` is `org`) `/merge` refuses (exit 25): `/deploy` applies a Terraform PR and merges it, and a docs change goes to main with `/ship-main`. Say which applies instead of running anything.
+**In an org repo** (`REPO_KIND` is `org`) `/merge` refuses (exit 25): `/deploy` applies a Terraform PR and merges it, and a docs change goes to main with `/ship-main`. **In a combo repo** (`combo`) it refuses only a PR that changes Terraform, which `/deploy` on its branch applies and merges. Say which applies instead of running anything.
 
 ## Procedure
 

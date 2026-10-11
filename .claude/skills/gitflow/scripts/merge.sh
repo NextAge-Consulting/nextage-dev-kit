@@ -37,6 +37,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/branch_helpers.sh"
 # shellcheck source=_claude-project/skills/gitflow/scripts/gates.sh
 source "$SCRIPT_DIR/gates.sh"
+# shellcheck source=_claude-project/skills/gitflow/scripts/repo_kind.sh
+source "$SCRIPT_DIR/repo_kind.sh"
 
 PR_NUMBER=""
 BASE="main"
@@ -51,13 +53,23 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# An org repo's PR is landed by /deploy, which applies it first, so main only ever
-# holds infrastructure that is live. deploy-org.sh calls this script with
-# GITFLOW_ORG_DEPLOY=1 once the apply succeeded.
-if [ "${GITFLOW_ORG_DEPLOY:-}" != "1" ] \
-   && [ "$(jq -r '.REPO_KIND // ""' .claude/sync-substitutions.json 2>/dev/null || true)" = "org" ]; then
-    echo "merge.sh: this is an org repo — /deploy applies the PR and merges it. A docs change goes to main with /ship-main. Nothing was merged." >&2
-    exit 25
+# A PR that changes Terraform is landed by /deploy, which applies it first, so main
+# only ever holds infrastructure that is live. deploy-org.sh calls this script with
+# GITFLOW_ORG_DEPLOY=1 once the apply succeeded. A repo with no app (org) has nothing
+# else to merge; one with an app too (combo) merges every other PR as usual.
+if [ "${GITFLOW_ORG_DEPLOY:-}" != "1" ] && repo_holds_infra; then
+    if ! repo_holds_app; then
+        echo "merge.sh: this is an org repo — /deploy applies the PR and merges it. A docs change goes to main with /ship-main. Nothing was merged." >&2
+        exit 25
+    fi
+    if ! TF_ROOTS=$(bash .claude/skills/terraform/scripts/changed-roots.sh "$BASE" 2>/dev/null); then
+        echo "merge.sh: could not tell whether this PR changes Terraform. Nothing was merged." >&2
+        exit 25
+    fi
+    if [ -n "$TF_ROOTS" ]; then
+        echo "merge.sh: this PR changes Terraform ($(printf '%s' "$TF_ROOTS" | tr '\n' ' ')) — /deploy on this branch applies it and merges it. Nothing was merged." >&2
+        exit 25
+    fi
 fi
 
 if ! command -v gh >/dev/null 2>&1; then
