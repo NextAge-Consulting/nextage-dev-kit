@@ -102,6 +102,19 @@ open; rc=$?
 : > "$FAKE_LOG"; PATH="$tmp/bin:$PATH" "$O" --title "✨ feat: x" --body "$(printf 'Adds a bucket.\n\n<!-- plan:shared -->\n```text\ncreate x.y\n```\n<!-- /plan:shared -->')" >"$tmp/out" 2>&1; rc=$?
 { [ "$rc" -eq 0 ] && grep -q "pr create" "$FAKE_LOG"; } \
     && ok "org repo: with every root's plan in the body, it opens" || bad "org with plan (rc=$rc): $(cat "$tmp/out")"
+git checkout -q main; git checkout -q -b infra/audited
+printf '{"GEMINI_NOT_INSTALLED":"true","REPO_KIND":"org","ORG_AUDIT":"on"}\n' > .claude/sync-substitutions.json
+printf 'resource "x" "z" {}\n' >> infra/terraform/shared/main.tf; git add -A; git commit -qm "feat: audited"
+BODY_OK="$(printf 'x\n\n<!-- plan:shared -->\n```text\ncreate x.z\n```\n<!-- /plan:shared -->')"
+: > "$FAKE_LOG"; PATH="$tmp/bin:$PATH" "$O" --title "✨ feat: x" --body "$BODY_OK" >"$tmp/out" 2>&1; rc=$?
+{ [ "$rc" -eq 15 ] && grep -q "must link the issue" "$tmp/out" && ! grep -q "pr create" "$FAKE_LOG"; } \
+    && ok "org repo, ORG_AUDIT on: a PR linking no issue is refused before the push" || bad "audit no issue (rc=$rc): $(cat "$tmp/out")"
+git config branch.infra/audited.gitflow-issues 9; git config branch.infra/audited.gitflow-complete 9; git config branch.infra/audited.gitflow-noted 9
+: > "$FAKE_LOG"; PATH="$tmp/bin:$PATH" "$O" --title "✨ feat: x" --body "$BODY_OK" >"$tmp/out" 2>&1; rc=$?
+{ [ "$rc" -eq 0 ] && grep -q "pr create" "$FAKE_LOG"; } \
+    && ok "org repo, ORG_AUDIT on: with its issue linked, it opens" || bad "audit with issue (rc=$rc): $(cat "$tmp/out")"
+printf '{"GEMINI_NOT_INSTALLED":"true","REPO_KIND":"org"}\n' > .claude/sync-substitutions.json; git add -A; git commit -qm "chore: audit off"
+
 git checkout -q main; git checkout -q -b docs/overview
 printf 'docs\n' > notes.md; git add -A; git commit -qm "docs: notes"
 open; rc=$?

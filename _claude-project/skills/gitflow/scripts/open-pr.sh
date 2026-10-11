@@ -162,6 +162,12 @@ if [ "$REPO_KIND_VALUE" = "org" ]; then
         echo "  Plan each root and add its block: .claude/skills/terraform/scripts/plan-summary.sh --block <root> <plan file>" >&2
         exit 14
     fi
+    # An audited org links every change to the request that asked for it.
+    if [ "$(jq -r '.ORG_AUDIT // ""' .claude/sync-substitutions.json 2>/dev/null || true)" = "on" ] \
+       && [ -z "$(read_branch_linked_issues "$CURRENT_BRANCH")" ]; then
+        echo "open-pr.sh: this org repo keeps an audit trail (ORG_AUDIT=on), so its PR must link the issue that asked for it — /work <N> on this branch first. Nothing was pushed." >&2
+        exit 15
+    fi
 fi
 
 # ─── Code-complete gate ────────────────────────────────────────────────────

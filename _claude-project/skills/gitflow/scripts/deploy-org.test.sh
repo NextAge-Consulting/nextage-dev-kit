@@ -25,6 +25,7 @@ cat > "$tmp/fake/gh" <<'GH'
 #!/bin/bash
 case "$*" in
   "pr list --head "*) [ -n "${FAKE_NO_PR:-}" ] && exit 0; jq -nc --rawfile b "$FAKE_BODY" '{number: 5, body: $b, baseRefName: "main"}' ;;
+  "pr view 5 --json reviewDecision"*) echo "${FAKE_REVIEW:-}" ;;
   *) exit 0 ;;
 esac
 GH
@@ -90,6 +91,25 @@ printf '\n<!-- plan:shared -->\n```text\nno changes\n```\n<!-- /plan:shared -->\
 rc=$(FAKE_FAIL_APPLY=shared run)
 { [ "$rc" = 28 ] && ! grep -q '^merge' "$tmp/calls" && grep -q "Already live: projects/web/prod" "$tmp/out"; } \
     && ok "an apply that fails: nothing merged, and what is already live is named" || bad "apply failure (rc=$rc): $(cat "$tmp/calls"; cat "$tmp/out")"
+
+# ─── Audit gates ───────────────────────────────────────────────────────────
+git checkout -q main; git checkout -q -b infra/audit
+printf 'resource "aws_s3_bucket" "c" {}\n' >> infra/terraform/shared/main.tf
+printf '{"REPO_KIND":"org","ORG_AUDIT":"on"}\n' > .claude/sync-substitutions.json
+git add -A; git commit -qm "feat: audited"; git push -q -u origin infra/audit 2>/dev/null
+printf 'Closes #9\n\n<!-- plan:shared -->\n```text\ncreate aws_s3_bucket.c\n```\n<!-- /plan:shared -->\n' > "$FAKE_BODY"
+export FAKE_PLAN_shared='[{"address":"aws_s3_bucket.c","change":{"actions":["create"]}}]'
+rc=$(run)
+{ [ "$rc" = 32 ] && ! grep -q '^plan' "$tmp/calls"; } && ok "ORG_AUDIT on, no access-and-change procedure: refused before any plan" || bad "audit no doc (rc=$rc): $(cat "$tmp/out")"
+mkdir -p project-documentation; printf 'procedure\n' > project-documentation/infrastructure-access-and-change.md
+printf '{"REPO_KIND":"org","ORG_AUDIT":"on","ORG_DEPLOY_APPROVAL":"required"}\n' > .claude/sync-substitutions.json
+git add -A; git commit -qm "docs: procedure"; git push -q origin infra/audit
+rc=$(FAKE_REVIEW=REVIEW_REQUIRED run)
+{ [ "$rc" = 33 ] && ! grep -q '^plan' "$tmp/calls" && grep -q "REVIEW_REQUIRED" "$tmp/out"; } \
+    && ok "approval required and not given: refused before any plan, naming the review state" || bad "approval missing (rc=$rc): $(cat "$tmp/out")"
+rc=$(FAKE_REVIEW=APPROVED run)
+{ [ "$rc" = 0 ] && called "apply shared"; } && ok "approved by another reviewer: applied and merged" || bad "approved (rc=$rc): $(cat "$tmp/out")"
+unset FAKE_PLAN_shared
 
 git checkout -q main; printf 'm\n' > moved.txt; git add -A; git commit -qm "chore: main moves"; git push -q origin main
 git checkout -q infra/bucket

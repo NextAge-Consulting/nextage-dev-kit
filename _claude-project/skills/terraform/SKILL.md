@@ -5,7 +5,7 @@ description: How AWS infrastructure is changed — always in the organization's 
 
 # Terraform
 
-Every organization has one **org repo** per AWS account (`ORG_REPO` in `.claude/sync-substitutions.json`). It holds all of that account's Terraform, the ownership map, the register of what crosses between projects, the infrastructure overview with one infra doc per project, and the access-and-change procedure. Project repos hold no Terraform.
+Every organization has one **org repo** per AWS account (`ORG_REPO` in `.claude/sync-substitutions.json`). It holds all of that account's Terraform, the ownership map, the register of what crosses between projects, and the infrastructure overview with one infra doc per project. Project repos hold no Terraform.
 
 Paths in this skill — `scripts/`, `references/`, `templates/` — are inside `.claude/skills/terraform/`. Run the scripts from the repository root. `REPO_KIND` says which repo you are in: `org` is the org repo, anything else is a project.
 
@@ -23,7 +23,7 @@ Never write Terraform, and never change AWS with the CLI, from a project repo. R
 
 ## In the org repo
 
-The request arrives as an issue: `/work <N>`.
+The request arrives as an issue: `/work <N>`. While the org repo is first being set up, the work runs off its setup issue instead, and that issue is the record of everything setup does (`references/org-repo.md`).
 
 **Before any change**, plan every root you will touch: `scripts/tf.sh <root> plan` must report `No changes.` Anything else means AWS was changed outside Terraform — tell the person what differs and on which resource, and let them decide whether the code or AWS is right before you add anything. A root that does not exist yet has nothing to plan; start it from `templates/root-main.tf.example`. When `tf.sh` prints `Sign in again: aws login --profile …`, hand the person that command with a leading `!` and end the turn.
 
@@ -67,7 +67,7 @@ The request arrives as an issue: `/work <N>`.
 
 ## Unforeseen work
 
-A person may change AWS directly with their own sign-in when the situation needs it — an incident, or something Terraform cannot yet express — and may direct you to run the CLI for it. Do it, then in the same session bring Terraform back to `No changes` through a PR in the org repo: write the change into the code, or import the new resource. A change outside Terraform by design (a Parameter Store value a person sets, an access key) gets an issue on the org repo saying what was done, by whom and why.
+A person may change AWS directly with their own sign-in when the situation needs it — an incident, or something Terraform cannot yet express — and may direct you to run the CLI for it. Do it, then in the same session bring Terraform back to `No changes` through a PR in the org repo: write the change into the code, or import the new resource. A change outside Terraform by design (a Parameter Store value a person sets, an access key) gets a note saying what was done, by whom and why — on the setup issue during setup, otherwise on an issue on the org repo.
 
 Never write to AWS with the CLI on your own initiative. Parameter Store values a person sets and access keys are always outside Terraform: the person runs `aws ssm put-parameter` or `aws iam create-access-key`, or directs you to; Terraform creates who may read them.
 
@@ -76,4 +76,4 @@ Never write to AWS with the CLI on your own initiative. Parameter Store values a
 - Setting up an org repo, its state bucket and map, and adopting the whole account: `references/org-repo.md`.
 - Adopting resources built by hand, moving resources between roots, moving a project's Terraform into the org repo: `references/adopting.md`.
 - The org overview, the project infra docs and the generated reference: `references/docs.md`.
-- The access-and-change procedure an auditor reads: `templates/infrastructure-access-and-change.md`.
+- The audit level (`ORG_AUDIT`, `ORG_DEPLOY_APPROVAL`) and the access-and-change procedure it requires: `references/org-repo.md`, `templates/infrastructure-access-and-change.md`.

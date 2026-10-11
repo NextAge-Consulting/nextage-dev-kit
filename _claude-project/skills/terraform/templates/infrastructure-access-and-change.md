@@ -7,8 +7,9 @@ owner's own people and their access, which the account owner manages.
 
 ## Who can change the infrastructure
 
-- **Named people only**, each signing in as themselves with multi-factor
-  authentication: <names and roles>.
+- **The account owner holds final authority**: <owner's name and role>. Changes are made by
+  named people only, each signing in as themselves with multi-factor authentication:
+  <names and roles>.
 - **Each person's role sessions carry their name** (`role_session_name` in their AWS
   profile), so every action in CloudTrail names the person who took it.
 - **The AI assistant holds no AWS credential of its own.** It acts only inside the

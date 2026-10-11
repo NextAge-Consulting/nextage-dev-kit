@@ -10,7 +10,7 @@ One private repository per organization's AWS account, named `<org>-org`. A seco
 - the state bucket, and the ownership map (`project-documentation/org-map.md`): the projects, who owns each resource, what is not adopted and why;
 - the cross-project register in the map — one project calling another's API or using its login, which credential, which side owns it;
 - cross-org grants — written here when this org owns the resource, recorded here when this org's project consumes another org's;
-- under `project-documentation/`: the organization's `infrastructure-overview.md`, one `projects/<project>/infrastructure.md` per project, the generated reference, and `infrastructure-access-and-change.md`.
+- under `project-documentation/`: the organization's `infrastructure-overview.md`, one `projects/<project>/infrastructure.md` per project, the generated reference, and — at the audit level — `infrastructure-access-and-change.md`.
 
 **Everything about one project's code stays in that project** — its buildspecs, Dockerfiles, backup image, application config. A project's README links up to its org repo.
 
@@ -18,9 +18,19 @@ Every resource in the account is adopted into Terraform here. Nothing stays hand
 
 ## Setting one up
 
+Setup is a phase: the org repo's first shape is built against the account as it stands —
+adopting what exists, removing what is dead — before the everyday flow takes over. It runs
+off one setup issue on the org repo, and that issue is the only record setup needs:
+decisions, findings and every change made directly in AWS go on it as comments, never as
+new issues.
+
+**Walk the person through it.** Before each step, say what it does and why; after it, what
+it achieved. Keep the setup issue's checklist current. End every turn with where setup
+stands, what is next, and what you need from the person.
+
 Work through these in order.
 
-1. **The person creates the GitHub repository.** Sync the kit into it with `REPO_KIND` = `org` — the walkthrough then settles the application settings and turns Gemini off — plus `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_PROFILE`, and `ORG_REPO` naming the repo itself.
+1. **The person creates the GitHub repository.** Sync the kit into it with `REPO_KIND` = `org` — the walkthrough then settles the application settings and turns Gemini off — plus `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_PROFILE`, and `ORG_REPO` naming the repo itself. Leave `ORG_AUDIT` off until setup ends.
 2. **Create the state bucket by hand** — Terraform needs it before it can store anything. The person runs these, or directs you to:
    ```bash
    B=<org>-tfstate-<account id>; R=<region>; P=<profile>
@@ -35,10 +45,23 @@ Work through these in order.
    For `us-east-1`, drop `--create-bucket-configuration`. Versioning is the recovery path for a damaged state file: restore the previous object version.
 3. **Write the map** from `templates/org-map.md` into `project-documentation/org-map.md`: the bucket, the projects, their name prefixes.
 4. **Take the inventory** (below) and record every resource in the map with its owner.
-5. **Move in any Terraform a project repo already has** (`references/adopting.md`), then delete it from that project.
-6. **Adopt what projects share** into `shared/`, each project's own resources into `projects/<project>/…`, and each legacy system into its own `legacy-<system>/` — one PR at a time, each planning only imports (`Plan: N to import, 0 to add, 0 to change, 0 to destroy.`).
-7. **Point every project here**: its `ORG_REPO` setting, and a line in its README linking the org repo.
-8. **Write the docs**: the org overview, a `projects/<project>/infrastructure.md` per project (`references/docs.md`), the generated reference, and `project-documentation/infrastructure-access-and-change.md` from the template.
+5. **Retire what is dead.** A resource the inventory shows nothing uses, and the person agrees is dead, is deleted directly with the person's sign-in — never adopted only to be destroyed. Each one goes on the setup issue: what it was, why it was dead, who agreed.
+6. **Move in any Terraform a project repo already has** (`references/adopting.md`), then delete it from that project.
+7. **Adopt what projects share** into `shared/`, each project's own resources into `projects/<project>/…`, and each legacy system into its own `legacy-<system>/` — one PR at a time, each planning only imports (`Plan: N to import, 0 to add, 0 to change, 0 to destroy.`).
+8. **Point every project here**: its `ORG_REPO` setting, and a line in its README linking the org repo.
+9. **Write the docs**: the org overview and a `projects/<project>/infrastructure.md` per project (`references/docs.md`), and the generated reference.
+10. **End setup with the person**, closing the setup issue. Decide together whether this organization must show its process to anyone — an audit, a client's security review. If it does, turn on the audit level (below).
+
+## The audit level
+
+For an organization that must show how its infrastructure is changed. Decide it with the
+person at the end of setup; the account owner makes the decision.
+
+- **`ORG_AUDIT` = `on`**: write `project-documentation/infrastructure-access-and-change.md` from the template — the account owner and the people and roles who may change the infrastructure — and add an `aws_cloudtrail` trail to `shared/` so the record of who did what outlives CloudTrail's default 90 days. From then on `/deploy` refuses while the procedure is missing, `/open-pr` refuses a PR that links no issue, and every change made directly in AWS gets its own issue.
+- **`ORG_DEPLOY_APPROVAL` = `required`**: `/deploy` applies a PR only once a reviewer other than its author has approved it. Turn it on only after the account owner has decided who approves — GitHub accepts an approval from anyone with write access to the org repo.
+
+Open questions about who may change or release what belong in the org overview's open
+decisions until they are settled.
 
 ## The inventory
 

@@ -508,6 +508,11 @@ only then merged — `main` there only ever holds what is live. Its people-facin
   the deploy status. A mismatch stops before any apply (exit 26); a failed apply stops
   before the merge (exit 28). A root whose fresh plan is empty is already live and is not
   re-applied, so a re-run after a failed merge only merges.
+- **The audit level** (`ORG_AUDIT` = `on`): `deploy-org.sh` refuses while
+  `infrastructure-access-and-change.md` is missing (exit 32), and an org `open-pr.sh`
+  refuses a branch linking no issue (exit 15). `ORG_DEPLOY_APPROVAL` = `required`:
+  `deploy-org.sh` refuses until the PR's review decision is `APPROVED` (exit 33). Both are
+  checked before anything is planned.
 - **`/merge`** refuses without `GITFLOW_ORG_DEPLOY=1` (exit 25). **`/ship-main`** refuses a
   change touching Terraform (exit 14) and ships docs as usual.
 - **In an app repo**, `deploy.sh` reads `Needs <owner>/<repo>#N` from the release's
@@ -714,6 +719,8 @@ Current kit-referenced placeholders (authoritative list is in `_claude-project/s
 | `DESIGN_VENDORED_RESTYLED` | the token checker (runtime-read) | `"true"` when the vendored atoms are restyled onto the project's roles, so every class rule applies to them. Empty → they keep registry defaults and only the arbitrary-spacing rule applies |
 | `DESIGN_FIELD_LOOK_CLASSES` | the token checker (runtime-read) | Classes that paint a text field's look; a raw `<input>` or `<textarea>` carrying one fails. Empty → only `rounded-*` is checked |
 | `DESIGN_EXEMPT_COMPONENTS` | the token checker (runtime-read) | Headless primitives and `currentColor` glyphs a call site may style. Empty → none |
+| `ORG_AUDIT` | `open-pr.sh`, `deploy-org.sh` (runtime-read) | Org repos. `on` → `/deploy` refuses without `infrastructure-access-and-change.md` (exit 32) and an org `/open-pr` refuses a PR linking no issue (exit 15). Off during setup. Empty and listed in `_intentionally_empty` → off |
+| `ORG_DEPLOY_APPROVAL` | `deploy-org.sh` (runtime-read) | Org repos. `required` → `/deploy` applies only a PR whose GitHub review decision is `APPROVED` (exit 33). Empty and listed in `_intentionally_empty` → off |
 | `REPO_KIND` | `sync-dev-kit.sh` (read at scan and apply); `open-pr.sh`, `deploy.sh`, `merge.sh`, `ship-main.sh` (runtime-read) | `app` — every kit file syncs, gitflow as documented; `org` — an org repo: skips the application tooling (§9.12), and gitflow follows `org-repo-cheatsheet.md` (§6.6). Empty → undecided: behaves as `app`, re-surfaced every sync. Any other value stops the scan with exit 2 |
 | `KNIP_GATE` | the `knip` job in `ci.yml` (runtime-read) | `"true"` → CI runs knip with the kit's `knip.config.ts` and fails on any finding. Empty and listed in `_intentionally_empty` → the gate is off. Missing, or empty and unlisted → undecided: the job passes with a warning naming the key. `pipeline.md` §3.9 |
 

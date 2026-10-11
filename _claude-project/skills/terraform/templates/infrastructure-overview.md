@@ -40,6 +40,6 @@ What reaches in from another organization, or out to one, and where each grant l
 
 ## Who can change what
 
-Every change follows `infrastructure-access-and-change.md`.
+Who holds final authority over this account, and who else may change or release what.
 
 ## Open decisions

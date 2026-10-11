@@ -39,6 +39,8 @@
 #  29  the reference could not be regenerated or committed — applied, not merged
 #  30  the PR is stacked on another branch — deploy that one first
 #  31  main has moved since this branch — /catchup, re-plan, update the PR's plans
+#  32  ORG_AUDIT is on and the access-and-change procedure is not written
+#  33  ORG_DEPLOY_APPROVAL is required and no reviewer other than the author approved the PR
 #  11  (after the merge) applied and merged, but the board could not be updated
 #  other  merge.sh's own exit code: applied, and the merge did not finish
 
@@ -90,6 +92,25 @@ if [ "$PR_BASE" != "main" ] && [ "$PR_BASE" != "master" ]; then
     echo "deploy-org.sh: PR #$PR_NUMBER targets $PR_BASE, not main — deploy $PR_BASE's PR first. Nothing was applied." >&2
     exit 30
 fi
+# An audited org deploys under its written procedure, and an org that requires a
+# second person's approval gets it before anything is planned.
+SUBS=".claude/sync-substitutions.json"
+if [ "$(jq -r '.ORG_AUDIT // ""' "$SUBS" 2>/dev/null || true)" = "on" ] \
+   && [ ! -f project-documentation/infrastructure-access-and-change.md ]; then
+    echo "deploy-org.sh: this org repo keeps an audit trail (ORG_AUDIT=on), but project-documentation/infrastructure-access-and-change.md is not written. Nothing was applied." >&2
+    exit 32
+fi
+if [ "$(jq -r '.ORG_DEPLOY_APPROVAL // ""' "$SUBS" 2>/dev/null || true)" = "required" ]; then
+    if ! DECISION=$(gh pr view "$PR_NUMBER" --json reviewDecision --jq '.reviewDecision // ""' 2>&1); then
+        echo "deploy-org.sh: could not read PR #$PR_NUMBER's review decision: $DECISION. Nothing was applied." >&2
+        exit 33
+    fi
+    if [ "$DECISION" != "APPROVED" ]; then
+        echo "deploy-org.sh: PR #$PR_NUMBER needs approval from a reviewer other than its author before it is applied (ORG_DEPLOY_APPROVAL=required; review decision: ${DECISION:-none}). Nothing was applied." >&2
+        exit 33
+    fi
+fi
+
 git fetch -q origin "$PR_BASE" 2>/dev/null || true
 if ! git merge-base --is-ancestor "origin/$PR_BASE" HEAD; then
     echo "deploy-org.sh: $PR_BASE has moved since $BRANCH was cut. Nothing was applied." >&2

@@ -53,3 +53,5 @@ of what is added, changed and destroyed. CI on the PR is the real gate.
 | The PR targets another branch | It is stacked on an unmerged PR | `/deploy` that PR first |
 | The merge did not finish | Applied, not merged | Fix the cause, `/deploy` again — it only merges |
 | No Terraform root changed | The PR is docs only | `/ship-main` |
+| The access-and-change procedure is not written | This org keeps an audit trail (`ORG_AUDIT`) | Write it, then `/deploy` |
+| Needs approval from another reviewer | This org requires a second person (`ORG_DEPLOY_APPROVAL`) | Get the approval on the PR, then `/deploy` |

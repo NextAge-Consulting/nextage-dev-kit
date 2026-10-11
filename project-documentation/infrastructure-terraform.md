@@ -59,7 +59,6 @@ organization, or that crosses between its projects:
   recorded in both.
 - **The infrastructure docs** — the org overview at the top, linking down to one doc per
   project, plus a reference generated from Terraform's own state.
-- **The access-and-change procedure** an auditor reads.
 
 **Project repos hold no Terraform.** Everything about one project's code — its
 buildspecs, Dockerfiles, backup image — stays in the project. Each project's `ORG_REPO`
@@ -112,7 +111,7 @@ Say you are working in a project and it needs an S3 bucket for uploads.
 
 ## Access and change
 
-Built so a project can face an ISO 27001 audit without changing how it works:
+Every org repo works this way, whether or not anyone audits it:
 
 - Only named people change infrastructure, each with their own multi-factor sign-in and a
   role session that carries their name (`role_session_name`), so CloudTrail names who did
@@ -124,8 +123,13 @@ Built so a project can face an ISO 27001 audit without changing how it works:
   through a PR in the same session, or recorded as an issue when it is outside Terraform
   by design.
 
-Each org repo carries this as `project-documentation/infrastructure-access-and-change.md`,
-with a mapping to the Annex A controls it supports.
+**An organization that must show its process** — an audit such as ISO 27001, a client's
+security review — turns on the audit level once its org repo is set up: a written
+access-and-change procedure with a mapping to the Annex A controls, an issue for every
+change, and a CloudTrail trail that keeps the record past AWS's 90 days. A second
+setting makes `/deploy` wait for a reviewer other than the author to approve; the
+organization decides who approves, with its own people among them, before it is turned on.
+While an org repo is first being set up, its setup issue is the record of everything done.
 
 ## The checks
 
