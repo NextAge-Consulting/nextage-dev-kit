@@ -172,33 +172,55 @@ pair inconsistent.
 
 ## AWS provisioning (one-time, per project)
 
-Run as an admin identity. **Confirm the account first** — these operators work across
-several AWS accounts and regions. `aws sts get-caller-identity --profile <project>` must
-show the project's account before any create. See the drift warning near the bottom.
+Every resource below is Terraform in the org repo, under `infra/terraform/projects/<project>/` — the bucket, both
+roles, the task definition, the schedule, the log group and the rule — written and planned
+by Claude, applied by a person (the `terraform` skill, `infrastructure-terraform.md`). The
+skill's `tf.sh` refuses to run against any account but the project's own, which is the
+drift warning near the bottom made mechanical.
 
 ### 1. The bucket
 
-```bash
-BUCKET=<project>-db-backups        # globally-unique S3 name
-REGION=<region>                    # MUST match the project's infra
-RETENTION_DAYS=7
-PROFILE=<project>
+```hcl
+resource "aws_s3_bucket" "db_backups" {
+  bucket = "<project>-db-backups" # globally unique; same region as the project's infra
+}
 
-# us-east-1 takes NO LocationConstraint; every other region does
-aws s3api create-bucket --bucket "$BUCKET" --region "$REGION" --profile "$PROFILE"
+resource "aws_s3_bucket_public_access_block" "db_backups" {
+  bucket                  = aws_s3_bucket.db_backups.id
+  block_public_acls       = true
+  ignore_public_acls      = true
+  block_public_policy     = true
+  restrict_public_buckets = true
+}
 
-aws s3api put-public-access-block --bucket "$BUCKET" --profile "$PROFILE" \
-  --public-access-block-configuration \
-  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
-
-aws s3api put-bucket-encryption --bucket "$BUCKET" --profile "$PROFILE" \
-  --server-side-encryption-configuration \
-  '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"},"BucketKeyEnabled":true}]}'
+resource "aws_s3_bucket_server_side_encryption_configuration" "db_backups" {
+  bucket = aws_s3_bucket.db_backups.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+    bucket_key_enabled = true
+  }
+}
 
 # Retention is a lifecycle rule, NOT script logic — declarative, cannot silently
 # fail, and prunes even when a run is skipped. Do not re-implement deletion.
-aws s3api put-bucket-lifecycle-configuration --bucket "$BUCKET" --profile "$PROFILE" \
-  --lifecycle-configuration "{\"Rules\":[{\"ID\":\"expire-nightly-after-${RETENTION_DAYS}-days\",\"Filter\":{\"Prefix\":\"nightly/\"},\"Status\":\"Enabled\",\"Expiration\":{\"Days\":${RETENTION_DAYS}},\"AbortIncompleteMultipartUpload\":{\"DaysAfterInitiation\":1}}]}"
+resource "aws_s3_bucket_lifecycle_configuration" "db_backups" {
+  bucket = aws_s3_bucket.db_backups.id
+  rule {
+    id     = "expire-nightly-after-7-days"
+    status = "Enabled"
+    filter {
+      prefix = "nightly/"
+    }
+    expiration {
+      days = 7
+    }
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
+  }
+}
 ```
 
 ### 2. The two roles
@@ -254,60 +276,69 @@ Match **every** STOPPED event for the family, not just failures. A pre-start fai
 carries `stopCode: TaskFailedToStart`, so a filter aimed at container exits is exactly the
 filter that drops the case this exists for. One event a night costs nothing.
 
-```bash
-LOG_GROUP=/aws/events/<project>-db-backup-task-state
-
-aws logs create-log-group --log-group-name "$LOG_GROUP" --profile <p> --region <r>
-aws logs put-retention-policy --log-group-name "$LOG_GROUP" \
-  --retention-in-days 90 --profile <p> --region <r>
+```hcl
+resource "aws_cloudwatch_log_group" "db_backup_task_state" {
+  name              = "/aws/events/<project>-db-backup-task-state"
+  retention_in_days = 90
+}
 ```
 
 EventBridge writes to a log group through a **resource policy on the log group**, not an
-IAM role — the console creates it silently, the CLI does not. Without it the rule matches,
-the delivery fails, and nothing anywhere says so:
+IAM role — the console creates it silently, Terraform and the CLI do not. Without it the
+rule matches, the delivery fails, and nothing anywhere says so.
 
-```bash
-aws logs put-resource-policy --policy-name EventBridgeToCWLogs --profile <p> --region <r> \
-  --policy-document '{
-    "Version": "2012-10-17",
-    "Statement": [{
-      "Sid": "EventBridgeToCWLogs",
-      "Effect": "Allow",
-      "Principal": { "Service": ["events.amazonaws.com", "delivery.logs.amazonaws.com"] },
-      "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
-      "Resource": "arn:aws:logs:<region>:<account-id>:log-group:/aws/events/*:*",
-      "Condition": { "StringEquals": { "aws:SourceAccount": "<account-id>" } }
+**The policy is account-wide, and an account gets ten**, so one `/aws/events/*` statement
+covers every rule of this kind in the account — and it belongs to the org repo's
+`shared` root, not to any project. A project that finds it missing opens an issue there:
+
+```hcl
+resource "aws_cloudwatch_log_resource_policy" "eventbridge_to_cwlogs" {
+  policy_name = "EventBridgeToCWLogs"
+  policy_document = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "EventBridgeToCWLogs"
+      Effect    = "Allow"
+      Principal = { Service = ["events.amazonaws.com", "delivery.logs.amazonaws.com"] }
+      Action    = ["logs:CreateLogStream", "logs:PutLogEvents"]
+      Resource  = "arn:aws:logs:<region>:<account-id>:log-group:/aws/events/*:*"
+      Condition = { StringEquals = { "aws:SourceAccount" = "<account-id>" } }
     }]
-  }'
+  })
+}
 ```
 
 Both service principals are what AWS's own example carries, and the policy `Resource` takes
-a trailing `:*` because the actions operate on log streams. The policy is account-wide and
-an account gets ten of them, so one `/aws/events/*` statement covers every rule of this
-kind rather than one per job.
+a trailing `:*` because the actions operate on log streams.
 
-Then the rule and its target:
+Then the rule and its target, in the project's own root:
 
-```bash
-aws events put-rule --name <project>-db-backup-task-state --state ENABLED \
-  --profile <p> --region <r> --event-pattern '{
-    "source": ["aws.ecs"],
-    "detail-type": ["ECS Task State Change"],
-    "detail": {
-      "clusterArn": ["arn:aws:ecs:<region>:<account-id>:cluster/<cluster>"],
-      "group": ["family:<project>-db-backup"],
-      "lastStatus": ["STOPPED"]
+```hcl
+resource "aws_cloudwatch_event_rule" "db_backup_task_state" {
+  name = "<project>-db-backup-task-state"
+  event_pattern = jsonencode({
+    source        = ["aws.ecs"]
+    "detail-type" = ["ECS Task State Change"]
+    detail = {
+      clusterArn = ["arn:aws:ecs:<region>:<account-id>:cluster/<cluster>"]
+      group      = ["family:<project>-db-backup"]
+      lastStatus = ["STOPPED"]
     }
-  }'
+  })
+}
 
-aws events put-targets --rule <project>-db-backup-task-state --profile <p> --region <r> \
-  --targets '[{"Id":"cwlogs","Arn":"arn:aws:logs:<region>:<account-id>:log-group:'"$LOG_GROUP"'"}]'
+resource "aws_cloudwatch_event_target" "db_backup_task_state" {
+  rule      = aws_cloudwatch_event_rule.db_backup_task_state.name
+  target_id = "cwlogs"
+  arn       = aws_cloudwatch_log_group.db_backup_task_state.arn
+}
 ```
 
-**No `RoleArn` on a CloudWatch Logs target** — AWS documents that explicitly, and the
-resource policy above is what authorises the write. The target ARN is the bare log-group
-ARN with no `:*`; that differs from the policy ARN, and AWS publishes no example of it, so
-treat a working delivery as the proof rather than the docs.
+**No `role_arn` on a CloudWatch Logs target** — AWS documents that explicitly, and the
+resource policy above is what authorises the write. The target is the bare log-group ARN
+with no `:*` — which is what the log group's `arn` attribute gives — and that differs from
+the policy ARN. AWS publishes no example of it, so treat a working delivery as the proof
+rather than the docs.
 
 Skip the InputTransformer. Left off, the whole event body becomes the log message, which
 is what you want — it carries `stopCode`, `stoppedReason`, per-container `exitCode`,

@@ -63,6 +63,10 @@ buries the one line the human has to act on under output they cannot use.
 
 If the human declines to authenticate, say plainly which specific facts are therefore unknown, and leave the gap open.
 
+### Infrastructure changes go through Terraform
+
+**Load the `terraform` skill before changing any AWS resource.** Every change is made in the org repo named by `ORG_REPO`: from a project, it is an issue filed there. Reading AWS needs no skill.
+
 ### Always explicit
 
 Pass `--region` and `--profile` on every command, and never rely on the shell's default. Never run `aws configure set` **without** `--profile` to make a command work — that repoints every later command silently. Scoped to a named profile it is fine, which is why the region-setting step below is allowed.
@@ -103,8 +107,11 @@ region = <hub-region>
 [profile <client>]
 role_arn = arn:aws:iam::<client-account>:role/<OperatorRoleName>
 source_profile = <hub>
+role_session_name = <your-name>
 region = <their-region>
 ```
+
+**`role_session_name` is the person's own name, on every client profile.** CloudTrail then names the person behind each action in the client account, instead of a generated session id.
 
 This is a personal setup choice, not a project requirement — a client adopting AI-assisted
 AWS work in their own account has no reason to build this, and nothing here should suggest

@@ -405,13 +405,11 @@ prerequisites that fail with the same opaque error when missed — a `403 Forbid
 on a blob/manifest HEAD during push or pull (ECR returns 403, not 404, for both
 missing repos and unauthorized ones):
 
-1. **Create the ECR repository together with its lifecycle policy (one-time, manual — the
-   CodeBuild service role intentionally lacks `ecr:CreateRepository` and
-   `ecr:PutLifecyclePolicy`):**
-
-   ```bash
-   aws ecr create-repository --repository-name <prefix>-<service> --region <region>
-   ```
+1. **Add the ECR repository together with its lifecycle policy to the project's
+   Terraform in the org repo** — `aws_ecr_repository` named `<prefix>-<service>` and its
+   `aws_ecr_lifecycle_policy` (`new-project-setup.md` 7a has both), requested with an
+   issue there and made real by `/deploy`. The CodeBuild service role intentionally lacks
+   `ecr:CreateRepository` and `ecr:PutLifecyclePolicy`, so a build can never create one.
 
 2. **IAM policies must be PREFIX-scoped, never enumerated.** Both the CodeBuild
    service role's push policy AND the host's pull role must use

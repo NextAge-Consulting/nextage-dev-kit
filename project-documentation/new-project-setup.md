@@ -24,13 +24,14 @@ The single walkthrough for taking a brand-new project from nothing to "kit insta
 ### Per new project
 
 - [ ] **0** — AWS account access: client creates a cross-account role `[client]` → profile added `[you]` (only if this project uses AWS)
+- [ ] **0b** — The organization's org repo exists, and this project knows its name (only if this project uses AWS) `[claude+you]`
 - [ ] **1** — Project exists as a local git repo `[claude+you]`
 - [ ] **2** — GitHub repo created and `main` pushed `[claude+you]`
 - [ ] **3** — Confirm `main` requires no PR `[claude]`
 - [ ] **4** — `/sync-dev-kit` run; substitutions walkthrough completed `[claude+you]`
 - [ ] **5** — Gemini Code Review installed + repo linked — or explicitly marked not-installed `[you]` then `[claude]`
 - [ ] **6** — Secrets & env: `.env`, GitHub Actions secrets, MCP API keys `[claude+you]`
-- [ ] **7** — Project-specific CodeBuild deploy pipeline authored (buildspecs + projects + CodeConnections), + registry repo AND lifecycle policy per image (if this project deploys) `[claude+you]`
+- [ ] **7** — Project-specific CodeBuild deploy pipeline authored (buildspecs + projects + CodeConnections), + registry repo AND lifecycle policy per image, all as Terraform (if this project deploys) `[claude+you]`
 - [ ] **8** — Every section's verify command passes `[claude]`
 - [ ] **9** — First `/work` session — pipeline proven end-to-end `[claude]`
 
@@ -54,6 +55,8 @@ These are machine-level, one-time. Install whatever is missing:
 | `shasum` / `sha256sum` | preinstalled | sync baseline SHAs |
 | `shellcheck` | `brew install shellcheck` | WARN — required before committing script edits |
 | `agent-browser` | see github.com/vercel-labs/agent-browser | WARN — only for `/e2e` flows |
+| `terraform` | `brew install hashicorp/tap/terraform` | only if the project uses AWS — every AWS resource is Terraform |
+| `dot` (Graphviz) | `brew install graphviz` | only if the project uses AWS — draws the generated infrastructure reference |
 
 **Verify:**
 
@@ -69,6 +72,7 @@ command -v shasum sha256sum | head -1    # sync engine SHA computation
 command -v sed awk curl >/dev/null && echo "sed/awk/curl ok"
 node -v && npm -v                        # if the project has package.json
 python3 --version                        # only if the project has pyproject.toml
+terraform version && dot -V              # only if the project uses AWS
 ```
 
 Optional, and only needed for specific workflows — skip without consequence otherwise:
@@ -166,9 +170,13 @@ cat >> ~/.aws/config <<'EOF'
 [profile <project>]
 role_arn = arn:aws:iam::<CLIENT_ACCOUNT_ID>:role/NextAgeOperator
 source_profile = nextage
+role_session_name = <your-name>
 region = <their-region>
 EOF
 ```
+
+`role_session_name` is your own name: CloudTrail in the client's account then names you
+on every action you take there.
 
 Record the account id, region and profile name in the project's
 `.claude/sync-substitutions.json` as `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_PROFILE`.
@@ -184,6 +192,27 @@ last set it.
 ```bash
 aws sts get-caller-identity --profile <project> --query Arn --output text
 aws ec2 describe-vpcs --profile <project> --query 'length(Vpcs)' --output text
+```
+
+### 0b — The org repo `[claude+you]`
+
+Skip if the project touches no AWS.
+
+Every organization has one org repo per AWS account, `<org>-org`. It holds all of the
+account's Terraform — this project's included — the org map of who owns what, and the
+infrastructure docs (`infrastructure-terraform.md`). Record its name in the project's
+`.claude/sync-substitutions.json` as `ORG_REPO`, and add a line to the project's README
+linking it.
+
+**A new organization gets its org repo before any project builds in it** — the repo, its
+state bucket, and the org map from an inventory of the account. Claude follows the
+`terraform` skill's org-repo procedure; you create the GitHub repository and approve the
+read-only inventory.
+
+**Verify** — the org map is readable from here:
+
+```bash
+gh api "repos/$(jq -r .ORG_REPO .claude/sync-substitutions.json)/contents/project-documentation/org-map.md" --jq .name
 ```
 
 ### 1 — Project exists as a local git repo `[claude+you]`
@@ -227,7 +256,9 @@ From the **project root** (not inside the kit), run `/sync-dev-kit`. First-run f
    - `GEMINI_NOT_INSTALLED` — leave empty for now if you're installing Gemini in step 5; set to `"true"` if this repo will not have Gemini.
    - `GITFLOW_PROJECT_ID` + the four `GITFLOW_STATUS_*` IDs (field, In Progress, Staged, the deploy status) — only if you use a GitHub Project board (Claude can run the `gh api graphql` discovery for you). With a board, all five are required. Leave all five empty / `_intentionally_empty` to skip board integration. Either way, pick how issues close — `github-project-board-setup.md` §3.
    - `DEPLOY_BACKEND` + `DEPLOY_WORKFLOWS` + `CODEBUILD_PROJECT_PREFIX` — the deploy pipeline; see step 7. A repo that deploys by its own procedure sets `DEPLOY_BACKEND=custom` and leaves the other two empty; a repo that does not deploy at all sets `none`.
+   - `REPO_KIND` — `app` for a project. (`org` is only for an org repo.)
    - `DB_ENGINE` — `PostgreSQL`, `SQLServer`, `Other`, or `None` for no database.
+   - `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_PROFILE`, `ORG_REPO` — from steps 0 and 0b, or all four empty and listed in `_intentionally_empty` when the project uses no AWS.
    - The `DESIGN_*` keys — the UI package and its stylesheets, set when the project publishes a design system (the `claude-design` skill's "Setting a project up"). A project with none leaves all ten empty and lists them in `_intentionally_empty`.
 
    > Three states per key (kitmaintainer-handbook.md §9.7): **missing** = undecided, marker survives, re-nags every sync; **empty string** = intentionally disabled; **populated** = normal value. `_intentionally_empty` distinguishes "informed disable" from "deferred."
@@ -284,6 +315,14 @@ change to the build shape is then made once while each service still fails in is
 Add a second buildspec and project for the migration if the project has a database. All of
 them share the one `<project>-codebuild-deploy` service role (`infrastructure.md`).
 
+**Every AWS resource in this step is Terraform in the org repo**, under
+`infra/terraform/projects/<project>/` — the CodeBuild projects, their service role, each
+image repository and its lifecycle policy, the trigger users and their policies. The
+project asks for them with an issue on the org repo, and they become real there through
+`/open-pr` and `/deploy` (`org-repo-cheatsheet.md`). The buildspecs stay in this project.
+Only an access key is created with the CLI, because Terraform stores everything it sets in
+plain text.
+
 Set in `.claude/sync-substitutions.json`:
 
 - `DEPLOY_BACKEND` — `codebuild`. It is the default, so leaving it unset works; set it explicitly anyway, so the file records the decision. The other three values are `github`, `custom` (deploys, but not through `/deploy`) and `none` (does not deploy).
@@ -321,20 +360,15 @@ CodeBuild clones over a GitHub App connection, and it must be both **completed**
 second fails every build at `DOWNLOAD_SOURCE` with "authentication required" while the
 connection itself reads `AVAILABLE`.
 
-```bash
-PROFILE=$(jq -r .AWS_PROFILE .claude/sync-substitutions.json)
-REGION=$(jq -r .AWS_REGION  .claude/sync-substitutions.json)
+The connection serves every project in the account, so it belongs to the org repo's
+`shared` root, which publishes its ARN in Parameter Store for the projects' CodeBuild
+projects to read:
 
-# 1. Create it. The CLI leaves it PENDING; a human finishes the handshake in the console.
-aws codeconnections create-connection --provider-type GitHub --connection-name "<project>-github" \
-  --profile "$PROFILE" --region "$REGION"
-
-# 2. [you] Console → Developer Tools → Connections → Update pending connection.
-
-# 3. Register it account-wide.
-aws codebuild import-source-credentials --server-type GITHUB --auth-type CODECONNECTIONS \
-  --token "<connection-arn>" --profile "$PROFILE" --region "$REGION"
-```
+1. Terraform creates it with `aws_codeconnections_connection`. It lands `PENDING`.
+2. `[you]` Console → Developer Tools → Connections → Update pending connection, to finish
+   the GitHub handshake.
+3. Terraform registers it account-wide with `aws_codebuild_source_credential`
+   (`auth_type = "CODECONNECTIONS"`, `server_type = "GITHUB"`, `token` = the connection ARN).
 
 **Verify:** `aws codeconnections list-connections` reports `AVAILABLE`, and
 `aws codebuild list-source-credentials` lists the ARN.
@@ -346,34 +380,55 @@ not one. Creating the repository is self-enforcing — the first push fails with
 it. The lifecycle policy is not: nothing ever fails, storage just grows forever,
 and the bill shows up months later.
 
-Do both in the same step, for each image repository:
+Write both in the same change, for each image repository, in the project's Terraform in the org repo:
 
-```bash
-# read the target from the project's own substitutions — never hardcode
-PROFILE=$(jq -r .AWS_PROFILE .claude/sync-substitutions.json)
-REGION=$(jq -r .AWS_REGION  .claude/sync-substitutions.json)
+```hcl
+resource "aws_ecr_repository" "web" {
+  name                 = "<project>-web"
+  image_tag_mutability = "MUTABLE"
 
-aws ecr create-repository --repository-name "<repo>" \
-  --image-tag-mutability MUTABLE \
-  --image-scanning-configuration scanOnPush=true \
-  --encryption-configuration encryptionType=AES256 \
-  --profile "$PROFILE" --region "$REGION"
+  image_scanning_configuration {
+    scan_on_push = true
+  }
 
-aws ecr put-lifecycle-policy --repository-name "<repo>" \
-  --lifecycle-policy-text '{"rules":[{"rulePriority":1,
-    "description":"Expire untagged after 1 day.",
-    "selection":{"tagStatus":"untagged","countType":"sinceImagePushed","countUnit":"days","countNumber":1},
-    "action":{"type":"expire"}},{"rulePriority":2,
-    "description":"Expires images after 3 images created.",
-    "selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":3},
-    "action":{"type":"expire"}}]}' \
-  --profile "$PROFILE" --region "$REGION"
+  encryption_configuration {
+    encryption_type = "AES256"
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "web" {
+  repository = aws_ecr_repository.web.name
+  policy = jsonencode({
+    rules = [
+      {
+        rulePriority = 1
+        description  = "Expire untagged after 1 day."
+        selection = {
+          tagStatus   = "untagged"
+          countType   = "sinceImagePushed"
+          countUnit   = "days"
+          countNumber = 1
+        }
+        action = { type = "expire" }
+      },
+      {
+        rulePriority = 2
+        description  = "Expires images after 3 images created."
+        selection = {
+          tagStatus   = "any"
+          countType   = "imageCountMoreThan"
+          countNumber = 3
+        }
+        action = { type = "expire" }
+      },
+    ]
+  })
+}
 ```
 
-**This exact two-rule text is what the buildspec guard below prints as its
-remediation.** Keep the two identical. A guard that tells you to paste a policy
-different from the one the setup step creates teaches the reader that one of them
-is wrong, and they cannot tell which.
+**The buildspec guard below names this pair as its remediation.** Keep the two in step. A
+guard that points at a different fix from the one the setup step writes teaches the reader
+that one of them is wrong, and they cannot tell which.
 
 **Why 3.** One deploy pushes several tags (`latest`, short-sha, `v<timestamp>`)
 that count as a single image, plus a `buildcache` image that takes one of the three
@@ -417,7 +472,7 @@ checking. Add it to the same statement that scopes the push, alongside
 ```
 
 Read-only, and the guard is useless without it. `ecr:PutLifecyclePolicy` is
-deliberately **not** granted — the build verifies the policy, a human creates it.
+deliberately **not** granted — the build verifies the policy, Terraform creates it.
 
 **Put the check in the buildspec, not only in this document.** That is the
 part that actually prevents recurrence, and it generalises well beyond ECR.
@@ -433,14 +488,14 @@ pre_build:
   commands:
     - |
       aws ecr describe-repositories --repository-names "$IMAGE_NAME" --region "$AWS_REGION" >/dev/null 2>&1 || {
-        echo "ERROR: ECR repository '$IMAGE_NAME' does not exist. Fix: aws ecr create-repository …"; exit 1; }
+        echo "ERROR: ECR repository '$IMAGE_NAME' does not exist. Fix: add its aws_ecr_repository and aws_ecr_lifecycle_policy to the project's Terraform in the org repo (new-project-setup.md 7a)."; exit 1; }
     - |
       if ! ERR=$(aws ecr get-lifecycle-policy --repository-name "$IMAGE_NAME" --region "$AWS_REGION" 2>&1); then
         case "$ERR" in
           *AccessDenied*|*not\ authorized*)
             echo "ERROR: the CodeBuild service role lacks ecr:GetLifecyclePolicy on '$IMAGE_NAME' — cannot verify. Grant it; do not weaken this check."; exit 1 ;;
           *)
-            echo "ERROR: '$IMAGE_NAME' has NO lifecycle policy — images accumulate forever. Fix: aws ecr put-lifecycle-policy …"; exit 1 ;;
+            echo "ERROR: '$IMAGE_NAME' has NO lifecycle policy — images accumulate forever. Fix: add its aws_ecr_lifecycle_policy to the project's Terraform in the org repo (new-project-setup.md 7a)."; exit 1 ;;
         esac
       fi
 ```
@@ -501,63 +556,41 @@ policy is the safety boundary here, not the key's age), and identical on every m
 that deploys — you and a teammate use the same key, because triggering a deploy isn't a
 personal action.
 
-**1. Enumerate the exact project ARNs** this credential may touch — the same set
-`deploy.sh` dispatches, no more:
+**1. The credential may start exactly the projects `deploy.sh` dispatches**, no more: each
+name in `DEPLOY_WORKFLOWS` and `MIGRATE_WORKFLOW`, mapped through `CODEBUILD_PROJECT_PREFIX`
+(or `CODEBUILD_MIGRATE_PROJECT`). Those are the CodeBuild projects the Terraform already
+declares, and the section 7 verify proves each exists.
+
+**2. Write the user and its policy in Terraform, scoped to exactly those projects.** The user
+lives directly in the target account — no role, no hub, no `source_profile`. It is a
+standing identity on purpose; it does one thing and nothing else, so it does not need to be
+temporary the way admin access does.
+
+```hcl
+resource "aws_iam_user" "deploy_trigger" {
+  name = "<project>-deploy-trigger"
+}
+
+resource "aws_iam_user_policy" "deploy_trigger" {
+  name = "<project>-deploy-trigger"
+  user = aws_iam_user.deploy_trigger.name
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["codebuild:StartBuild", "codebuild:BatchGetBuilds"]
+      Resource = [for p in aws_codebuild_project.deploy : p.arn]
+    }]
+  })
+}
+```
+
+**3. Create the key with the CLI, after the apply** — never in Terraform, which would store
+it in plain text in the state:
 
 ```bash
 PROFILE=$(jq -r .AWS_PROFILE .claude/sync-substitutions.json)
 REGION=$(jq -r .AWS_REGION  .claude/sync-substitutions.json)
-ACCOUNT=$(jq -r .AWS_ACCOUNT_ID .claude/sync-substitutions.json)
-PREFIX=$(jq -r .CODEBUILD_PROJECT_PREFIX .claude/sync-substitutions.json)
-MIGRATE_WF=$(jq -r '.MIGRATE_WORKFLOW // ""' .claude/sync-substitutions.json)
-MIGRATE_PROJECT=$(jq -r '.CODEBUILD_MIGRATE_PROJECT // ""' .claude/sync-substitutions.json)
-
-PROJECT_NAMES=$(
-  jq -r '[.DEPLOY_WORKFLOWS, .MIGRATE_WORKFLOW] | map(select(. != null and . != "")) | join(" ")' \
-    .claude/sync-substitutions.json \
-  | tr ' ' '\n' | grep -v '^$' \
-  | while read -r w; do
-      if [ "$w" = "$MIGRATE_WF" ] && [ -n "$MIGRATE_PROJECT" ]; then
-        echo "$MIGRATE_PROJECT"
-      else
-        echo "${PREFIX}$(echo "${w#deploy-}" | sed 's/\.yml$//')"
-      fi
-    done
-)
-echo "$PROJECT_NAMES"
-
-PROJECT_ARNS=$(printf '%s\n' "$PROJECT_NAMES" \
-  | jq -R --arg acct "$ACCOUNT" --arg region "$REGION" \
-      '"arn:aws:codebuild:\($region):\($acct):project/" + .' \
-  | jq -s .)
-```
-
-**2. Create the policy, scoped to exactly those ARNs**, using the admin profile (creating
-IAM resources is legitimate admin work — only the resulting credential is narrow):
-
-```bash
-POLICY_DOC=$(jq -n --argjson arns "$PROJECT_ARNS" '{
-  Version: "2012-10-17",
-  Statement: [{
-    Effect: "Allow",
-    Action: ["codebuild:StartBuild", "codebuild:BatchGetBuilds"],
-    Resource: $arns
-  }]
-}')
-
-aws iam create-policy --policy-name "<project>-deploy-trigger" \
-  --policy-document "$POLICY_DOC" --profile "$PROFILE" --region "$REGION"
-```
-
-**3. Create the user directly in the target account — no role, no hub, no
-`source_profile`.** This is a standing identity on purpose; it does one thing and nothing
-else, so it does not need to be temporary the way admin access does.
-
-```bash
-aws iam create-user --user-name "<project>-deploy-trigger" --profile "$PROFILE" --region "$REGION"
-aws iam attach-user-policy --user-name "<project>-deploy-trigger" \
-  --policy-arn "arn:aws:iam::${ACCOUNT}:policy/<project>-deploy-trigger" \
-  --profile "$PROFILE" --region "$REGION"
 aws iam create-access-key --user-name "<project>-deploy-trigger" --profile "$PROFILE" --region "$REGION"
 ```
 
@@ -579,13 +612,13 @@ AWS_ACCESS_KEY_ID=<key> AWS_SECRET_ACCESS_KEY=<secret> \
 ```
 
 The same key is reused on a teammate's machine — just the `.env` line, nothing to
-provision twice. Revoking access for everyone at once is `aws iam delete-access-key` +
-`aws iam delete-user`, same as any other credential.
+provision twice. Revoking access for everyone at once is `aws iam delete-access-key`;
+removing the identity is deleting the user from the Terraform and applying.
 
 **A project with a separate Prod also has a promote key.** `/deploy promote <version>`
 puts a release that already ran on Test onto Prod, through promote projects named by
 `CODEBUILD_PROMOTE_PREFIX`. That prefix must differ from the deploy prefix, or the deploy
-key above could start a promotion. Create a second user the same way —
+key above could start a promotion. Write a second user the same way —
 `<project>-promote-trigger`, allowed `codebuild:StartBuild` and `codebuild:BatchGetBuilds`
 on `arn:aws:codebuild:<region>:<account>:project/<CODEBUILD_PROMOTE_PREFIX>*` and nothing
 else — and put its key in `.env` only on the machines of the people who may promote:

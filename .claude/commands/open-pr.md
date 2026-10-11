@@ -19,6 +19,17 @@ git branch --show-current
 
 If working tree is dirty, stop and prompt the user to `/commit` or `/checkpoint` first.
 
+**In an org repo** (`REPO_KIND` is `org` in `.claude/sync-substitutions.json`), a dirty tree is committed instead: run the `/commit` procedure first — its prechecks included — then continue here. After Step 2, plan every changed root:
+
+```bash
+.claude/skills/terraform/scripts/changed-roots.sh main
+.claude/skills/terraform/scripts/tf.sh <root> plan -out=pr.tfplan          # per root
+.claude/skills/terraform/scripts/plan-summary.sh --block <root> pr.tfplan  # per root
+rm infra/terraform/<root>/pr.tfplan
+```
+
+The body is a plain-words summary of what the change adds, changes and destroys — every destroy and replace on its own line — followed by each root's block exactly as `--block` printed it. `/deploy` applies only when its fresh plan matches these blocks, and the script refuses a body missing one (exit 14). The §XIV attestation section does not apply to Terraform.
+
 ### Step 2: Analyze branch diff
 
 ```bash
@@ -59,6 +70,8 @@ Structure:
 ```
 
 Draw content from the diff and commit log. Do not invent features not in the diff.
+
+**Code that needs an org-repo change carries a line `Needs <ORG_REPO>#N` in the body**, one per change, naming the org issue the project filed or the org PR — `/deploy` refuses this project's release until each is live: the PR merged, or the issue closed as completed.
 
 ### Attestation format
 

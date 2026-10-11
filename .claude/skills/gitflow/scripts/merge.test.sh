@@ -62,4 +62,15 @@ FAKE_ME=alice FAKE_AUTHOR=alice FAKE_BASE=main merge; rc=$?
 { [ "$rc" -eq 0 ] && ! grep -q "pr review" "$FAKE_LOG" && grep -q "pr merge" "$FAKE_LOG"; } \
     && ok "merging your own PR records no approval" || bad "own merge (rc=$rc): $(cat "$tmp/out")"
 
+# ─── Org repo: /deploy lands the PR, /merge does not ──────────────────────
+branch feat/org
+mkdir -p .claude; printf '{"REPO_KIND":"org"}\n' > .claude/sync-substitutions.json
+git add -A; git commit -qm "chore: org"; git push -q origin feat/org 2>/dev/null
+FAKE_ME=alice FAKE_AUTHOR=alice FAKE_BASE=main merge; rc=$?
+{ [ "$rc" -eq 25 ] && grep -q "/deploy applies the PR and merges it" "$tmp/out" && ! grep -q "pr merge" "$FAKE_LOG"; } \
+    && ok "org repo: /merge refuses and points to /deploy" || bad "org refuse (rc=$rc): $(cat "$tmp/out")"
+: > "$FAKE_LOG"; FAKE_ME=alice FAKE_AUTHOR=alice FAKE_BASE=main GITFLOW_ORG_DEPLOY=1 PATH="$tmp/bin:$PATH" "$M" --force-unchecked >"$tmp/out" 2>&1; rc=$?
+{ [ "$rc" -eq 0 ] && grep -q "pr merge" "$FAKE_LOG"; } \
+    && ok "org repo: /deploy's call merges" || bad "org deploy merge (rc=$rc): $(cat "$tmp/out")"
+
 exit "$fail"

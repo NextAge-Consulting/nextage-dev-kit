@@ -44,7 +44,7 @@ The kit dogfoods only what it actually uses. Everything below ships to consumers
 
 | Template-only item (`_claude-project/…`) | Why the kit doesn't dogfood it |
 |-------------------------------------------|--------------------------------|
-| `commands/deploy.md`, `skills/gitflow/scripts/deploy.sh` | Kit has nothing to deploy — no version artifact, no deploy target. |
+| `commands/deploy.md`, `skills/gitflow/scripts/deploy.sh`, `deploy-org.sh` and their suites | Kit has nothing to deploy — no version artifact, no deploy target, no Terraform. |
 | `commands/dev.md`, `skills/dev-server/**` | Kit has no dev server / runnable app. |
 | `skills/design-system/**`, `rules/ui-design.md`, `rules/a11y-baseline.md` | Kit has no UI — no JSX/TSX, no `design.md` (kitmaintainer-handbook.md §12a.7). |
 | `skills/claude-design/**`, `commands/ui-design.md` | Kit has no UI package and no design system to publish to Claude Design. |
@@ -57,6 +57,7 @@ The kit dogfoods only what it actually uses. Everything below ships to consumers
 | `stack-manifest.json` | Every version the kit blesses, each with the condition it applies under — `whenDeclared` (the library standard), `whenFile` (a kit-shipped config implies its tool), `whenResolved` (a package the kit's own choices drag in, transitively). Plus vendored-reference provenance. Kit has no `package.json`, no lockfile and no TanStack dependency, so none of the triggers could fire here. Consumed by the (also template-only) `scripts/check-stack.mjs`. |
 | `rules/postgres-drizzle.md`, `rules/sqlserver-drizzle.md`, `skills/postgres-neon-drizzle/**` | Kit has no database of any engine — its own `DB_ENGINE` is `None`, which is exactly the value that stands both engine rules down. |
 | `rules/cli-utilities.md` | Kit runs no AWS / cloud CLI — the account/region discipline never applies. |
+| `skills/terraform/**` | Kit has no AWS account and no Terraform — nothing to plan, adopt or document. |
 | `skills/agent-browser/**`, `rules/integrations/agent-browser.md` | Kit has no web app to drive a browser against. |
 | `skills/e2e/**` | Kit has no `test/e2e/*.md` flow files. |
 | `templates/testing/**` | Kit has no `package.json`, no vitest, no Neon project. They sync to consumers via `SHARED_MODULE_DIR` — kit-owned, except the `project.ts` seed (testing.md §1); the kit is not a consumer of them. |
@@ -79,6 +80,8 @@ Anything in `_claude-project/` not listed above IS dogfooded. Kit-custom items (
 ### Every new kit item needs a conscious dogfood decision
 
 When any new command, skill, hook or rule is added to `_claude-project/`, make and record the decision in the same change. Dogfooded means mirror it into the kit's `.claude/` and commit both surfaces. Template-only means add a row to the table above with the reason and do not mirror it. "I forgot to decide" is the failure this prevents.
+
+**Decide in the same change whether an org repo receives it.** An item that only makes sense with application code goes into `is_app_only()` in `sync-dev-kit.sh` (kitmaintainer-handbook.md §9.12).
 
 ## Doc audiences
 

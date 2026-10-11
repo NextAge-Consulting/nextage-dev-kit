@@ -296,6 +296,33 @@ jq '.DB_ENGINE = "PostgreSQL"' "$PROJ/.claude/sync-substitutions.json" > "$tmp/s
 jq 'del(.DB_ENGINE)' "$PROJ/.claude/sync-substitutions.json" > "$tmp/s" && mv "$tmp/s" "$PROJ/.claude/sync-substitutions.json"
 jq '.SHARED_MODULE_DIR = ""' "$PROJ/.claude/sync-substitutions.json" > "$tmp/s" && mv "$tmp/s" "$PROJ/.claude/sync-substitutions.json"
 
+# ─── REPO_KIND: an org repo skips the application tooling ───────────────
+SUBS="$PROJ/.claude/sync-substitutions.json"
+setkind() { jq --arg v "$1" '.REPO_KIND = $v' "$SUBS" > "$tmp/s" && mv "$tmp/s" "$SUBS"; }
+setkind app
+run --apply-file _claude-project/templates/knip.config.ts 2>/dev/null
+[ -f "$PROJ/knip.config.ts" ] && ok "app: an application file applies" || bad "app apply knip.config.ts"
+setkind org
+out=$(scan)
+jq -e '.repo_kind == "org" and .skipped_by_repo_kind > 0' <<<"$out" >/dev/null \
+    && ok "org: skipped files are counted under skipped_by_repo_kind" || bad "org count: $(jq -c '{repo_kind, skipped_by_repo_kind}' <<<"$out")"
+jq -e '[.files[] | select(.dest_path == "biome.json" or .dest_path == ".claude/rules/project/ui-inventory.md") | select(.state != "removed-kit")] == []' <<<"$out" >/dev/null \
+    && ok "org: application tooling is never offered, only removed where present" || bad "org offered app files: $(jq -c '[.files[] | select(.dest_path == "biome.json" or .dest_path == ".claude/rules/project/ui-inventory.md") | {dest_path, state}]' <<<"$out")"
+jq -e '[.files[] | select(.dest_path == ".claude/rules/a.md")] | length == 1' <<<"$out" >/dev/null \
+    && ok "org: the core still syncs" || bad "org lost core"
+jq -e '[.skipped_unconfigured[] | select(.key == "REPO_KIND")] == []' <<<"$out" >/dev/null \
+    && ok "org: the skipped files are not listed one by one" || bad "org listed skips"
+[ "$(jq -r '.files[] | select(.dest_path == "knip.config.ts") | .state' <<<"$out")" = "removed-kit" ] \
+    && ok "org: an application file the repo already has is offered for removal" || bad "org removed-kit: $(jq -c '.files[] | select(.dest_path == "knip.config.ts")' <<<"$out")"
+run --apply-file _claude-project/templates/knip.config.ts >/dev/null 2>"$tmp/err"; rc=$?
+[ "$rc" -eq 4 ] && grep -q 'REPO_KIND is org' "$tmp/err" && ok "org: applying an application file is refused, naming why" || bad "org apply refused (rc=$rc): $(cat "$tmp/err")"
+run --apply-file knip.config.ts 2>/dev/null
+[ ! -f "$PROJ/knip.config.ts" ] && ok "org: the removal deletes it by its destination" || bad "org removal"
+setkind bogus
+run --scan >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 2 ] && ok "an unknown REPO_KIND stops the scan" || bad "bogus REPO_KIND (rc=$rc)"
+jq 'del(.REPO_KIND)' "$SUBS" > "$tmp/s" && mv "$tmp/s" "$SUBS"
+
 # ─── A broken register fails the scan loudly ──────────────────────────────
 printf '{not json' > "$PROJ/.claude/.kit-patches.json"
 run --scan >/dev/null 2>&1; rc=$?

@@ -242,6 +242,55 @@ semgrep_include_pattern() {
     printf '/%s' "$1" | sed 's/[][*?\\ ]/\\&/g'
 }
 
+# run_terraform_gate <fold_base> <action>
+#
+# Mirrors the fmt step of CI's `terraform` job, scoped to the .tf and .tfvars
+# files this change touches. Formatting needs no credentials, no providers and no
+# network, so it is the part of that job worth paying for on every commit;
+# `validate` downloads providers and stays in CI.
+run_terraform_gate() {
+    local base="$1" action="$2" list err f out
+    list=$(mktemp)
+    err=$(mktemp)
+    if ! { git diff -z --name-only --diff-filter=d "$base" \
+            && git ls-files -z --others --exclude-standard; } >"$list" 2>"$err"; then
+        echo "" >&2
+        echo "gitflow: terraform fmt cannot list the changed files (git diff against $base failed):" >&2
+        sed 's/^/  /' "$err" >&2
+        echo "  A gate that cannot run must not report success, so this is a failure." >&2
+        rm -f "$list" "$err"
+        return 4
+    fi
+    local files=()
+    while IFS= read -r -d '' f; do
+        case "$f" in
+            */.terraform/*|.terraform/*) continue ;;
+            *.tf|*.tfvars) [ -f "$f" ] && files+=("$f") ;;
+        esac
+    done < <(sort -zu "$list")
+    rm -f "$list" "$err"
+
+    if [ "${#files[@]}" -eq 0 ]; then
+        echo "gitflow: terraform fmt: no changed .tf files." >&2
+        return 0
+    fi
+    if ! command -v terraform >/dev/null 2>&1; then
+        echo "" >&2
+        echo "gitflow: ${#files[@]} changed Terraform file(s), but terraform is not installed here." >&2
+        echo "  A gate that cannot run must not report success, so this is a failure." >&2
+        echo "  Fix: brew install hashicorp/tap/terraform" >&2
+        return 4
+    fi
+    if ! out=$(terraform fmt -check -diff "${files[@]}" 2>&1); then
+        echo "" >&2
+        echo "gitflow: Terraform files are not formatted. Fix before $action." >&2
+        printf '%s\n' "$out" | sed 's/^/  /' >&2
+        echo "  Run: terraform fmt ${files[*]}" >&2
+        return 4
+    fi
+    echo "gitflow: terraform fmt: ${#files[@]} changed file(s) formatted." >&2
+}
+
 # run_project_gate <fold_base> <action>
 #
 # The repository's own checks, beyond the ones every project shares: when

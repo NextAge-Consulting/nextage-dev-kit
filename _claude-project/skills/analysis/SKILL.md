@@ -32,7 +32,7 @@ theme handling the artifact viewer needs.
 Build a data JSON, then run the kit tool from the repository root — the `.` is that
 root, and `imageBase` and every image path resolve under it:
 ```bash
-node "$CLAUDE_PROJECT_DIR"/.claude/lib/gen-report.mjs . <data>.json <out>.html
+node "$(git rev-parse --show-toplevel)"/.claude/lib/gen-report.mjs . <data>.json <out>.html
 ```
 
 Data shape:

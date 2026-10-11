@@ -51,6 +51,15 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# An org repo's PR is landed by /deploy, which applies it first, so main only ever
+# holds infrastructure that is live. deploy-org.sh calls this script with
+# GITFLOW_ORG_DEPLOY=1 once the apply succeeded.
+if [ "${GITFLOW_ORG_DEPLOY:-}" != "1" ] \
+   && [ "$(jq -r '.REPO_KIND // ""' .claude/sync-substitutions.json 2>/dev/null || true)" = "org" ]; then
+    echo "merge.sh: this is an org repo — /deploy applies the PR and merges it. A docs change goes to main with /ship-main. Nothing was merged." >&2
+    exit 25
+fi
+
 if ! command -v gh >/dev/null 2>&1; then
     echo "merge.sh: gh CLI is required for merge (squash-merge via REST API is not implemented here)." >&2
     echo "  Install: brew install gh  then: gh auth login" >&2

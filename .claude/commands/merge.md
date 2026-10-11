@@ -4,6 +4,8 @@ Squash-merge the current branch's PR after CI passes. Part of the gitflow subsys
 
 $ARGUMENTS
 
+**In an org repo** (`REPO_KIND` is `org`) `/merge` refuses (exit 25): `/deploy` applies a Terraform PR and merges it, and a docs change goes to main with `/ship-main`. Say which applies instead of running anything.
+
 ## Procedure
 
 ### Step 1: Identify the target PR

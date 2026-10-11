@@ -1,180 +1,165 @@
 # Infrastructure as code with Terraform
 
-For whoever builds or takes over a kit project's AWS infrastructure, and the Claude
-session walking them through it. `infrastructure.md` describes the standard shape; this
-is how to own that shape as Terraform instead of console clicks and CLI commands. Read
-`infrastructure.md` first — nothing here changes what gets built, only how.
+For whoever owns a kit project's AWS infrastructure, and the Claude session walking them
+through it. `infrastructure.md` describes the standard shape of what gets built; this is
+how it is owned as Terraform in each organization's **org repo**, instead of console
+clicks and CLI commands. Claude carries the procedures in the `terraform` skill; this page
+is the model behind them. The commands are on one page in `org-repo-cheatsheet.md`.
+
+## The idea, in Drizzle terms
+
+Terraform is to AWS what Drizzle is to the database.
+
+| Drizzle | Terraform | What it is |
+|---|---|---|
+| Schema files (`schema.ts`) | `.tf` files | What you want to exist. Lives in a repo, reviewed like any code |
+| `drizzle-kit generate` | `terraform plan` | Compares what you want with what exists and shows every change before anything happens |
+| `drizzle-kit migrate` | `terraform apply` | Makes the changes |
+| The migrations table inside the database | **State file** | The record of what has been applied — and of which AWS resources Terraform owns |
+| One `drizzle.config.ts` pointing at one database | **Root** | One folder of Terraform with its own state file |
+
+Two differences matter:
+
+- **Drizzle keeps its record inside the database. AWS has nowhere to put one**, so the
+  state files live in an S3 bucket — the **state bucket**. The repo holds the code you
+  change; the bucket holds the record of what was applied.
+- **Drizzle assumes every table is its own. An AWS account holds plenty that is not
+  Terraform's**, so the state file is also Terraform's list of what it owns, and
+  Terraform never touches anything outside it. Each project gets its own roots, so a
+  mistake in one project's code cannot plan a change to another's.
 
 ## Why bother
 
-A hand-built box drifts. A setting made once in the console — an instance metadata hop
-limit, a log retention, a firewall rule — is forgotten the day the box is rebuilt, and the
-rebuild fails in a way nothing connects back to it. Two environments built by hand (Test
-and Prod) diverge silently from the first day. And "who may reach what" exists only as
+A hand-built resource drifts. A setting made once in the console — a metadata hop limit, a
+log retention, a firewall rule — is forgotten the day the resource is rebuilt. Two
+environments built by hand diverge from the first day. "Who may reach what" exists only as
 console state nobody reviews.
 
-Terraform makes the infrastructure a reviewed file. A rebuild is one command, Test and
-Prod come from one definition, and every permission is written down where an auditor can
-read it.
+And in an account several projects share, **the blast radius of a console change cannot
+be seen**. A security group that looks unused may be what a legacy system depends on; the
+console does not say. A Terraform plan says exactly what a change adds, changes and
+destroys before it runs.
+
+## The org repo
+
+**Every organization has one org repo per AWS account, named `<org>-org`.** A second AWS
+account gets a second org repo — mixing accounts buys nothing.
+
+It is more than a Terraform repo. It is the one place for everything about the
+organization, or that crosses between its projects:
+
+- **All of the account's Terraform** — every project's resources, what projects share,
+  the legacy systems. Every existing resource is adopted; nothing stays hand-managed,
+  because anything left out is exactly the resource whose blast radius nobody can see.
+- **The org map** — every project, who owns each resource, what is deliberately not
+  adopted and why.
+- **What crosses between projects** — one project calling another's API or using its
+  login, which credential, which side owns it. And across organizations: when another
+  org's project reaches in, the grant is written in the org that owns the resource and
+  recorded in both.
+- **The infrastructure docs** — the org overview at the top, linking down to one doc per
+  project, plus a reference generated from Terraform's own state.
+- **The access-and-change procedure** an auditor reads.
+
+**Project repos hold no Terraform.** Everything about one project's code — its
+buildspecs, Dockerfiles, backup image — stays in the project. Each project's `ORG_REPO`
+setting and README point up to its org repo, so every project can find out what exists
+and who owns it, and one project can find another.
+
+```mermaid
+flowchart TB
+    org["Org repo<br/>Terraform · org map · overview · per-project docs"]
+    a["Project A repo"] -- "issue: needs a bucket" --> org
+    b["Project B repo"] -- "issue: needs A's API" --> org
+    org -- "/deploy applies" --> aws[("The AWS account")]
+```
+
+## How a change happens
+
+Say you are working in a project and it needs an S3 bucket for uploads.
+
+1. **In the project**, Claude files an issue on the org repo describing the need — the
+   paper trail — and the project's PR names it: `Needs <org-repo>#N`.
+2. **In the org repo**, `/work <N>` picks it up. Claude plans the affected roots first;
+   they should show no changes. If they do not, someone changed AWS outside Terraform,
+   and that is settled before anything new is added.
+3. Claude writes the Terraform and updates the project's infra doc.
+4. **`/open-pr`** commits it, plans every changed root, and opens the PR with each plan
+   and a plain-words summary: "adds a bucket and one permission; changes nothing else."
+   CI checks the code.
+5. **`/deploy`** makes it real: it waits for green CI, re-plans, applies only if the plan
+   still does exactly what the PR showed, regenerates the reference, and merges. The
+   org repo's main branch only ever holds what is live.
+6. **Back in the project**, its `/deploy` refuses until the org change it needs is live,
+   then ships the code that uses the bucket.
 
 ## The rules that make it work
 
-- **Claude writes the code and runs `plan`; a person reads the plan and runs `apply`.**
-  Never the other way round, and never an `apply` nobody read.
-- **Nothing is changed in the console.** A hand edit shows up as drift on the next plan
-  and is undone by the next apply. Reading the console is fine.
-- **No secret values in Terraform.** Everything Terraform sets is stored in plain text
-  in its state. Parameter Store values are put in with `aws ssm put-parameter`; Terraform
-  creates the paths' readers, not the values. Access keys are created with
-  `aws iam create-access-key` for the same reason.
-- **One state per environment**, plus one for what both share. A mistake in Test's code
-  cannot plan a change to Prod.
+- **Claude writes the code and plans it; a person's `/deploy` applies it.** Claude never
+  applies on its own, and `/deploy` applies nothing the PR did not show.
+- **Plan before every change.** A difference nobody asked for is a manual change, and
+  stacking work on it hides it.
+- **Nothing is changed in the console.** A hand edit shows up on the next plan and is
+  undone by the next apply. Reading the console is fine.
+- **Every Terraform resource is labelled.** A `ManagedBy` tag naming the repo and root
+  shows on the resource's console page, so the person about to click sees that the change
+  will be reverted.
+- **No value a person sets goes in Terraform.** Everything Terraform sets is stored in plain text in
+  its state. Parameter Store values are put in with `aws ssm put-parameter` and access keys
+  created with `aws iam create-access-key`; Terraform creates only who may read them.
+- **One owner per resource.** A resource two roots both manage is overwritten by whichever
+  applied last. The skill lists the resource types that do this silently.
 
-## Layout
+## Access and change
 
-```
-infra/terraform/
-  tf.sh                    the only way to run terraform here (credentials, below)
-  README.md                the commands, the state bucket, how to reach a server
-  shared/                  what both environments use: certificate, mail identity,
-                           image registry, the DNS records that belong to neither
-  test/                    the Test environment and the build that deploys to it
-  prod/                    the Prod environment, its promotion, its backup
-  modules/environment/     one environment: server, firewall, load balancer, roles, logs
-```
+Built so a project can face an ISO 27001 audit without changing how it works:
 
-`test/` and `prod/` call the same module with their own names and paths. The difference
-between Test and Prod is then a handful of arguments, and reviewing it is reading them.
+- Only named people change infrastructure, each with their own multi-factor sign-in and a
+  role session that carries their name (`role_session_name`), so CloudTrail names who did
+  what.
+- Claude holds no AWS credential of its own. It acts only inside the session of the person
+  directing it, which expires within the hour.
+- A planned change is an issue, a PR carrying the code and its plan, and a `/deploy` that
+  applies exactly that plan. An unplanned change made directly in AWS is written back
+  through a PR in the same session, or recorded as an issue when it is outside Terraform
+  by design.
 
-Each root pins the provider (`~> 6.0`), commits its `.terraform.lock.hcl`, and refuses any
-account but its own:
+Each org repo carries this as `project-documentation/infrastructure-access-and-change.md`,
+with a mapping to the Annex A controls it supports.
 
-```hcl
-provider "aws" {
-  region              = "<region>"
-  allowed_account_ids = ["<account id>"]
-}
-```
+## The checks
 
-`.terraform/` (the provider binaries, hundreds of MB per root) is gitignored; the lock
-files are not.
+- **The commit precheck** runs `terraform fmt -check` on every changed `.tf` file.
+- **CI on the PR is the real gate**: `terraform fmt -check` across the repository and
+  `terraform validate` in each root, with no credentials, plus semgrep.
+- **Semgrep** findings worth knowing:
+  - *Fix by adding the setting*: log retention, an explicit CodeBuild encryption key,
+    load balancer access logs (a bucket per environment with a log-delivery policy and a
+    lifecycle).
+  - *Suppress with a reason* where the rule's concern does not apply: CloudWatch log
+    groups without a customer key (service-managed encryption; IAM decides who reads),
+    `ecr:GetAuthorizationToken` (no narrower form), `iam:PassRole` scoped to named roles
+    and one service, an image repository with one deliberately mutable tag (a build cache).
+  - *Where the marker goes*: `# nosemgrep: <rule id>` on the flagged line, or alone on the
+    line directly above the resource. A reason comment between the marker and the
+    resource stops it matching. Use the full rule id the scan prints.
 
-## The state bucket
+## Credentials
 
-Created once by hand, because Terraform needs it before it can store anything:
-
-```bash
-B=<project>-tfstate-<account id>
-aws s3api create-bucket --bucket $B --create-bucket-configuration LocationConstraint=<region>
-aws s3api put-public-access-block --bucket $B --public-access-block-configuration \
-  BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
-aws s3api put-bucket-versioning --bucket $B --versioning-configuration Status=Enabled
-aws s3api put-bucket-encryption --bucket $B --server-side-encryption-configuration \
-  '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"},"BucketKeyEnabled":true}]}'
-```
-
-plus a bucket policy refusing non-TLS requests. Each root's backend names a key in it and
-uses S3's own locking — no DynamoDB table:
-
-```hcl
-backend "s3" {
-  bucket       = "<project>-tfstate-<account id>"
-  key          = "test/terraform.tfstate"
-  region       = "<region>"
-  encrypt      = true
-  use_lockfile = true
-}
-```
-
-Versioning is the recovery path for a damaged state: restore the previous object version.
-
-## Credentials: `tf.sh`
-
-The AWS provider cannot read the session `aws login` creates, so a profile that
-authenticates that way fails with an error about the profile's source. `tf.sh` exports
-the profile's temporary credentials into its own process and runs Terraform:
-
-```bash
-#!/bin/bash
-set -euo pipefail
-ROOT="${1:?usage: tf.sh <shared|test|prod> <terraform args...>}"; shift
-DIR="$(cd "$(dirname "$0")" && pwd)/$ROOT"
-[ -d "$DIR" ] || { echo "tf.sh: no Terraform root at $DIR"; exit 2; }
-if ! CREDS="$(aws configure export-credentials --profile <profile> --format env 2>&1)"; then
-  echo "tf.sh: could not get credentials: $CREDS"; exit 1
-fi
-eval "$CREDS"
-exec terraform -chdir="$DIR" "$@"
-```
-
-The provider block then names no profile. `allowed_account_ids` is the guard against the
-exported credentials being the wrong account.
-
-## Adopting what already exists
-
-A project usually reaches Terraform with infrastructure already running. Adopt it — never
-rebuild it:
-
-1. **Generate a starting point.** In a scratch directory, write an `import` block for each
-   existing resource and run `terraform plan -generate-config-out=generated.tf`. The
-   output is verbose and has conflicts (both `subnets` and `subnet_mapping`, both
-   `records` and `alias`); it is a reference for the real values, not the code.
-2. **Write the real code by hand** in the module and roots, from the generated reference,
-   with the module's resource names.
-3. **Import into the module addresses**: `import { to = module.environment.aws_lb.alb …}`
-   in an `imports.tf` per root.
-4. **Plan until it says import N, change 0.** Every difference is either a value to copy
-   exactly or a harmless normalisation to accept knowingly. Two that always appear:
-   - An HTTPS listener's forward action: AWS stores both the shorthand
-     `target_group_arn` and the `forward` block. Write both, with the same ARN.
-   - An alias record's `dualstack.` prefix: both forms resolve to the same load
-     balancer.
-5. **A person applies**, and the `imports.tf` files are deleted — an import block for a
-   resource already in state does nothing.
-
-**Leave alone what is not yours.** A DNS zone shared with other systems is managed record
-by record, never as a zone, and a resource another team created stays out of the state.
-
-## Moving and retiring resources
-
-- **Renaming or making a resource conditional** (`count`): a `moved` block, so the state
-  follows and nothing is recreated.
-- **Handing a resource from one root to another** (a DNS record moving from Test to Prod at
-  a cutover): a `removed` block with `destroy = false` in the old root, an `import` block
-  in the new one. Apply the old root first.
-- **Rebuilding a server on purpose**: `tf.sh <env> apply -replace=module.environment.aws_instance.server`.
-  The module ignores later changes to the AMI and the bootstrap script, so an unrelated
-  apply never stops or replaces a running server.
-
-## Security scanning
-
-`semgrep` in the commit gate scans Terraform too. The findings worth knowing:
-
-- **Fix by adding the setting**: log retention, an explicit CodeBuild encryption key, load
-  balancer access logs (a bucket per environment with a log-delivery policy and a
-  lifecycle).
-- **Suppress with a reason** where the rule's concern does not apply: CloudWatch log
-  groups without a customer key (service-managed encryption; IAM decides who reads),
-  `ecr:GetAuthorizationToken` (no narrower form), `iam:PassRole` scoped to named roles and
-  one service, an image repository with one deliberately mutable tag (a build cache).
-- **Where the marker goes**: `# nosemgrep: <rule id>` on the flagged line, or alone on
-  the line directly above the resource. A reason comment between the marker and the
-  resource stops it matching. Use the full rule id the scan prints.
-
-## A generated reference
-
-Alongside the overview a person writes, generate the exhaustive one from Terraform
-itself, so it cannot drift: a script that runs `terraform show -json` and
-`terraform graph` for each root, and writes every managed resource (address, type, ARN)
-plus each root's dependency graph drawn by Graphviz (`dot -Tsvg`) into the project's
-documentation. Rerun it after an apply. Have it read everything before writing anything,
-and refuse to write a root that reports no resources, so a failed read never replaces a
-good reference with an empty one.
+The AWS provider cannot read the session `aws login` creates, so the kit's `tf.sh` exports
+the profile's temporary credentials into its own process and runs Terraform. It reads the
+profile, region and account from the repo's settings and refuses to run when the
+credentials belong to any other account; each root's provider also refuses any account but
+its own (`allowed_account_ids`). Because the credentials never enter the calling shell,
+sessions working in different accounts at the same time cannot cross.
 
 ## What stays outside Terraform
 
-- Secret values and access keys (above).
+- Parameter Store values a person sets, and access keys. Terraform publishes only the values it creates itself — a bucket's name, a queue's URL.
 - The state bucket itself.
-- Resources in other providers the project uses (the database host, the identity
-  provider, the uptime monitor) unless that provider's Terraform support is worth adding
-  a second provider for.
+- The role the operators assume into the account, and its trust — a bad apply would lock
+  everyone out.
+- The account owner's people's sign-in identities, and the root user.
+- What AWS creates itself: the default VPC, service-linked roles, AWS-managed policies.
+- Resources in other providers a project uses (the database host, the identity provider,
+  the uptime monitor), unless that provider's Terraform support is worth a second provider.

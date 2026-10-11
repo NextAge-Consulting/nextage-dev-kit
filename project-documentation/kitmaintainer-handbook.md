@@ -492,6 +492,26 @@ Full spec: `commands/ship-main.md`.
 
 ---
 
+### 6.6. The org repo's flow
+
+An org repo (`REPO_KIND` = `org`) changes AWS, so its PR is released by applying it, and
+only then merged — `main` there only ever holds what is live. Its people-facing page is
+`org-repo-cheatsheet.md`.
+
+- **`/open-pr`** commits uncommitted work through the `/commit` procedure, plans every root
+  `changed-roots.sh` reports, and writes each root's `plan-summary.sh --block` into the
+  body. `open-pr.sh` refuses a body missing a changed root's block (exit 14).
+- **`/deploy`** — `deploy.sh` hands over to `deploy-org.sh`: CI green
+  (`wait-for-pr-ready.sh`), a fresh plan per root compared with the PR's block, apply,
+  `gen-reference.sh` committed onto the branch, then `merge.sh` with `GITFLOW_ORG_DEPLOY=1`.
+  A mismatch stops before any apply (exit 26); a failed apply stops before the merge
+  (exit 28).
+- **`/merge`** refuses without `GITFLOW_ORG_DEPLOY=1` (exit 25). **`/ship-main`** refuses a
+  change touching Terraform (exit 14) and ships docs as usual.
+- **In an app repo**, `deploy.sh` reads `Needs <owner>/<repo>#N` from the release's
+  commits and refuses (exit 25) until each is live — the org PR merged, or the org issue
+  closed as completed.
+
 ## 7. Commit and changelog rules
 
 ### 7.1. Commit types
@@ -584,7 +604,7 @@ Committed so every dev and every cloud session has the same baseline. `sha` is t
 | `project-deleted` | Baseline and kit have it; the project deleted it | Ask: re-add or accept |
 | `removed-kit` | Kit deleted a file the project still has | Ask: delete or keep as project-owned |
 
-The scan also reports `unmapped_templates` (a `templates/` file with no destination mapping — a kit defect), `skipped_unconfigured` (files skipped because their destination key, `SHARED_MODULE_DIR` or `DESIGN_UI_PACKAGE`, is empty) and `stale_patches` (§9.10).
+The scan also reports `unmapped_templates` (a `templates/` file with no destination mapping — a kit defect), `skipped_unconfigured` (files skipped because the setting their destination depends on — `SHARED_MODULE_DIR`, `DB_ENGINE`, `DESIGN_UI_PACKAGE`, `DESIGN_FEED_BARREL` — is empty or rules them out), `repo_kind` and `skipped_by_repo_kind` (§9.12), and `stale_patches` (§9.10).
 
 ### 9.4. Sync procedure
 
@@ -647,8 +667,9 @@ The solution is an inline placeholder + per-project substitution table.
 
 **Kit side** — templates use `{{KEY}}` markers:
 
-```yaml
-# In a kit workflow template:
+```ini
+# In _claude-project/gitflow-project.conf:
+GITFLOW_PROJECT_ID="{{GITFLOW_PROJECT_ID}}"
 ```
 
 `{{KEY}}` syntax is used specifically because it's unambiguous — won't collide with legitimate content in shell, YAML, JSON, or Markdown. (Older `<name>` style risks matching literal angle-bracket text in docs.) All future kit templates use `{{KEY}}` for any project-specific value.
@@ -676,6 +697,7 @@ Current kit-referenced placeholders (authoritative list is in `_claude-project/s
 | `AWS_ACCOUNT_ID` | `_claude-project/rules/cli-utilities.md` (runtime-read via `jq`) | 12-digit AWS account ID this project's infra lives in. Confirm `aws sts get-caller-identity` matches it before any operation. Empty → project has no AWS. See "Runtime-read placeholders" below |
 | `AWS_REGION` | `_claude-project/rules/cli-utilities.md` (runtime-read via `jq`) | Default AWS region for this project's resources, e.g. `us-east-1`. Passed as an explicit `--region` on every AWS CLI command; never the shell default, which is per-machine and routinely points elsewhere. Empty → project has no AWS. See "Runtime-read placeholders" below |
 | `AWS_PROFILE` | `_claude-project/rules/cli-utilities.md` (runtime-read via `jq`) | Named AWS CLI profile for this project's account, e.g. `acme-prod`. Passed as an explicit `--profile` on every AWS CLI command. Empty → default profile / no AWS. See "Runtime-read placeholders" below |
+| `ORG_REPO` | `skills/terraform/SKILL.md`, `deploy.sh` (runtime-read via `jq`) | `owner/name` of the organization's org repo — all of the account's Terraform, the org map at `project-documentation/org-map.md`, the infrastructure docs. A project files its infrastructure needs as issues there. In the org repo it names itself. Empty and listed in `_intentionally_empty` → no AWS. `infrastructure-terraform.md` |
 | `DB_ENGINE` | `_claude-project/rules/postgres-drizzle.md`, `rules/sqlserver-drizzle.md`, `skills/postgres-neon-drizzle/SKILL.md`, `rules/testing-verification.md` (runtime-read via `jq`); sync's destination mapping for the Postgres test harness; `templates/testing/vitest.config.ts` (read at test time) | Which engine the project runs on, and the single gate deciding which engine-specific guidance applies. Five exact, case-sensitive values: `PostgreSQL`, `SQLServer`, `Other` (has a DB, neither of those — the project supplies its own rule under `rules/project/`), `None` (no database at all), and empty (**not yet declared** — re-surfaced every sync; engine rules must not assume an engine). Empty NEVER means "no database"; that is `None`. Gating on the presence of a `drizzle.config.ts` is the bug this key replaces — a config file proves Drizzle, not the dialect. See "Runtime-read placeholders" below |
 | `DEPLOY_BACKEND`, `DEPLOY_WORKFLOWS`, `MIGRATE_WORKFLOW`, `MIGRATE_PATHS`, `CODEBUILD_PROJECT_PREFIX`, `CODEBUILD_MIGRATE_PROJECT`, `CODEBUILD_PROMOTE_PREFIX` | `deploy.sh` (runtime-read) | The release path `/deploy` dispatches to, its services, its gated migration phase, and — for a project with a separate Prod — the promote projects `/deploy promote` starts — DevOps reference, `pipeline.md` §2.1 |
 | `FORM_LIB_EXEMPT_APPS` | `scripts/check-stack.mjs` (runtime-read) | Front-end apps that deliberately use no form library. An app neither declaring the library nor listed here fails the check until someone answers the question |
@@ -690,6 +712,7 @@ Current kit-referenced placeholders (authoritative list is in `_claude-project/s
 | `DESIGN_VENDORED_RESTYLED` | the token checker (runtime-read) | `"true"` when the vendored atoms are restyled onto the project's roles, so every class rule applies to them. Empty → they keep registry defaults and only the arbitrary-spacing rule applies |
 | `DESIGN_FIELD_LOOK_CLASSES` | the token checker (runtime-read) | Classes that paint a text field's look; a raw `<input>` or `<textarea>` carrying one fails. Empty → only `rounded-*` is checked |
 | `DESIGN_EXEMPT_COMPONENTS` | the token checker (runtime-read) | Headless primitives and `currentColor` glyphs a call site may style. Empty → none |
+| `REPO_KIND` | `sync-dev-kit.sh` (read at scan and apply); `open-pr.sh`, `deploy.sh`, `merge.sh`, `ship-main.sh` (runtime-read) | `app` — every kit file syncs, gitflow as documented; `org` — an org repo: skips the application tooling (§9.12), and gitflow follows `org-repo-cheatsheet.md` (§6.6). Empty → undecided: behaves as `app`, re-surfaced every sync. Any other value stops the scan with exit 2 |
 | `KNIP_GATE` | the `knip` job in `ci.yml` (runtime-read) | `"true"` → CI runs knip with the kit's `knip.config.ts` and fails on any finding. Empty and listed in `_intentionally_empty` → the gate is off. Missing, or empty and unlisted → undecided: the job passes with a warning naming the key. `pipeline.md` §3.9 |
 
 The kit ships a template at `_claude-project/sync-substitutions.json` with empty values and inline docs of every placeholder kit templates currently reference. Consumer projects bootstrap automatically: `load_substitutions` in `sync-dev-kit.sh` copies the kit template to `.claude/sync-substitutions.json` on first run if absent. Population is then walked through interactively — see §9.8.
@@ -838,6 +861,29 @@ The orchestration is in the `/sync-dev-kit` slash command (`_claude-maintainer/c
 - `.claude/kit-gate/replay.mjs`: each changed project-facing check — the token check, the comparison tool, the UI status check, the knip config, check-stack, workspace tiers — runs in its committed and its working-tree version against every consumer beside the kit, and a finding only the new version reports fails the gate.
 
 **A change that breaks projects on purpose ships the migration that fixes them.** The migration's `gate-accepts.txt` lists those findings as literal fragments, one per line; while the migration is among the changed files, a finding holding one is reported as resolved by it rather than failing the gate.
+
+### 9.12. Repo kind — what an org repo receives
+
+**An org repo (`REPO_KIND` = `org`) receives the kit minus its application tooling.**
+It holds an organization's Terraform and its cross-project docs: no application code,
+database, UI, dev server or `package.json`. `is_app_only()` in `sync-dev-kit.sh` names the files
+it skips — the kit's own template-only set (`dev-kit-workflow.md`'s manifest) less
+`cli-utilities.md` and the analysis skill with its report generator, which infrastructure
+work uses, and `/deploy`, which applies and merges there — plus `dependabot.yml` and the
+Biome seed. The kit's own `.claude/` is the proof that the core works without them.
+
+- `dest_for_kit_path` maps an app-only file to no destination, and `dest_key_for_kit_path`
+  names `REPO_KIND` as the reason. The scan counts them (`skipped_by_repo_kind`) instead of
+  listing each under `skipped_unconfigured`.
+- A repo switched to `org` that already has an app-only file sees it as `removed-kit`, and
+  `--apply-file <dest_path>` deletes it. `--apply-file <kit_path>` on an app-only file is
+  refused with exit 4.
+- `ci.yml` and the commit gate already detect what a repo holds, so an org repo runs
+  semgrep and the Terraform checks and skips the Node and Python jobs without any setting.
+
+**A new kit item gets an org-repo decision alongside its dogfood decision** (`dev-kit-workflow.md`):
+an item that only makes sense with application code is added to `is_app_only()` in the same
+change.
 
 ## 10. Environment variables
 

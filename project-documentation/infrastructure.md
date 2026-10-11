@@ -8,8 +8,9 @@ projects. The kit ships no buildspec because deploy targets vary (pipeline.md §
 what does not vary in practice is the shape below, and re-deriving it per project is
 how pieces get silently skipped.
 
-To own this shape as Terraform rather than console clicks and CLI commands — layout, state,
-credentials, adopting what already exists — see `infrastructure-terraform.md`.
+Every resource in this shape is owned as Terraform in the organization's org repo, never
+console clicks or CLI commands. The model, the layout and the access-and-change procedure
+are in `infrastructure-terraform.md`.
 
 **Verify against the live configuration, never against this document.** Every claim
 here describes the intended shape. An infra doc written from intent drifts from the
@@ -377,33 +378,52 @@ problem and is not one. Check the AMI before concluding anything about permissio
 healthcheck URL on success. A backup job that silently stops running looks exactly like a
 backup job that is working, and the ping is the only thing that distinguishes them.
 
-**A container that uses the instance role needs `HttpPutResponseHopLimit` set to 2.**
-IMDSv2 fetches credentials by first PUTting for a token, and the response carries an IP
-TTL equal to the hop limit. A container on a bridge network sits one hop further from the
-metadata service than the host does, so at the default limit of 1 the token response is
-discarded in transit and the container gets no credentials at all. The host itself works
-fine, which is most of what makes this hard to see.
+**A container never uses the instance role. It gets its own credential, scoped to exactly
+what it calls, and the host runs at `HttpPutResponseHopLimit: 1`.**
 
-The SDK reports it as `Could not load credentials from any providers` — indistinguishable
-from an unattached role, a wrong region or an expired key, so it sends people to audit an
-IAM policy that was already correct. The instance profile can be attached and perfectly
-scoped and the container still cannot use it.
+The instance role is the host's identity: it pulls images, reads the box's settings at
+deploy time and ships container logs. Whatever can reach it can do all of that — read
+every parameter under the box's path, which on a shared box is every other app's secrets
+too, and hand its credentials to anyone who can make the app fetch a URL of their
+choosing. An app's own needs are a different and much smaller set: send mail from one
+identity, read and write one bucket. Give it exactly that, and nothing on the box can
+borrow the host's identity.
 
-```bash
-aws ec2 modify-instance-metadata-options --instance-id <id> \
-  --http-tokens required --http-put-response-hop-limit 2 --http-endpoint enabled
-```
+- **One IAM user per app**, or per container where two containers on one box are trusted
+  differently — a control plane holding tokens and the tenant-facing app it serves. Its
+  policy names only the actions and resources the code calls: `ses:SendEmail` and
+  `ses:SendRawEmail` on one verified identity, `s3:GetObject` and `s3:PutObject` on one
+  bucket prefix.
+- **Terraform owns the user and its policy, never its key.** An `aws_iam_access_key`
+  writes the secret into state. Create the key with the CLI and write it straight into
+  Parameter Store as a SecureString under the app's own path, where the deploy delivers
+  it like every other setting.
+- **The code passes that credential to the client explicitly**, under names that say what
+  it is for (`SES_ACCESS_KEY_ID`, not `AWS_ACCESS_KEY_ID`). The SDK's default chain takes
+  whatever it finds first, so a missing key surfaces as some other identity working or
+  failing, never as "this key is missing". A readiness check reports a missing or
+  unresolvable key before the feature that needs it is offered.
+- **The host keeps the role, at hop limit 1.** `1` is AWS's default: the host reaches the
+  metadata service and every container on a bridge network is one hop too far. ECR login,
+  the deploy's parameter reads and the `awslogs` driver all run on the host and are
+  unaffected. Set it in Terraform, with `http_tokens = "required"`, so a rebuild cannot
+  drift from it.
+- **Rotate by overlap.** IAM allows two keys per user: create the second, update the
+  parameter, refresh the container's environment, confirm, delete the first.
 
-It applies immediately with no restart, and `HttpTokens` stays `required` — this is not a
-retreat to IMDSv1. The cost is that every container on the box can now reach the metadata
-service, which makes the instance role's own scope the real boundary; keep it to what the
-host actually needs.
+**`Could not load credentials from any providers` from inside a container means that
+container is missing its own key.** It is never fixed by raising the hop limit — that
+hands every container on the box the host's identity to make one call work.
 
-**Nothing captures this in code, which is why it comes back.** User-data runs inside an
-instance that already exists and cannot set it, and no compose file or buildspec touches
-it — so the value is whatever the launch path happened to default to, recorded nowhere. A
-replaced or rebuilt host silently returns to 1, and the first symptom is a container
-failing to send mail or write to S3 while every health check stays green.
+Moving an existing box onto this pattern runs in one order, because a call path that still
+relies on the role breaks the moment the hop limit drops, and silently where the code
+swallows the error:
+
+1. Find every AWS call made from inside a container — every `@aws-sdk` client, every `aws`
+   CLI call in an image, every job run with `docker compose run`.
+2. Give each its own user and key, and change the code to use them.
+3. Deploy, and exercise each call path for real: send a mail, read and write the bucket.
+4. Set the hop limit to 1, then remove those permissions from the instance role.
 
 ## Container resource limits
 
@@ -539,7 +559,7 @@ ones. An established project is where these hide, because nothing ever surfaced 
 | A WAF is actually attached | `aws wafv2 list-web-acls --scope REGIONAL` then `list-resources-for-web-acl` | An empty list. A project ran for months with an ALB and no WAF, and nothing anywhere reported it |
 | Something reaches the box BY its IP, and that IP is Elastic | First ask whether anything does: an allowlist naming the box, a DNS record pointing at it, a partner connecting to it. Then `aws ec2 describe-instances --query 'Reservations[].Instances[].NetworkInterfaces[].Association.IpOwnerId'` | `amazon` while something depends on the IP — it **moves on stop/start**. A box reached only through the load balancer and SSM needs no Elastic IP, and the account's quota for them is small and shared |
 | The instance group is not world-open | `aws ec2 describe-security-groups` | Any `0.0.0.0/0` on the *instance* group. `:80` there bypasses the WAF entirely; `:22` there is a standing invitation |
-| Containers can reach the instance role | `aws ec2 describe-instances --query 'Reservations[].Instances[].MetadataOptions.HttpPutResponseHopLimit'` | A `1`. The host gets credentials and every container is refused them, reported as `Could not load credentials from any providers` |
+| No container can reach the instance role | `aws ec2 describe-instances --query 'Reservations[].Instances[].MetadataOptions.HttpPutResponseHopLimit'` | A `2` or higher. Every container on the box holds the host's identity — its parameters, its image pulls, and any other app's secrets on the same box |
 | SSH is closed and SSM works | `aws ssm describe-instance-information` | Agent absent while `:22` is open — the port cannot be closed until the agent is proven |
 | ECR repositories have a lifecycle policy | `aws ecr get-lifecycle-policy` per repository | `LifecyclePolicyNotFoundException`. Nothing fails; images accumulate and the bill arrives months later |
 | Swap is OFF | `swapon --show` | Any swap on a container host — it trades a contained OOM kill for host-wide thrashing |

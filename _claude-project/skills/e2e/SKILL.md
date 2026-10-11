@@ -97,7 +97,7 @@ Produce a **self-contained HTML report** so the user can fire off a run, come ba
 
 **Use the shared generator — do NOT hand-roll the HTML/CSS each run.** The template, theme, and lightbox live in `.claude/lib/gen-report.mjs` (a shared kit tool — the analysis skill uses it too; learned once, not re-derived). You supply only the data: write the run to `logs/e2e/results.json`, then run it:
 ```bash
-node "$CLAUDE_PROJECT_DIR"/.claude/lib/gen-report.mjs . logs/e2e/results.json   # → logs/e2e/<project>-e2e-<YYYYMMDD>.html
+node "$(git rev-parse --show-toplevel)"/.claude/lib/gen-report.mjs . logs/e2e/results.json   # → logs/e2e/<project>-e2e-<YYYYMMDD>.html
 ```
 The `results.json` shape (title, subtitle, note, extraStats, flows[] with steps + shots) is documented in the script header. `shots` paths are relative to `logs/e2e/`. The report is named `<project>-e2e-<YYYYMMDD>.html` — the repo directory lower-cased and the run's local date — and the script prints the path it wrote. Hand that file to the user with SendUserFile; never rename it or pass an output path of your own. The generator guarantees everything below — this list is the contract it fulfils, not a manual checklist:
 

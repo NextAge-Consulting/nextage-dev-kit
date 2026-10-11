@@ -251,6 +251,8 @@ Dev server lifecycle governed by `.claude/rules/dev-server.md` — Claude checks
 
 Picking up tomorrow on unfinished work: same launch, just `/work` (no args). You are still on yesterday's branch; `/work` sees that and resumes exactly where you left off.
 
+**Infrastructure is not done here.** A project's AWS changes are requested from, and made in, its organization's org repo, with a shorter flow — `org-repo-cheatsheet.md`. A PR whose code needs one names it (`Needs <org-repo>#N`), and `/deploy` waits until it is live.
+
 ---
 
 ## Your own defaults

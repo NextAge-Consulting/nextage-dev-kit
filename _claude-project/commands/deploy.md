@@ -8,6 +8,16 @@ Bare `/deploy` ships the full fleet. `/deploy <service>` (e.g. `/deploy worker`,
 
 $ARGUMENTS
 
+## In an org repo
+
+When `REPO_KIND` is `org` in `.claude/sync-substitutions.json`, `/deploy` cuts no release: on the PR's branch, it applies the PR's Terraform and merges it. Ask nothing about a level or a changelog, and skip every step below. Run:
+
+```bash
+.claude/skills/gitflow/scripts/deploy.sh
+```
+
+It waits for green CI, re-plans each changed root and stops unless the plan matches the PR's plan block, applies, commits the regenerated infrastructure reference onto the branch, then merges. Report what it applied and the merge, or its refusal as printed — a plan that no longer matches names the difference, and nothing has been applied.
+
 ## Design
 
 `/deploy` is the **human-serialized release boundary**. Bump and deploy fire in the same invocation, in order — the source-of-truth version field and the deployed artifact built from that source match by construction. No skew, ever.

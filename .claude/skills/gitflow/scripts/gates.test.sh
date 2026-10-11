@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Regression suite for gates.sh — the typecheck, biome, knip, semgrep and build gates
+# Regression suite for gates.sh — the typecheck, biome, knip, semgrep, terraform and build gates
 # /commit, /ship-main and /merge run.
 #
 # The contract under test: every gate passes, fails, or says why it does not
 # apply, and a gate that cannot run fails. Each case runs in a throwaway git repo
 # with PATH pinned to a sandbox, so "is the tool installed" is decided here and
-# not by the machine running the suite. npm, pyright, mypy and semgrep are stubs
+# not by the machine running the suite. npm, pyright, mypy, semgrep and terraform are stubs
 # that record how they were called; the build gate uses the real npm, because
 # what it counts is npm's own answer about workspaces.
 set -uo pipefail
@@ -182,6 +182,30 @@ has 'src/a.js: finding' '…and its output is replayed'
 stub semgrep 0
 t 4 "$(gate run_semgrep_gate no-such-ref committing)" 'a base git cannot diff against fails, not "no changed files"'
 has 'no-such-ref' '…naming the base'
+
+echo "terraform fmt:"
+new_repo
+t 0 "$(gate run_terraform_gate "$BASE" committing)" 'no changed .tf files: passes'
+has 'terraform fmt: no changed .tf files' '…and says so'
+mkdir -p infra/terraform/prod/.terraform
+printf 'x\n' > infra/terraform/prod/.terraform/ignored.tf
+printf 'x\n' > notes.md
+t 0 "$(gate run_terraform_gate "$BASE" committing)" '…a .tf under .terraform/ and a non-Terraform file are not counted'
+printf 'resource "x" "y" {}\n' > infra/terraform/prod/main.tf
+printf 'a = 1\n' > infra/terraform/prod/prod.tfvars
+t 4 "$(gate run_terraform_gate "$BASE" committing)" 'changed .tf, terraform not installed: fails'
+has 'terraform is not installed' '…and says so'
+stub terraform 0
+t 0 "$(gate run_terraform_gate "$BASE" committing)" 'formatted: passes'
+has 'terraform fmt: 2 changed file(s) formatted' '…counting the .tf and .tfvars files'
+t fmt "$(sed -n 1p "$tmp/terraform.args")" '…running terraform fmt'
+grep -qx -- '-check' "$tmp/terraform.args" && echo "  ✓ …in check mode, never rewriting" || { echo "  ✗ FAIL — not -check: $(cat "$tmp/terraform.args")"; fail=1; }
+grep -qx -- 'infra/terraform/prod/.terraform/ignored.tf' "$tmp/terraform.args" && { echo "  ✗ FAIL — .terraform/ file passed"; fail=1; } || echo "  ✓ …and .terraform/ is never passed"
+stub terraform 3 'echo "infra/terraform/prod/main.tf"'
+t 4 "$(gate run_terraform_gate "$BASE" "shipping to main")" 'unformatted: fails'
+has 'infra/terraform/prod/main.tf' '…replaying what terraform reported'
+has 'Fix before shipping to main' '…naming the action'
+t 4 "$(gate run_terraform_gate no-such-ref committing)" 'a base git cannot diff against fails'
 
 echo "project gate:"
 new_repo

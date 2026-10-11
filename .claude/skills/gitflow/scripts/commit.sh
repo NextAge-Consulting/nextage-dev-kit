@@ -184,12 +184,13 @@ if is_protected_branch "$CURRENT_BRANCH" || [ -n "$HANDED_TO" ]; then
     fi
 fi
 
-# Typecheck, biome, knip and semgrep — gates.sh holds each gate and why it is shaped
+# Typecheck, biome, knip, semgrep and terraform fmt — gates.sh holds each gate and why it is shaped
 # the way it is.
 run_typecheck_gate "$SKIP_TYPECHECK" "committing" || exit $?
 run_biome_gate "committing" || exit $?
 run_knip_gate "committing" || exit $?
 run_semgrep_gate "$FOLD_BASE" "committing" || exit $?
+run_terraform_gate "$FOLD_BASE" "committing" || exit $?
 run_project_gate "$FOLD_BASE" "committing" || exit $?
 
 # Rule-prose review: every rule, skill, command or pattern reference changed since

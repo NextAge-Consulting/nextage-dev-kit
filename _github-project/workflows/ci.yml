@@ -10,6 +10,10 @@
 #                                           pyright, else mypy, from the root
 #                                           when a root pyproject.toml or
 #                                           pyrightconfig.json exists
+#   - Terraform (any `*.tf`)              → fmt across the repository; init
+#                                           without a backend + validate in
+#                                           each root (a folder holding a
+#                                           committed .terraform.lock.hcl)
 #   - Semgrep (always)                    → language-agnostic security scan
 # A polyglot repo runs both stacks; a single-stack repo skips the other's jobs,
 # and `detect` names every stack it skipped in a notice.
@@ -51,6 +55,7 @@ jobs:
     outputs:
       node: ${{ steps.d.outputs.node }}
       python: ${{ steps.d.outputs.python }}
+      terraform: ${{ steps.d.outputs.terraform }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       - id: d
@@ -58,18 +63,26 @@ jobs:
           set -euo pipefail
           node=false
           python=false
+          terraform=false
           [ -f package.json ] && node=true
           if find . -name pyproject.toml \
                -not -path '*/.venv/*' -not -path '*/node_modules/*' \
                | grep -q .; then
             python=true
           fi
-          echo "node=$node"     >> "$GITHUB_OUTPUT"
-          echo "python=$python" >> "$GITHUB_OUTPUT"
-          echo "detected: node=$node python=$python"
+          if find . -name '*.tf' -not -path '*/.terraform/*' | grep -q .; then
+            terraform=true
+          fi
+          {
+            echo "node=$node"
+            echo "python=$python"
+            echo "terraform=$terraform"
+          } >> "$GITHUB_OUTPUT"
+          echo "detected: node=$node python=$python terraform=$terraform"
           skipped=""
           [ "$node" = true ]   || skipped="$skipped Node (no root package.json: dep-alignment, workspace-tiers, stack-standard, check-types, biome, vitest, knip)"
           [ "$python" = true ] || skipped="$skipped Python (no pyproject.toml: ruff, pytest, typecheck)"
+          [ "$terraform" = true ] || skipped="$skipped Terraform (no *.tf: fmt, validate)"
           if [ -n "$skipped" ]; then
             echo "::notice::Stacks not detected, their jobs are skipped:$skipped"
           fi
@@ -409,6 +422,49 @@ jobs:
             echo "typecheck: pyright 1.1.409 (the stack manifest's pin), from the repository root"
             PYRIGHT_PYTHON_IGNORE_WARNINGS=1 "${run[@]}" --with pyright==1.1.409 pyright --stats
           fi
+
+  # Formatting across every .tf file, then each root validated on its own.
+  # A root is a folder with a committed .terraform.lock.hcl (infrastructure-
+  # terraform.md); a module has none and is validated through the roots that
+  # call it. `init -backend=false` downloads the locked providers and touches no
+  # state and no AWS account, so the job needs no credentials.
+  terraform:
+    name: terraform
+    needs: detect
+    if: ${{ needs.detect.outputs.terraform == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e  # v4.0.1
+        with:
+          terraform_version: 1.16.4
+          terraform_wrapper: false
+      - name: fmt
+        run: terraform fmt -check -recursive -diff
+      - name: validate each root
+        if: ${{ !cancelled() }}
+        run: |
+          set -uo pipefail
+          fail=0
+          roots=0
+          while IFS= read -r lock; do
+            dir="$(dirname "$lock")"
+            roots=$((roots + 1))
+            echo "::group::$dir"
+            if ! terraform -chdir="$dir" init -backend=false -input=false -lockfile=readonly >/dev/null; then
+              echo "::error::$dir: terraform init failed"
+              fail=1
+            elif ! terraform -chdir="$dir" validate; then
+              fail=1
+            fi
+            echo "::endgroup::"
+          done < <(find . -name .terraform.lock.hcl -not -path '*/.terraform/*')
+          if [ "$roots" -eq 0 ]; then
+            echo "::error::This repository has Terraform but no root with a committed .terraform.lock.hcl, so nothing was validated. Run terraform init in each root and commit its lock file."
+            exit 1
+          fi
+          echo "validated $roots root(s)"
+          exit "$fail"
 
   semgrep:
     name: semgrep

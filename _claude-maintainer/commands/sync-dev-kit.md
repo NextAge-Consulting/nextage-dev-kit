@@ -30,7 +30,8 @@ Parse the JSON output. Top-level fields:
 - `files` — array of per-file state entries.
 - `gitignore_additions_missing` — array of `.gitignore` lines the kit wants present in the project that are not yet.
 - `unmapped_templates` — kit files under `_claude-project/templates/` with no destination mapping. Non-empty is a kit defect: tell the user the kit is missing a `dest_for_kit_path` entry for each.
-- `skipped_unconfigured` — `{kit_path, key}` for each kit file skipped because its destination key (`SHARED_MODULE_DIR`, `DESIGN_UI_PACKAGE`) is empty. List them once, so the user knows what an empty key costs.
+- `skipped_unconfigured` — `{kit_path, key}` for each kit file skipped because the setting its destination depends on (`SHARED_MODULE_DIR`, `DB_ENGINE`, `DESIGN_UI_PACKAGE`, `DESIGN_FEED_BARREL`) is empty or rules it out. List them once, so the user knows what the setting costs.
+- `repo_kind` and `skipped_by_repo_kind` — the project's `REPO_KIND` and how many application-tooling files it skipped as an `org` repo. Say the count once; never list the files.
 - `stale_patches` — patch register entries that sanction nothing, each with the file's `current_state` (Step 2.2).
 
 The scan also bootstraps `.claude/sync-substitutions.json` from the kit template if it doesn't exist. Look for `sync-dev-kit.sh: bootstrapped .claude/sync-substitutions.json` on stderr — that's the signal that this is a first-time sync and Step 1.5 is going to have work to do.
@@ -64,6 +65,8 @@ jq -r 'to_entries[] | select(.key | startswith("_") | not) | select(.value == ""
 Filter out any key that's in `_intentionally_empty` — the user already decided to leave those off. The remainder is the walkthrough list.
 
 If the list is empty, skip Step 1.5 entirely and proceed to Step 2.
+
+**Ask `REPO_KIND` first when it is in the list.** It decides which other keys matter. For an `org` repo, offer to settle the application keys in one step: `DB_ENGINE` = `None`, `GEMINI_NOT_INSTALLED` = `true` (an org repo is reviewed through its plans, not Gemini), `ORG_REPO` = this repository, and `SHARED_MODULE_DIR`, `DESIGN_UI_PACKAGE`, `KNIP_GATE`, `FORM_LIB_EXEMPT_APPS`, `DEPLOY_BACKEND`, `DEPLOY_WORKFLOWS`, `MIGRATE_WORKFLOW`, `MIGRATE_PATHS`, `CODEBUILD_PROJECT_PREFIX`, `CODEBUILD_MIGRATE_PROJECT` and `CODEBUILD_PROMOTE_PREFIX` added to `_intentionally_empty`. Then re-run `--scan`, because the kind changes which files are scanned.
 
 **Per-key flow** (one at a time, sequentially — don't batch):
 

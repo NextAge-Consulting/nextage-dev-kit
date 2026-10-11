@@ -148,7 +148,9 @@ Used for participation rather than position, both are fine: `tabIndex={0}` puts 
 
 ## Never `autoFocus`
 
-It hijacks screen-reader focus on load with no warning. Use `ref.current?.focus()` gated on user intent.
+It hijacks screen-reader focus on load with no warning. Move focus with `ref.current?.focus()`, and only on user intent.
+
+**Opening a screen or a tab is user intent.** Its main content, such as its list, may take focus then, unless focus is already in a field, a dialog or a popover.
 
 ## Types over `any`
 

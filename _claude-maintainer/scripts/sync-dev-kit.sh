@@ -224,6 +224,47 @@ load_substitutions() {
     else
         SUBSTITUTIONS_JSON="{}"
     fi
+
+    # Read once: dest_for_kit_path consults it for every kit file.
+    REPO_KIND=$(subst_value "REPO_KIND")
+    case "$REPO_KIND" in
+        ""|app|org) ;;
+        *)
+            echo "sync-dev-kit.sh: REPO_KIND in .claude/sync-substitutions.json is \"$REPO_KIND\" — it must be \"app\" or \"org\" (empty is undecided and syncs as app)." >&2
+            exit 2
+            ;;
+    esac
+}
+
+REPO_KIND=""
+
+# Kit files an `org` repo does not receive. An org repo holds an organization's
+# Terraform and its cross-project docs — no application code, no database, no UI,
+# no dev server, no package.json. This is the kit's own template-only set (dev-kit-workflow.md
+# manifest) less what infrastructure work needs: cli-utilities.md and the
+# analysis skill with its report generator stay, and so does /deploy, which
+# applies and merges in an org repo. A file listed here that an org repo already
+# has reports `removed-kit`, so sync offers to delete it.
+is_app_only() {
+    case "$1" in
+        _claude-project/rules/a11y-baseline.md|_claude-project/rules/ui-design.md|_claude-project/rules/ui-patterns.md) return 0 ;;
+        _claude-project/rules/dependencies.md|_claude-project/rules/dev-server.md) return 0 ;;
+        _claude-project/rules/postgres-drizzle.md|_claude-project/rules/sqlserver-drizzle.md) return 0 ;;
+        _claude-project/rules/integrations/agent-browser.md) return 0 ;;
+        _claude-project/commands/dev.md|_claude-project/commands/ui-design.md) return 0 ;;
+        _claude-project/skills/agent-browser/*|_claude-project/skills/claude-design/*) return 0 ;;
+        _claude-project/skills/dependency-triage/*|_claude-project/skills/design-system/*) return 0 ;;
+        _claude-project/skills/dev-server/*|_claude-project/skills/e2e/*|_claude-project/skills/e2e-author/*) return 0 ;;
+        _claude-project/skills/mfing-bible-of-tanstack/*|_claude-project/skills/postgres-neon-drizzle/*) return 0 ;;
+        _claude-project/skills/shadcn/*|_claude-project/skills/ui-patterns/*) return 0 ;;
+        _claude-project/stack-manifest.json) return 0 ;;
+        _claude-project/templates/biome.json|_claude-project/templates/biome.base.json|_claude-project/templates/biome-plugins/*) return 0 ;;
+        _claude-project/templates/knip.config.ts|_claude-project/templates/scripts/*) return 0 ;;
+        _claude-project/templates/dependency-policy.md|_claude-project/templates/ui-inventory.md) return 0 ;;
+        _claude-project/templates/design-system/*|_claude-project/templates/testing/*) return 0 ;;
+        _github-project/dependabot.yml) return 0 ;;
+    esac
+    return 1
 }
 
 # apply_substitutions — reads stdin, applies {{KEY}} → value for every non-empty
@@ -573,6 +614,10 @@ subst_intentionally_empty() {
 # _claude-project/templates/ and require explicit mappings here.
 dest_for_kit_path() {
     local kit_rel="$1"
+    if [ "$REPO_KIND" = "org" ] && is_app_only "$kit_rel"; then
+        echo ""
+        return
+    fi
     case "$kit_rel" in
         _claude-project/templates/.mcp.json)
             echo ".mcp.json"
@@ -724,6 +769,10 @@ kit_path_for_dest() {
 # The substitution key a kit path's destination depends on, or empty. A path
 # whose key is empty in this project is skipped deliberately, not unmapped.
 dest_key_for_kit_path() {
+    if [ "$REPO_KIND" = "org" ] && is_app_only "$1"; then
+        echo "REPO_KIND"
+        return
+    fi
     case "$1" in
         _claude-project/templates/testing/globalSetup.ts|_claude-project/templates/testing/integration-helpers.ts)
             if [ -z "$(subst_value SHARED_MODULE_DIR)" ]; then echo "SHARED_MODULE_DIR"; else echo "DB_ENGINE"; fi ;;
@@ -943,6 +992,7 @@ if [ "$MODE" = "scan" ]; then
     FILE_ENTRIES="[]"
     UNMAPPED="[]"
     UNCONFIGURED="[]"
+    REPO_KIND_SKIPPED=0
     while IFS= read -r kit_rel; do
         [ -z "$kit_rel" ] && continue
         is_skipped "$kit_rel" && continue
@@ -953,7 +1003,11 @@ if [ "$MODE" = "scan" ]; then
             # destination key is empty) or the kit forgot a mapping. Both are
             # reported; neither is a silent skip.
             dest_key=$(dest_key_for_kit_path "$kit_rel")
-            if [ -n "$dest_key" ]; then
+            if [ "$dest_key" = "REPO_KIND" ]; then
+                # Counted, not listed: an org repo skips the app-only set
+                # wholesale, and naming each file would bury the report.
+                REPO_KIND_SKIPPED=$((REPO_KIND_SKIPPED + 1))
+            elif [ -n "$dest_key" ]; then
                 UNCONFIGURED=$(jq -c --arg p "$kit_rel" --arg k "$dest_key" '. + [{kit_path: $p, key: $k}]' <<<"$UNCONFIGURED")
             else
                 case "$kit_rel" in
@@ -1205,7 +1259,9 @@ if [ "$MODE" = "scan" ]; then
         --argjson unmapped "$UNMAPPED" \
         --argjson unconfigured "$UNCONFIGURED" \
         --argjson stale_patches "$STALE_PATCHES" \
-        '{kit_path: $kit_path, kit_commit: $kit_commit, kit_clean: $kit_clean, kit_behind_remote: $kit_behind, files: $files, gitignore_additions_missing: $gitignore_missing, unmapped_templates: $unmapped, skipped_unconfigured: $unconfigured, stale_patches: $stale_patches}'
+        --arg repo_kind "$REPO_KIND" \
+        --argjson repo_kind_skipped "$REPO_KIND_SKIPPED" \
+        '{kit_path: $kit_path, kit_commit: $kit_commit, kit_clean: $kit_clean, kit_behind_remote: $kit_behind, repo_kind: $repo_kind, skipped_by_repo_kind: $repo_kind_skipped, files: $files, gitignore_additions_missing: $gitignore_missing, unmapped_templates: $unmapped, skipped_unconfigured: $unconfigured, stale_patches: $stale_patches}'
 
     exit 0
 fi
@@ -1250,7 +1306,9 @@ if [ "$MODE" = "apply" ]; then
 
     if [ -z "$dest_rel" ]; then
         dest_key=$(dest_key_for_kit_path "$APPLY_FILE")
-        if [ -n "$dest_key" ]; then
+        if [ "$dest_key" = "REPO_KIND" ]; then
+            echo "sync-dev-kit.sh: $APPLY_FILE is application tooling, and this repo's REPO_KIND is org" >&2
+        elif [ -n "$dest_key" ]; then
             echo "sync-dev-kit.sh: $APPLY_FILE has no destination because $dest_key is empty in .claude/sync-substitutions.json" >&2
         else
             echo "sync-dev-kit.sh: no destination mapping for $APPLY_FILE" >&2

@@ -4,6 +4,11 @@
 # against its parent. Runs against a real origin; gh is a fake that answers from
 # FAKE_* and records every call.
 set -uo pipefail
+# changed-roots.sh sits in the terraform skill beside this one; in the kit's own
+# .claude/, which does not carry that skill, it is read from the kit source.
+CHANGED_ROOTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../terraform/scripts/changed-roots.sh"
+[ -f "$CHANGED_ROOTS" ] || CHANGED_ROOTS="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev/null)/_claude-project/skills/terraform/scripts/changed-roots.sh"
+[ -f "$CHANGED_ROOTS" ] || { echo "FAIL changed-roots.sh not found"; exit 1; }
 O="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/open-pr.sh"
 fail=0
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
@@ -81,5 +86,25 @@ git config branch.feat/stacked2.gitflow-parent feat/handed
 FAKE_PARENT_STATE=MERGED open; rc=$?
 { [ "$rc" -eq 0 ] && grep -q -- "pr create .*--base main" "$FAKE_LOG" && [ -z "$(git config branch.feat/stacked2.gitflow-parent)" ]; } \
     && ok "once the parent merged, it opens against main and forgets the parent" || bad "stacked merged parent (rc=$rc): $(cat "$FAKE_LOG")"
+
+# ─── Org repo: a Terraform PR carries a plan for every root it changes ─────
+git checkout -q main
+mkdir -p .claude/skills/terraform/scripts infra/terraform/shared
+cp "$CHANGED_ROOTS" .claude/skills/terraform/scripts/
+printf '{"GEMINI_NOT_INSTALLED":"true","REPO_KIND":"org"}\n' > .claude/sync-substitutions.json
+printf 'terraform {}\n' > infra/terraform/shared/main.tf; touch infra/terraform/shared/.terraform.lock.hcl
+git add -A; git commit -qm org; git push -q origin main
+git checkout -q -b infra/bucket
+printf 'resource "x" "y" {}\n' >> infra/terraform/shared/main.tf; git add -A; git commit -qm "feat: bucket"
+open; rc=$?
+{ [ "$rc" -eq 14 ] && grep -q "no plan for: shared" "$tmp/out" && ! grep -q "pr create" "$FAKE_LOG"; } \
+    && ok "org repo: a changed root with no plan in the body is refused before the push" || bad "org no plan (rc=$rc): $(cat "$tmp/out")"
+: > "$FAKE_LOG"; PATH="$tmp/bin:$PATH" "$O" --title "✨ feat: x" --body "$(printf 'Adds a bucket.\n\n<!-- plan:shared -->\n```text\ncreate x.y\n```\n<!-- /plan:shared -->')" >"$tmp/out" 2>&1; rc=$?
+{ [ "$rc" -eq 0 ] && grep -q "pr create" "$FAKE_LOG"; } \
+    && ok "org repo: with every root's plan in the body, it opens" || bad "org with plan (rc=$rc): $(cat "$tmp/out")"
+git checkout -q main; git checkout -q -b docs/overview
+printf 'docs\n' > notes.md; git add -A; git commit -qm "docs: notes"
+open; rc=$?
+[ "$rc" -eq 0 ] && ok "org repo: a branch changing no root needs no plan" || bad "org docs branch (rc=$rc): $(cat "$tmp/out")"
 
 exit "$fail"

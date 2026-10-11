@@ -138,6 +138,32 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
     exit 3
 fi
 
+# ─── Org repo: every changed Terraform root carries its plan ───────────────
+# /deploy applies a Terraform PR only when its fresh plan matches the one the PR
+# shows, so a PR missing a root's plan could never deploy. Refused here, before the
+# push. The command writes each block with plan-summary.sh --block.
+REPO_KIND_VALUE=$(jq -r '.REPO_KIND // ""' .claude/sync-substitutions.json 2>/dev/null || echo "")
+if [ "$REPO_KIND_VALUE" = "org" ]; then
+    CHANGED_ROOTS_SH=".claude/skills/terraform/scripts/changed-roots.sh"
+    if [ ! -f "$CHANGED_ROOTS_SH" ]; then
+        echo "open-pr.sh: this is an org repo but $CHANGED_ROOTS_SH is missing — sync the kit." >&2
+        exit 14
+    fi
+    if ! ROOTS=$(bash "$CHANGED_ROOTS_SH" "$BASE"); then
+        exit 14
+    fi
+    MISSING=""
+    while IFS= read -r root; do
+        [ -z "$root" ] && continue
+        printf '%s\n' "$BODY" | grep -qxF "<!-- plan:$root -->" || MISSING="$MISSING $root"
+    done <<< "$ROOTS"
+    if [ -n "$MISSING" ]; then
+        echo "open-pr.sh: the PR body has no plan for:$MISSING" >&2
+        echo "  Plan each root and add its block: .claude/skills/terraform/scripts/plan-summary.sh --block <root> <plan file>" >&2
+        exit 14
+    fi
+fi
+
 # ─── Code-complete gate ────────────────────────────────────────────────────
 # Before the push, so a refusal leaves nothing half-done.
 if [ -n "$COMPLETE_ISSUES" ] && ! validate_complete_issues "$COMPLETE_ISSUES" "$CURRENT_BRANCH"; then

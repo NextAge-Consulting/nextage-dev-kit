@@ -18,3 +18,13 @@
 #     !apps/<pkg>/.env.production
 # Never by glob — `!apps/<pkg>/.env.*` also un-ignores `.env.local` there,
 # which is exactly where a real secret lands.
+
+# Terraform — the provider cache is hundreds of MB per root, and state files and
+# saved plans hold every value Terraform manages in plain text. State lives in the
+# account's state bucket, never on disk. .terraform.lock.hcl IS tracked.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+# The scratch root the terraform skill generates adoption code in.
+infra/terraform/scratch-adopt/

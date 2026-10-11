@@ -69,8 +69,12 @@
 #   - HEAD's required check-runs are not 'failure' (read-only snapshot,
 #     not a wait — see /merge for pre-merge wait logic)
 #   - Commits exist since the last v* tag (nothing to deploy otherwise)
+#   - Every `Needs <org-repo>#N` named in this release's commits is live: the org
+#     PR merged, or the org issue closed as completed (org-repo-cheatsheet.md)
 #   - No UI awaiting the human's approval: the ui-patterns status check passes
 #     (rules/ui-design.md, "One app, one look and feel")
+#
+# In an org repo (REPO_KIND=org) none of this applies: deploy-org.sh takes over.
 #
 # --check-only: runs all gates without mutating, exits 0 if clean.
 #
@@ -168,6 +172,9 @@
 #      (check-ui-status.mjs) — checked as a state gate before any mutation
 #  23  promote: no such release tag on origin
 #  24  promote: the promotion succeeded but the GitHub Release was not created
+#  25  a PR in this release names `Needs <org-repo>#N` and that org PR is not
+#      merged (or that org issue not closed as completed), or GitHub could not
+#      say — checked as a state gate before any mutation
 #
 # ─── Recovery ────────────────────────────────────────────────────────────
 # The bump commit and the push to main happen together (steps 3–4). If the
@@ -190,6 +197,12 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=_claude-project/skills/gitflow/scripts/issue_helpers.sh
 source "$SCRIPT_DIR/issue_helpers.sh"
+
+# An org repo has no release to cut: /deploy there applies the branch's Terraform PR
+# and merges it (deploy-org.sh, org-repo-cheatsheet.md).
+if [ "$(jq -r '.REPO_KIND // ""' .claude/sync-substitutions.json 2>/dev/null || true)" = "org" ]; then
+    exec "$SCRIPT_DIR/deploy-org.sh" "$@"
+fi
 
 LEVEL=""
 CHANGELOG_FILE=""
@@ -580,6 +593,35 @@ if [ -n "$LAST_TAG" ]; then
     fi
 fi
 
+# --- Infrastructure this release needs is live ---------------------------
+# A PR whose code needs an org-repo change names it in its body
+# (`Needs <owner>/<repo>#N`), and the squash commit carries that body here. N is the
+# org PR, or the org issue the project filed. The org repo merges a PR only after
+# applying it, and that merge closes its issue, so a merged PR, or an issue closed
+# as completed, means live.
+NEEDS_RANGE="${LAST_TAG:+${LAST_TAG}..}HEAD"
+NEEDS=$(git log "$NEEDS_RANGE" --pretty=%B \
+    | grep -oE 'Needs [A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[0-9]+' \
+    | sed 's/^Needs //' | sort -u || true)
+for ref in $NEEDS; do
+    NEED_REPO="${ref%#*}"; NEED_NUM="${ref##*#}"
+    if ! NEED_STATE=$(gh api "repos/${NEED_REPO}/issues/${NEED_NUM}" \
+            --jq 'if .pull_request then (if .pull_request.merged_at then "merged" else "PR \(.state)" end)
+                  elif .state == "closed" and .state_reason == "completed" then "merged"
+                  else "issue \(.state)" end' 2>&1); then
+        echo "deploy.sh: this release needs $ref, and GitHub could not say whether it is live:" >&2
+        echo "  $NEED_STATE" >&2
+        echo "  Refusing to deploy code whose infrastructure may not exist." >&2
+        exit 25
+    fi
+    if [ "$NEED_STATE" != "merged" ]; then
+        echo "deploy.sh: this release needs $ref ($NEED_STATE) — its infrastructure is not live yet." >&2
+        echo "  /deploy that change in its org repo first, then deploy this." >&2
+        exit 25
+    fi
+    echo "gitflow: needs $ref — live." >&2
+done
+
 # --- UI status: nothing the human has not approved ships ----------------
 # Pending components, patterns and tokens are built but not yet reviewed; they
 # may live on main, never in production.
@@ -599,7 +641,7 @@ fi
 # --- Check-only: state gates pass, exit without mutating ----------------
 
 if [ "$CHECK_ONLY" -eq 1 ]; then
-    echo "deploy.sh: state gates OK (on main, clean, in-sync, checks green, UI approved, ${COMMITS_SINCE:-?} commits since ${LAST_TAG:-no-tag})" >&2
+    echo "deploy.sh: state gates OK (on main, clean, in-sync, checks green, infrastructure live, UI approved, ${COMMITS_SINCE:-?} commits since ${LAST_TAG:-no-tag})" >&2
     exit 0
 fi
 

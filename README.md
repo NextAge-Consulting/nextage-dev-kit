@@ -203,6 +203,7 @@ The `project/` subfolder is created automatically by `/sync-dev-kit` if it doesn
 | `analysis` | Written analyses packaged to share and discuss, pulled back with `/work --discussion` |
 | `dependency-triage` | The weekly dependency and vulnerability pass |
 | `dev-server` | Routes dev-server requests to `/dev` |
+| `terraform` | AWS changes as Terraform in the organization's org repo: asking for infrastructure from a project, plan and deploy, adopting, the infrastructure docs |
 | `rule-authoring` | How a rule is written so that it binds |
 
 ## Commands

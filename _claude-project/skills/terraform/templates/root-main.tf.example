@@ -1,0 +1,41 @@
+# The top of every Terraform root in the org repo. Copy to
+# infra/terraform/<root path>/main.tf and fill in the <placeholders> from org-map.md
+# and .claude/sync-substitutions.json.
+
+terraform {
+  required_version = ">= 1.11"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
+    }
+  }
+
+  # The org's state bucket, one key per root. S3 locks the state itself.
+  backend "s3" {
+    bucket       = "<org>-tfstate-<account id>"
+    key          = "<root path>/terraform.tfstate"
+    region       = "<state bucket region>"
+    encrypt      = true
+    use_lockfile = true
+  }
+}
+
+provider "aws" {
+  region              = "<region>"
+  allowed_account_ids = ["<account id>"]
+
+  # Tag values allow letters, digits, spaces and + - = . _ : / @ only.
+  default_tags {
+    tags = {
+      Project   = "<project, or shared, or legacy-system>"
+      ManagedBy = "Terraform in <owner>/<org>-org infra/terraform/<root path> - console changes are reverted"
+    }
+  }
+}
+
+# A value another root owns, read from the name org-map.md lists.
+# data "aws_ssm_parameter" "https_listener" {
+#   name = "/org/lb/<name>/https-listener-arn"
+# }

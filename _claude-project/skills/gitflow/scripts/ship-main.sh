@@ -85,6 +85,20 @@ fi
 # against it; the fold itself waits until they have all passed.
 FOLD_BASE=$(checkpoint_fold_base)
 
+# --- Org repo: Terraform reaches main only through /deploy ----------------
+# /deploy applies a Terraform PR before merging it, so main holds only what is
+# live. Terraform shipped straight to main would be code nobody applied.
+if [ "$(jq -r '.REPO_KIND // ""' .claude/sync-substitutions.json 2>/dev/null || true)" = "org" ]; then
+    if ! ORG_ROOTS=$(bash .claude/skills/terraform/scripts/changed-roots.sh "$FOLD_BASE" 2>/dev/null); then
+        echo "ship-main.sh: could not tell whether this change touches Terraform — nothing was shipped." >&2
+        exit 14
+    fi
+    if [ -n "$ORG_ROOTS" ]; then
+        echo "ship-main.sh: this change touches Terraform ($(printf '%s' "$ORG_ROOTS" | tr '\n' ' ')) — in an org repo that goes through /open-pr and /deploy, which applies it before it reaches main. Nothing was shipped." >&2
+        exit 14
+    fi
+fi
+
 # Typecheck, biome, knip and semgrep — gates.sh holds each gate and why it is shaped
 # the way it is. Only the typecheck honours --skip-typecheck. Biome, knip and
 # semgrep always run: this commits straight to main, so a finding that slips
@@ -94,6 +108,7 @@ run_typecheck_gate "$SKIP_TYPECHECK" "shipping to main (or --skip-typecheck for 
 run_biome_gate "shipping to main" || exit $?
 run_knip_gate "shipping to main" || exit $?
 run_semgrep_gate "$FOLD_BASE" "shipping to main" || exit $?
+run_terraform_gate "$FOLD_BASE" "shipping to main" || exit $?
 run_project_gate "$FOLD_BASE" "shipping to main" || exit $?
 
 # Rule-prose review: every rule, skill, command or pattern reference changed since

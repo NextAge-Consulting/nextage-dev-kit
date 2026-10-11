@@ -71,8 +71,14 @@ secrets. The parts that are yours:
   pattern. (`pipeline.md` §2.7)
 - **The servers.** `infrastructure.md` is how the box under an app is normally built: a
   load balancer in front, nginx and containers behind it, health checks, logs, and what
-  gets forgotten on the second box. `infrastructure-terraform.md` is how to own it as
-  Terraform, so Test and Prod come from one reviewed definition.
+  gets forgotten on the second box. `infrastructure-terraform.md` is how every piece of it
+  is owned as Terraform, so Test and Prod come from one reviewed definition and a change
+  shows its blast radius before it runs.
+- **The org repo.** Every organization has one per AWS account: all of its Terraform, the
+  org map of who owns what and what crosses between projects, and the infrastructure docs —
+  the org overview linking down to each project's. Projects hold no Terraform; they ask for
+  infrastructure with an issue on it. A new organization gets one before any project builds
+  in it (`infrastructure-terraform.md`, commands in `org-repo-cheatsheet.md`).
 - **Backups.** `db-backup-pattern.md` gives a daily offsite copy of the database with a
   monitor that alarms when a backup doesn't arrive.
 - **The review bot and the board.** `gemini-code-review-setup.md` and

@@ -16,9 +16,11 @@ $ARGUMENTS
 
 ## Procedure
 
-### Step 1: Confirm this is genuinely a direct-to-main change
+### Step 1: Ask before shipping code
 
-If there's any doubt it's a deliberate exception (it looks like feature work, or the user said "commit" not "ship to main"), STOP and use `/commit` instead. Direct-to-main skips CI and review — only proceed when the user explicitly wants that.
+Whether a change goes straight to main is the developer's call — never switch to `/commit` on your own. When the change touches application code — the source the app is built from or runs, the kind of change a code reviewer like Gemini would review — ask, and wait: "This appears to contain code that should go through a PR — are you sure?" Yes → continue. No → stop; the developer picks the next step. Docs, kit files, CI and review configuration (`.github/`, `.gemini/`), Docker and build files are not application code.
+
+In an org repo the script refuses a change touching Terraform outright (exit 14): it reaches main only through `/open-pr` and `/deploy`, which apply it.
 
 ### Step 2: Compose a conventional commit message
 
