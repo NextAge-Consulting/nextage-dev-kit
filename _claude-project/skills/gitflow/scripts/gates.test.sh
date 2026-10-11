@@ -20,7 +20,7 @@ has(){ # has <pattern> <label> — the last gate's stderr contains the pattern
 
 # The sandbox: only the tools the gates need, so a missing checker is really missing.
 SANDBOX="$tmp/sandbox"; mkdir -p "$SANDBOX"
-for tool in bash git jq sed sort mktemp rm grep tr tail head cat dirname env; do
+for tool in bash git jq sed sort mktemp rm grep tr tail head cat dirname env awk; do
   ln -s "$(command -v "$tool")" "$SANDBOX/$tool"
 done
 STUBS="$tmp/stubs"; mkdir -p "$STUBS"
@@ -206,6 +206,25 @@ t 4 "$(gate run_terraform_gate "$BASE" "shipping to main")" 'unformatted: fails'
 has 'infra/terraform/prod/main.tf' '…replaying what terraform reported'
 has 'Fix before shipping to main' '…naming the action'
 t 4 "$(gate run_terraform_gate no-such-ref committing)" 'a base git cannot diff against fails'
+
+echo "terraform lock:"
+new_repo
+lock(){ # lock <path> <h1 count>
+  mkdir -p "$(dirname "$1")"
+  { echo 'provider "registry.terraform.io/hashicorp/aws" {'; echo '  version = "6.68.0"'; echo '  hashes = ['
+    i=0; while [ "$i" -lt "$2" ]; do echo "    \"h1:abc$i=\","; i=$((i + 1)); done
+    echo '    "zh:def",'; echo '  ]'; echo '}'; } > "$1"; }
+t 0 "$(gate run_terraform_lock_gate "$BASE" committing)" 'no changed lock file: passes'
+has 'no changed .terraform.lock.hcl' '…and says so'
+lock infra/terraform/prod/.terraform.lock.hcl 3
+t 0 "$(gate run_terraform_lock_gate "$BASE" committing)" 'a lock with every platform: passes'
+has '1 changed lock file(s), locked for every platform' '…counting it'
+lock infra/terraform/prod/.terraform.lock.hcl 1
+lock infra/terraform/prod/.terraform/x/.terraform.lock.hcl 1
+t 4 "$(gate run_terraform_lock_gate "$BASE" "shipping to main")" 'a lock from one Mac: fails'
+has 'infra/terraform/prod/.terraform.lock.hcl' '…naming the file'
+has 'terraform -chdir=infra/terraform/prod providers lock -platform=linux_amd64' '…and the command that fixes it'
+grep -q '.terraform/x' "$tmp/err" && { echo "  ✗ FAIL — a .terraform/ copy was checked"; fail=1; } || echo "  ✓ …and nothing under .terraform/ is checked"
 
 echo "project gate:"
 new_repo

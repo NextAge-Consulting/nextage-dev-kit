@@ -92,7 +92,7 @@ Say you are working in a project and it needs an S3 bucket for uploads.
    and a plain-words summary: "adds a bucket and one permission; changes nothing else."
    CI checks the code.
 5. **`/deploy`** makes it real: it waits for green CI, re-plans, applies only if the plan
-   still does exactly what the PR showed, regenerates the reference, and merges. The
+   still does exactly what the PR showed, merges, and commits the regenerated reference. The
    org repo's main branch only ever holds what is live.
 6. **Back in the project**, its `/deploy` refuses until the org change it needs is live,
    then ships the code that uses the bucket.
@@ -109,8 +109,9 @@ Say you are working in a project and it needs an S3 bucket for uploads.
   shows on the resource's console page, so the person about to click sees that the change
   will be reverted.
 - **No value a person sets goes in Terraform.** Everything Terraform sets is stored in plain text in
-  its state. Parameter Store values are put in with `aws ssm put-parameter` and access keys
-  created with `aws iam create-access-key`; Terraform creates only who may read them.
+  its state. Parameter Store values are put in with `aws ssm put-parameter`, and an app's access key
+  is made with the terraform skill's `aws-key.sh`, straight into Parameter Store; Terraform
+  creates only who may read them.
 - **One owner per resource.** A resource two roots both manage is overwritten by whichever
   applied last. The skill lists the resource types that do this silently.
 
@@ -138,7 +139,7 @@ While an org repo is first being set up, its setup issue is the record of everyt
 
 ## The checks
 
-- **The commit precheck** runs `terraform fmt -check` on every changed `.tf` file.
+- **The commit precheck** runs `terraform fmt -check` on every changed `.tf` file, and refuses a changed `.terraform.lock.hcl` that is not locked for CI's Linux and the developers' Macs — `tf.sh` locks all three after every `init`.
 - **CI on the PR is the real gate**: `terraform fmt -check` across the repository and
   `terraform validate` in each root, with no credentials, plus semgrep.
 - **Semgrep** findings worth knowing:

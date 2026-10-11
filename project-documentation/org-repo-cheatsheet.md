@@ -34,8 +34,9 @@ of what is added, changed and destroyed. CI on the PR is the real gate.
 2. re-plans each changed root, and stops — applying nothing — if any plan no longer does
    exactly what the PR shows;
 3. applies;
-4. regenerates the infrastructure reference onto the PR;
-5. merges — the org repo's main branch only ever holds what is live;
+4. merges — the org repo's main branch only ever holds what is live;
+5. commits the regenerated infrastructure reference straight to main, like a release's
+   changelog;
 6. moves the issues the PR closes to the deploy column, like every `/deploy`.
 
 **`/merge` refuses** in an org repo: Terraform lands through `/deploy`.
@@ -50,12 +51,14 @@ org setup, and ships the way both flows do, each exactly as above or as in
 `gitflow-cheatsheet.md`:
 
 - **`/open-pr`** plans any Terraform the branch changes, and opens as usual when there is none.
-- **`/deploy` on a PR branch** applies that PR's Terraform and merges it. **`/deploy` on main**
-  releases the app.
+- **`/deploy` on a PR branch** applies that PR's Terraform and merges it — then, when the PR
+  also changes the app, releases it from main in the same run. **`/deploy` on main** releases
+  the app.
 - **`/merge`** refuses only a PR that changes Terraform; every other PR merges as usual.
 
-A change that touches both lands in one PR: `/deploy` from the branch applies and merges,
-then `/deploy` from main releases the code.
+A change that touches both lands in one PR and ships with one `/deploy` from its branch:
+apply, merge, release. The release starts only after the apply and the merge both
+succeeded. A PR changing only Terraform and docs cuts no release.
 
 ## When `/deploy` stops
 
@@ -67,6 +70,7 @@ then `/deploy` from main releases the code.
 | Main has moved since the branch | Another change landed first | `/catchup`, re-plan, update the PR's plans, `/deploy` |
 | The PR targets another branch | It is stacked on an unmerged PR | `/deploy` that PR first |
 | The merge did not finish | Applied, not merged | Fix the cause, `/deploy` again — it only merges |
+| The reference did not reach main | Applied and merged; the doc is stale | Fix the cause, run `gen-reference.sh`, then `/ship-main` |
 | No Terraform root changed | The PR is docs only | `/ship-main` |
 | The access-and-change procedure is not written | This org keeps an audit trail (`ORG_AUDIT`) | Write it, then `/deploy` |
 | Needs approval from another reviewer | This org requires a second person (`ORG_DEPLOY_APPROVAL`) | Get the approval on the PR, then `/deploy` |

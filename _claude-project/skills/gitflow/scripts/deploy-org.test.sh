@@ -15,12 +15,22 @@ bad() { echo "FAIL $1"; fail=1; }
 bin="$tmp/scripts"; mkdir -p "$bin"
 cp "$D/deploy-org.sh" "$D/repo_kind.sh" "$bin/"
 printf '#!/bin/bash\necho wait >> "%s/calls"; exit "${FAKE_CI:-0}"\n' "$tmp" > "$bin/wait-for-pr-ready.sh"
-printf '#!/bin/bash\necho "merge GITFLOW_ORG_DEPLOY=$GITFLOW_ORG_DEPLOY $*" >> "%s/calls"\nexit "${FAKE_MERGE:-0}"\n' "$tmp" > "$bin/merge.sh"
+# merge.sh stub: a successful merge leaves the checkout on main at origin's tip, as
+# merge.sh does; where it stood is saved so back() can undo the run.
+cat > "$bin/merge.sh" <<STUB
+#!/bin/bash
+echo "merge GITFLOW_ORG_DEPLOY=\$GITFLOW_ORG_DEPLOY \$*" >> "$tmp/calls"
+[ "\${FAKE_MERGE:-0}" = 0 ] || exit "\$FAKE_MERGE"
+git branch --show-current > "$tmp/was.branch"; git rev-parse origin/main > "$tmp/was.main"
+git checkout -q main && git merge -q --ff-only origin/main
+STUB
+printf '#!/bin/bash\necho "release $*" >> "%s/calls"\n' "$tmp" > "$bin/deploy.sh"
 printf 'move_issue_to_deployed() { echo "board deployed $1" >> "%s/calls"; }\n' "$tmp" > "$bin/issue_helpers.sh"
 chmod +x "$bin"/*.sh
 
 mkdir -p "$tmp/fake"
 printf '#!/bin/bash\nexit 0\n' > "$tmp/fake/terraform"
+printf '#!/bin/bash\nexit 0\n' > "$tmp/fake/dot"
 cat > "$tmp/fake/gh" <<'GH'
 #!/bin/bash
 case "$*" in
@@ -29,7 +39,7 @@ case "$*" in
   *) exit 0 ;;
 esac
 GH
-chmod +x "$tmp/fake/terraform" "$tmp/fake/gh"
+chmod +x "$tmp/fake/terraform" "$tmp/fake/dot" "$tmp/fake/gh"
 
 git init -q --bare -b main "$tmp/origin.git"
 git clone -q "$tmp/origin.git" "$tmp/work" 2>/dev/null
@@ -48,7 +58,7 @@ case "\$1" in
   apply) echo "apply \$root" >> "$tmp/calls"; [ "\$root" = "\${FAKE_FAIL_APPLY:-}" ] && exit 1; exit 0 ;;
 esac
 STUB
-printf '#!/bin/bash\nmkdir -p project-documentation; date > project-documentation/infrastructure-reference.md\n' > .claude/skills/terraform/scripts/gen-reference.sh
+printf '#!/bin/bash\n[ -n "${FAKE_REF_FAIL:-}" ] && exit 1\nmkdir -p project-documentation; echo $RANDOM$RANDOM > project-documentation/infrastructure-reference.md\n' > .claude/skills/terraform/scripts/gen-reference.sh
 chmod +x .claude/skills/terraform/scripts/*.sh
 for r in shared projects/web/prod; do printf 'terraform {}\n' > "infra/terraform/$r/main.tf"; touch "infra/terraform/$r/.terraform.lock.hcl"; done
 printf '*.tfplan\n' > .gitignore
@@ -61,8 +71,10 @@ git add -A; git commit -qm "feat: bucket"; git push -q -u origin infra/bucket 2>
 export FAKE_BODY="$tmp/body.md"
 printf 'Closes #7\n\nAdds a bucket.\n\n<!-- plan:projects/web/prod -->\n```text\ncreate aws_s3_bucket.b\n```\n<!-- /plan:projects/web/prod -->\n' > "$FAKE_BODY"
 export FAKE_PLAN_projects_web_prod='[{"address":"aws_s3_bucket.b","change":{"actions":["create"]}}]'
-run(){ : > "$tmp/calls"; PATH="$tmp/fake:$PATH" bash "$bin/deploy-org.sh" >"$tmp/out" 2>&1; echo $?; }
+run(){ : > "$tmp/calls"; PATH="$tmp/fake:$PATH" bash "$bin/deploy-org.sh" "$@" >"$tmp/out" 2>&1; echo $?; }
 called(){ grep -qx -- "$1" "$tmp/calls"; }
+# Undo a run that merged: origin's main and the checkout go back to where they were.
+back(){ git push -qf origin "$(cat "$tmp/was.main"):main"; git checkout -q "$(cat "$tmp/was.branch")"; git branch -qf main "$(cat "$tmp/was.main")"; }
 
 [ "$(FAKE_NO_PR=1 run)" = 9 ] && ok "no open PR: refused" || bad "no PR: $(cat "$tmp/out")"
 [ "$(FAKE_CI=2 run)" = 11 ] && ! grep -q '^plan' "$tmp/calls" && ok "CI not green: refused before any plan" || bad "CI red: $(cat "$tmp/calls"; cat "$tmp/out")"
@@ -76,13 +88,21 @@ rc=$(run)
   && called "merge GITFLOW_ORG_DEPLOY=1 --pr 5 --base main"; } \
     && ok "a matching plan: only the changed root applied, then merged through /deploy's door" || bad "happy path (rc=$rc): $(cat "$tmp/calls"; cat "$tmp/out")"
 called "board deployed 7" && ok "…and the issue it closes moves to the deploy status" || bad "board move: $(cat "$tmp/calls")"
-git log -1 --pretty=%s | grep -q "regenerate the infrastructure reference" && [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/infra/bucket)" ] \
-    && ok "…the regenerated reference committed onto the PR's branch and pushed" || bad "reference commit: $(git log -1 --pretty=%s)"
+git fetch -q origin
+{ git log -1 --pretty=%s origin/main | grep -q "regenerate the infrastructure reference" \
+  && ! git log -1 --pretty=%s origin/infra/bucket | grep -q "regenerate"; } \
+    && ok "…the regenerated reference committed straight to main after the merge, not onto the branch" || bad "reference commit: $(git log -1 --pretty=%s origin/main)"
+back
 [ ! -f infra/terraform/projects/web/prod/deploy.tfplan ] && ok "…and no plan file left behind" || bad "plan file left"
 
 FAKE_PLAN_projects_web_prod='[]' rc=$(FAKE_MERGE=0 run)
 { [ "$rc" = 0 ] && ! called "apply projects/web/prod" && called "merge GITFLOW_ORG_DEPLOY=1 --pr 5 --base main" && grep -q "already live" "$tmp/out"; } \
     && ok "a re-run after the apply: the root plans to nothing, is not re-applied, and the PR merges" || bad "already live (rc=$rc): $(cat "$tmp/calls"; cat "$tmp/out")"
+back
+rc=$(FAKE_REF_FAIL=1 run)
+{ [ "$rc" = 29 ] && called "board deployed 7" && grep -q "gen-reference.sh and /ship-main" "$tmp/out"; } \
+    && ok "the reference cannot be regenerated after the merge: the board still moves, exit 29 names how to finish" || bad "reference fails (rc=$rc): $(cat "$tmp/calls"; cat "$tmp/out")"
+back
 rc=$(FAKE_MERGE=23 run)
 { [ "$rc" = 23 ] && grep -q "run /deploy again" "$tmp/out" && ! called "board deployed 7"; } \
     && ok "a merge that fails after the apply: its exit code, how to finish, and no board move" || bad "merge fails (rc=$rc): $(cat "$tmp/out")"
@@ -108,8 +128,10 @@ git add -A; git commit -qm "docs: procedure"; git push -q origin infra/audit
 rc=$(FAKE_REVIEW=REVIEW_REQUIRED run)
 { [ "$rc" = 33 ] && ! grep -q '^plan' "$tmp/calls" && grep -q "REVIEW_REQUIRED" "$tmp/out"; } \
     && ok "approval required and not given: refused before any plan, naming the review state" || bad "approval missing (rc=$rc): $(cat "$tmp/out")"
-rc=$(FAKE_REVIEW=APPROVED run)
+rc=$(FAKE_REVIEW=APPROVED run --level patch)
 { [ "$rc" = 0 ] && called "apply shared"; } && ok "approved by another reviewer: applied and merged" || bad "approved (rc=$rc): $(cat "$tmp/out")"
+back
+! grep -q '^release' "$tmp/calls" && ok "…and an org repo never cuts an app release" || bad "org released: $(cat "$tmp/calls")"
 unset FAKE_PLAN_shared
 
 git checkout -q main; printf 'm\n' > moved.txt; git add -A; git commit -qm "chore: main moves"; git push -q origin main
@@ -135,5 +157,44 @@ printf 'dirty\n' >> notes.md
 git checkout -q -- notes.md
 git checkout -q main
 [ "$(run)" = 3 ] && ok "on main: refused" || bad "on main: $(cat "$tmp/out")"
+
+# ─── Combo: a PR that also changes the app is released after the merge ──────
+git checkout -q -b feat/app-and-bucket
+printf '{"REPO_KIND":"combo"}\n' > .claude/sync-substitutions.json
+printf 'resource "aws_s3_bucket" "d" {}\n' >> infra/terraform/projects/web/prod/main.tf
+mkdir -p src; printf 'app\n' > src/app.ts
+git add -A; git commit -qm "feat: app and bucket"; git push -q -u origin feat/app-and-bucket 2>/dev/null
+printf 'Closes #12\n\n<!-- plan:projects/web/prod -->\n```text\ncreate aws_s3_bucket.d\n```\n<!-- /plan:projects/web/prod -->\n' > "$FAKE_BODY"
+export FAKE_PLAN_projects_web_prod='[{"address":"aws_s3_bucket.d","change":{"actions":["create"]}}]'
+rc=$(run --check-only)
+{ [ "$rc" = 2 ] && ! grep -q '^plan' "$tmp/calls" && ! grep -q '^merge' "$tmp/calls"; } \
+    && ok "combo, --check-only on a PR branch: refused before any plan, nothing applied" || bad "check-only (rc=$rc): $(cat "$tmp/calls"; cat "$tmp/out")"
+rc=$(run --level minor --changelog-file "$tmp/missing.md")
+{ [ "$rc" = 2 ] && ! grep -q '^plan' "$tmp/calls" && grep -q "not found" "$tmp/out"; } \
+    && ok "combo, a changelog file that does not exist: refused before any plan" || bad "missing changelog (rc=$rc): $(cat "$tmp/out")"
+printf -- '- entry\n' > "$tmp/cl.md"
+rc=$(run --level minor --changelog-file "$tmp/cl.md")
+{ [ "$rc" = 0 ] && called "apply projects/web/prod" && called "release --level minor --changelog-file $tmp/cl.md" \
+  && [ "$(grep -n '^merge' "$tmp/calls" | cut -d: -f1)" -lt "$(grep -n '^release' "$tmp/calls" | cut -d: -f1)" ]; } \
+    && ok "combo, app and Terraform: applied, merged, then released with the arguments given" || bad "combo release (rc=$rc): $(cat "$tmp/calls"; cat "$tmp/out")"
+! called "board deployed 12" && ok "…the board move left to the release" || bad "combo board moved twice: $(cat "$tmp/calls")"
+back
+rc=$(FAKE_REF_FAIL=1 run --level minor --changelog-file "$tmp/cl.md")
+{ [ "$rc" = 29 ] && ! grep -q '^release' "$tmp/calls" && grep -q "release it with /deploy on main once the reference is on main" "$tmp/out"; } \
+    && ok "combo, the reference fails after the merge: no release, and how to finish named" || bad "combo ref fail (rc=$rc): $(cat "$tmp/calls"; cat "$tmp/out")"
+back
+rc=$(run)
+{ [ "$rc" = 0 ] && ! grep -q '^release' "$tmp/calls" && grep -q "release it with /deploy on main" "$tmp/out"; } \
+    && ok "combo, app change, no release arguments: stops after the merge and says to /deploy on main" || bad "combo no args (rc=$rc): $(cat "$tmp/out")"
+back
+rc=$(FAKE_FAIL_APPLY=projects/web/prod run --level minor)
+{ [ "$rc" = 28 ] && ! grep -q '^merge' "$tmp/calls" && ! grep -q '^release' "$tmp/calls"; } \
+    && ok "combo, apply fails: nothing merged and nothing released" || bad "combo apply fail (rc=$rc): $(cat "$tmp/calls")"
+rc=$(FAKE_MERGE=23 run --level minor)
+{ [ "$rc" = 23 ] && ! grep -q '^release' "$tmp/calls"; } && ok "combo, merge fails: nothing released" || bad "combo merge fail (rc=$rc): $(cat "$tmp/calls")"
+git rm -q src/app.ts; printf 'doc\n' > README.md; git add -A; git commit -qm "docs: readme"; git push -q origin feat/app-and-bucket
+rc=$(run --level minor)
+{ [ "$rc" = 0 ] && ! grep -q '^release' "$tmp/calls" && called "board deployed 12"; } \
+    && ok "combo, Terraform and docs only: no release, and the issue moves" || bad "combo tf-only (rc=$rc): $(cat "$tmp/calls"; cat "$tmp/out")"
 
 exit "$fail"

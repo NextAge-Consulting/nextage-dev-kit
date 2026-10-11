@@ -291,6 +291,64 @@ run_terraform_gate() {
     echo "gitflow: terraform fmt: ${#files[@]} changed file(s) formatted." >&2
 }
 
+# run_terraform_lock_gate <fold_base> <action>
+#
+# A .terraform.lock.hcl this change touches must be locked for every platform that
+# runs Terraform here — CI's linux_amd64 and the developers' darwin_arm64 and
+# darwin_amd64 — or CI's `init -lockfile=readonly` fails on Linux. A provider locked
+# for all three carries an h1: hash for each; an init on one Mac leaves one. Reads the
+# files only; needs no terraform.
+run_terraform_lock_gate() {
+    local base="$1" action="$2" list err f short bad="" count=0
+    list=$(mktemp)
+    err=$(mktemp)
+    if ! { git diff -z --name-only --diff-filter=d "$base" \
+            && git ls-files -z --others --exclude-standard; } >"$list" 2>"$err"; then
+        echo "" >&2
+        echo "gitflow: the lock-file check cannot list the changed files (git diff against $base failed):" >&2
+        sed 's/^/  /' "$err" >&2
+        echo "  A gate that cannot run must not report success, so this is a failure." >&2
+        rm -f "$list" "$err"
+        return 4
+    fi
+    while IFS= read -r -d '' f; do
+        case "$f" in
+            */.terraform/*|.terraform/*) continue ;;
+            .terraform.lock.hcl|*/.terraform.lock.hcl) ;;
+            *) continue ;;
+        esac
+        [ -f "$f" ] || continue
+        count=$((count + 1))
+        if ! short=$(awk '
+            /^provider "/ { name = $2; gsub(/"/, "", name); h1 = 0; next }
+            /"h1:/        { h1++ }
+            /^}/          { if (name != "" && h1 < 3) print name; name = "" }
+        ' "$f" 2>&1); then
+            echo "" >&2
+            echo "gitflow: could not read $f to check its platforms: $short" >&2
+            echo "  A gate that cannot run must not report success, so this is a failure." >&2
+            return 4
+        fi
+        if [ -n "$short" ]; then bad="$bad $f"; fi
+    done < <(sort -zu "$list")
+    rm -f "$list" "$err"
+
+    if [ "$count" -eq 0 ]; then
+        echo "gitflow: terraform lock: no changed .terraform.lock.hcl." >&2
+        return 0
+    fi
+    if [ -n "$bad" ]; then
+        echo "" >&2
+        echo "gitflow: these lock files are not locked for every platform, so CI on Linux cannot verify them:$bad" >&2
+        for f in $bad; do
+            echo "  Run: terraform -chdir=$(dirname "$f") providers lock -platform=linux_amd64 -platform=darwin_arm64 -platform=darwin_amd64" >&2
+        done
+        echo "  Fix before $action." >&2
+        return 4
+    fi
+    echo "gitflow: terraform lock: $count changed lock file(s), locked for every platform." >&2
+}
+
 # run_project_gate <fold_base> <action>
 #
 # The repository's own checks, beyond the ones every project shares: when

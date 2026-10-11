@@ -5,6 +5,9 @@
 #
 #   .claude/skills/terraform/scripts/gen-reference.sh
 #
+# Each IAM user a root manages is listed with its access keys — id, status and the
+# date it was created, read from IAM, never a secret (aws-key.sh makes them).
+#
 # Writes project-documentation/infrastructure-reference.md and one SVG per root
 # under project-documentation/infrastructure-reference/. Nothing there is edited by
 # hand; the overview a person reads is project-documentation/infrastructure-overview.md.
@@ -16,6 +19,8 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=_claude-project/skills/terraform/scripts/aws-session.sh
+source "$HERE/aws-session.sh"
 TF="$HERE/tf.sh"
 DOC="project-documentation/infrastructure-reference.md"
 IMG_DIR="project-documentation/infrastructure-reference"
@@ -64,6 +69,32 @@ for root in "${ROOTS[@]}"; do
     fi
 done
 
+# Access keys live outside Terraform, so IAM is asked for them directly.
+SESSION=0
+for root in "${ROOTS[@]}"; do
+    key="${root//\//_}"
+    : > "$TMP/$key.keys"
+    while IFS= read -r user; do
+        [ -n "$user" ] || continue
+        if [ "$SESSION" -eq 0 ]; then
+            aws_session gen-reference || exit 1
+            SESSION=1
+        fi
+        if ! aws iam list-access-keys --user-name "$user" --output json > "$TMP/one.json" 2> "$TMP/$key.err"; then
+            cat "$TMP/$key.err" >&2
+            echo "gen-reference: could not list the access keys of $user" >&2
+            exit 1
+        fi
+        if ! jq -r --arg u "$user" '
+              if (.AccessKeyMetadata | length) == 0 then "| `\($u)` | no key | | |"
+              else .AccessKeyMetadata[] | "| `\($u)` | `\(.AccessKeyId)` | \(.Status) | \(.CreateDate[0:10]) |" end
+            ' "$TMP/one.json" >> "$TMP/$key.keys"; then
+            echo "gen-reference: could not read the access keys of $user" >&2
+            exit 1
+        fi
+    done < <(jq -r '[.. | objects | select(.mode? == "managed" and .type? == "aws_iam_user") | .values.name] | sort[]' "$TMP/$key.json")
+done
+
 REPO="$(basename "$(git rev-parse --show-toplevel)")"
 {
     echo "# $REPO infrastructure — engineers' reference"
@@ -88,6 +119,14 @@ REPO="$(basename "$(git rev-parse --show-toplevel)")"
           | "| `\(.address)` | `\(.type)` | `\(.values.arn // .values.id // .values.name // "")` |"
         ' "$TMP/$key.json"
         echo
+        if [ -s "$TMP/$key.keys" ]; then
+            echo "Access keys, made outside Terraform by \`aws-key.sh\` (created dates UTC):"
+            echo
+            echo "| User | Key | Status | Created |"
+            echo "|---|---|---|---|"
+            cat "$TMP/$key.keys"
+            echo
+        fi
     done
 } > "$TMP/reference.md"
 

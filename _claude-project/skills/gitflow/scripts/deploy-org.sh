@@ -4,7 +4,7 @@
 # repo, from a PR branch in a combo repo (repo_kind.sh). Run from the repository root,
 # on the PR's branch:
 #
-#   deploy-org.sh
+#   deploy-org.sh [<deploy.sh release arguments>]
 #
 # In order, and each step stops the run on failure:
 #   1. The branch has an open PR against main, a clean tree, nothing unpushed, and
@@ -17,11 +17,17 @@
 #      other difference — someone changed AWS, another PR landed — stops here with
 #      the difference, before anything is applied.
 #   4. Every root's fresh plan is applied.
-#   5. The infrastructure reference is regenerated from the new state and committed
-#      onto the branch.
-#   6. merge.sh squash-merges the PR, so main only ever holds what is live.
+#   5. merge.sh squash-merges the PR, so main only ever holds what is live.
+#   6. The infrastructure reference is regenerated from the new state and committed
+#      straight to main, as a release commits its changelog — a commit of generated
+#      docs waits on no CI run.
 #   7. The issues the PR closes (its `Closes #N` line) move to the board's deploy
 #      status, as every /deploy moves what it shipped.
+#   8. In a combo repo, a PR that also changes the app — any file outside
+#      infra/terraform/, project-documentation/, .claude/ and Markdown — is released
+#      straight from main by deploy.sh with the arguments this run was given, the same
+#      release /deploy on main cuts. Step 7 is then the release's, not this script's.
+#      With no release arguments, it stops after the merge and says to /deploy on main.
 #
 # Typing /deploy is the person's approval of the plan the PR shows; this script
 # applies nothing else.
@@ -31,13 +37,13 @@
 #   3  on main, or detached HEAD
 #   4  dirty working tree
 #   5  the branch has commits not pushed to origin
-#   8  gh, jq or terraform missing
+#   8  gh, jq, terraform or dot (Graphviz, for the reference) missing
 #   9  no open PR for this branch
 #  11  CI failed, or the readiness wait did not finish
 #  26  a fresh plan differs from the PR's plan — nothing applied
 #  27  a plan could not be made — nothing applied
 #  28  an apply failed — the roots named as applied are live; nothing merged
-#  29  the reference could not be regenerated or committed — applied, not merged
+#  29  applied and merged, but the reference could not be regenerated or pushed to main
 #  30  the PR is stacked on another branch — deploy that one first
 #  31  main has moved since this branch — /catchup, re-plan, update the PR's plans
 #  32  ORG_AUDIT is on and the access-and-change procedure is not written
@@ -55,7 +61,7 @@ source "$SCRIPT_DIR/repo_kind.sh"
 TF_DIR=".claude/skills/terraform/scripts"
 PLAN_NAME="deploy.tfplan"
 
-for tool in gh jq terraform; do
+for tool in gh jq terraform dot; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         echo "deploy-org.sh: $tool is required to deploy an org repo." >&2
         exit 8
@@ -86,6 +92,21 @@ if ! PR_JSON=$(gh pr list --head "$BRANCH" --state open --json number,body,baseR
 fi
 PR_NUMBER=$(jq -r '.number' <<<"$PR_JSON")
 PR_BASE=$(jq -r '.baseRefName' <<<"$PR_JSON")
+RELEASE_ARGS=("$@")
+# A check here would still apply and merge, so there is none; and a release that
+# cannot start must say so before the apply, not after the merge.
+prev=""
+for arg in "$@"; do
+    if [ "$arg" = "--check-only" ]; then
+        echo "deploy-org.sh: on a PR branch /deploy applies and merges — it has no check-only mode. Nothing was run." >&2
+        exit 2
+    fi
+    if [ "$prev" = "--changelog-file" ] && [ ! -f "$arg" ]; then
+        echo "deploy-org.sh: changelog file $arg not found. Nothing was run." >&2
+        exit 2
+    fi
+    prev="$arg"
+done
 BODY_FILE=$(mktemp)
 jq -r '.body' <<<"$PR_JSON" > "$BODY_FILE"
 
@@ -151,6 +172,13 @@ if ! "$SCRIPT_DIR/wait-for-pr-ready.sh" --pr "$PR_NUMBER"; then
     exit 11
 fi
 
+# What else this PR changes decides whether the merge is followed by an app release.
+APP_CHANGED=""
+if repo_holds_app; then
+    APP_CHANGED=$(git diff --name-only "origin/$PR_BASE...HEAD" \
+        | grep -vE '^(infra/terraform/|project-documentation/|\.claude/)|\.md$' || true)
+fi
+
 # ─── Plan every root and compare, before applying any ──────────────────────
 while IFS= read -r root; do
     if ! out=$(bash "$TF_DIR/tf.sh" "$root" init -input=false 2>&1); then
@@ -200,20 +228,6 @@ while IFS= read -r root; do
     ROOTS_DONE+=("$root")
 done <<< "$ROOTS"
 
-# ─── The reference follows the live state, in the same PR ──────────────────
-if ! bash "$TF_DIR/gen-reference.sh" >&2; then
-    echo "deploy-org.sh: applied, but the reference could not be regenerated. Fix it and run gen-reference.sh, then /deploy merges." >&2
-    exit 29
-fi
-if [ -n "$(git status --porcelain -- project-documentation)" ]; then
-    git add -- project-documentation
-    if ! git commit -q -m "📚 docs: regenerate the infrastructure reference" || ! git push -q origin "$BRANCH"; then
-        echo "deploy-org.sh: applied, but the regenerated reference could not be committed and pushed. Nothing was merged." >&2
-        exit 29
-    fi
-    echo "gitflow: regenerated reference pushed to PR #$PR_NUMBER." >&2
-fi
-
 # ─── Land it ───────────────────────────────────────────────────────────────
 echo "gitflow: applied ${ROOTS_DONE[*]} — merging PR #$PR_NUMBER." >&2
 set +e
@@ -224,6 +238,38 @@ if [ "$MERGE_RC" -ne 0 ]; then
     echo "deploy-org.sh: applied ${ROOTS_DONE[*]}, but the merge did not finish (merge.sh exit $MERGE_RC)." >&2
     echo "  Fix the cause above and run /deploy again: the applied roots plan to nothing, so it only merges." >&2
     exit "$MERGE_RC"
+fi
+
+# ─── The reference follows the live state, straight onto main ──────────────
+# merge.sh left this checkout on main at the merged tip.
+REF_FAILED=0
+if ! bash "$TF_DIR/gen-reference.sh" >&2; then
+    REF_FAILED=1
+elif [ -n "$(git status --porcelain -- project-documentation)" ]; then
+    git add -- project-documentation
+    if ! git commit -q --no-verify -m "📚 docs: regenerate the infrastructure reference" || ! git push -q origin main; then
+        REF_FAILED=1
+    else
+        echo "gitflow: regenerated reference pushed to main." >&2
+    fi
+fi
+if [ "$REF_FAILED" -ne 0 ]; then
+    echo "deploy-org.sh: applied and merged, but the infrastructure reference did not reach main — see above." >&2
+    echo "  Fix the cause, then run .claude/skills/terraform/scripts/gen-reference.sh and /ship-main." >&2
+fi
+
+# ─── The app half: a combo PR that changes the app is released from main ────
+if [ -n "$APP_CHANGED" ]; then
+    if [ "$REF_FAILED" -ne 0 ]; then
+        echo "  PR #$PR_NUMBER also changes the app — release it with /deploy on main once the reference is on main." >&2
+        exit 29
+    fi
+    if [ ${#RELEASE_ARGS[@]} -eq 0 ]; then
+        echo "gitflow: applied and merged. PR #$PR_NUMBER also changes the app — release it with /deploy on main." >&2
+        exit 0
+    fi
+    echo "gitflow: applied and merged. PR #$PR_NUMBER also changes the app — releasing it from main." >&2
+    exec "$SCRIPT_DIR/deploy.sh" "${RELEASE_ARGS[@]}"
 fi
 
 # ─── What shipped moves on the board ───────────────────────────────────────
@@ -238,3 +284,4 @@ if [ "$BOARD_FAILED" -ne 0 ]; then
     echo "deploy-org.sh: applied and merged, but the board could not be updated for every shipped issue — see above." >&2
     exit 11
 fi
+[ "$REF_FAILED" -eq 0 ] || exit 29

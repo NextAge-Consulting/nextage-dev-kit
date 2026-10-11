@@ -20,6 +20,6 @@ Each project with infrastructure here links from its README to its org repo's ov
 
 ## The reference
 
-`/deploy` regenerates it with `scripts/gen-reference.sh` after every apply and commits it onto the PR's branch before merging, so it always matches what is live. Never edit it by hand. Run the script yourself only to rebuild it outside a deploy, from the repository root.
+`/deploy` regenerates it with `scripts/gen-reference.sh` after every apply and commits it straight to main once the PR has merged, so it always matches what is live. Never edit it by hand. Run the script yourself only to rebuild it outside a deploy, from the repository root.
 
 The script reads everything before writing anything, and refuses to write when a root reports no resources, so a failed read never replaces a good reference with an empty one.

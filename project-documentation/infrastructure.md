@@ -395,9 +395,9 @@ borrow the host's identity.
   `ses:SendRawEmail` on one verified identity, `s3:GetObject` and `s3:PutObject` on one
   bucket prefix.
 - **Terraform owns the user and its policy, never its key.** An `aws_iam_access_key`
-  writes the secret into state. Create the key with the CLI and write it straight into
+  writes the secret into state. Create the key with the terraform skill's `aws-key.sh`, which writes it straight into
   Parameter Store as a SecureString under the app's own path, where the deploy delivers
-  it like every other setting.
+  it like every other setting. Run again, it rotates; `--retire` removes the old key.
 - **The code passes that credential to the client explicitly**, under names that say what
   it is for (`SES_ACCESS_KEY_ID`, not `AWS_ACCESS_KEY_ID`). The SDK's default chain takes
   whatever it finds first, so a missing key surfaces as some other identity working or

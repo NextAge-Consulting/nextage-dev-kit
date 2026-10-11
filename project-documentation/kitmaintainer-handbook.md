@@ -503,7 +503,10 @@ only then merged — `main` there only ever holds what is live. Its people-facin
 never the kind. A combo repo is a project that keeps its own Terraform — its layout, state and docs, with
 no org setup: each command runs the infrastructure half below for Terraform and the app
 half for code, with no logic of its own. `/deploy` hands to `deploy-org.sh` when the repo holds infrastructure and either holds
-no app or runs on a PR branch; on main in a combo repo it releases the app. `/merge` in a
+no app or runs on a PR branch; on main in a combo repo it releases the app. A combo PR
+that also changes the app — a file outside `infra/terraform/`, `project-documentation/`,
+`.claude/` and Markdown — is released in the same run: after the merge, `deploy-org.sh`
+execs `deploy.sh` from main with the arguments it was given. `/merge` in a
 combo repo refuses only a PR `changed-roots.sh` finds Terraform in.
 
 - **`/open-pr`** commits uncommitted work through the `/commit` procedure, plans every root
@@ -511,8 +514,9 @@ combo repo refuses only a PR `changed-roots.sh` finds Terraform in.
   body. `open-pr.sh` refuses a body missing a changed root's block (exit 14).
 - **`/deploy`** — `deploy.sh` hands over to `deploy-org.sh`: the PR targets main and the
   branch holds all of main (exit 30, 31), CI green (`wait-for-pr-ready.sh`), a fresh plan
-  per root compared with the PR's block, apply, `gen-reference.sh` committed onto the
-  branch, `merge.sh` with `GITFLOW_ORG_DEPLOY=1`, then every issue the PR closes moved to
+  per root compared with the PR's block, apply, `merge.sh` with
+  `GITFLOW_ORG_DEPLOY=1`, `gen-reference.sh` committed straight to main (as `deploy.sh`
+  commits the changelog, so no CI run waits on generated docs; exit 29 if it fails), then every issue the PR closes moved to
   the deploy status. A mismatch stops before any apply (exit 26); a failed apply stops
   before the merge (exit 28). A root whose fresh plan is empty is already live and is not
   re-applied, so a re-run after a failed merge only merges.

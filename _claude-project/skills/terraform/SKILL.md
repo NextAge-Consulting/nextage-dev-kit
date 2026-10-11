@@ -37,7 +37,7 @@ The request arrives as an issue: `/work <N>`. While the org repo is first being 
 | `legacy-<system>/` | One legacy system, adopted as it stands |
 | `modules/<name>/` | Code roots share; never a root itself |
 
-**Every root** uses the org's state bucket with the key `<root path>/terraform.tfstate`, pins the provider, refuses any account but `AWS_ACCOUNT_ID` (`allowed_account_ids`), tags everything through `default_tags` with `Project` and `ManagedBy`, and commits its `.terraform.lock.hcl` locked for CI and every developer's platform — `terraform -chdir=infra/terraform/<root> providers lock -platform=linux_amd64 -platform=darwin_arm64 -platform=darwin_amd64` after any provider change.
+**Every root** uses the org's state bucket with the key `<root path>/terraform.tfstate`, pins the provider, refuses any account but `AWS_ACCOUNT_ID` (`allowed_account_ids`), tags everything through `default_tags` with `Project` and `ManagedBy`, and commits its `.terraform.lock.hcl`, initialised through `scripts/tf.sh`, which locks it for CI and every developer's platform.
 
 **Writing it:**
 - A value another root owns comes from a data source by name or tag, or from a Parameter Store name the owning root publishes. Never `terraform_remote_state`.
@@ -60,7 +60,7 @@ The request arrives as an issue: `/work <N>`. While the org repo is first being 
 
 **Ship it** — both on the person's word (`git.md`):
 - `/open-pr` commits the work, plans every changed root, and opens the PR with each root's plan block and a plain-words summary — every destroy and replace on its own line (`commands/open-pr.md`).
-- `/deploy` waits for green CI, applies only when each fresh plan matches the PR's, regenerates the reference, and merges. Typing it is the person's approval of the plan.
+- `/deploy` waits for green CI, applies only when each fresh plan matches the PR's, merges, and commits the regenerated reference to main. Typing it is the person's approval of the plan.
 - Never run `apply` or `destroy` any other way.
 
 **A cross-org grant** — another organization's project reaching into this account — is written here, in the org that owns the resource, and recorded in both orgs' maps.
@@ -71,15 +71,17 @@ A project that keeps its own Terraform in its own repository (`REPO_KIND=combo`,
 
 - **Before any change** — every root you will touch plans `No changes.` first.
 - **Writing it** — values from data sources, never `terraform_remote_state`; DNS record by record; `fmt`-clean and validated; and the table of resources that overwrite each other.
-- **Ship it** — `/open-pr` plans every changed root; `/deploy` on the PR branch applies and merges; never apply any other way.
+- **Ship it** — `/open-pr` plans every changed root; `/deploy` on the PR branch applies and merges, then releases the app when the PR also changes it; never apply any other way.
 
 The org setup — the setup issue, the inventory, `org-map.md`, the org doc set, the `projects/<project>/<env>` layout, cross-org grants and the audit level — is for org repos only.
 
 ## Unforeseen work
 
-A person may change AWS directly with their own sign-in when the situation needs it — an incident, or something Terraform cannot yet express — and may direct you to run the CLI for it. Do it, then in the same session bring Terraform back to `No changes` through a PR in the org repo: write the change into the code, or import the new resource. A change outside Terraform by design (a Parameter Store value a person sets, an access key) gets a note saying what was done, by whom and why — on the setup issue during setup, otherwise on an issue on the org repo.
+A person may change AWS directly with their own sign-in when the situation needs it — an incident, or something Terraform cannot yet express — and may direct you to run the CLI for it. Do it, then in the same session bring Terraform back to `No changes` through a PR in the org repo: write the change into the code, or import the new resource. A change outside Terraform by design (a Parameter Store value a person sets) gets a note saying what was done, by whom and why — on the setup issue during setup, otherwise on an issue on the org repo.
 
-Never write to AWS with the CLI on your own initiative. Parameter Store values a person sets and access keys are always outside Terraform: the person runs `aws ssm put-parameter` or `aws iam create-access-key`, or directs you to; Terraform creates who may read them.
+Never write to AWS with the CLI on your own initiative. Parameter Store values a person sets are always outside Terraform: the person runs `aws ssm put-parameter`, or directs you to; Terraform creates who may read them.
+
+**An IAM user's access key is made with `scripts/aws-key.sh <user> <prefix>`, never `aws iam create-access-key`** — when the person asks for one, run it from the repository holding the user's Terraform. It writes the key straight into `<prefix>_ACCESS_KEY_ID` and `<prefix>_SECRET_ACCESS_KEY` as SecureStrings, so the secret is never printed. Run again, it rotates: the old key keeps working and is named. Once the app has reloaded its settings and works, `--retire` deletes every key but the stored one. The generated reference lists every key with its created date.
 
 ## Procedures
 

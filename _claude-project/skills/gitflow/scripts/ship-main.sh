@@ -130,6 +130,7 @@ run_biome_gate "shipping to main" || exit $?
 run_knip_gate "shipping to main" || exit $?
 run_semgrep_gate "$FOLD_BASE" "shipping to main" || exit $?
 run_terraform_gate "$FOLD_BASE" "shipping to main" || exit $?
+run_terraform_lock_gate "$FOLD_BASE" "shipping to main" || exit $?
 run_project_gate "$FOLD_BASE" "shipping to main" || exit $?
 
 # Rule-prose review: every rule, skill, command or pattern reference changed since

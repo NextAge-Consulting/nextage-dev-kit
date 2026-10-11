@@ -5,16 +5,18 @@
 #   .claude/skills/terraform/scripts/tf.sh prod plan -out=prod.tfplan
 #   .claude/skills/terraform/scripts/tf.sh prod apply prod.tfplan
 #
+# An init is followed by `providers lock` for linux_amd64, darwin_arm64 and
+# darwin_amd64, so the committed .terraform.lock.hcl verifies on CI and every Mac.
+#
 # <root> is a folder under infra/terraform/. Run from the repository root.
 #
-# The profile, region and account come from .claude/sync-substitutions.json
-# (AWS_PROFILE, AWS_REGION, AWS_ACCOUNT_ID). The profile's temporary credentials
-# are exported into this process only — never into the shell that called it — so
-# sessions working in different accounts at the same time cannot cross. Before
-# Terraform runs, the credentials must belong to AWS_ACCOUNT_ID; the provider's
-# allowed_account_ids is the second guard.
+# Credentials come from aws-session.sh: the project's profile, checked against its
+# AWS_ACCOUNT_ID before Terraform runs; the provider's allowed_account_ids is the
+# second guard.
 
 set -euo pipefail
+# shellcheck source=_claude-project/skills/terraform/scripts/aws-session.sh
+source "$(dirname "$0")/aws-session.sh"
 
 ROOT="${1:-}"
 if [ -z "$ROOT" ]; then
@@ -23,9 +25,8 @@ if [ -z "$ROOT" ]; then
 fi
 shift
 
-SUBS=".claude/sync-substitutions.json"
-if [ ! -f "$SUBS" ]; then
-    echo "tf.sh: $SUBS not found — run this from the repository root." >&2
+if [ ! -f .claude/sync-substitutions.json ]; then
+    echo "tf.sh: .claude/sync-substitutions.json not found — run this from the repository root." >&2
     exit 2
 fi
 DIR="infra/terraform/$ROOT"
@@ -40,37 +41,13 @@ case "$ROOT" in
         ;;
 esac
 
-PROFILE=$(jq -r '.AWS_PROFILE // ""' "$SUBS")
-REGION=$(jq -r '.AWS_REGION // ""' "$SUBS")
-ACCOUNT=$(jq -r '.AWS_ACCOUNT_ID // ""' "$SUBS")
-missing=""
-[ -n "$PROFILE" ] || missing="$missing AWS_PROFILE"
-[ -n "$REGION" ]  || missing="$missing AWS_REGION"
-[ -n "$ACCOUNT" ] || missing="$missing AWS_ACCOUNT_ID"
-if [ -n "$missing" ]; then
-    echo "tf.sh: $SUBS has no value for:$missing" >&2
-    exit 2
-fi
+aws_session tf.sh || exit $?
 
-# A profile left in the calling shell must not steer the check below.
-unset AWS_PROFILE AWS_DEFAULT_PROFILE
-if ! CREDS=$(aws configure export-credentials --profile "$PROFILE" --format env 2>&1); then
-    echo "tf.sh: could not get credentials for the $PROFILE profile:" >&2
-    printf '%s\n' "$CREDS" | sed 's/^/  /' >&2
-    HUB=$(aws configure get source_profile --profile "$PROFILE" 2>/dev/null || true)
-    echo "  Sign in again: aws login --profile ${HUB:-$PROFILE}" >&2
-    exit 1
-fi
-eval "$CREDS"
-
-if ! CALLER=$(aws sts get-caller-identity --region "$REGION" --query Account --output text 2>&1); then
-    echo "tf.sh: the $PROFILE credentials were refused:" >&2
-    printf '%s\n' "$CALLER" | sed 's/^/  /' >&2
-    exit 1
-fi
-if [ "$CALLER" != "$ACCOUNT" ]; then
-    echo "tf.sh: the $PROFILE profile reaches account $CALLER, but this repository's AWS_ACCOUNT_ID is $ACCOUNT. Nothing was run." >&2
-    exit 1
+# A lock file written here must also verify on CI's Linux and on every developer's
+# Mac, so every init is followed by a lock for all three. It only ever adds checksums.
+if [ "${1:-}" = "init" ]; then
+    terraform -chdir="$DIR" "$@" || exit $?
+    exec terraform -chdir="$DIR" providers lock -platform=linux_amd64 -platform=darwin_arm64 -platform=darwin_amd64
 fi
 
 exec terraform -chdir="$DIR" "$@"

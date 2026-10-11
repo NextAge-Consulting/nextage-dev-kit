@@ -28,6 +28,7 @@ STUB
 cat > "$STUBS/terraform" <<STUB
 #!/bin/bash
 printf '%s\n' "\$@" > "$tmp/terraform.args"
+echo "\$*" >> "$tmp/terraform.calls"
 env | grep -E '^AWS_(ACCESS_KEY_ID|PROFILE)=' > "$tmp/terraform.env" || true
 STUB
 chmod +x "$STUBS/aws" "$STUBS/terraform"
@@ -62,6 +63,15 @@ t "-chdir=infra/terraform/prod" "$(sed -n 1p "$tmp/terraform.args")" '…in the 
 t "plan" "$(sed -n 2p "$tmp/terraform.args")" '…passing the arguments through'
 grep -q '^AWS_ACCESS_KEY_ID=AKIAEXAMPLE' "$tmp/terraform.env" && echo "  ✓ …with the exported credentials" || { echo "  ✗ FAIL — credentials not exported"; fail=1; }
 grep -q '^AWS_PROFILE=' "$tmp/terraform.env" && { echo "  ✗ FAIL — the caller's AWS_PROFILE leaked through"; fail=1; } || echo "  ✓ …and without the caller's AWS_PROFILE"
+
+rm -f "$tmp/terraform.calls"
+t 0 "$(run prod init -input=false)" 'init: runs'
+grep -q "chdir=infra/terraform/prod init -input=false" "$tmp/terraform.calls" && echo "  ✓ …the init first" || { echo "  ✗ FAIL — no init: $(cat "$tmp/terraform.calls")"; fail=1; }
+grep -q "chdir=infra/terraform/prod providers lock -platform=linux_amd64 -platform=darwin_arm64 -platform=darwin_amd64" "$tmp/terraform.calls" \
+  && echo "  ✓ …then locks the providers for CI and every Mac" || { echo "  ✗ FAIL — no providers lock: $(cat "$tmp/terraform.calls")"; fail=1; }
+rm -f "$tmp/terraform.calls"
+run prod plan >/dev/null
+grep -q "providers lock" "$tmp/terraform.calls" && { echo "  ✗ FAIL — plan also locked"; fail=1; } || echo "  ✓ …and any other command does not"
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

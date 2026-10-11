@@ -10,13 +10,15 @@ $ARGUMENTS
 
 ## Releasing infrastructure
 
-In an org repo (`REPO_KIND` is `org` in `.claude/sync-substitutions.json`), and from a PR branch in a combo repo (`combo`), `/deploy` cuts no release: on the PR's branch, it applies the PR's Terraform and merges it. Ask nothing about a level or a changelog, and skip every step below. Run:
+In an org repo (`REPO_KIND` is `org` in `.claude/sync-substitutions.json`), and from a PR branch in a combo repo (`combo`), `/deploy` on the PR's branch applies the PR's Terraform and merges it. In an org repo, ask nothing about a level or a changelog, skip every step below, and run:
 
 ```bash
 .claude/skills/gitflow/scripts/deploy.sh
 ```
 
-It refuses a PR that targets another branch or lacks what main has, waits for green CI, re-plans each changed root and stops unless the plan matches the PR's plan block, applies, commits the regenerated infrastructure reference onto the branch, merges, then moves the issues the PR closes to the deploy status. Report what it applied and the merge, or its refusal as printed — a plan that no longer matches names the difference, and nothing has been applied.
+It refuses a PR that targets another branch or lacks what main has, waits for green CI, re-plans each changed root and stops unless the plan matches the PR's plan block, applies, merges, commits the regenerated infrastructure reference straight to main as a release commits its changelog, then moves the issues the PR closes to the deploy status. Exit 29 means applied and merged but the reference did not reach main: run `.claude/skills/terraform/scripts/gen-reference.sh`, then `/ship-main`. Report what it applied and the merge, or its refusal as printed — a plan that no longer matches names the difference, and nothing has been applied.
+
+**A combo PR that also changes the app** — any file outside `infra/terraform/`, `project-documentation/`, `.claude/` and Markdown — is released in the same run, after the apply and the merge. Skip Step 1: on a PR branch `--check-only` is refused, and the release runs its own state gates from main. Do Steps 2 and 3 on the branch, then run Step 4's command there with the level and changelog file. The script applies, merges, and hands the arguments to the release, which moves the shipped issues. A combo PR changing only Terraform and docs takes the bare command above and cuts no release.
 
 On `main` in a combo repo, `/deploy` releases the app: follow the steps below as in any app repo.
 
