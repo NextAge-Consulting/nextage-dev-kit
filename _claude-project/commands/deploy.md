@@ -16,7 +16,7 @@ When `REPO_KIND` is `org` in `.claude/sync-substitutions.json`, `/deploy` cuts n
 .claude/skills/gitflow/scripts/deploy.sh
 ```
 
-It waits for green CI, re-plans each changed root and stops unless the plan matches the PR's plan block, applies, commits the regenerated infrastructure reference onto the branch, then merges. Report what it applied and the merge, or its refusal as printed — a plan that no longer matches names the difference, and nothing has been applied.
+It refuses a PR that targets another branch or lacks what main has, waits for green CI, re-plans each changed root and stops unless the plan matches the PR's plan block, applies, commits the regenerated infrastructure reference onto the branch, merges, then moves the issues the PR closes to the deploy status. Report what it applied and the merge, or its refusal as printed — a plan that no longer matches names the difference, and nothing has been applied.
 
 ## Design
 

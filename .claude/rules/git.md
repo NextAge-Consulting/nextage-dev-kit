@@ -56,6 +56,10 @@ Run these through gitflow, never directly: `git commit`, `git add`, `git push`, 
 
 `/ship-main`, `/deploy` and `/deploy promote` are human-triggered; never initiate any of them.
 
+## File issues through gitflow
+
+**File every issue with `.claude/skills/gitflow/scripts/file-issue.sh --title "<title>" --body-file <path> [--repo <owner/name>]`, never a bare `gh issue create`.** It puts the issue on the project board as it is filed.
+
 ## Read-only git needs no gitflow
 
 `git status`, `log`, `diff`, `show`, `branch` (no flags), `fetch`, `stash list`, `ls-files`, `config`, `remote`, `rev-parse`.

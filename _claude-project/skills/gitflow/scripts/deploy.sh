@@ -70,7 +70,7 @@
 #     not a wait — see /merge for pre-merge wait logic)
 #   - Commits exist since the last v* tag (nothing to deploy otherwise)
 #   - Every `Needs <org-repo>#N` named in this release's commits is live: the org
-#     PR merged, or the org issue closed as completed (org-repo-cheatsheet.md)
+#     PR merged, or a merged PR closes the org issue (org-repo-cheatsheet.md)
 #   - No UI awaiting the human's approval: the ui-patterns status check passes
 #     (rules/ui-design.md, "One app, one look and feel")
 #
@@ -172,9 +172,9 @@
 #      (check-ui-status.mjs) — checked as a state gate before any mutation
 #  23  promote: no such release tag on origin
 #  24  promote: the promotion succeeded but the GitHub Release was not created
-#  25  a PR in this release names `Needs <org-repo>#N` and that org PR is not
-#      merged (or that org issue not closed as completed), or GitHub could not
-#      say — checked as a state gate before any mutation
+#  25  a PR in this release names `Needs <org-repo>#N` and that change is not live
+#      (the org PR not merged, or no merged PR closes the org issue), or GitHub
+#      could not say — checked as a state gate before any mutation
 #
 # ─── Recovery ────────────────────────────────────────────────────────────
 # The bump commit and the push to main happen together (steps 3–4). If the
@@ -597,18 +597,24 @@ fi
 # A PR whose code needs an org-repo change names it in its body
 # (`Needs <owner>/<repo>#N`), and the squash commit carries that body here. N is the
 # org PR, or the org issue the project filed. The org repo merges a PR only after
-# applying it, and that merge closes its issue, so a merged PR, or an issue closed
-# as completed, means live.
+# applying it, so live means: the PR merged, or a PR that closes the issue merged.
+# An issue closed as completed counts too. Whether merging closes an issue is the
+# repository's own setting, so an open issue whose PR merged is still live.
 NEEDS_RANGE="${LAST_TAG:+${LAST_TAG}..}HEAD"
 NEEDS=$(git log "$NEEDS_RANGE" --pretty=%B \
     | grep -oE 'Needs [A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[0-9]+' \
     | sed 's/^Needs //' | sort -u || true)
 for ref in $NEEDS; do
     NEED_REPO="${ref%#*}"; NEED_NUM="${ref##*#}"
-    if ! NEED_STATE=$(gh api "repos/${NEED_REPO}/issues/${NEED_NUM}" \
-            --jq 'if .pull_request then (if .pull_request.merged_at then "merged" else "PR \(.state)" end)
-                  elif .state == "closed" and .state_reason == "completed" then "merged"
-                  else "issue \(.state)" end' 2>&1); then
+    if ! NEED_STATE=$(gh api graphql \
+            -f query='query($o: String!, $r: String!, $n: Int!) { repository(owner: $o, name: $r) { issueOrPullRequest(number: $n) { __typename ... on PullRequest { merged state } ... on Issue { state stateReason closedByPullRequestsReferences(first: 20, includeClosedPrs: true) { nodes { merged } } } } } }' \
+            -f o="${NEED_REPO%/*}" -f r="${NEED_REPO#*/}" -F n="$NEED_NUM" \
+            --jq '.data.repository.issueOrPullRequest as $x
+                  | if $x == null then "not found"
+                    elif $x.__typename == "PullRequest" then (if $x.merged then "merged" else "PR \($x.state | ascii_downcase)" end)
+                    elif ([$x.closedByPullRequestsReferences.nodes[]? | select(.merged)] | length) > 0 then "merged"
+                    elif $x.state == "CLOSED" and $x.stateReason == "COMPLETED" then "merged"
+                    else "issue \($x.state | ascii_downcase), no merged PR yet" end' 2>&1); then
         echo "deploy.sh: this release needs $ref, and GitHub could not say whether it is live:" >&2
         echo "  $NEED_STATE" >&2
         echo "  Refusing to deploy code whose infrastructure may not exist." >&2

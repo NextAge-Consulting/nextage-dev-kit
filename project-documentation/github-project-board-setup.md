@@ -70,6 +70,15 @@ With `GITFLOW_PROJECT_ID` set, all four other keys are required: an empty one fa
 ```
 Verify: `jq -r '.GITFLOW_PROJECT_ID, .GITFLOW_STATUS_FIELD_ID, .GITFLOW_STATUS_IN_PROGRESS_ID, .GITFLOW_STATUS_STAGED_ID, .GITFLOW_STATUS_DEPLOYED_ID' .claude/sync-substitutions.json` returns all five IDs, and `.claude/gitflow-project.conf` carries the same values.
 
+**How issues get onto the board.** Every issue Claude files goes through gitflow's
+`file-issue.sh`, which puts it on this board as it is filed, and `/work <N>` adds any
+issue still missing. The board's **Auto-add to project** workflow (Board → **⋯** →
+**Workflows**) is only the fallback, for issues someone files by hand in GitHub. Each auto-add
+workflow covers one repository, and more are made with **Duplicate workflow** on the
+first, up to the plan's limit: one on GitHub Free, five on Pro and Team, twenty on
+Enterprise. On Free it covers a single repository; an issue filed by hand anywhere else
+stays off the board until `/work` adds it.
+
 ## 3. Decide who closes issues (UI)
 
 Two settings decide whether an issue closes. Both are UI-only — neither REST nor GraphQL exposes them.

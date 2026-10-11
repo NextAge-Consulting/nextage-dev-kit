@@ -27,8 +27,8 @@
 # - Failure semantics (zero-tolerance fail-loud-when-configured):
 #   * GITFLOW_PROJECT_ID empty → feature off, silent skip (kit default).
 #   * GITFLOW_PROJECT_ID populated but other config missing → ERROR + return 1.
-#   * Issue not on configured project → added to it with a WARNING that the
-#     board's auto-add missed it; a failed add → ERROR + return 1.
+#   * Issue not on configured project → added to it with a WARNING that it was
+#     filed without file-issue.sh; a failed add → ERROR + return 1.
 #   * GraphQL mutation fails (typically missing `project` scope) → ERROR + return 1.
 #   * Issue assignment failure → ERROR + return 1 (always — not gated on PROJECT_ID).
 #   work.sh runs under `set -e` so a non-zero return
@@ -458,6 +458,64 @@ closes_line_for_issues() {
     return 0
 }
 
+# ─── Put an issue on the board ─────────────────────────────────────────────
+# add_issue_to_project <owner/repo> <issue_num>
+# Echoes "<item id> existing" or "<item id> added" for the issue's item on the
+# configured project (GITFLOW_PROJECT_ID, already loaded), adding the issue when it
+# is not there. Adding an issue that is already an item returns the existing item,
+# so a race with the board's auto-add cannot duplicate it. Errors → stderr, return 1.
+#
+# Every issue gitflow files is added here when it is filed (file-issue.sh). The
+# board's "Auto-add to project" workflow is only the fallback for issues filed by
+# hand: GitHub sets it up per repository, and a new repository is easy to forget.
+add_issue_to_project() {
+    local slug="$1" num="$2" owner repo graphql_out item_id issue_node_id add_out
+    owner="${slug%/*}"; repo="${slug#*/}"
+    if ! graphql_out=$(gh api graphql -f query="
+        query(\$owner: String!, \$repo: String!, \$num: Int!) {
+            repository(owner: \$owner, name: \$repo) {
+                issue(number: \$num) {
+                    id
+                    projectItems(first: 20) {
+                        nodes { id project { id } }
+                    }
+                }
+            }
+        }" \
+        -f owner="$owner" -f repo="$repo" -F num="$num" 2>&1); then
+        echo "issue_helpers: ERROR — GraphQL lookup failed for $slug#$num: $graphql_out" >&2
+        echo "  Most likely cause: gh token missing 'project' scope. Fix: gh auth refresh -s project, retry." >&2
+        return 1
+    fi
+    item_id=$(printf '%s' "$graphql_out" \
+        | jq -r --arg pid "$GITFLOW_PROJECT_ID" \
+            '.data.repository.issue.projectItems.nodes[]? | select(.project.id == $pid) | .id' \
+        | head -1)
+    if [ -n "$item_id" ]; then
+        echo "$item_id existing"
+        return 0
+    fi
+    issue_node_id=$(printf '%s' "$graphql_out" | jq -r '.data.repository.issue.id // empty')
+    if [ -z "$issue_node_id" ] || ! add_out=$(gh api graphql -f query="
+        mutation(\$pid: ID!, \$cid: ID!) {
+            addProjectV2ItemById(input: { projectId: \$pid, contentId: \$cid }) { item { id } }
+        }" \
+        -f pid="$GITFLOW_PROJECT_ID" -f cid="$issue_node_id" 2>&1); then
+        echo "issue_helpers: ERROR — $slug#$num is not on the configured project (PROJECT_ID=$GITFLOW_PROJECT_ID), and adding it failed: ${add_out:-the issue lookup returned no node ID}" >&2
+        echo "  Fix one of:" >&2
+        echo "    - Missing 'project' scope on the gh token: gh auth refresh -s project, retry." >&2
+        echo "    - Verify GITFLOW_PROJECT_ID in .claude/sync-substitutions.json matches the project this repo's issues live on." >&2
+        echo "    - Add the issue to the project by hand, then retry." >&2
+        return 1
+    fi
+    item_id=$(printf '%s' "$add_out" | jq -r '.data.addProjectV2ItemById.item.id // empty')
+    if [ -z "$item_id" ]; then
+        echo "issue_helpers: ERROR — adding $slug#$num to the project returned no item: $add_out" >&2
+        return 1
+    fi
+    echo "$item_id added"
+}
+
 # ─── Project status transition ─────────────────────────────────────────────
 # _move_issue_to_status <issue_num> <option_id_var_name> <label>
 # Internal helper. <option_id_var_name> is the NAME of the env var holding
@@ -470,9 +528,9 @@ closes_line_for_issues() {
 #   - GITFLOW_PROJECT_ID set + the requested status option ID empty → ERROR + return 1
 #     (this status isn't configured for this project — populate
 #     `.claude/sync-substitutions.json` or skip the call).
-#   - Issue not on configured project → add it (addProjectV2ItemById), WARN that
-#     the board's auto-add is not catching this repository, then set the status.
-#     The add failing → ERROR + return 1.
+#   - Issue not on configured project → add it (add_issue_to_project), WARN that
+#     it was filed without file-issue.sh, then set the status. The add failing →
+#     ERROR + return 1.
 #   - GraphQL mutation fails → ERROR + return 1 (almost always missing
 #     `project` scope on gh auth; remediation message says so).
 _move_issue_to_status() {
@@ -504,61 +562,11 @@ _move_issue_to_status() {
         return 1
     fi
 
-    local repo_slug owner repo
-    repo_slug=$(gitflow_repo_slug)
-    owner="${repo_slug%/*}"
-    repo="${repo_slug#*/}"
-
-    # Find the project item ID for this issue on our configured project, and the
-    # issue's own node ID in case it has to be added.
-    local item_id issue_node_id graphql_out
-    if ! graphql_out=$(gh api graphql -f query="
-        query(\$owner: String!, \$repo: String!, \$num: Int!) {
-            repository(owner: \$owner, name: \$repo) {
-                issue(number: \$num) {
-                    id
-                    projectItems(first: 20) {
-                        nodes { id project { id } }
-                    }
-                }
-            }
-        }" \
-        -f owner="$owner" -f repo="$repo" -F num="$num" 2>&1); then
-        echo "issue_helpers: ERROR — GraphQL lookup failed for issue #$num: $graphql_out" >&2
-        echo "  Most likely cause: gh token missing 'project' scope. Fix: gh auth refresh -s project, retry." >&2
-        return 1
-    fi
-    item_id=$(printf '%s' "$graphql_out" \
-        | jq -r --arg pid "$GITFLOW_PROJECT_ID" \
-            '.data.repository.issue.projectItems.nodes[]? | select(.project.id == $pid) | .id' \
-        | head -1)
-
-    # Not on the board: add it, then carry on to the status update. The board's
-    # auto-add workflow should have done this, so its miss is reported every time
-    # rather than papered over. Adding an issue that is already an item returns the
-    # existing item, so a race with auto-add cannot duplicate it.
-    if [ -z "$item_id" ]; then
-        issue_node_id=$(printf '%s' "$graphql_out" | jq -r '.data.repository.issue.id // empty')
-        local add_out
-        if [ -z "$issue_node_id" ] || ! add_out=$(gh api graphql -f query="
-            mutation(\$pid: ID!, \$cid: ID!) {
-                addProjectV2ItemById(input: { projectId: \$pid, contentId: \$cid }) { item { id } }
-            }" \
-            -f pid="$GITFLOW_PROJECT_ID" -f cid="$issue_node_id" 2>&1); then
-            echo "issue_helpers: ERROR — issue #$num is not on the configured project (PROJECT_ID=$GITFLOW_PROJECT_ID), and adding it failed: ${add_out:-the issue lookup returned no node ID}" >&2
-            echo "  Fix one of:" >&2
-            echo "    - Enable the project's 'Auto-add to project' workflow (Settings → Workflows → Auto-add to project)." >&2
-            echo "    - Manually add issue #$num to the project, then retry." >&2
-            echo "    - Verify GITFLOW_PROJECT_ID in .claude/sync-substitutions.json matches the project this repo's issues live on." >&2
-            echo "    - Missing 'project' scope on the gh token: gh auth refresh -s project, retry." >&2
-            return 1
-        fi
-        item_id=$(printf '%s' "$add_out" | jq -r '.data.addProjectV2ItemById.item.id // empty')
-        if [ -z "$item_id" ]; then
-            echo "issue_helpers: ERROR — adding issue #$num to the project returned no item: $add_out" >&2
-            return 1
-        fi
-        echo "issue_helpers: WARNING — #$num was not on the project; added it. The board's auto-add workflow is not catching this repository's issues — check its repository and filter." >&2
+    local placed item_id
+    placed=$(add_issue_to_project "$(gitflow_repo_slug)" "$num") || return 1
+    item_id="${placed%% *}"
+    if [ "${placed#* }" = "added" ]; then
+        echo "issue_helpers: WARNING — #$num was not on the project; added it. Issues filed with file-issue.sh are put on the board when they are filed; one filed another way relies on the board's auto-add, which has to be set up for each repository." >&2
     fi
 
     # Update the Status field to the requested option.

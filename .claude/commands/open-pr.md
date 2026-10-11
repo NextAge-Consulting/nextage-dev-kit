@@ -71,7 +71,7 @@ Structure:
 
 Draw content from the diff and commit log. Do not invent features not in the diff.
 
-**Code that needs an org-repo change carries a line `Needs <ORG_REPO>#N` in the body**, one per change, naming the org issue the project filed or the org PR — `/deploy` refuses this project's release until each is live: the PR merged, or the issue closed as completed.
+**Code that needs an org-repo change carries a line `Needs <ORG_REPO>#N` in the body**, one per change, naming the org issue the project filed or the org PR — `/deploy` refuses this project's release until each is live: the org PR merged, or a merged org PR that closes the issue.
 
 ### Attestation format
 

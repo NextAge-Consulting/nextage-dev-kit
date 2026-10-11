@@ -185,11 +185,11 @@ t 0 "$(grep -c WARNING "$tmp/board.err")" '…and without a warning'
 t 0 "$(board off-board)" 'an issue missing from the board: added, then status set'
 t 1 "$(grep -c addProjectV2ItemById "$tmp/gh.log")" '…added exactly once'
 t 1 "$(grep -c updateProjectV2ItemFieldValue "$tmp/gh.log")" '…and its status still set'
-grep -q "WARNING — #7 was not on the project; added it. The board's auto-add workflow is not catching this repository's issues — check its repository and filter." "$tmp/board.err" \
-  && t ok ok '…with the auto-add warning' || t ok "$(cat "$tmp/board.err")" '…with the auto-add warning'
+grep -q "WARNING — #7 was not on the project; added it. Issues filed with file-issue.sh are put on the board when they are filed" "$tmp/board.err" \
+  && t ok ok '…with a warning that it was filed some other way' || t ok "$(cat "$tmp/board.err")" '…with a warning that it was filed some other way'
 t 1 "$(board add-fails)" 'a failed add is a hard error'
 t 0 "$(grep -c updateProjectV2ItemFieldValue "$tmp/gh.log")" '…and no status is set'
-grep -q 'Auto-add to project' "$tmp/board.err" && t ok ok '…with the existing guidance' || t ok missing '…with the existing guidance'
+grep -q "gh auth refresh -s project" "$tmp/board.err" && t ok ok '…naming the likely fix' || t ok missing '…naming the likely fix'
 rm .claude/gitflow-project.conf
 t 0 "$(board off-board)" 'no project configured: feature off, nothing called'
 t 0 "$(grep -c . "$tmp/gh.log")" '…not a single gh call'

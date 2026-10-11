@@ -16,8 +16,8 @@ Paths in this skill — `scripts/`, `references/`, `templates/` — are inside `
    ```bash
    gh api "repos/$(jq -r .ORG_REPO .claude/sync-substitutions.json)/contents/project-documentation/org-map.md" --jq .content | base64 -d
    ```
-3. **File the need as an issue on the org repo** — `gh issue create --repo <ORG_REPO>` — and stop that part of the work. The issue names the project, what its code needs (names, environments, permissions, the values it will read), why, and the project issue or branch it serves. A need for something another project owns — its API, its login, its data — is filed the same way, naming both projects.
-4. **The project's PR carries `Needs <ORG_REPO>#N`** in its body. Its `/deploy` refuses until that change is live: the org PR merged, or the org issue closed as completed — the org repo merges only after applying.
+3. **File the need as an issue on the org repo** — `.claude/skills/gitflow/scripts/file-issue.sh --repo <ORG_REPO> --title … --body-file …`, which also puts it on the board — and stop that part of the work. The issue names the project, what its code needs (names, environments, permissions, the values it will read), why, and the project issue or branch it serves. A need for something another project owns — its API, its login, its data — is filed the same way, naming both projects.
+4. **The project's PR carries `Needs <ORG_REPO>#N`** in its body. Its `/deploy` refuses until that change is live: the org PR merged, or a merged org PR that closes the issue — the org repo merges only after applying.
 
 Never write Terraform, and never change AWS with the CLI, from a project repo. Reading AWS is fine (`cli-utilities.md`).
 

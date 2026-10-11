@@ -20,8 +20,8 @@ cat > "$tmp/fake/gh" <<'GH'
 #!/bin/bash
 case "$*" in
   "api repos/{owner}/{repo}/commits/"*) echo 0 ;;
-  "api repos/acme/acme-org/issues/12 "*) echo "${FAKE_ORG_STATE:-merged}" ;;
-  "api repos/acme/acme-org/issues/"*) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
+  "api graphql "*"o=acme -f r=acme-org -F n=12 "*) echo "${FAKE_ORG_STATE:-merged}" ;;
+  "api graphql "*) echo "GraphQL: Could not resolve to a Repository" >&2; exit 1 ;;
   *) exit 0 ;;
 esac
 GH
@@ -47,8 +47,8 @@ land "✨ feat: avatars
 Needs acme/acme-org#12"
 [ "$(FAKE_ORG_STATE='PR open' run)" = 25 ] && grep -q "needs acme/acme-org#12 (PR open)" "$tmp/out" \
     && ok "an org PR still open stops the release, naming it" || bad "open needs: $(cat "$tmp/out")"
-[ "$(FAKE_ORG_STATE='issue open' run)" = 25 ] && grep -q "(issue open)" "$tmp/out" \
-    && ok "an org issue still open stops the release" || bad "open issue: $(cat "$tmp/out")"
+[ "$(FAKE_ORG_STATE='issue open, no merged PR yet' run)" = 25 ] && grep -q "(issue open, no merged PR yet)" "$tmp/out" \
+    && ok "an org issue no merged PR closes yet stops the release" || bad "open issue: $(cat "$tmp/out")"
 [ "$(FAKE_ORG_STATE=merged run)" = 0 ] && grep -q "needs acme/acme-org#12 — live" "$tmp/out" \
     && ok "once the org change is merged, the release passes" || bad "merged needs: $(cat "$tmp/out")"
 

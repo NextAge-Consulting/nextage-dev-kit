@@ -6,16 +6,21 @@
 #   deploy-org.sh
 #
 # In order, and each step stops the run on failure:
-#   1. The branch has an open PR, a clean tree, and nothing unpushed.
+#   1. The branch has an open PR against main, a clean tree, nothing unpushed, and
+#      everything main has — so what is applied is exactly what will land.
 #   2. CI on the PR is green — the real gate (wait-for-pr-ready.sh).
 #   3. Every root the branch changes (changed-roots.sh) is planned afresh, and each
 #      plan must do exactly what the PR body's plan block for that root shows
-#      (plan-summary.sh). Anything else — someone changed AWS, another PR landed —
-#      stops here with the difference, before anything is applied.
+#      (plan-summary.sh) — or nothing at all: a root that is already live (a
+#      re-run after a merge that did not finish) has nothing left to apply. Any
+#      other difference — someone changed AWS, another PR landed — stops here with
+#      the difference, before anything is applied.
 #   4. Every root's fresh plan is applied.
 #   5. The infrastructure reference is regenerated from the new state and committed
 #      onto the branch.
 #   6. merge.sh squash-merges the PR, so main only ever holds what is live.
+#   7. The issues the PR closes (its `Closes #N` line) move to the board's deploy
+#      status, as every /deploy moves what it shipped.
 #
 # Typing /deploy is the person's approval of the plan the PR shows; this script
 # applies nothing else.
@@ -32,11 +37,16 @@
 #  27  a plan could not be made — nothing applied
 #  28  an apply failed — the roots named as applied are live; nothing merged
 #  29  the reference could not be regenerated or committed — applied, not merged
+#  30  the PR is stacked on another branch — deploy that one first
+#  31  main has moved since this branch — /catchup, re-plan, update the PR's plans
+#  11  (after the merge) applied and merged, but the board could not be updated
 #  other  merge.sh's own exit code: applied, and the merge did not finish
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=_claude-project/skills/gitflow/scripts/issue_helpers.sh
+source "$SCRIPT_DIR/issue_helpers.sh"
 TF_DIR=".claude/skills/terraform/scripts"
 PLAN_NAME="deploy.tfplan"
 
@@ -74,7 +84,21 @@ PR_BASE=$(jq -r '.baseRefName' <<<"$PR_JSON")
 BODY_FILE=$(mktemp)
 jq -r '.body' <<<"$PR_JSON" > "$BODY_FILE"
 
+# Applying, then landing somewhere other than main, would leave main without live
+# infrastructure — so both are refused before anything is planned.
+if [ "$PR_BASE" != "main" ] && [ "$PR_BASE" != "master" ]; then
+    echo "deploy-org.sh: PR #$PR_NUMBER targets $PR_BASE, not main — deploy $PR_BASE's PR first. Nothing was applied." >&2
+    exit 30
+fi
+git fetch -q origin "$PR_BASE" 2>/dev/null || true
+if ! git merge-base --is-ancestor "origin/$PR_BASE" HEAD; then
+    echo "deploy-org.sh: $PR_BASE has moved since $BRANCH was cut. Nothing was applied." >&2
+    echo "  /catchup, re-plan the changed roots, update the PR's plan blocks, then /deploy." >&2
+    exit 31
+fi
+
 ROOTS_DONE=()
+LIVE_ROOTS=""
 cleanup() {
     rm -f "$BODY_FILE"
     while IFS= read -r r; do
@@ -118,6 +142,11 @@ while IFS= read -r root; do
         echo "deploy-org.sh: PR #$PR_NUMBER's body has no plan for $root. Re-plan and update the PR. Nothing was applied." >&2
         exit 26
     fi
+    if [ "$fresh" = "no changes" ] && [ "$shown" != "no changes" ]; then
+        echo "gitflow: $root — already live, nothing left to apply." >&2
+        LIVE_ROOTS="$LIVE_ROOTS $root"
+        continue
+    fi
     if [ "$fresh" != "$shown" ]; then
         echo "deploy-org.sh: $root's plan now differs from the one PR #$PR_NUMBER shows. Nothing was applied." >&2
         diff <(printf '%s\n' "$shown") <(printf '%s\n' "$fresh") | sed 's/^< /  PR shows:  /; s/^> /  plan now:  /' | grep -E 'PR shows|plan now' >&2 || true
@@ -129,6 +158,7 @@ done <<< "$ROOTS"
 
 # ─── Apply ─────────────────────────────────────────────────────────────────
 while IFS= read -r root; do
+    case " $LIVE_ROOTS " in *" $root "*) ROOTS_DONE+=("$root"); continue ;; esac
     echo "gitflow: applying $root..." >&2
     if ! bash "$TF_DIR/tf.sh" "$root" apply -input=false "$PLAN_NAME" >&2; then
         echo "deploy-org.sh: applying $root failed. Nothing was merged." >&2
@@ -158,4 +188,25 @@ fi
 
 # ─── Land it ───────────────────────────────────────────────────────────────
 echo "gitflow: applied ${ROOTS_DONE[*]} — merging PR #$PR_NUMBER." >&2
-GITFLOW_ORG_DEPLOY=1 exec "$SCRIPT_DIR/merge.sh" --pr "$PR_NUMBER" --base "$PR_BASE"
+set +e
+GITFLOW_ORG_DEPLOY=1 "$SCRIPT_DIR/merge.sh" --pr "$PR_NUMBER" --base "$PR_BASE"
+MERGE_RC=$?
+set -e
+if [ "$MERGE_RC" -ne 0 ]; then
+    echo "deploy-org.sh: applied ${ROOTS_DONE[*]}, but the merge did not finish (merge.sh exit $MERGE_RC)." >&2
+    echo "  Fix the cause above and run /deploy again: the applied roots plan to nothing, so it only merges." >&2
+    exit "$MERGE_RC"
+fi
+
+# ─── What shipped moves on the board ───────────────────────────────────────
+# The same closing keywords deploy.sh reads, from the body merge.sh just landed.
+SHIPPED=$(grep -ohiE '(close[sd]?|fix(es|ed)?|resolve[sd]?)[[:space:]]+#[0-9]+([[:space:]]*,[[:space:]]*#[0-9]+)*' "$BODY_FILE" \
+    | grep -oE '[0-9]+' | sort -u || true)
+BOARD_FAILED=0
+for num in $SHIPPED; do
+    move_issue_to_deployed "$num" || BOARD_FAILED=1
+done
+if [ "$BOARD_FAILED" -ne 0 ]; then
+    echo "deploy-org.sh: applied and merged, but the board could not be updated for every shipped issue — see above." >&2
+    exit 11
+fi

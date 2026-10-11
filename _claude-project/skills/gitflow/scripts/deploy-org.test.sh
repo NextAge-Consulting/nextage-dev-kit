@@ -15,7 +15,8 @@ bad() { echo "FAIL $1"; fail=1; }
 bin="$tmp/scripts"; mkdir -p "$bin"
 cp "$D/deploy-org.sh" "$bin/"
 printf '#!/bin/bash\necho wait >> "%s/calls"; exit "${FAKE_CI:-0}"\n' "$tmp" > "$bin/wait-for-pr-ready.sh"
-printf '#!/bin/bash\necho "merge GITFLOW_ORG_DEPLOY=$GITFLOW_ORG_DEPLOY $*" >> "%s/calls"\n' "$tmp" > "$bin/merge.sh"
+printf '#!/bin/bash\necho "merge GITFLOW_ORG_DEPLOY=$GITFLOW_ORG_DEPLOY $*" >> "%s/calls"\nexit "${FAKE_MERGE:-0}"\n' "$tmp" > "$bin/merge.sh"
+printf 'move_issue_to_deployed() { echo "board deployed $1" >> "%s/calls"; }\n' "$tmp" > "$bin/issue_helpers.sh"
 chmod +x "$bin"/*.sh
 
 mkdir -p "$tmp/fake"
@@ -56,7 +57,7 @@ printf 'resource "aws_s3_bucket" "b" {}\n' >> infra/terraform/projects/web/prod/
 git add -A; git commit -qm "feat: bucket"; git push -q -u origin infra/bucket 2>/dev/null
 
 export FAKE_BODY="$tmp/body.md"
-printf 'Adds a bucket.\n\n<!-- plan:projects/web/prod -->\n```text\ncreate aws_s3_bucket.b\n```\n<!-- /plan:projects/web/prod -->\n' > "$FAKE_BODY"
+printf 'Closes #7\n\nAdds a bucket.\n\n<!-- plan:projects/web/prod -->\n```text\ncreate aws_s3_bucket.b\n```\n<!-- /plan:projects/web/prod -->\n' > "$FAKE_BODY"
 export FAKE_PLAN_projects_web_prod='[{"address":"aws_s3_bucket.b","change":{"actions":["create"]}}]'
 run(){ : > "$tmp/calls"; PATH="$tmp/fake:$PATH" bash "$bin/deploy-org.sh" >"$tmp/out" 2>&1; echo $?; }
 called(){ grep -qx -- "$1" "$tmp/calls"; }
@@ -72,15 +73,33 @@ rc=$(run)
 { [ "$rc" = 0 ] && called "plan projects/web/prod" && called "apply projects/web/prod" && ! grep -q "apply shared" "$tmp/calls" \
   && called "merge GITFLOW_ORG_DEPLOY=1 --pr 5 --base main"; } \
     && ok "a matching plan: only the changed root applied, then merged through /deploy's door" || bad "happy path (rc=$rc): $(cat "$tmp/calls"; cat "$tmp/out")"
+called "board deployed 7" && ok "…and the issue it closes moves to the deploy status" || bad "board move: $(cat "$tmp/calls")"
 git log -1 --pretty=%s | grep -q "regenerate the infrastructure reference" && [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/infra/bucket)" ] \
     && ok "…the regenerated reference committed onto the PR's branch and pushed" || bad "reference commit: $(git log -1 --pretty=%s)"
 [ ! -f infra/terraform/projects/web/prod/deploy.tfplan ] && ok "…and no plan file left behind" || bad "plan file left"
+
+FAKE_PLAN_projects_web_prod='[]' rc=$(FAKE_MERGE=0 run)
+{ [ "$rc" = 0 ] && ! called "apply projects/web/prod" && called "merge GITFLOW_ORG_DEPLOY=1 --pr 5 --base main" && grep -q "already live" "$tmp/out"; } \
+    && ok "a re-run after the apply: the root plans to nothing, is not re-applied, and the PR merges" || bad "already live (rc=$rc): $(cat "$tmp/calls"; cat "$tmp/out")"
+rc=$(FAKE_MERGE=23 run)
+{ [ "$rc" = 23 ] && grep -q "run /deploy again" "$tmp/out" && ! called "board deployed 7"; } \
+    && ok "a merge that fails after the apply: its exit code, how to finish, and no board move" || bad "merge fails (rc=$rc): $(cat "$tmp/out")"
 
 printf 'variable "v" {}\n' >> infra/terraform/shared/main.tf; git add -A; git commit -qm "feat: shared"; git push -q origin infra/bucket
 printf '\n<!-- plan:shared -->\n```text\nno changes\n```\n<!-- /plan:shared -->\n' >> "$FAKE_BODY"
 rc=$(FAKE_FAIL_APPLY=shared run)
 { [ "$rc" = 28 ] && ! grep -q '^merge' "$tmp/calls" && grep -q "Already live: projects/web/prod" "$tmp/out"; } \
     && ok "an apply that fails: nothing merged, and what is already live is named" || bad "apply failure (rc=$rc): $(cat "$tmp/calls"; cat "$tmp/out")"
+
+git checkout -q main; printf 'm\n' > moved.txt; git add -A; git commit -qm "chore: main moves"; git push -q origin main
+git checkout -q infra/bucket
+rc=$(run)
+{ [ "$rc" = 31 ] && ! grep -q '^plan' "$tmp/calls" && grep -q "/catchup" "$tmp/out"; } \
+    && ok "main moved since the branch: refused before any plan, pointing to /catchup" || bad "behind main (rc=$rc): $(cat "$tmp/out")"
+sed -i.bak 's/baseRefName: "main"/baseRefName: "infra\/parent"/' "$tmp/fake/gh" && rm -f "$tmp/fake/gh.bak"
+rc=$(run)
+{ [ "$rc" = 30 ] && ! grep -q '^plan' "$tmp/calls"; } && ok "a PR stacked on another branch: refused before any plan" || bad "stacked (rc=$rc): $(cat "$tmp/out")"
+sed -i.bak 's/baseRefName: "infra\/parent"/baseRefName: "main"/' "$tmp/fake/gh" && rm -f "$tmp/fake/gh.bak"
 
 git checkout -q main; git checkout -q -b docs/notes
 printf 'n\n' > notes.md; git add -A; git commit -qm "docs: notes"; git push -q -u origin docs/notes 2>/dev/null

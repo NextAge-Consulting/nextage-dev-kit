@@ -501,16 +501,18 @@ only then merged — `main` there only ever holds what is live. Its people-facin
 - **`/open-pr`** commits uncommitted work through the `/commit` procedure, plans every root
   `changed-roots.sh` reports, and writes each root's `plan-summary.sh --block` into the
   body. `open-pr.sh` refuses a body missing a changed root's block (exit 14).
-- **`/deploy`** — `deploy.sh` hands over to `deploy-org.sh`: CI green
-  (`wait-for-pr-ready.sh`), a fresh plan per root compared with the PR's block, apply,
-  `gen-reference.sh` committed onto the branch, then `merge.sh` with `GITFLOW_ORG_DEPLOY=1`.
-  A mismatch stops before any apply (exit 26); a failed apply stops before the merge
-  (exit 28).
+- **`/deploy`** — `deploy.sh` hands over to `deploy-org.sh`: the PR targets main and the
+  branch holds all of main (exit 30, 31), CI green (`wait-for-pr-ready.sh`), a fresh plan
+  per root compared with the PR's block, apply, `gen-reference.sh` committed onto the
+  branch, `merge.sh` with `GITFLOW_ORG_DEPLOY=1`, then every issue the PR closes moved to
+  the deploy status. A mismatch stops before any apply (exit 26); a failed apply stops
+  before the merge (exit 28). A root whose fresh plan is empty is already live and is not
+  re-applied, so a re-run after a failed merge only merges.
 - **`/merge`** refuses without `GITFLOW_ORG_DEPLOY=1` (exit 25). **`/ship-main`** refuses a
   change touching Terraform (exit 14) and ships docs as usual.
 - **In an app repo**, `deploy.sh` reads `Needs <owner>/<repo>#N` from the release's
-  commits and refuses (exit 25) until each is live — the org PR merged, or the org issue
-  closed as completed.
+  commits and refuses (exit 25) until each is live — the org PR merged, or a merged PR
+  that closes the org issue, whatever the repository's auto-close setting.
 
 ## 7. Commit and changelog rules
 
@@ -917,7 +919,7 @@ Issue↔branch↔PR linking is first-class in the gitflow subsystem. Two command
 
 - **`/work <issue#>`** — links the issue to the current branch and cuts NO branch. An issue number says what the work is about, never which pipeline it belongs in: an issue can be a docs or infra change belonging straight on `main`, and in a repo with no CI and no deploy the PR round-trip buys nothing. Cutting a branch here would make `/ship-main` unreachable for the whole session. The link graph lives in git config (`branch.<name>.gitflow-issues`), so on `main` it simply parks under `branch.main.gitflow-issues`; `/commit` and `/checkpoint` carry it, and its code-complete marks, onto the branch they create (`migrate_branch_linked_issues`) and clear the source, while `/ship-main` consumes the complete ones as a `Closes #N` line. Issue numbers are NOT in any branch name — a branch may close several issues, so embedding one misleads. Moves the linked issue to `In Progress` on the configured project. Assigns to the current `gh`-authenticated user. Dumps issue body + comments to stdout so Claude reads them in-turn and responds with understanding + questions BEFORE any code is written.
 
-Board transition + assignment are **fail-loud when configured** — see the failure-semantics table in the gitflow-project-integration subsection below. `GITFLOW_PROJECT_ID` empty = feature off, silent skip. Any other broken state (missing scope, wrong option ID, an issue that cannot be added to the project) = script exits non-zero with the underlying cause. An issue not yet on the project is added to it, with a warning that the board's auto-add is not catching this repository.
+Board transition + assignment are **fail-loud when configured** — see the failure-semantics table in the gitflow-project-integration subsection below. `GITFLOW_PROJECT_ID` empty = feature off, silent skip. Any other broken state (missing scope, wrong option ID, an issue that cannot be added to the project) = script exits non-zero with the underlying cause. An issue not yet on the project is added to it, with a warning that it was filed without `file-issue.sh`.
 
 **Storage**: `git config --local branch.<name>.gitflow-issues = "23 25 26"` — git wipes on branch delete, no stray metadata files. Code-complete marks sit beside it in `branch.<name>.gitflow-complete = "23 25"`, and the issues whose Staged comment has been posted in `branch.<name>.gitflow-noted`.
 
@@ -957,7 +959,7 @@ With `GITFLOW_PROJECT_ID` set, all four are required.
 | `GITFLOW_PROJECT_ID` empty | Silent skip — feature disabled, kit default |
 | `GITFLOW_PROJECT_ID` set + `GITFLOW_STATUS_FIELD_ID` empty | ERROR + return 1 (config gap) |
 | `GITFLOW_PROJECT_ID` set + a specific status option ID empty | ERROR + return 1 — populate the key; every status is required once a board is configured |
-| Issue not on the configured project | Added with `addProjectV2ItemById`, then a WARNING that the board's auto-add workflow is not catching this repository's issues; the status is set as normal. A failed add → ERROR + return 1 (wrong PROJECT_ID, or missing scope) |
+| Issue not on the configured project | Added by `add_issue_to_project`, then a WARNING that it was filed without `file-issue.sh`; the status is set as normal. A failed add → ERROR + return 1 (wrong PROJECT_ID, or missing scope) |
 | GraphQL mutation fails | ERROR + return 1 — almost always missing `project` scope on gh auth (`gh auth refresh -s project`) |
 
 Caller scripts run under `set -e`; a non-zero return from any helper propagates to script exit. All transitions are idempotent — retry after fixing the cause.
