@@ -1,7 +1,7 @@
 #!/bin/bash
 # gitflow open-pr: push current branch, create a PR.
 # Usage: open-pr.sh --title "<PR title>" --body "<PR body>" \
-#                   [--base main] [--draft] [--complete "<N[,N…]>"] [--to <login|me>]
+#                   [--base main] [--draft] [--complete "<N[,N…]>"] [--part "<N[,N…]>"] [--to <login|me>]
 #        open-pr.sh --to <login|me>      # on a branch whose PR is already open: re-assign it
 #
 # Who has the PR: the author is assigned by default. --to <login> hands it to that
@@ -16,7 +16,12 @@
 # so its review shows only its own changes. /merge moves it to main when it merges the
 # parent; /catchup does the same for a parent merged some other way.
 #
-# Code-complete gate: every issue linked on the branch must be code complete
+# Part of an issue: --part names linked issues this PR advances without finishing.
+# Its body says `Part of #N` instead of `Closes #N`, so merging closes nothing, and
+# the issue stays where it is on the board — no Staged, no Staged comment. The PR
+# that finishes the issue links it as usual.
+#
+# Code-complete gate: every other issue linked on the branch must be code complete
 # before a PR opens, because opening one sets them all to Staged. An issue not
 # yet marked (by /commit) must be named in --complete — the slash command asks
 # "this will mark #N as Staged" first, and a no means no PR. Anything left
@@ -51,6 +56,7 @@ BODY=""
 BASE="main"
 DRAFT=""
 COMPLETE_ISSUES=""
+PART_ISSUES=""
 NOTES_DIR=""
 TO=""
 BASE_GIVEN=""
@@ -67,6 +73,13 @@ while [[ $# -gt 0 ]]; do
             COMPLETE_ISSUES=$(parse_issue_csv "$2")
             if [ -z "$COMPLETE_ISSUES" ]; then
                 echo "open-pr.sh: --complete needs issue numbers (got '$2')" >&2
+                exit 2
+            fi
+            shift 2 ;;
+        --part)
+            PART_ISSUES=$(parse_issue_csv "$2")
+            if [ -z "$PART_ISSUES" ]; then
+                echo "open-pr.sh: --part needs issue numbers (got '$2')" >&2
                 exit 2
             fi
             shift 2 ;;
@@ -175,8 +188,21 @@ fi
 if [ -n "$COMPLETE_ISSUES" ] && ! validate_complete_issues "$COMPLETE_ISSUES" "$CURRENT_BRANCH"; then
     exit 2
 fi
+if [ -n "$PART_ISSUES" ] && ! validate_complete_issues "$PART_ISSUES" "$CURRENT_BRANCH"; then
+    exit 2
+fi
+for p in $PART_ISSUES; do
+    for c in $COMPLETE_ISSUES; do
+        if [ "$p" = "$c" ]; then
+            echo "open-pr.sh: #$p is named both --complete and --part — a PR either finishes an issue or is part of it." >&2
+            exit 2
+        fi
+    done
+done
+is_part() { local n; for n in $PART_ISSUES; do [ "$n" = "$1" ] && return 0; done; return 1; }
 UNCONFIRMED=""
 for num in $(read_branch_incomplete_issues "$CURRENT_BRANCH"); do
+    is_part "$num" && continue
     confirmed=0
     for c in $COMPLETE_ISSUES; do [ "$c" = "$num" ] && confirmed=1; done
     if [ "$confirmed" -eq 0 ]; then UNCONFIRMED="${UNCONFIRMED:+$UNCONFIRMED }$num"; fi
@@ -184,12 +210,16 @@ done
 if [ -n "$UNCONFIRMED" ]; then
     echo "open-pr.sh: not code complete: $(format_issue_refs "$UNCONFIRMED")." >&2
     echo "  Opening the PR marks every linked issue Staged. Confirm with --complete \"${UNCONFIRMED// /,}\"," >&2
-    echo "  or keep working and /commit when they are done." >&2
+    echo "  name one this PR only advances with --part, or keep working and /commit when they are done." >&2
     exit 12
 fi
-# Every linked issue reaches Staged below, so every one still without its
-# comment needs it written now — before the push.
-if ! require_staged_notes "$(read_branch_linked_issues "$CURRENT_BRANCH")" "$NOTES_DIR" "$CURRENT_BRANCH"; then
+# Every linked issue but the --part ones reaches Staged below, so every one still
+# without its comment needs it written now — before the push.
+CLOSING_ISSUES=""
+for num in $(read_branch_linked_issues "$CURRENT_BRANCH"); do
+    is_part "$num" || CLOSING_ISSUES="${CLOSING_ISSUES:+$CLOSING_ISSUES }$num"
+done
+if ! require_staged_notes "$CLOSING_ISSUES" "$NOTES_DIR" "$CURRENT_BRANCH"; then
     exit 2
 fi
 
@@ -200,7 +230,18 @@ fi
 # find what shipped. Whether merging also closes the issue is the repository's
 # auto-close setting, not this script's. Idempotent: if the body already starts
 # with Closes, we don't double-prepend.
-LINKED_ISSUES=$(read_branch_linked_issues "$CURRENT_BRANCH")
+LINKED_ISSUES="$CLOSING_ISSUES"
+if [ -n "$PART_ISSUES" ]; then
+    PART_LINE=""
+    for num in $PART_ISSUES; do PART_LINE="${PART_LINE:+$PART_LINE, }part of #$num"; done
+    PART_LINE="P${PART_LINE#p}"
+    if ! printf '%s' "$BODY" | grep -qxF "$PART_LINE"; then
+        BODY="${PART_LINE}
+
+${BODY}"
+        echo "gitflow: prepended '$PART_LINE' to PR body — merging it closes nothing." >&2
+    fi
+fi
 if [ -n "$LINKED_ISSUES" ]; then
     CLOSES_LINE=$(closes_line_for_issues "$LINKED_ISSUES")
     if ! printf '%s' "$BODY" | head -n 1 | grep -qE '^Closes\s+#[0-9]'; then

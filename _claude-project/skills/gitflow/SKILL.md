@@ -141,7 +141,7 @@ Push current branch and create a PR via gh (local) or GitHub API (cloud).
 - Analyze branch diff against main: `git diff --stat main..HEAD` and `git log --oneline main..HEAD`
 - Generate conventional PR title (emoji + type + description)
 - Generate PR body describing the changes
-- Confirm every linked issue not yet marked code complete ("Opening this PR marks #42 as Staged. Proceed?"). No → stop; no PR is opened. Yes → `--complete "<N,N>"`
+- Ask about every linked issue not yet marked code complete ("Does this PR finish #42, or is it part of #42?"). Finishes → `--complete "<N,N>"`; part of it → `--part "<N,N>"`, written `Part of #N`, closing nothing; neither → stop, no PR is opened
 - Invoke `/open-pr` passing title and body
 
 See `commands/open-pr.md`. The command pushes the branch, creates the PR, posts an explicit `/gemini review` comment (Gemini's auto-review on PR open is disabled in `.gemini/config.yaml`), then invokes `wait-for-pr-ready.sh` to block until CI passes and Gemini has reviewed HEAD (the wait is trigger-aware: it reads PR comments to confirm a `/gemini review` was posted for the current HEAD). On exit 0, prompts the user to run `/triage` or `/merge` — explicit handoff, never auto-invokes.
@@ -203,7 +203,7 @@ The commands invoke these scripts in `skills/gitflow/scripts/`:
 | `work.sh` | Refresh `main` or resume the current branch, cutting nothing; `--issue <N[,N…]>` to link one or more issues to the branch you are on; `--retrieve` to fetch and switch to someone else's branch; `--discussion <slug\|URL>` to locate a discussion folder and print its pointer |
 | `commit.sh` | Full conventional commit, stages all, pushes; auto-branches on main; folds unpushed checkpoints |
 | `checkpoint.sh` | Local commit on the current branch, stages all; no branch, no push |
-| `open-pr.sh` | Refuse (exit 12) while a linked issue is not code complete; push branch, create PR via gh or GitHub API; prepends `Closes #N` from branch-linked issues and moves them to Staged |
+| `open-pr.sh` | Refuse (exit 12) while a linked issue is neither code complete nor `--part`; push branch, create PR via gh or GitHub API; prepends `Closes #N` for the issues it finishes and moves them to Staged, and `Part of #N` for `--part` ones |
 | `wait-for-pr-ready.sh` | Poll until CI green + (if a `/gemini review` comment was posted for the current HEAD) Gemini Code Assist has posted its review; fail-loud timeout. Trigger-aware: no trigger comment for HEAD → CI-only ready. `GEMINI_NOT_INSTALLED="true"` short-circuits the Gemini path entirely. Invoked by `/open-pr`, `/triage`, `/merge`. |
 | `merge.sh` | Wait for PR readiness, squash-merge via gh, land this checkout back on `main`, delete the merged local branch, reinstall deps if manifests changed |
 | `branch_helpers.sh` | Shared helpers sourced by work/commit/checkpoint scripts |

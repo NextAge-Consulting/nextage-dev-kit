@@ -78,10 +78,10 @@ No new branch, no stash. Just link and keep working.
 
 ```
 /open-pr      # push branch, create PR, auto-prepends `Closes #N` from linked issues
-                # a gate: every linked issue must be code complete — any not yet marked is
-                #   confirmed first ("Opening this PR marks #42 as Staged. Proceed?"); no → no PR
-                # transitions every linked issue → "Staged" on the project board, and posts
-                #   the Staged comment on each that has not had one
+                # a gate: every linked issue is finished or part of this PR — any not yet marked is
+                #   asked ("Does this PR finish #42, or is it part of #42?"); neither → no PR
+                # a finished issue → "Staged" with its Staged comment; a part gets `Part of #N`
+                #   instead of `Closes #N`, closes nothing, and stays where it is on the board
                 # does NOT touch changelog.md — single-writer model, /deploy owns it (pipeline.md §2.3)
 /catchup      # on main: fast-forward local main from origin/main (just want latest code)
                 # on a feature branch: merge updated origin/main INTO the feature branch
@@ -117,7 +117,7 @@ No new branch, no stash. Just link and keep working.
 |-------|---------|
 | Todo | board default |
 | In Progress | `/work <N[,N…]>` |
-| Staged | `/commit` / `/ship-main` (issues answered code complete), `/open-pr` (every linked issue) — each gets its Staged comment |
+| Staged | `/commit` / `/ship-main` (issues answered code complete), `/open-pr` (every linked issue it finishes) — each gets its Staged comment |
 | the deploy status (`Done`, `Deployed`, …) | `/deploy` (NOT `/merge`) |
 
 Watch for:
@@ -291,7 +291,7 @@ Settings that change how gitflow behaves for you alone go in the `env` block of
 | Linked an issue while on main | Fine. The link parks on `main` and rides onto whichever branch your first `/commit` creates; `/ship-main` names it in `Closes #N` once you answer it is code complete, and an incomplete one stays parked. `/work` surfaces any link left parked by an abandoned session. |
 | Issue didn't move on the project board (In Progress / Staged / deploy status) | Board transitions are **fail-loud**. If `GITFLOW_PROJECT_ID` is set and the transition didn't fire, the script exited non-zero with the cause. Most common cause is the gh token missing `project` scope (`gh auth refresh -s project`), then an empty `GITFLOW_STATUS_*` key — all four are required once a board is configured. An issue not yet on the project is added and moved, with a warning that it was filed without `file-issue.sh` — which puts every issue Claude files on the board as it is filed. The board's "Auto-add to project" workflow is only the fallback for issues filed by hand, and it has to be set up for each repository. Empty `GITFLOW_PROJECT_ID` = feature off, silent skip. |
 | Exit 11 from `/commit`, `/ship-main` or `/open-pr` | The git side landed; only the board update failed. After `/commit`, `/open-pr` sets every linked issue to Staged again; after `/ship-main`, the next `/deploy` still moves the named issues; after `/open-pr`, set the status on the board once the cause is fixed. |
-| `/open-pr` exits 12 | A linked issue is not code complete and was not confirmed. Nothing was pushed. Confirm it, or keep working and `/commit` when it is done. |
+| `/open-pr` exits 12 | A linked issue is not code complete and was not confirmed. Nothing was pushed. Confirm it, say the PR is only part of it (it then reads `Part of #N` and closes nothing), or keep working and `/commit` when it is done. |
 | `--complete` exits 2 | It named an issue not linked on this branch, or an issue reaching Staged has no Staged comment in `--notes`. Nothing was committed or pushed — link it with `/work <N>`, fix the number, or write the missing comment. |
 | Exit 13 from `/commit`, `/ship-main` or `/open-pr` | Everything landed — commit, push, board — except a Staged comment. The script printed the exact `gh issue comment` that posts it. |
 | Issue closed too early, or never closed | GitHub configuration, not gitflow: the repository's auto-close setting and the board's "Auto-close issue" workflow. See `github-project-board-setup.md` §3. |

@@ -5,7 +5,7 @@ One Projects v2 board per **org** (multiple repos feed it via per-repo views). g
 | Status | Set by |
 |---|---|
 | In Progress | `/work <N>` |
-| Staged (code complete, waiting for deployment) | `/commit` or `/ship-main` for each issue you answer code complete; `/open-pr` for every linked issue |
+| Staged (code complete, waiting for deployment) | `/commit` or `/ship-main` for each issue you answer code complete; `/open-pr` for every linked issue it finishes |
 | the deploy status | `/deploy`, for every issue named by `Closes #N` in the commits since the last tag |
 
 The deploy status is whichever column the project picks — `Done`, or a separate `Deployed` when QA happens after deployment (§1). `/merge` moves nothing.

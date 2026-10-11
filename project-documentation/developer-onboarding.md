@@ -229,7 +229,7 @@ Short version:
 | "also works on #25" (mid-branch) | `/work #25` — links an additional issue to the current branch |
 | "checkpoint" or "save progress" | `/checkpoint` — local WIP save point; pushes nothing |
 | "commit this" | `/commit` — full conventional commit with AI-generated message; asks which linked issues are code complete and moves those to Staged |
-| "open a pr" | `/open-pr` — confirms every linked issue is code complete, pushes the branch, creates the PR, auto-prepends `Closes #N` from linked issues, moves them to Staged |
+| "open a pr" | `/open-pr` — asks whether the PR finishes each linked issue or is part of it, pushes the branch, creates the PR, prepends `Closes #N` for the finished ones (moved to Staged) and `Part of #N` for the rest |
 | "merge to main" | `/merge` — verify CI passed, squash-merge, pull main |
 
 The developer never runs raw `git commit`, `git push`, `git merge`, `git checkout <file>`, `git reset`, `git revert`, `git clean`, `git restore`. Those are blocked by the project's `git-guard.sh` hook. If the developer needs one legitimately, use the `SKIP_GIT_GUARD=1` prefix with explicit reason.

@@ -120,4 +120,18 @@ printf 'docs\n' > notes.md; git add -A; git commit -qm "docs: notes"
 open; rc=$?
 [ "$rc" -eq 0 ] && ok "org repo: a branch changing no root needs no plan" || bad "org docs branch (rc=$rc): $(cat "$tmp/out")"
 
+# ─── Part of an issue: advances it without closing it ─────────────────────
+git checkout -q main; printf '{"GEMINI_NOT_INSTALLED":"true"}\n' > .claude/sync-substitutions.json
+git add -A; git commit -qm "chore: app again" 2>/dev/null; git push -q origin main 2>/dev/null
+branch feat/partial
+git config branch.feat/partial.gitflow-issues 9
+open; rc=$?
+{ [ "$rc" -eq 12 ] && grep -q -- "--part" "$tmp/out"; } \
+    && ok "a linked issue neither complete nor part: refused, offering --part" || bad "no part (rc=$rc): $(cat "$tmp/out")"
+open --part 9 --complete 9; rc=$?
+[ "$rc" -eq 2 ] && ok "an issue named both complete and part: refused" || bad "both (rc=$rc): $(cat "$tmp/out")"
+open --part 9; rc=$?
+{ [ "$rc" -eq 0 ] && grep -q "Part of #9" "$FAKE_LOG" && ! grep -qi "closes #9" "$FAKE_LOG"; } \
+    && ok "--part: the PR opens saying Part of #9, and closes nothing" || bad "part (rc=$rc): $(cat "$tmp/out"; cat "$FAKE_LOG")"
+
 exit "$fail"

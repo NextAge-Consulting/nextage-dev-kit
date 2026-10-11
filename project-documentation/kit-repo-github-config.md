@@ -42,7 +42,7 @@ Net: `/commit` stages all changes and commits with the message Claude composes.
 
 ### `/open-pr` — no CI gate
 
-Pushes branch, creates PR, prepends `Closes #N` from any branch-linked issues. The only gate is the code-complete confirmation for linked issues, which holds on every repo.
+Pushes branch, creates PR, prepends `Closes #N` from any branch-linked issues it finishes and `Part of #N` from any it is only part of. The only gate is that confirmation for linked issues, which holds on every repo.
 
 ### `/merge` — CI gate auto-skips
 

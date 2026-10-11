@@ -115,13 +115,14 @@ marked complete:
 bash -c 'source .claude/skills/gitflow/scripts/issue_helpers.sh && read_branch_incomplete_issues'
 ```
 
-Empty → pass nothing. Otherwise ask in prose and wait: "Opening this PR marks #42 as Staged
-(code complete). Proceed?" Yes → pass `--complete "42"`. **No → stop; no PR is opened.** The
-work continues, and a later `/commit` marks the issue when it is done. Without the flag the
-script refuses anyway (exit 12), before anything is pushed.
+Empty → pass nothing. Otherwise ask in prose and wait: "Does this PR finish #42 — it moves to
+Staged (code complete) — or is it part of #42?" Finishes → pass `--complete "42"`. Part of it →
+pass `--part "42"`: the body says `Part of #42`, merging closes nothing, and #42 stays where it
+is on the board until the PR that finishes it. **Neither → stop; no PR is opened.** Without
+one of the flags the script refuses anyway (exit 12), before anything is pushed.
 
-Every linked issue reaches Staged when the PR opens, so every one of them is in scope for
-the comment below — pass the whole linked list.
+Every linked issue not passed as `--part` reaches Staged when the PR opens, so every one of
+them is in scope for the comment below — pass that list.
 
 **Then write the Staged comment for each of them that has not had one** — the issue's
 author reviews against it. List the ones still needing it:

@@ -54,7 +54,7 @@ Git operations route exclusively through gitflow — slash commands backed by sc
 | `/checkpoint` | Local save point; folded into the next `/commit` or `/ship-main`, never pushed. |
 | `/commit` | Conventional commit (emoji + type), typecheck-gated, push. Asks which linked issues are code complete (status → Staged). |
 | `/catchup` | Pull `main` into the feature branch. |
-| `/open-pr` | Gate: every linked issue must be code complete. Push, open PR with `Closes #N` (status → Staged), trigger advisory review. |
+| `/open-pr` | Gate: every linked issue must be code complete, or named part of this PR. Push, open PR with `Closes #N` (status → Staged) — `Part of #N` for a part, which closes nothing — trigger advisory review. |
 | `/merge` | Verify gate green, squash-merge, land on `main`. **Does not deploy.** |
 | `/deploy` | The release boundary — see §1.3. |
 

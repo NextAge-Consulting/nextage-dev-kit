@@ -48,7 +48,7 @@ Work through these in order.
 4. **Take the inventory** (below) and record every resource in the map with its owner.
 5. **Retire what is dead.** A resource the inventory shows nothing uses, and the person agrees is dead, is deleted directly with the person's sign-in — never adopted only to be destroyed. Each one goes on the setup issue: what it was, why it was dead, who agreed.
 6. **Move in any Terraform a project repo already has** (`references/adopting.md`), then delete it from that project.
-7. **Adopt what projects share** into `shared/`, each project's own resources into `projects/<project>/…`, and each legacy system into its own `legacy-<system>/` — one PR at a time, each planning only imports (`Plan: N to import, 0 to add, 0 to change, 0 to destroy.`).
+7. **Adopt what projects share** into `shared/`, each project's own resources into `projects/<project>/…`, and each legacy system into its own `legacy-<system>/` — one PR at a time, each planning only imports (`Plan: N to import, 0 to add, 0 to change, 0 to destroy.`). Each is part of the setup issue: answer `/open-pr`'s question with "part of it", so merging leaves the setup issue open.
 8. **Point every project here**: its `ORG_REPO` setting, and a line in its README linking the org repo.
 9. **Write the docs**: the org overview and a `projects/<project>/infrastructure.md` per project (`references/docs.md`), and the generated reference.
 10. **End setup with the person**, closing the setup issue. Decide together whether this organization must show its process to anyone — an audit, a client's security review. If it does, turn on the audit level (below).
