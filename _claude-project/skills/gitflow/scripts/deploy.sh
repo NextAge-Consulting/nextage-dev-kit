@@ -389,6 +389,28 @@ case "$DEPLOY_BACKEND" in
 esac
 
 # deploy-<service>.yml → <prefix><service>
+# Now, minus a few seconds of clock skew, as GitHub writes a run's createdAt.
+gh_dispatch_mark() { jq -nr 'now - 5 | strftime("%Y-%m-%dT%H:%M:%SZ")'; }
+
+# The id of $1's run on main dispatched at or after $2 (a gh_dispatch_mark), waiting
+# up to a minute for GitHub to create it. The newest run is not enough: right after a
+# dispatch it is still the previous one.
+dispatched_run_id() {
+    local wf="$1" since="$2" id i=0
+    while [ "$i" -lt 20 ]; do
+        if id=$(gh run list --workflow="$wf" --branch=main --event=workflow_dispatch --limit=10 \
+                --json databaseId,createdAt \
+                --jq "[.[] | select(.createdAt >= \"$since\")] | sort_by(.createdAt) | last | .databaseId // empty") \
+           && [ -n "$id" ]; then
+            echo "$id"
+            return 0
+        fi
+        sleep 3
+        i=$((i + 1))
+    done
+    return 1
+}
+
 cb_project_for() { _s=${1#deploy-}; _s=${_s%.yml}; printf '%s%s' "$CODEBUILD_PROJECT_PREFIX" "$_s"; }
 
 # Start one build; echoes its id. On failure the aws error goes to stderr and the
@@ -921,14 +943,13 @@ if [ -n "$MIGRATE_WF" ]; then
         fi
         echo "deploy.sh: migration $MIG_PROJECT succeeded; proceeding to app deploy(s)" >&2
     else
+        MIG_SINCE=$(gh_dispatch_mark)
         if ! gh workflow run "$MIGRATE_WF" --ref main >&2; then
             echo "deploy.sh: gh workflow run $MIGRATE_WF (migration) failed to trigger" >&2
             exit 18
         fi
         echo "deploy.sh: triggered migration $MIGRATE_WF on main; waiting for it to finish before deploying..." >&2
-        sleep 3
-        MIG_RUN_ID=$(gh run list --workflow="$MIGRATE_WF" --branch=main --limit=1 --json databaseId --jq '.[0].databaseId')
-        if [ -z "$MIG_RUN_ID" ]; then
+        if ! MIG_RUN_ID=$(dispatched_run_id "$MIGRATE_WF" "$MIG_SINCE"); then
             echo "deploy.sh: could not resolve a run id for migration $MIGRATE_WF — refusing to deploy against an unverified migration (fail-loud, §X)" >&2
             exit 19
         fi
@@ -983,6 +1004,7 @@ elif [ "$DEPLOY_BACKEND" = "codebuild" ]; then
         echo "deploy.sh: v${NEW} deployed across ${#WORKFLOWS[@]} project(s)." >&2
     fi
 else
+    DEPLOY_SINCE=$(gh_dispatch_mark)
     for WF in "${WORKFLOWS[@]}"; do
         if ! gh workflow run "$WF" --ref main >&2; then
             echo "deploy.sh: gh workflow run $WF failed" >&2
@@ -991,18 +1013,18 @@ else
         echo "deploy.sh: triggered $WF on main" >&2
     done
 
-    # Watch the most recent run of each workflow
+    # Watch the run each dispatch above created.
     if [ "$WATCH" -eq 1 ]; then
-        sleep 3
         for WF in "${WORKFLOWS[@]}"; do
-            RUN_ID=$(gh run list --workflow="$WF" --branch=main --limit=1 --json databaseId --jq '.[0].databaseId')
-            if [ -n "$RUN_ID" ]; then
-                echo "deploy.sh: watching $WF run $RUN_ID..." >&2
-                gh run watch "$RUN_ID" --exit-status || {
-                    echo "deploy.sh: deploy run $RUN_ID ($WF) failed" >&2
-                    exit 13
-                }
+            if ! RUN_ID=$(dispatched_run_id "$WF" "$DEPLOY_SINCE"); then
+                echo "deploy.sh: $WF was triggered but no run for it appeared within a minute, so the deploy is unverified (gh run list --workflow=$WF)" >&2
+                exit 13
             fi
+            echo "deploy.sh: watching $WF run $RUN_ID..." >&2
+            gh run watch "$RUN_ID" --exit-status || {
+                echo "deploy.sh: deploy run $RUN_ID ($WF) failed" >&2
+                exit 13
+            }
         done
         echo "deploy.sh: v${NEW} deployed across ${#WORKFLOWS[@]} workflow(s)." >&2
     fi

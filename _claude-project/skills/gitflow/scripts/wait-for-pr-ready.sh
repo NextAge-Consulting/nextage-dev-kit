@@ -56,6 +56,10 @@ trap 'echo "wait-for-pr-ready: interrupted" >&2; exit 5' INT
 PR_NUMBER=""
 TIMEOUT_MIN=15
 POLL_SEC=30
+# While CI for a push has not started, look again this often, this many times, before
+# falling back to POLL_SEC. GitHub usually records the run within seconds of the push.
+START_POLL_SEC=5
+START_POLL_TRIES=6
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -103,12 +107,44 @@ read_gemini_not_installed() {
     jq -r '.GEMINI_NOT_INSTALLED // ""' "$SUBS_FILE" 2>/dev/null || echo ""
 }
 
+# True when a workflow here runs on every pull request: it triggers on pull_request
+# and has no path filter, so GitHub always starts it for a PR's commit.
+repo_has_unfiltered_pr_ci() {
+    local f
+    for f in "$PROJECT_ROOT"/.github/workflows/*.yml "$PROJECT_ROOT"/.github/workflows/*.yaml; do
+        [ -f "$f" ] || continue
+        grep -qwE 'pull_request|pull_request_target' "$f" || continue
+        grep -qE '^[[:space:]]*paths(-ignore)?:' "$f" && continue
+        return 0
+    done
+    return 1
+}
+
+# The workflow runs GitHub has recorded for commit $1, summarised:
+#   none | running | done | failed   (or "error" when gh cannot answer)
+runs_for_head() {
+    local out
+    # shellcheck disable=SC2016 # $r is a jq variable, expanded by jq, not the shell
+    if ! out=$(gh api "repos/$REPO/actions/runs?head_sha=$1&per_page=50" --jq '
+        .workflow_runs as $r
+        | if ($r | length) == 0 then "none"
+          elif any($r[]; .status == "completed" and (.conclusion | IN("failure", "startup_failure", "timed_out", "cancelled"))) then "failed"
+          elif all($r[]; .status == "completed") then "done"
+          else "running" end' 2>/dev/null); then
+        echo "error"; return
+    fi
+    echo "${out:-error}"
+}
+
 # Returns: pass | fail | pending. Queries ALL checks on the PR via the
 # statusCheckRollup field, which unifies CheckRuns + StatusContexts and — unlike
 # `gh pr checks` — exits 0 with `[]` when the PR has no checks (instead of exit 1
 # with "no checks reported"). That exit-code distinction matters: it lets us
-# treat zero-checks as a clean pass (kit-style repos with no CI) while still
+# treat zero-checks as a clean pass in a repo with no pull-request CI, while still
 # treating actual gh CLI failures (auth/network/rate-limit) as pending+retry.
+# In a repo whose CI runs on every pull request, zero checks means GitHub has not
+# registered them yet, so the workflow runs for HEAD decide: none yet → starting,
+# still going → pending, finished without a check → pass, failed before a job → fail.
 #
 # Normalized state per check:
 #   CheckRun.status == COMPLETED   → use .conclusion (SUCCESS / FAILURE / ...)
@@ -117,16 +153,28 @@ read_gemini_not_installed() {
 # Aggregate:
 #   Any FAILURE / CANCELLED / TIMED_OUT / ACTION_REQUIRED / ERROR → fail
 #   Any PENDING / IN_PROGRESS / QUEUED / WAITING                  → pending
-#   All SUCCESS / NEUTRAL / SKIPPED (or empty list)               → pass
+#   All SUCCESS / NEUTRAL / SKIPPED                               → pass
+# $1 is the PR's HEAD commit.
 ci_state() {
     local rollup
     if ! rollup=$(gh pr view "$PR_NUMBER" --json statusCheckRollup --jq '.statusCheckRollup' 2>/dev/null); then
         echo "pending"; return
     fi
-    [ -z "$rollup" ] && { echo "pass"; return; }
+    [ -z "$rollup" ] && rollup="[]"
     local count
     count=$(echo "$rollup" | jq 'length')
-    if [ "$count" = "0" ]; then echo "pass"; return; fi
+    if [ "$count" = "0" ]; then
+        if ! repo_has_unfiltered_pr_ci; then
+            echo "pass"; return
+        fi
+        case "$(runs_for_head "$1")" in
+            none)   echo "starting" ;;
+            done)   echo "pass" ;;
+            failed) echo "fail" ;;
+            *)      echo "pending" ;;
+        esac
+        return
+    fi
     local states
     states=$(echo "$rollup" | jq -r '
         [ .[] |
@@ -241,6 +289,8 @@ LAST_HEAD=""
 LAST_CI=""
 LAST_TRIGGER=""
 LAST_REVIEW=""
+START_TRIES=0
+START_TRIES_FOR=""
 
 echo "wait-for-pr-ready: polling PR #$PR_NUMBER (timeout ${TIMEOUT_MIN}min, every ${POLL_SEC}s)" >&2
 
@@ -256,6 +306,7 @@ while true; do
         echo "  Gemini review on HEAD: $LAST_REVIEW (GEMINI_NOT_INSTALLED='$(read_gemini_not_installed)')" >&2
         echo "  Likely causes:" >&2
         echo "    - CI is genuinely slow; re-run with --timeout-min <larger>" >&2
+        [ "$LAST_CI" = "starting" ] && echo "    - no workflow run was ever recorded for HEAD — check the workflows' pull_request triggers" >&2
         echo "    - /gemini review was posted but Gemini is queued / rate-limited (free tier quota: 33/day)" >&2
         echo "    - Gemini Code Assist App is not installed on $REPO (set GEMINI_NOT_INSTALLED=\"true\" in .claude/sync-substitutions.json)" >&2
         echo "    - PR is in draft state and .gemini/config.yaml has include_drafts: false" >&2
@@ -273,7 +324,7 @@ while true; do
     fi
     LAST_HEAD=$HEAD
 
-    LAST_CI=$(ci_state)
+    LAST_CI=$(ci_state "$HEAD")
     if [ "$LAST_CI" = "fail" ]; then
         echo "" >&2
         echo "wait-for-pr-ready: CI FAILED on PR #$PR_NUMBER." >&2
@@ -329,5 +380,16 @@ while true; do
     printf "wait-for-pr-ready: %ds elapsed — CI=%s, trigger=%s, review=%s, HEAD=%s\n" \
         "$ELAPSED" "$LAST_CI" "$LAST_TRIGGER" "$LAST_REVIEW" "${HEAD:0:7}" >&2
 
+    if [ "$LAST_CI" = "starting" ]; then
+        if [ "$START_TRIES_FOR" != "$HEAD" ]; then
+            START_TRIES_FOR=$HEAD
+            START_TRIES=0
+        fi
+        if [ "$START_TRIES" -lt "$START_POLL_TRIES" ]; then
+            START_TRIES=$((START_TRIES + 1))
+            sleep "$START_POLL_SEC"
+            continue
+        fi
+    fi
     sleep "$POLL_SEC"
 done

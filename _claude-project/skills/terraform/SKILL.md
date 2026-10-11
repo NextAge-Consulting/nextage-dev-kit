@@ -37,7 +37,7 @@ The request arrives as an issue: `/work <N>`. While the org repo is first being 
 | `legacy-<system>/` | One legacy system, adopted as it stands |
 | `modules/<name>/` | Code roots share; never a root itself |
 
-**Every root** uses the org's state bucket with the key `<root path>/terraform.tfstate`, pins the provider, refuses any account but `AWS_ACCOUNT_ID` (`allowed_account_ids`), tags everything through `default_tags` with `Project` and `ManagedBy`, and commits its `.terraform.lock.hcl`.
+**Every root** uses the org's state bucket with the key `<root path>/terraform.tfstate`, pins the provider, refuses any account but `AWS_ACCOUNT_ID` (`allowed_account_ids`), tags everything through `default_tags` with `Project` and `ManagedBy`, and commits its `.terraform.lock.hcl` locked for CI and every developer's platform — `terraform -chdir=infra/terraform/<root> providers lock -platform=linux_amd64 -platform=darwin_arm64 -platform=darwin_amd64` after any provider change.
 
 **Writing it:**
 - A value another root owns comes from a data source by name or tag, or from a Parameter Store name the owning root publishes. Never `terraform_remote_state`.
