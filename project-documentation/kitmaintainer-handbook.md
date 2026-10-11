@@ -514,7 +514,7 @@ only then merged — `main` there only ever holds what is live. Its people-facin
   `deploy-org.sh` refuses until the PR's review decision is `APPROVED` (exit 33). Both are
   checked before anything is planned.
 - **`/merge`** refuses without `GITFLOW_ORG_DEPLOY=1` (exit 25). **`/ship-main`** refuses a
-  change touching Terraform (exit 14) and ships docs as usual.
+  Terraform change unless every root it touches plans no changes (exit 14) and ships docs as usual.
 - **In an app repo**, `deploy.sh` reads `Needs <owner>/<repo>#N` from the release's
   commits and refuses (exit 25) until each is live — the org PR merged, or a merged PR
   that closes the org issue, whatever the repository's auto-close setting.

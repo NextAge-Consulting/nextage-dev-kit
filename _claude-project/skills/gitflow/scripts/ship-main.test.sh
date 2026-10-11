@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Regression suite for ship-main.sh's org-repo rule: a change touching Terraform is
-# refused before anything is committed, and a docs change still ships. Runs against
+# Regression suite for ship-main.sh's org-repo rule: a Terraform change that would change
+# AWS, or cannot be planned, is refused before anything is committed; one that plans no
+# changes ships, and so does a docs change. A stand-in tf.sh returns the plan's exit code
+# from FAKE_PLAN_RC. Runs against
 # a real origin with no package.json and no CI file, so every gate reports that it
 # does not apply.
 set -uo pipefail
@@ -21,6 +23,8 @@ cd "$tmp/work" || exit 1
 git config user.email t@example.com; git config user.name t
 mkdir -p .claude/skills/terraform/scripts infra/terraform/shared
 cp "$CHANGED_ROOTS" .claude/skills/terraform/scripts/
+printf '#!/bin/bash\ncase "$2" in plan) exit "${FAKE_PLAN_RC:-0}" ;; esac\nexit 0\n' > .claude/skills/terraform/scripts/tf.sh
+chmod +x .claude/skills/terraform/scripts/tf.sh
 printf '{"REPO_KIND":"org","GEMINI_NOT_INSTALLED":"true"}\n' > .claude/sync-substitutions.json
 printf 'terraform {}\n' > infra/terraform/shared/main.tf; touch infra/terraform/shared/.terraform.lock.hcl
 git add -A; git commit -qm "chore: base"; git push -q origin main
@@ -29,10 +33,19 @@ ship(){ PATH="$tmp/bin:$PATH" bash "$D/ship-main.sh" --message "$1" >"$tmp/out" 
 before=$(git rev-parse HEAD)
 
 printf 'resource "x" "y" {}\n' >> infra/terraform/shared/main.tf
-rc=$(ship "✨ feat: bucket")
-{ [ "$rc" = 14 ] && grep -q "goes through /open-pr and /deploy" "$tmp/out" && [ "$(git rev-parse HEAD)" = "$before" ]; } \
-    && ok "org repo: a Terraform change is refused, nothing committed" || bad "terraform refused (rc=$rc): $(cat "$tmp/out")"
+rc=$(FAKE_PLAN_RC=2 ship "✨ feat: bucket")
+{ [ "$rc" = 14 ] && grep -q "goes through /open-pr and /deploy" "$tmp/out" && grep -q "shared" "$tmp/out" && [ "$(git rev-parse HEAD)" = "$before" ]; } \
+    && ok "org repo: a Terraform change that changes AWS is refused, nothing committed" || bad "terraform refused (rc=$rc): $(cat "$tmp/out")"
+rc=$(FAKE_PLAN_RC=1 ship "✨ feat: bucket")
+{ [ "$rc" = 14 ] && [ "$(git rev-parse HEAD)" = "$before" ]; } \
+    && ok "org repo: a Terraform change that cannot be planned is refused" || bad "plan error (rc=$rc): $(cat "$tmp/out")"
 git checkout -q -- infra/terraform/shared/main.tf
+
+printf '# a note\n' >> infra/terraform/shared/main.tf
+rc=$(FAKE_PLAN_RC=0 ship "🧹 chore: note")
+{ [ "$rc" = 0 ] && [ "$(git rev-parse origin/main)" != "$before" ]; } \
+    && ok "org repo: a Terraform change that plans no changes ships" || bad "no-op terraform (rc=$rc): $(cat "$tmp/out")"
+before=$(git rev-parse HEAD)
 
 printf 'notes\n' > notes.md
 rc=$(ship "📚 docs: notes")

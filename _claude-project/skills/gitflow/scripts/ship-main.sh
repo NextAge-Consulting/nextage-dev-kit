@@ -14,6 +14,8 @@
 # Guardrails:
 #   - Refuses unless on main/master (a body of work in progress is on its own
 #     branch, so it can't trip this by accident).
+#   - In an org repo, refuses a Terraform change unless every root it touches plans
+#     "No changes" — anything that changes AWS goes through /open-pr and /deploy.
 #   - Runs the same typecheck, biome, knip and semgrep gates as /commit (gates.sh);
 #     --skip-typecheck for a true emergency.
 #   - Folds any unpushed /checkpoint commits into the one commit it makes, so no
@@ -93,8 +95,25 @@ if [ "$(jq -r '.REPO_KIND // ""' .claude/sync-substitutions.json 2>/dev/null || 
         echo "ship-main.sh: could not tell whether this change touches Terraform — nothing was shipped." >&2
         exit 14
     fi
-    if [ -n "$ORG_ROOTS" ]; then
-        echo "ship-main.sh: this change touches Terraform ($(printf '%s' "$ORG_ROOTS" | tr '\n' ' ')) — in an org repo that goes through /open-pr and /deploy, which applies it before it reaches main. Nothing was shipped." >&2
+    # Every change to AWS goes through /deploy's apply. A root the change touches may
+    # ship here only when its plan, with the change in place, is "No changes".
+    CHANGING=""
+    while IFS= read -r root; do
+        [ -n "$root" ] || continue
+        if [ ! -d "infra/terraform/$root" ] \
+           || ! .claude/skills/terraform/scripts/tf.sh "$root" init -input=false -no-color >/dev/null 2>&1; then
+            CHANGING="$CHANGING $root"
+            continue
+        fi
+        if .claude/skills/terraform/scripts/tf.sh "$root" plan -detailed-exitcode -input=false -lock=false -no-color >/dev/null 2>&1; then
+            plan_rc=0
+        else
+            plan_rc=$?
+        fi
+        [ "$plan_rc" -eq 0 ] || CHANGING="$CHANGING $root"
+    done <<< "$ORG_ROOTS"
+    if [ -n "$CHANGING" ]; then
+        echo "ship-main.sh: this change would change AWS, or could not be planned, in:$CHANGING — in an org repo that goes through /open-pr and /deploy, which applies it before it reaches main. Nothing was shipped." >&2
         exit 14
     fi
 fi
