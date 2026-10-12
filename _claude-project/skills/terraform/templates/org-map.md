@@ -61,6 +61,7 @@ change could break the other.
 | The account owner's people's sign-in identities, and the root user | The account owner manages its own people |
 | Parameter Store values a person sets, and access keys | Terraform stores what it sets in plain text |
 | The default VPC, its subnets and security group, service-linked roles, AWS-managed policies | Created by AWS; read with data sources |
+| Resource Explorer indexes and views | Account tooling, not part of any system |
 
 ## Inventory
 

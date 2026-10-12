@@ -9,8 +9,13 @@ A resource built by hand is taken over where it stands.
 1. **Generate a starting point** in a scratch root, `infra/terraform/scratch-adopt/`, holding only the provider block from `templates/root-main.tf.example` (no backend) and an `import` block per resource. Being under `infra/terraform/`, it gets its credentials from `scripts/tf.sh scratch-adopt init`, then `scripts/tf.sh scratch-adopt plan -generate-config-out=generated.tf`. A plan writes no state. The output is a reference for the real values, not the code — it is verbose and carries conflicting arguments (both `subnets` and `subnet_mapping`, both `records` and `alias`). It is gitignored, so it is never committed; delete it once the real code is written.
 2. **Write the real code by hand** in the root the map gives the resource to, with the names the code will keep.
 3. **Import into those addresses** with `import` blocks in an `imports.tf` in the root, e.g. `import { to = module.environment.aws_lb.alb, id = "<arn>" }`.
-4. **Plan until it reports only imports** — `Plan: N to import, 0 to add, 0 to change, 0 to destroy.` Every difference is a value to copy exactly or a normalisation to accept knowingly. These always appear:
-   - an HTTPS listener's forward action: AWS stores both `target_group_arn` and the `forward` block — write both, with the same ARN;
+4. **Plan until it reports only imports and normalisations** — `Plan: N to import, A to add, M to change, 0 to destroy.`, where every add and change is one of the normalisations below. Every other difference is a value to copy exactly. The normalisations:
+   - the root's `default_tags` added to each imported resource that carries tags — an in-place change to its tags and nothing else;
+   - an argument AWS never returns, such as a credential's token, which the import reads as unset and would replace the resource over — give it `lifecycle { ignore_changes = [<argument>] }`;
+   - a provider-only argument recorded into state for the first time (`force_destroy`, `revoke_rules_on_delete`, `publish`) — it makes no AWS call;
+   - an account setting the provider cannot import (`aws_iot_logging_options`) — declare its current values; it plans as one add that writes them unchanged;
+   - a web ACL whose managed rule group has no pinned version: the block form plans a change on every run, so write its rules as `rule_json` in AWS's own shape (`aws wafv2 get-web-acl` → `Rules`), which plans once as an addition;
+   - an HTTPS listener's forward action: AWS stores both `target_group_arn` and the `forward` block — write both, with the same ARN. A listener rule's forward action is stored as the `forward` block alone — write only that;
    - an alias record's `dualstack.` prefix — both forms resolve to the same load balancer.
 5. **`/open-pr`, then `/deploy`.** The PR's plan block shows the imports; `/deploy` applies them. Then delete `imports.tf` in a follow-up change — an import block for a resource already in state does nothing.
 

@@ -48,7 +48,7 @@ Work through these in order.
 4. **Take the inventory** (below) and record every resource in the map with its owner.
 5. **Retire what is dead.** A resource the inventory shows nothing uses, and the person agrees is dead, is deleted directly with the person's sign-in — never adopted only to be destroyed. Each one goes on the setup issue: what it was, why it was dead, who agreed.
 6. **Move in any Terraform a project repo already has** (`references/adopting.md`), then delete it from that project.
-7. **Adopt what projects share** into `shared/`, each project's own resources into `projects/<project>/…`, and each legacy system into its own `legacy-<system>/` — one PR at a time, each planning only imports (`Plan: N to import, 0 to add, 0 to change, 0 to destroy.`). Each is part of the setup issue: answer `/open-pr`'s question with "part of it", so merging leaves the setup issue open.
+7. **Adopt what projects share** into `shared/`, each project's own resources into `projects/<project>/…`, and each legacy system into its own `legacy-<system>/` — one PR at a time, each planning only imports and the normalisations `references/adopting.md` lists (`Plan: N to import, A to add, M to change, 0 to destroy.`). Each is part of the setup issue: answer `/open-pr`'s question with "part of it", so merging leaves the setup issue open.
 8. **Point each project that has infrastructure in the account here**: its `ORG_REPO` setting, and a line in its README linking the org repo unless the project is public. A dormant project is pointed the next time it is worked on. A project with nothing in the account is neither pointed here nor in the map.
 9. **Write the docs**: the org overview and a `projects/<project>/infrastructure.md` per project (`references/docs.md`), and the generated reference.
 10. **End setup with the person**, closing the setup issue. Decide together whether this organization must show its process to anyone — an audit, a client's security review. If it does, turn on the audit level (below).
@@ -84,6 +84,7 @@ Each listed in the map with its reason:
 - **Parameter Store values a person sets, and access keys** — Terraform stores everything it sets in plain text.
 - **What AWS creates itself** — the default VPC, its subnets and security group, service-linked roles, AWS-managed policies. Read them with data sources.
 - **Release artifacts** — images in a repository, task definition revisions, backup snapshots.
+- **Resource Explorer indexes and views** — account tooling, not part of any system; adopting them takes a provider block per indexed region and gives no project anything.
 
 ## Values one root publishes for another
 
