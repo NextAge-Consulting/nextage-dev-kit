@@ -96,6 +96,12 @@ Anything new Claude adds to the design system is marked pending until a human ap
 and `/deploy` refuses while anything is pending — `designer-handbook.md`, "Nothing new ships
 until you approve it".
 
+When the system has no answer for a value, Claude takes the kit's design opinion
+(`design-opinion.md` in the design-system skill) into the system, or asks you. Existing
+screens that predate the system are never blocked — the checks judge only the lines you
+change — and `/design-audit` brings an area into line when you have time for it:
+`designer-handbook.md`, "Starting and growing a design system".
+
 ## Longer runs
 
 - **`/autonomous <what>`** hands Claude a body of work while you step away. It runs to the

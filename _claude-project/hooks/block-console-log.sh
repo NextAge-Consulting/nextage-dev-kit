@@ -5,6 +5,7 @@
 # package.json, every workspace its `workspaces` globs (or pnpm-workspace.yaml) match,
 # and the nearest package.json above the edited file. A monorepo keeps its logger in
 # whichever workspace it likes, so no single manifest can stand for the project.
+# The files biome.base.json exempts from noConsole are exempt here too.
 
 # shellcheck source=guard-lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/guard-lib.sh"
@@ -59,6 +60,38 @@ while parts:
     manifests.add(os.path.join(root, *parts, "package.json"))
     parts.pop()
 sys.exit(0 if any("\"pino\"" in manifest_text(m) for m in manifests) else 1)
+' "$PROJECT_DIR" "$REL" 2>/dev/null; then
+    exit 0
+fi
+
+# The paths Biome lets write to the console — command-line scripts, tests, config, the
+# server entry — are read from biome.base.json's overrides that turn noConsole off, so
+# the hook and the lint exempt exactly the same files. No biome.base.json, no exemption.
+if [ -n "$REL" ] && python3 -c '
+import json, os, re, sys
+root, target = sys.argv[1], sys.argv[2]
+try:
+    config = json.load(open(os.path.join(root, "biome.base.json"), encoding="utf-8"))
+except (OSError, ValueError):
+    sys.exit(1)
+def regex(glob):
+    out, i = "", 0
+    while i < len(glob):
+        if glob.startswith("**/", i):
+            out, i = out + "(?:.*/)?", i + 3
+        elif glob.startswith("**", i):
+            out, i = out + ".*", i + 2
+        elif glob[i] == "*":
+            out, i = out + "[^/]*", i + 1
+        else:
+            out, i = out + re.escape(glob[i]), i + 1
+    return re.compile(out + r"\Z")
+for o in config.get("overrides", []):
+    rule = o.get("linter", {}).get("rules", {}).get("suspicious", {}).get("noConsole")
+    level = rule.get("level") if isinstance(rule, dict) else rule
+    if level == "off" and any(regex(g).match(target) for g in o.get("includes", [])):
+        sys.exit(0)
+sys.exit(1)
 ' "$PROJECT_DIR" "$REL" 2>/dev/null; then
     exit 0
 fi

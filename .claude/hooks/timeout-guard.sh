@@ -60,7 +60,7 @@ for tok in tokens:
         first = True
         continue
     if not first: continue
-    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", tok) or tok in WRAPPERS or (tok.startswith("-") and tok != "-"):
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", tok) or tok.rsplit("/", 1)[-1] in WRAPPERS or (tok.startswith("-") and tok != "-"):
         continue
     if tok.rsplit("/", 1)[-1] in ("timeout", "gtimeout"):
         found = tok

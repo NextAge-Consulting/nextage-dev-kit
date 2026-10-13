@@ -68,11 +68,11 @@ behind.
 
 - **Token translation.** The format reads literals and references only, each family as a
   list of `{name, value, usage}`. The engine resolves `var()`, `color-mix()` in any
-  colour space and named colours (exactly, as the browser does, with Color.js) and
-  theme blocks, and fails the build on anything it cannot translate — the format itself
+  colour space and named colours (exactly, as the browser does, with Color.js), `calc()`
+  on px lengths for radius and spacing, and theme blocks, and fails the build on anything it cannot translate — the format itself
   would drop it silently, and a colour missing from the dark theme inherits the light
   one. A token inside a `/* publish: off */` … `/* publish: on */` pair is not carried;
-  a published colour that refers to one carries its resolved value.
+  a published colour or length that refers to one carries its resolved value.
 - **Usage notes.** A token's usage is the comment directly above its declaration, or
   trailing it on the same line; a blank line between comment and token breaks the link,
   and a comment containing `─` (`/* ─── name ─── */`) is a group header belonging to no
@@ -158,9 +158,8 @@ control in the canvas's Tweaks panel and read as `this.props.<name>`.
   The default is `Undecided — <the option you recommend>`. `check-design.mjs` reads the
   states from the saved defaults and reports them; an option without one of these
   prefixes fails it.
-- **X says in plain words what the option adds, with its values** — "Pay as Guest
-  spacing: divider above Card and Billing address, 24px between columns" — never a bare
-  "Current design". The key stays the gap's name.
+- **X says in plain words what the option adds** — "a line above the store badges" —
+  never a bare "Current design". The key stays the gap's name.
 - **Tell the person the moment you create a gap** — in the same reply as the change that
   needed it: what you added, what the design system lacks, and the tweak's key. "I added
   the account switcher's options with the address beneath; the system's select option
@@ -180,7 +179,8 @@ control in the canvas's Tweaks panel and read as `this.props.<name>`.
   folder is transient, so the mockup goes with it. No design publish, nobody waits.
   Tweaks are for the end of that: two or three settled options, judged in place on the
   real screen. **"Let me see it" means before anything is built or published** — show
-  the change as a mockup (or the render check's screenshot of a local build) and wait;
+  the change as a live mockup built from the local bundle (the design-system skill's
+  `references/comparison-pages.md`) and wait;
   landing it first and showing the result afterwards spends a design-system publish on
   something the person may not want.
   **That is for working interactively. In an autonomous run, build the options as real

@@ -112,7 +112,8 @@ const harness = "test/{define,globalSetup,integration-helpers,test-utils,auth-mo
 // lives under .claude/ — drives esbuild (stack-manifest.json).
 const ignoreDependencies = ["pino-pretty", ...(uiPackage ? ["esbuild"] : [])];
 // commitlint.yml installs commitlint at run time (stack-manifest.json, installedBy ci).
-const ignoreBinaries = ["commitlint"];
+// psql is the PostgreSQL client the machine provides, which no package.json can declare.
+const ignoreBinaries = ["commitlint", "psql"];
 
 type Workspace = { entry: string[]; ignoreDependencies: string[]; ignoreBinaries: string[] };
 const workspace = (entry: string[]): Workspace => ({ entry, ignoreDependencies: [...ignoreDependencies], ignoreBinaries });

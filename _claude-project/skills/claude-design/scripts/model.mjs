@@ -12,7 +12,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { packageRequire } from './config.mjs'
-import { DEFAULT_THEME_SELECTORS, isColorToken, parseTokenBlocks, resolveColor } from './resolve.mjs'
+import { DEFAULT_THEME_SELECTORS, isColorToken, parseTokenBlocks, resolveColor, resolveLength } from './resolve.mjs'
 
 /** Color.js, vendored beside the engine (../vendor/README.md), so a mix resolves as the browser computes it. */
 const Color = createRequire(import.meta.url)('../vendor/color.cjs').default
@@ -85,11 +85,20 @@ export function buildModel({ CONFIG, PKG }) {
   if (!colorTokens.length) problems.push(`no colour tokens found in ${CONFIG.tokens.join(', ')} — the token files hold the system's colours, so a read of none means the paths or the theme selectors are wrong`)
 
   // Every other published token lands in a family.
+  // A length is published as the plain value it resolves to: var() substituted, calc() worked out.
+  const length = (name, raw) => {
+    try {
+      return resolveLength(raw, lightEnv)
+    } catch (e) {
+      problems.push(`--${name}: ${e.message}`)
+      return raw
+    }
+  }
   const radius = []
   const shadow = []
   for (const d of lightDecls) {
     if (colorNames.has(d.name) || !published(d)) continue
-    if (families.radius.test(d.name)) radius.push({ name: d.name, value: d.value, usage: requireUsage(d.name) })
+    if (families.radius.test(d.name)) radius.push({ name: d.name, value: length(d.name, d.value), usage: requireUsage(d.name) })
     else if (families.shadow.test(d.name)) {
       const dark = darkEnv.get(d.name)
       shadow.push({ name: d.name, value: dark === d.value ? d.value : { light: d.value, dark }, usage: requireUsage(d.name) })
@@ -107,7 +116,7 @@ export function buildModel({ CONFIG, PKG }) {
   const spacingAliases = []
   for (const m of stylesCss.matchAll(/--spacing-([\w-]+):\s*var\(--([\w-]+)\)/g)) {
     spacingAliases.push(m[1])
-    spacing.push({ name: `spacing-${m[1]}`, value: lightEnv.get(m[2]), usage: requireUsage(m[2]) })
+    spacing.push({ name: `spacing-${m[1]}`, value: length(m[2], lightEnv.get(m[2]) ?? `var(--${m[2]})`), usage: requireUsage(m[2]) })
   }
   // Weight roles the CSS exposes (`--font-weight-body: …`), as `font-<role>`.
   const allCss = [stylesCss, ...CONFIG.tokens.map(read), CONFIG.typeRoles ? read(CONFIG.typeRoles.file) : ''].join('\n')

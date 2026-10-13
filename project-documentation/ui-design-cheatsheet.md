@@ -53,6 +53,37 @@ list. Nobody pastes a design's link — it comes from the folder.
 
 ---
 
+## Starting a design system
+
+- **New project:** pick and adjust a theme at tweakcn, hand Claude its Tailwind v4 code,
+  then `/design-audit system`.
+- **Existing app:** Claude extracts the system the app already shows (optionally merged
+  with a tweakcn theme), then `/design-audit system`. Old screens are never blocked; audit
+  an area when you have time for it.
+- **After that:** a value the system lacks comes from the kit's design opinions, or from
+  you, and is built into the system so it stays decided.
+
+## The design audit — only when you ask, never in CI
+
+```
+/design-audit system                # the design system against the kit's design opinions
+/design-audit project              # all of the project's UI against the design system
+/design-audit project <path>       # one area of it
+/design-audit design <name or url>  # a Claude Design design, before implementing it
+```
+
+- **When:** after setting up or merging a system, after a kit update adds opinions, when an
+  area of an old app gets cleanup time, before implementing a design.
+- **What happens:** a fresh reviewer reads only the files audited and says how many. A code
+  or design audit runs the system pass first and settles it before judging screens.
+- **Each finding comes to you one at a time:** fix the work, add to the system, or accept
+  it with a reason (`design-accepted — <reason>`), which no later audit raises again.
+- **Guidance differences are a question, not a finding:** adopt the kit's guideline or keep
+  yours. Keeping yours needs no reason (`design-choice`).
+  Nothing changes without your answer, and you can stop part-way.
+
+---
+
 ## A design's life
 
 ```

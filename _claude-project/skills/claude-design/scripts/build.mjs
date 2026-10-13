@@ -43,7 +43,7 @@ if (releaseAt >= 0 && !(Number.isInteger(RELEASE) && RELEASE > 0)) {
   console.error('usage: build.mjs <path/to/design-system.config.mjs> [--release <n>]')
   process.exit(2)
 }
-const ctx = await loadConfig(args.find((a, i) => releaseAt < 0 || (i !== releaseAt && i !== releaseAt + 1)), { tool: 'build.mjs' })
+const ctx = await loadConfig(args.find((_, i) => releaseAt < 0 || (i !== releaseAt && i !== releaseAt + 1)), { tool: 'build.mjs' })
 const { CONFIG, CONFIG_DIR, REPO, PKG } = ctx
 const OUT = path.join(PKG, CONFIG.out)
 const PROJECT = path.join(OUT, 'project')
@@ -267,7 +267,14 @@ async function buildComponents() {
     write: false,
     jsx: 'automatic',
     tsconfig: path.join(PKG, CONFIG.tsconfig),
-    define: { 'process.env.NODE_ENV': '"production"' },
+    // The app's components are written for Vite, which supplies import.meta.env; an IIFE
+    // bundle has no import.meta, so without this a component reading an env value at
+    // module load throws and takes the whole bundle down. Its VITE_* values are the
+    // app's build settings, never the design system's, so they read as unset here.
+    define: {
+      'process.env.NODE_ENV': '"production"',
+      'import.meta.env': JSON.stringify({ MODE: 'production', BASE_URL: '/', PROD: true, DEV: false, SSR: false }),
+    },
     // An image a component imports travels inside the bundle: a design copies the
     // system's files but cannot load a picture by path, so a component pointing at
     // the app's public folder would render a broken image there.

@@ -128,9 +128,11 @@ function parseDecls(body, publishAtStart = true) {
       else open = [line];
       continue;
     }
-    const d = /^--([\w-]+):\s*(.+?);\s*(\/\*(.*?)\*\/)?$/.exec(line);
+    const d = /^--([\w-]+):\s*(.+?);\s*((?:\/\*.*?\*\/\s*)*)$/.exec(line);
     if (!d) throw new Error(`unparsed line in token block: ${line}`);
-    const trailing = d[4] ? d[4].trim() : '';
+    // A line may carry a check's marker after its usage (`/* contrast-accepted: … */`),
+    // which says nothing about what the token is for.
+    const trailing = [...d[3].matchAll(/\/\*(.*?)\*\//g)].map((c) => c[1].trim()).find((c) => !/^contrast-accepted:/.test(c)) ?? '';
     const above = pending && !HEADER.test(pending) ? pending : '';
     decls.push({ name: d[1], value: d[2].trim(), usage: trailing || above, ...(publish ? {} : { publish: false }) });
     pending = null;
@@ -161,6 +163,50 @@ export function substitute(raw, env, depth = 0) {
     out = out.slice(0, m.index) + value + out.slice(m.index + m[0].length);
   }
   return out.trim();
+}
+
+/** A length token resolved in its theme to a plain value the artifact can read: every
+ * var() substituted and every calc() worked out, in px. A unit other than px — or an
+ * expression that is not arithmetic on lengths — throws, naming the token's text. */
+export function resolveLength(raw, env) {
+  const text = substitute(raw, env);
+  if (!/calc\(/.test(text)) return text;
+  const src = text.replace(/calc\(/g, '(');
+  let i = 0;
+  const fail = (why) => { throw new Error(`cannot work out ${raw} (${text}): ${why}`); };
+  const skip = () => { while (src[i] === ' ') i++; };
+  const atom = () => {
+    skip();
+    if (src[i] === '(') { i++; const v = sum(); skip(); if (src[i++] !== ')') fail('unbalanced parentheses'); return v; }
+    if (src[i] === '-') { i++; const v = atom(); return { n: -v.n, px: v.px }; }
+    const m = /^(\d*\.?\d+)(px)?/.exec(src.slice(i));
+    if (!m) fail(`unexpected "${src.slice(i, i + 12)}"`);
+    i += m[0].length;
+    if (/^[a-z%]/i.test(src.slice(i))) fail('only px lengths and plain numbers are supported');
+    return { n: Number(m[1]), px: !!m[2] };
+  };
+  const product = () => {
+    let v = atom();
+    for (skip(); src[i] === '*' || src[i] === '/'; skip()) {
+      const op = src[i++]; const r = atom();
+      if (v.px && r.px) fail('a length times or divided by a length');
+      v = op === '*' ? { n: v.n * r.n, px: v.px || r.px } : { n: v.n / r.n, px: v.px };
+    }
+    return v;
+  };
+  const sum = () => {
+    let v = product();
+    for (skip(); src[i] === '+' || src[i] === '-'; skip()) {
+      const op = src[i++]; const r = product();
+      if (v.px !== r.px) fail('adding a length and a plain number');
+      v = { n: op === '+' ? v.n + r.n : v.n - r.n, px: v.px };
+    }
+    return v;
+  };
+  const v = sum();
+  skip();
+  if (i !== src.length) fail(`unexpected "${src.slice(i, i + 12)}"`);
+  return `${round(v.n)}${v.px ? 'px' : ''}`;
 }
 
 /** Is this token, resolved in its theme, a colour (as opposed to a number or length)? */
@@ -252,12 +298,14 @@ function operand(text, Color) {
 
 /** A mixed colour in a form the artifact accepts. Mixing with transparent keeps
  * the colour and only lowers alpha — written in the source colour's own oklch
- * form so it reads like the token it came from; anything else as oklab. */
+ * form so it reads like the token it came from, when that form is plain numbers;
+ * anything else — a percentage, `none`, an angle unit — as oklab. */
 function format({ mixed, keep }, Color) {
   const alpha = round(mixed.alpha);
   if (alpha === 0) return 'oklch(0 0 0 / 0)';
-  if (keep) {
-    const [L, C, H] = /^oklch\(\s*([\d.]+)\s+([\d.]+)\s+(-?[\d.]+)/.exec(keep).slice(1);
+  const plain = keep && /^oklch\(\s*([\d.]+)\s+([\d.]+)\s+(-?[\d.]+)\s*[/)]/.exec(keep);
+  if (plain) {
+    const [, L, C, H] = plain;
     return `oklch(${L} ${C} ${H}${alpha < 1 ? ` / ${alpha}` : ''})`;
   }
   const [L, A, B] = new Color(mixed).to('oklab').coords.map((n) => round(n ?? 0));

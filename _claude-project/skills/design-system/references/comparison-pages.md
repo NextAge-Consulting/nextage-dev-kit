@@ -14,35 +14,30 @@ things that happen to look alike are separate parts, and never share a page.
 in code but render the same are unified without asking; prove it with
 `compare-ui-values.mjs`.
 
-## Shoot the running app
+## Build it live — never a screenshot
 
-1. **Capture the running app**, headless, in a named `agent-browser` session (the
-   `agent-browser` skill), signed in as the test user the project's `.env` holds. Never a
-   page compiled from the stylesheet alone — the app's Tailwind setup is what makes boxes,
-   borders and buttons render.
-2. **Frame one screen, the viewport — about 1440 × 760 — never the full page.** Scroll the
-   app's own scroll container so the element sits mid-frame, with the UI around it that
-   it is judged against.
-3. **Put it in the state where it appears**: expand the groups, type the filter that
-   empties the list, open the dialog. A rare branch may be forced with a temporary code
-   change, reverted straight after the capture.
-4. **Show each competing look where the app draws it today** — one screenshot per real
-   location. Never transplant one option into another's place.
-5. **A light row and a dark row**, each captured with the `<html>` class toggled. Dark is
-   its own capture; a dark wrapper inside a light page keeps the light tokens.
+The human decides by using the options: hovering, tabbing, clicking, typing. A screenshot
+shows one state, so it is never the page.
+
+1. **One local page, the project's real parts.** Load the bundle `build:design-system`
+   writes — `components/lib/react.production.min.js`, `react-dom.production.min.js`,
+   `components/bundle.js` and `bundle.css` — and mount the parts from
+   `window.<namespace>`. Nothing on the page is styled by hand.
+2. **The options side by side, built from the same parts.** An option differs from today
+   only in the value the decision is about, set as a CSS override on that option's column
+   — a token, or the variable a class reads (`--tw-ring-color`).
+3. **A light/dark switch** that sets `data-theme` on `<html>`; the bundle's dark tokens
+   apply only at the root.
+4. **Real content, in the state it is judged in** — a filled field and an empty one, a
+   menu a click opens, a row a hover lights.
 
 ## Lay out the page
 
-- **One caption per option**, naming the option and where it lives. Never two options
-  under one caption.
+- **One caption per option**, and one line saying what to do with it — "Tab through the
+  fields", "hover a row".
 - **No recommendation.** The page shows the options; the human picks.
-- Write it to `project-documentation/temporary/`, **open the page and look at it yourself**
-  before handing it over, then open it for the human.
-
-## Around the human's dev server
-
-Say so before changing code under a dev server the human is running for a capture, and
-restore and diff it afterwards.
+- Write it to `project-documentation/temporary/`. **Use it yourself first** — Tab, hover
+  and the theme switch, in a named `agent-browser` session — then open it for the human.
 
 ## After the pick
 

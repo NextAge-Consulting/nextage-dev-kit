@@ -45,6 +45,8 @@ export function buildCsp(nonce: string, allow: CspAllow = {}): string {
 export function isHttps(request: Request): boolean {
   const forwarded = request.headers.get("x-forwarded-proto");
   if (forwarded) return forwarded.split(",")[0]?.trim() === "https";
+  // A Request's url is always absolute — the Fetch standard resolves it when the Request is
+  // built and refuses one it cannot — so parsing it here cannot throw.
   return new URL(request.url).protocol === "https:";
 }
 

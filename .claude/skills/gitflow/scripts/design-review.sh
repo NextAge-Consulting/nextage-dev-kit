@@ -9,8 +9,8 @@
 # variant, design.md prose contradicting the roles. The token checker
 # (check-design-tokens.mjs) decides the mechanical rules; the reviewer never repeats them.
 #
-# The reviewer sees only the numbered diff, the project's role list, its UI inventory and
-# the block-type list: no tools, no settings, no CLAUDE.md. It reports nothing it is
+# The reviewer sees only the numbered diff, the project's role list, its UI inventory,
+# the block-type list and the kit's design opinions: no tools, no settings, no CLAUDE.md. It reports nothing it is
 # unsure of. A finding fails the gate, and the developer decides each one: fix it, or
 # commit anyway with SKIP_DESIGN_REVIEW=1.
 #
@@ -36,6 +36,8 @@ INVENTORY="$ROOT/.claude/rules/project/ui-inventory.md"
 BLOCK_TYPES="$ROOT/.claude/skills/design-system/references/block-types.md"
 # The checker ships beside this script: .claude/skills/gitflow/scripts → .claude/skills/design-system.
 CHECKER="${DESIGN_REVIEW_CHECKER:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd)/design-system/scripts/check-design-tokens.mjs}"
+# The kit's design opinions ship beside the checker, in the design-system skill's references.
+OPINIONS="$(dirname "$CHECKER")/../references/design-opinion.md"
 
 key() { jq -r --arg k "$1" '.[$k] // ""' "$SUBS" 2>/dev/null; }
 
@@ -166,6 +168,11 @@ for line in sys.stdin.read().split("\n"):
         echo "=== THE BLOCK-TYPE LIST ==="
         cat "$BLOCK_TYPES"
     fi
+    if [ -f "$OPINIONS" ]; then
+        echo
+        echo "=== THE KIT'S DESIGN OPINIONS ==="
+        cat "$OPINIONS"
+    fi
     echo
     echo "=== THE DIFF (each line numbered as it is in the new file) ==="
     cat "$WORK/diff"
@@ -174,7 +181,7 @@ for line in sys.stdin.read().split("\n"):
 echo "gitflow: reviewing ${#FILES[@]} UI file(s) against the design system..." >&2
 
 read -r -d '' SYSTEM <<'EOF'
-You review a diff of a business application's UI code and its design spec. The application has a design system: every visual value comes from a named ROLE (listed under "THE ROLES"), reusable building blocks are PARTS (listed under "THE UI INVENTORY", each with a block type), and screens are assembled from parts. A part is a .tsx file under a components/ folder outside features/; a screen is a route, or any file under features/. You are given the diff, the roles, the inventory and the block-type list. Nothing else exists for you; do not assume a role or part that is not listed.
+You review a diff of a business application's UI code and its design spec. The application has a design system: every visual value comes from a named ROLE (listed under "THE ROLES"), reusable building blocks are PARTS (listed under "THE UI INVENTORY", each with a block type), and screens are assembled from parts. A part is a .tsx file under a components/ folder outside features/; a screen is a route, or any file under features/. You are given the diff, the roles, the inventory, the block-type list and the kit's design opinions. Nothing else exists for you; do not assume a role or part that is not listed.
 
 Judge ONLY the lines the diff adds — lines whose code starts with "+" (not the "+++" header). Each diff line is prefixed with its line number in the new file; report that number. Report only a clear case of one of these:
 
@@ -184,6 +191,8 @@ Judge ONLY the lines the diff adds — lines whose code starts with "+" (not the
 4. SIZE-PROP — a component's size or variant prop value that names a magnitude ("small", "large", "compact" used as a size, "tiny", "big") rather than what the thing is. Literal sm/md/lg/xl are already caught elsewhere — do not report them.
 5. VARIANT — inside a part: a variant left incomplete for callers to finish; a state (selected, active, disabled, read-only) of another part painted through its className instead of keyed inside that part's variant; or a look already exported by another part copied by hand. A part restyling another part is always VARIANT, never CALL-SITE-REPAINT.
 6. DESIGN-PROSE — a sentence added to design.md that states a design value or rule contradicting THE ROLES (names a role that does not exist, or a value no role has).
+7. DUPLICATE-ROLE — a role added in a stylesheet whose job a role already in THE ROLES does under another name. Name the existing role.
+8. OPINION — an added role, token, part or design.md rule that contradicts THE KIT'S DESIGN OPINIONS — a side marked "(the kit's side)", or the shape every value family takes — with no comment on or beside that line giving the project's reason. Name the opinion it contradicts.
 
 Never report:
 - Anything a lint already decides: arbitrary values like text-[13px] or p-[10px], a class that is not a role, dark: variants, bare overflow-auto, an unresolved var(), a t-shirt-size name, a fixed height at a call site, a colour role painted on a part at a call site (text-primary on a Button), a faded colour (text-x/50).
@@ -200,7 +209,7 @@ When unsure, do not report. A clean diff returns {"findings": []}.
 For each finding give the file, the line number in the new file, the rule, the exact added text quoted, one sentence on what is wrong, a concrete fix (the role, part or variant to use or create), and your confidence: "high" only when the finding is unambiguous from the material given.
 EOF
 
-SCHEMA='{"type":"object","properties":{"findings":{"type":"array","items":{"type":"object","properties":{"file":{"type":"string"},"line":{"type":"integer"},"rule":{"type":"string","enum":["ROLE-NAME","CALL-SITE-REPAINT","SCREEN-BOX","SIZE-PROP","VARIANT","DESIGN-PROSE"]},"quote":{"type":"string"},"finding":{"type":"string"},"fix":{"type":"string"},"confidence":{"type":"string","enum":["high","medium"]}},"required":["file","line","rule","quote","finding","fix","confidence"]}}},"required":["findings"]}'
+SCHEMA='{"type":"object","properties":{"findings":{"type":"array","items":{"type":"object","properties":{"file":{"type":"string"},"line":{"type":"integer"},"rule":{"type":"string","enum":["ROLE-NAME","CALL-SITE-REPAINT","SCREEN-BOX","SIZE-PROP","VARIANT","DESIGN-PROSE","DUPLICATE-ROLE","OPINION"]},"quote":{"type":"string"},"finding":{"type":"string"},"fix":{"type":"string"},"confidence":{"type":"string","enum":["high","medium"]}},"required":["file","line","rule","quote","finding","fix","confidence"]}}},"required":["findings"]}'
 
 OUT=$(cd "$WORK" && "$CLAUDE_BIN" -p \
     --model sonnet --tools "" --system-prompt "$SYSTEM" --json-schema "$SCHEMA" \

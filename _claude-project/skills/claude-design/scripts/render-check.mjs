@@ -76,7 +76,7 @@ if (!components.length) {
 const PROBE = `JSON.stringify({
   errors: window.__errors,
   drawn: [].filter.call(document.body.querySelectorAll("*"), function (el) { var r = el.getBoundingClientRect(); return r.width > 8 && r.height > 8 && el.id !== "root" }).length,
-  overlay: [].filter.call(document.querySelectorAll("[data-radix-popper-content-wrapper], [role=dialog], [role=tooltip], [role=menu], [role=listbox]"), function (el) { var r = el.getBoundingClientRect(); return r.width > 8 && r.height > 8 }).length,
+  overlay: [].filter.call(document.querySelectorAll("[data-radix-popper-content-wrapper], [role=dialog], [role=alertdialog], [role=tooltip], [role=menu], [role=listbox]"), function (el) { var r = el.getBoundingClientRect(); return r.width > 8 && r.height > 8 }).length,
   detached: (function () {
     var o = document.querySelector("[data-radix-popper-content-wrapper]");
     var t = document.querySelector("[aria-expanded=true], [data-state=delayed-open], [data-state=instant-open]");
@@ -96,7 +96,7 @@ const settled = (expectOverlay) => `(async function () {
   await new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r) }) });
   if (${expectOverlay ? 'true' : 'false'}) {
     var until = Date.now() + 1500;
-    while (Date.now() < until && !document.querySelector("[data-radix-popper-content-wrapper], [role=dialog], [role=tooltip], [role=menu], [role=listbox]"))
+    while (Date.now() < until && !document.querySelector("[data-radix-popper-content-wrapper], [role=dialog], [role=alertdialog], [role=tooltip], [role=menu], [role=listbox]"))
       await new Promise(function (r) { setTimeout(r, 25) });
     await new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r) }) });
   }

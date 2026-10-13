@@ -234,9 +234,35 @@ for (const [name, cls, why] of [
   })
 }
 
-test('roles the CSS defines pass: a leading token, 0.5, a radius corner, a colour with opacity', async () => {
-  const { problems } = await run(screen('<div className="leading-prose p-0.5 rounded-t-panel text-foreground/60 rounded-none" />'))
+test('roles the CSS defines pass: a leading token, a radius corner, a colour with opacity', async () => {
+  const { problems } = await run(screen('<div className="leading-prose p-1 rounded-t-panel text-foreground/60 rounded-none" />'))
   assert.deepEqual(problems, [])
+})
+
+test('spacing between the steps of the scale fails: the kit default has no 20px, no 40px and no 2px', async () => {
+  const { problems, notes } = await run(screen('<div className="p-5 gap-10 mt-0.5 px-6 gap-2" />'))
+  assert.deepEqual(problems.map((p) => p.split('  ')[1]).sort(), ['gap-10', 'mt-0.5', 'p-5'])
+  assert.match(problems.join('\n'), /not a step of the spacing scale \(0, 4, 8, 12, 16, 24, 32, 48px\)/)
+  assert.ok(notes.some((n) => /spacing scale: .* from the kit's default/.test(n)))
+})
+
+test("a project's own spacing steps replace the kit's", async () => {
+  const dir = await withConfig({ 'packages/ui/design-system/design-system.config.mjs': CONFIG.replace('steps: [0, 1, 2, 3, 4, 6, 8, 12]', 'steps: [0, 1, 2, 3, 4, 5, 6, 8, 12]'), ...screen('<div className="p-5 gap-10" />') })
+  const { problems, notes } = await checkDesignTokens(dir)
+  assert.deepEqual(problems.filter((p) => /spacing scale/.test(p)).map((p) => p.split('  ')[1]), ['gap-10'])
+  assert.ok(notes.some((n) => /from packages\/ui\/design-system\/design-system\.config\.mjs/.test(n)))
+})
+
+test('spacing between the steps on an untouched line is left alone; the changed line is judged', async () => {
+  const dir = fixture({ 'apps/web/src/routes/orders.tsx': 'export const S = () => <>\n  <div className="p-5" />\n</>\n' })
+  const git = (...args) => execFileSync('git', ['-C', dir, '-c', 'user.email=t@example.com', '-c', 'user.name=t', ...args])
+  git('init', '-q')
+  git('add', '-A')
+  git('commit', '-qm', 'base')
+  const base = String(git('rev-parse', 'HEAD')).trim()
+  fs.writeFileSync(path.join(dir, 'apps/web/src/routes/orders.tsx'), 'export const S = () => <>\n  <div className="p-5" />\n  <p className="gap-5">new</p>\n</>\n')
+  const { problems } = await checkDesignTokens(dir, { base })
+  assert.deepEqual(problems.filter((p) => /spacing scale/.test(p)).map((p) => p.split('  ').slice(0, 2).join(' ')), ['apps/web/src/routes/orders.tsx:3 gap-5'])
 })
 
 test('a text shadow is never read as a type size', async () => {
@@ -533,7 +559,7 @@ const CONFIG = `export default {
   namespace: 'FX',
   artifact: '',
   timeZone: 'America/Chicago',
-  spacing: { steps: [0, 1, 2] },
+  spacing: { steps: [0, 1, 2, 3, 4, 6, 8, 12] },
   css: { build: 'true', file: 'dist/feed.css' },
   components: [{ name: 'Button', group: 'Actions', height: 80, doc: { source: 'components/button.tsx' }, render: "h(U.Button, null, 'Save')" }],
 }

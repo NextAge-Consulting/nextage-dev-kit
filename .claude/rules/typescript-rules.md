@@ -16,7 +16,9 @@ TS6133 and TS6192 mean an unused declaration — delete it, after checking for i
 
 ## II. Logging
 
-**Use Pino.** A PreToolUse hook blocks `console.log`, `.error`, `.warn`, `.info` and `.debug` everywhere.
+**Use Pino.** A PreToolUse hook blocks `console.log`, `.error`, `.warn`, `.info` and `.debug` everywhere except the files `biome.base.json` exempts from `noConsole` — command-line scripts under a `scripts/` folder, tests, config files and the server entry.
+
+**A command-line script's report to the person running it uses `console`.** It lives under a `scripts/` folder, never in application source.
 
 ```typescript
 import { logger } from '~/lib/logger';

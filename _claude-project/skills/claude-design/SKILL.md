@@ -81,7 +81,10 @@ guide wherever it lays screens out as fixed-size artboards per device on one can
   `CardContent`, `CardFooter`), not a wrapper the page draws with its own gaps.
 - **A piece the system lacks is a gap you raise, never one you draw.** The tell is a
   value you are about to set on the page: a padding, a gap, a height, a colour, a wrapper
-  that adds space, content set flush and padded back. Stop, and SHOW the gap rather than
+  that adds space, content set flush and padded back. Stop, and read the design-system
+  skill's `references/design-opinion.md`: an opinion there is the gap's proposal. A gap is
+  one change, built from the system's existing parts and scale — never a value off the
+  scale, never several changes under one tweak. SHOW the gap rather than
   describe it — nobody can decide one from a list of pixel values. Build its options as a
   tweak under the design's **Design system only** switch
   (`references/working-with-claude-design.md`, Tweaks), each option's styling only in the

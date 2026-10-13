@@ -32,7 +32,9 @@
  *
  * Checks, each naming file and line:
  *   classes    type, radius, weight, shadow, spacing, line width, `dark:`, bare scroll
- *              areas — off a role, arbitrary, or off the 4px grid;
+ *              areas — off a role, arbitrary, or off the 4px grid; on changed lines,
+ *              spacing between the steps of the scale (the config's spacing.steps, else
+ *              the kit's 0, 4, 8, 12, 16, 24, 32, 48px);
  *   call sites a component imported from the project's component trees is never given
  *              a fixed height or a t-shirt size (`size="sm"`); a raw <input>/<textarea>
  *              painting the field look; a className naming a constant is read as the
@@ -651,6 +653,22 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
     }
   }
   if (!screenScope) notes.push('screen rules: every line judged')
+  // The spacing scale: the project's own steps from its claude-design config, else the
+  // kit's (design-opinion.md — 0, 4, 8, 12, 16, 24, 32, 48px).
+  let spacingSteps = [0, 1, 2, 3, 4, 6, 8, 12]
+  let spacingFrom = "the kit's default"
+  const scaleConfig = path.join(pkg, 'design-system/design-system.config.mjs')
+  if (existsSync(scaleConfig)) {
+    const { readConfig } = await import(new URL('../../claude-design/scripts/config.mjs', import.meta.url).href)
+    const { ctx } = await readConfig(scaleConfig)
+    if (ctx?.CONFIG?.spacing?.steps) {
+      spacingSteps = ctx.CONFIG.spacing.steps
+      spacingFrom = `${pkgRel}/design-system/design-system.config.mjs`
+    }
+  }
+  const onScale = new Set(spacingSteps.map(String))
+  const scaleList = spacingSteps.map((n) => `${n * 4}`).join(', ')
+  notes.push(`spacing scale: ${scaleList}px, from ${spacingFrom}; judged on changed lines only`)
   const touched = (file, from, to = from) => {
     if (!screenScope) return true
     const lines = screenScope.get(file)
@@ -733,6 +751,11 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
       // spacing
       each(new RegExp(`(?<![\\w-])-?(?:${SPACE_PROPS})-(\\d+\\.5)(?![\\w-])`, 'g'), (m) => {
         if (m[1] !== '0.5') add(at, m[0], 'off the 4px grid; 0.5 (2px) is the only half step')
+      })
+      // A step between the scale's steps — judged on changed lines only, like the screen rules.
+      each(new RegExp(`(?<![\\w-])-?(?:${SPACE_PROPS})-(\\d+(?:\\.5)?)(?![\\w-])`, 'g'), (m) => {
+        if (onScale.has(m[1]) || (m[1].endsWith('.5') && m[1] !== '0.5') || !touched(file, i + 1)) return
+        add(at, m[0], `not a step of the spacing scale (${scaleList}px); space between things is a named gap`)
       })
     })
   }

@@ -72,6 +72,7 @@ grep -q '=== THE DIFF' "$tmp/log" && grep -q 'src/routes/orders.tsx' "$tmp/log" 
 grep -Eq '^ +1 \+export const S' "$tmp/log" && echo "  ✓ …each line numbered as in the new file" || { echo "  ✗ FAIL — lines not numbered"; fail=1; }
 grep -q '^radius: rounded-panel' "$tmp/log" && echo "  ✓ the project's roles are sent" || { echo "  ✗ FAIL — roles not sent"; fail=1; }
 grep -q '`Button`' "$tmp/log" && echo "  ✓ the inventory is sent" || { echo "  ✗ FAIL — inventory not sent"; fail=1; }
+grep -q "=== THE KIT'S DESIGN OPINIONS" "$tmp/log" && grep -q '^# Design opinions' "$tmp/log" && echo "  ✓ the kit's design opinions are sent" || { echo "  ✗ FAIL — design opinions not sent"; fail=1; }
 grep -q 'design review clean — 1 UI file' "$tmp/err" && echo "  ✓ a clean review counts what it reviewed" || { echo "  ✗ FAIL — no count"; fail=1; }
 t 1 "$(gate finding)" 'a finding: exit 1'
 grep -q 'src/routes/orders.tsx:2 — CALL-SITE-REPAINT' "$tmp/err" && grep -q 'fix: add a surface variant' "$tmp/err" && grep -q 'fix it, or skip it' "$tmp/err" && echo "  ✓ …naming the place, why, the fix, and asking fix or skip" || { echo "  ✗ FAIL — message incomplete"; fail=1; }

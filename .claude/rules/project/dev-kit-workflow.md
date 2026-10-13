@@ -48,6 +48,7 @@ The kit dogfoods only what it actually uses. Everything below ships to consumers
 | `commands/dev.md`, `skills/dev-server/**` | Kit has no dev server / runnable app. |
 | `skills/design-system/**`, `rules/ui-design.md`, `rules/a11y-baseline.md` | Kit has no UI — no JSX/TSX, no `design.md` (kitmaintainer-handbook.md §12a.7). |
 | `skills/claude-design/**`, `commands/ui-design.md` | Kit has no UI package and no design system to publish to Claude Design. |
+| `commands/design-audit.md` | Kit has no design system or UI code to audit. |
 | `skills/ui-patterns/**`, `rules/ui-patterns.md` | Kit has no UI — nothing to compose and no interactions to pattern. |
 | `templates/dependency-policy.md` | Operating procedure for acting on Dependabot output. The kit has no `package.json` and no dependencies, so there is nothing to triage and no timelines to own. Syncs to consumers in `merge` mode: the owners, timelines and project-notes regions are the project's (pipeline.md §3.5). |
 | `templates/ui-inventory.md` | A consumer's `rules/project/ui-inventory.md`, synced in `merge` mode — the project's own components and patterns live in its regions. Kit has no UI, so there is nothing to enumerate. |

@@ -32,6 +32,7 @@ The single walkthrough for taking a brand-new project from nothing to "kit insta
 - [ ] **5** — Gemini Code Review installed + repo linked — or explicitly marked not-installed `[you]` then `[claude]`
 - [ ] **6** — Secrets & env: `.env`, GitHub Actions secrets, MCP API keys `[claude+you]`
 - [ ] **6b** — (optional) Security headers: a Content-Security-Policy and friends, for a project that will face a security audit `[claude]`
+- [ ] **6c** — Design system: a tweakcn theme (new project) or the system extracted from the existing app, then `/design-audit system` (only if this project has a UI) `[claude+you]`
 - [ ] **7** — Project-specific CodeBuild deploy pipeline authored (buildspecs + projects + CodeConnections), + registry repo AND lifecycle policy per image, all as Terraform (if this project deploys) `[claude+you]`
 - [ ] **8** — Every section's verify command passes `[claude]`
 - [ ] **9** — First `/work` session — pipeline proven end-to-end `[claude]`
@@ -304,6 +305,17 @@ grep -oE '\$\{[A-Z_]+\}' .mcp.json 2>/dev/null | tr -d '${}' | sort -u \
 ### 6b — Security headers (optional) `[claude]`
 
 For a TanStack Start app that will face a security audit or a client's security review, ask Claude to add security headers. It follows the TanStack skill's `references/security-headers.md`: a Content-Security-Policy with a per-request nonce, `nosniff`, a referrer policy and HSTS, with every host the app loads from listed by name. Without it the app sends none of these.
+
+### 6c — Design system (if this project has a UI) `[claude+you]`
+
+No screen is styled until the project has a design system. Where it comes from depends on the project:
+
+- **A new project** — pick and adjust a theme at [tweakcn](https://tweakcn.com), then hand Claude its Tailwind v4 code. Claude puts it in the UI package's token stylesheet and writes `design.md` from it.
+- **An existing app** — Claude extracts the system the app already shows into a token stylesheet and `design.md`, bringing each thing drawn several ways to you as a choice. A tweakcn theme can be merged over it as the path forward.
+
+Either way, finish with `/design-audit system`: it lists where the kit's design opinions fill gaps the theme or the old app left, and you adopt them one at a time. `designer-handbook.md`, "Starting and growing a design system", is the full walk-through, including when to audit existing screens later.
+
+**Verify:** `design.md` exists at the repository root, `npm run lint:design` and `npm run lint:tokens` pass, and `/design-audit system` reports no open findings.
 
 ### 7 — Deploy pipeline (if this project deploys) `[claude+you]`
 

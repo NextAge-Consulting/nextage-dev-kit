@@ -98,7 +98,7 @@ Every component and pattern carries one, `approved` or `pending`; an approved to
 - **Spacing**: use the project's spacing scale; never reach for raw px values when a scale token fits
 - **Component atoms**: if the task is adding/editing a button, card, input, alert, etc., copy the property tokens from the relevant `components.<name>` entry as your starting point
 
-**Never invent token values.** Every color, radius, padding number must trace back to a token in `design.md` or a Tailwind utility that maps to one of those tokens. If a needed value doesn't exist, add the token, marked pending (Step 2) — never a raw value.
+**Never invent token values.** Every color, radius, padding number must trace back to a token in `design.md` or a Tailwind utility that maps to one of those tokens. When the system has no answer, read `references/design-opinion.md` before deciding anything: an opinion there is adopted into the project's tokens and parts, marked pending (Step 2); with none, the value is the human's to decide. Never a raw value.
 
 ### Step 4: Apply universal styling discipline
 
@@ -357,10 +357,10 @@ figures, or any font feature, go in the role's comment the same way.
 
 Design pages and canvases run React 18, whatever the app runs. A component in the
 design system's feed stays inside what React 18 and 19 share: no `use()`, no
-`<Context>` rendered as a provider, no `useActionState`, `useOptimistic` or
-`useFormStatus`, no form actions, no ref cleanup functions — each breaks inside a
-design, and the render check fails on it when the component has a preview. Ref as
-a prop is handled by the bundle.
+`<Context>` rendered as a provider, no `useActionState`, `useOptimistic`,
+`useFormStatus` or `useEffectEvent`, no form actions, no ref cleanup functions —
+each breaks inside a design, and the render check fails on it when the component
+has a preview. Ref as a prop is handled by the bundle.
 
 **A component's look never depends on its neighbours or on how its children are
 nested.** Inside a design every mounted component sits in its own wrapper, so no two
@@ -426,6 +426,8 @@ For **look-and-feel** (elevation, motion, composition, density) there is a secon
 ## Adjacent skills and rules
 
 This skill cooperates with — and never duplicates — the following:
+
+- **`references/design-opinion.md`** — the kit's opinions on spacing, type, colour, radius, elevation, motion, icons, controls, focus, dark mode and badges; read whenever the project's system is silent
 
 - **`a11y-baseline.md` rule** — auto-loaded on every JSX/TSX edit; authoritative for accessibility patterns
 - **`ui-patterns.md` rule** — auto-loaded on JSX/TSX; authoritative for the no-toast policy

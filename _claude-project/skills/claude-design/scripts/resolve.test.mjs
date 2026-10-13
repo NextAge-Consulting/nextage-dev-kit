@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { createRequire } from 'node:module'
-import { parseTokenBlocks, resolveColor } from './resolve.mjs'
+import { parseTokenBlocks, resolveColor, resolveLength } from './resolve.mjs'
 
 const Color = createRequire(import.meta.url)('../vendor/color.cjs').default
 
@@ -38,6 +38,14 @@ describe('resolveColor', () => {
   // Chromium computes color-mix(in oklab, X 30%, transparent) as X at alpha 0.3.
   it('resolves a mix with transparent to the colour at that opacity, through an alias', () => {
     assert.equal(resolveColor('color-mix(in oklab, var(--accent) 30%, transparent)', env, colors, Color), 'oklch(0.4217 0.0320 252.8 / 0.3)')
+  })
+
+  it('writes a mix with transparent as oklab when the colour is not plain oklch numbers', () => {
+    for (const source of ['oklch(42% 0.032 252.8)', 'oklch(0.42 0.032 252.8deg)', 'oklch(0.42 0.032 none)']) {
+      const [L, , , alpha] = oklabParts(resolveColor(`color-mix(in oklab, ${source} 30%, transparent)`, env, colors, Color))
+      close(L, 0.42)
+      close(alpha, 0.3)
+    }
   })
 
   // Expected values are what Chromium computes for the same expressions.
@@ -95,6 +103,17 @@ describe('parseTokenBlocks', () => {
       { name: 'background', value: 'oklch(1 0 0)', usage: 'the page canvas' },
       { name: 'card', value: 'oklch(0.9 0 0)', usage: 'a resting container' },
       { name: 'border', value: 'oklch(0.8 0 0)', usage: '' },
+    ])
+  })
+
+  it('keeps a contrast-accepted marker beside a usage comment out of the usage', () => {
+    const [block] = parseTokenBlocks(`:root {
+  --muted: oklch(0.6 0 0); /* secondary text */ /* contrast-accepted: 4.4 — captions only */
+  --faint: oklch(0.7 0 0); /* contrast-accepted: 2.3 — inactive controls only */
+}`)
+    assert.deepEqual(block.decls, [
+      { name: 'muted', value: 'oklch(0.6 0 0)', usage: 'secondary text' },
+      { name: 'faint', value: 'oklch(0.7 0 0)', usage: '' },
     ])
   })
 
@@ -179,5 +198,23 @@ describe('parseTokenBlocks', () => {
   --ring: oklch(0.6 0.1 250);
 }`)
     assert.equal(block.decls[0].usage, '')
+  })
+})
+
+describe('resolveLength', () => {
+  const env = new Map([['radius-base', '6px'], ['gap', '8px'], ['icon', '20px'], ['step', '2'], ['a', '1rem']])
+  it('passes a literal, and resolves var() and calc() to px', () => {
+    assert.equal(resolveLength('8px', env), '8px')
+    assert.equal(resolveLength('var(--radius-base)', env), '6px')
+    assert.equal(resolveLength('calc(var(--radius-base) - 2px)', env), '4px')
+    assert.equal(resolveLength('calc(12px + var(--icon) + var(--gap))', env), '40px')
+    assert.equal(resolveLength('calc((var(--radius-base) + 2px) * 2)', env), '16px')
+    assert.equal(resolveLength('calc(var(--radius-base) * var(--step))', env), '12px')
+    assert.equal(resolveLength('calc(var(--radius-base) / 2)', env), '3px')
+  })
+  it('fails by name on a unit other than px, or arithmetic that mixes lengths and numbers', () => {
+    assert.throws(() => resolveLength('calc(var(--a) + 2px)', env), /only px lengths/)
+    assert.throws(() => resolveLength('calc(2px + 3)', env), /adding a length and a plain number/)
+    assert.throws(() => resolveLength('calc(2px * 3px)', env), /a length times/)
   })
 })

@@ -74,6 +74,21 @@ echo "WINDOWS-STYLE PATH — the separators do not hide the extension or the wor
 winp=$(cd "$tmp/nested" && pwd -P); winp="${winp//\//\\}\\tools\\cli\\src\\a.ts"
 t deny  "$tmp/nested" "$winp" 'console.log("hi")'            'backslash path into the pino workspace'
 
+echo "BIOME'S noConsole EXEMPTIONS — the hook exempts exactly what biome.base.json does:"
+mkdir -p "$tmp/biome"
+printf '{"dependencies":{"pino":"^9.0.0"}}' > "$tmp/biome/package.json"
+printf '%s' '{"overrides":[
+  {"includes":["**/*.test.*","**/scripts/**"],"linter":{"rules":{"suspicious":{"noConsole":"off"}}}},
+  {"includes":["**/server.mjs"],"linter":{"rules":{"suspicious":{"noConsole":{"level":"off"}}}}},
+  {"includes":["**/src/**"],"linter":{"rules":{"suspicious":{"noConsole":"error"}}}}]}' > "$tmp/biome/biome.base.json"
+t allow "$tmp/biome" 'apps/shared/scripts/convert.ts' 'console.log("report")' 'a script under any scripts/ folder'
+t allow "$tmp/biome" 'scripts/x.ts'                   'console.log("report")' 'a script under the root scripts/'
+t allow "$tmp/biome" 'src/a.test.ts'                  'console.log("x")'      'a test file'
+t allow "$tmp/biome" 'apps/web/server.mjs'            'console.log("x")'      'an exemption written as { level: "off" }'
+t deny  "$tmp/biome" 'src/a.ts'                       'console.log("x")'      'application code stays blocked'
+t deny  "$tmp/biome" 'src/scriptsy/a.ts'              'console.log("x")'      'a folder merely named like scripts stays blocked'
+t deny  "$tmp/pino"  'scripts/x.ts'                   'console.log("x")'      'no biome.base.json — no exemption'
+
 echo "MULTIEDIT — content lives in edits[].new_string, not new_string/content:"
 # Built separately because MultiEdit's payload shape differs. Before the guard learned
 # it, every case here returned allow — invoked, matching nothing, indistinguishable

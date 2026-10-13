@@ -48,6 +48,87 @@ changed until you approve it.
 - A change you ask for in conversation ("make Save wider") is made to the part, with a
   warning of what else it changes. Your yes is its approval.
 
+## Starting and growing a design system
+
+### A new project: start from a tweakcn theme
+
+1. **Pick a theme at [tweakcn](https://tweakcn.com) and make it yours** — colours for light
+   and dark, fonts, the corner radius, shadows. This is the one place you choose a look by
+   eye; everything else follows from it.
+2. **Hand Claude the theme's code** (the Tailwind v4 version). Claude puts it in the
+   project's token stylesheet and writes `design.md` from it.
+3. **Run `/design-audit system`.** Your theme covers colour, type and radius; it says
+   nothing about spacing roles, focus, motion, badges and the rest. The audit lists each
+   place the kit has an opinion your system lacks, and you adopt them one by one.
+4. **Start building.** Anything still missing is filled in the first time a screen needs
+   it (below).
+
+### An existing app: extract, then merge
+
+1. **Claude extracts the design system the app already has** — the colours, type sizes,
+   spacing and corners it actually uses — into a token stylesheet and `design.md`. When a
+   thing is drawn several ways, each one comes to you as a choice, not a guess.
+2. **Optionally, merge a tweakcn theme as the path forward.** Pick one the way a new
+   project does; Claude merges it over what was extracted, and every conflict between the
+   two is your call.
+3. **Run `/design-audit system`**, as for a new project.
+4. **Leave the old screens alone until you have time for them.** The checks at every commit
+   judge only the lines that change, so existing screens never block your work, and nothing
+   new can break the system. When you can spend time on an area, audit it
+   (`/design-audit project <path>`) and bring it into line.
+
+### Where a value comes from after that
+
+Everything the system doesn't yet cover is filled in as the work reaches it, always in the
+same order:
+
+1. **Your design system.** If it answers, that's the answer.
+2. **The kit's design opinions** (`design-opinion.md` in the design-system skill). The kit
+   is opinionated about the small building blocks — spacing, type, colour, radius,
+   elevation, motion, icons, controls, focus, dark mode, badges. An opinion found there is
+   built into your system, in your own names, so your system answers from then on.
+3. **You.** When neither has an answer, Claude puts the decision to you; once you decide,
+   it is built into the system and stays decided.
+
+Some opinions are guidance any designer would agree with: one consistent approach to
+shadows, quiet purposeful motion. Others are sides the kit has picked: no toasts, icon-only
+standard actions, a soft focus ring. Your project can differ from any of them; the reason
+is written where your system holds the value. The kit never chooses your colours.
+
+### The design audit
+
+**It runs only when you ask.** It is never part of CI and never blocks a commit.
+
+| Run | When |
+|---|---|
+| `/design-audit system` | After you set up or merge a design system; after a kit update adds opinions; whenever the system feels like it has drifted |
+| `/design-audit project` | When you have time to bring the whole app into line with the system |
+| `/design-audit project <path>` | When you have time for one area of it — an app, a folder, a set of screens |
+| `/design-audit design <name or url>` | Before implementing a Claude Design design, to check it uses the system as it stands |
+
+The system audit checks three things only: whether your system is complete, whether it
+breaks one of the kit's picked sides or a floor such as contrast, and whether it
+contradicts itself. Where the kit only offers guidance and your system differs, the audit
+asks "are you sure?" separately from its findings. Keeping your own value needs no
+reason: it's marked as your choice, and no later audit asks again.
+
+**What to expect:**
+
+- **A fresh reviewer.** Each pass runs in a new agent that sees only the files it is
+  auditing — not the conversation — and tells you how many it read.
+- **The system first.** A code or design audit starts with the system pass. If the system
+  itself has open findings, those come first: screens are judged against a system that is
+  right.
+- **One finding at a time**, each with what fixing it costs, what it risks, and Claude's
+  recommendation. You answer each one:
+  - **Fix the work** — the screen or design is brought into line with the system.
+  - **Add to the system** — the system was missing something; it gains it, and every
+    screen can use it.
+  - **Accept it** — the line keeps its value with your reason beside it
+    (`design-accepted — <reason>`), and no later audit raises it again.
+- **Nothing changes without your answer.** You can stop part-way; what you have settled
+  stays settled, and the next run picks up the rest.
+
 ## Claude Design
 
 ### What it is

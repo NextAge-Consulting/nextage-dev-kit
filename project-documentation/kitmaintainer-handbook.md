@@ -1275,12 +1275,14 @@ When the task is at one of those layers, the project's own codebase is the cookb
 
 ### 12a.6. Bootstrap for new projects
 
-A new kit consumer needs to author `design.md` once before any UI work proceeds. Recommended workflow:
+A new kit consumer needs to author `design.md` once before any UI work proceeds. A new project starts its design system from a theme: pick one at [tweakcn](https://tweakcn.com), adjust it, and bring its export in as the project's token stylesheet. An existing project's system is extracted from what its application already shows, sometimes merged with a tweakcn theme as the path forward. Then:
 
 1. Build out the CSS `@theme` block in `src/styles.css` (or the project's equivalent) with the project's tokens.
 2. Generate `design.md` by documenting the `@theme` content per the google spec — section order, YAML token frontmatter, atom definitions for the components that exist.
 3. Add `@google/design.md` to `devDependencies` + a `"lint:design": "design.md lint design.md"` script, then run `npm run lint:design` until clean.
 4. Commit. First subsequent UI edit triggers the path-targeted rule, which invokes the skill, which reads the now-present `design.md`.
+
+The rest of the system fills in as work reaches it, through the kit's design opinions (§12a.10).
 
 ### 12a.7. Kit does not dogfood the skill
 
@@ -1405,6 +1407,19 @@ atom, a field or a chart. A part typed `<none>` in two consumer apps is the sign
 consider one. Adding a type is a kit change like any other; renaming or removing one
 breaks every inventory line that names it, so it ships with the migration that renames
 them.
+
+### 12a.10. The kit's design opinions and the design audit
+
+`_claude-project/skills/design-system/references/design-opinion.md` holds the kit's opinions on the small building blocks: spacing, type, colour, radius, lines and elevation, motion, icons, controls and focus, dark mode, badges. It is the kit's "opinionated" made concrete for design, and every value is decided through one chain: the project's design system answers first; when it is silent, the opinion file; an opinion found there is adopted into the project's own tokens and parts in the same change, so the system answers the question from then on; when both are silent, the human decides and the decision is locked into the system.
+
+Each opinion is one of two kinds: guidance a working designer would agree with, where the project picks the values and the file sets the shape (elevation, motion), or a side the kit picked in a debate with two legitimate camps, marked *(the kit's side)* (toasts, icon-only standard actions, a soft focus ring). A project overrides either with a reason written where its own system holds the value. The file carries no project's palette or look; colour opinions are about how colours feed the system, never which colours.
+
+The token checker enforces the spacing scale: on changed lines, a padding, margin or gap between the scale's steps fails. The steps are the project's `spacing.steps` in its claude-design config, else the kit's 0, 4, 8, 12, 16, 24, 32, 48px.
+
+Two things read it:
+
+- **The design review** (`design-review.sh`, at `/commit` and `/ship-main`) receives it with the diff and reports `DUPLICATE-ROLE` — a new role doing a job an existing role already does — and `OPINION` — an added role, token, part or `design.md` rule that contradicts an opinion with no reason beside it. Changed lines only, like every design check.
+- **`/design-audit`**, run only when a project's owner asks for it, never in CI. Pass `system` audits the design system against the opinion file — whether it is complete, whether it breaks an absolute (a kit side or a floor), and whether it is consistent with itself; where an opinion is guidance, the project's own value is never a finding — the difference is listed apart as "worth a look", and keeping the project's value marks the line `design-choice` with no reason needed; pass `project [path]` — all the UI source `DESIGN_SOURCE_DIRS` names, or one area of it — or `design <name>` audits the work against the system, and only once the system pass is settled. Each pass runs in a fresh agent given only its material. Findings go to the human one at a time; each lands as a system change, a fix, or a line marked `design-accepted — <reason>`, which later audits skip.
 
 ---
 
