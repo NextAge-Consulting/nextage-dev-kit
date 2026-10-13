@@ -11,7 +11,7 @@
  * light one.
  *
  * Color.js is passed in, never imported: the token checker imports this module's
- * parser in projects that do not publish to Claude Design and have no Color.js. */
+ * parser and has no use for colour arithmetic. */
 
 const HEADER = /─/;
 
@@ -186,7 +186,7 @@ export function isColorToken(raw, env, Color) {
  * @param {string} raw        the declared value
  * @param {Map<string,string>} env  every token's raw value in this theme
  * @param {Set<string>} published   the colour tokens the artifact carries (aliases allowed to these)
- * @param {typeof import('colorjs.io').default} Color  Color.js, loaded from the UI package
+ * @param {Function} Color  Color.js (../vendor/color.cjs)
  * @returns {string} a literal the artifact accepts, or `{name}` for an alias
  */
 export function resolveColor(raw, env, published, Color) {

@@ -1,10 +1,10 @@
-# Migration: publish: off blocks, and Color.js for the Claude Design publisher
+# Migration: publish: off blocks for the Claude Design publisher
 
 The maintainer pastes everything below the line into a consumer project's Claude session, on the maintainer machine, after `/sync-dev-kit` has landed the kit version that removes `families.skip`. It applies to a project with `<UI package>/design-system/design-system.config.mjs`; any other project has nothing to do.
 
 ---
 
-Move this project's Claude Design skip list into the token CSS, and install Color.js for the publisher. Work through every step to the end. Make no git commits — leave everything uncommitted for me to review.
+Move this project's Claude Design skip list into the token CSS. Work through every step to the end. Make no git commits — leave everything uncommitted for me to review.
 
 ```bash
 KIT=$(jq -r .devKitPath ~/.claude/dev-kit-config.json)
@@ -18,13 +18,8 @@ MIG="$KIT/_claude-maintainer/migrations/publish-off"
 3. Wrap by hand any one-line block the report lists.
 4. Delete the `skip` key from `families` in `design-system/design-system.config.mjs`, and the whole `families` object if nothing is left in it.
 
-## 2. Install Color.js
+## 2. Prove it
 
-Add `colorjs.io` to the UI package's `devDependencies` at the version `.claude/stack-manifest.json` pins, then run `npm install`.
-
-## 3. Prove it
-
-- `node scripts/check-stack.mjs` passes.
 - `npm run build:design-system` in the UI package passes. A "no design-system family" problem names a token the old pattern skipped and the codemod could not see; wrap it in a pair.
 - `npm run lint:tokens` passes.
 - The published colours are unchanged: `git diff` on `dist/design-system/project/tokens.json`, if the project keeps a built copy, shows only the `meta` stamp.

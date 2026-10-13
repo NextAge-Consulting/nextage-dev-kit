@@ -120,7 +120,7 @@ guide wherever it lays screens out as fixed-size artboards per device on one can
 2. Copy `references/config-example.mjs` to `<UI package>/design-system/design-system.config.mjs`,
    fill in the content, and replace its header with the one-line pointer the example
    shows.
-3. Wire the scripts, with `esbuild`, `@tailwindcss/cli` and `colorjs.io` as dev dependencies of the UI
+3. Wire the scripts, with `esbuild` and `@tailwindcss/cli` as dev dependencies of the UI
    package at the versions `stack-manifest.json` pins — `check-stack.mjs` fails until
    every piece is there. In the UI package:
 

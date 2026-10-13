@@ -200,26 +200,6 @@ export function packageRequire(PKG) {
   return createRequire(path.join(PKG, 'package.json'))
 }
 
-let globalRoot
-/** A package the engine loads at run time, as its default export: from the UI package,
- * else from the global npm root — where the kit's own suites find it, having no
- * package.json. Throws, naming both places, when neither has it. */
-export function loadPackage(PKG, name) {
-  let mod
-  try {
-    mod = packageRequire(PKG)(name)
-  } catch (fromPackage) {
-    if (fromPackage.code !== 'MODULE_NOT_FOUND') throw fromPackage
-    globalRoot ??= execSync('npm root -g', { encoding: 'utf8' }).trim()
-    try {
-      mod = createRequire(path.join(globalRoot, 'noop.js'))(name)
-    } catch {
-      throw new Error(`${name}: not installed for ${path.basename(PKG)} nor globally — add it as a dev dependency of the UI package`)
-    }
-  }
-  // An ES module's CommonJS build carries its default export under `default`.
-  return mod?.default ?? mod
-}
 
 /** The `icons` value as esbuild should import it: a package name stays as it is,
  * a relative path resolves against the config's own folder. */
@@ -249,7 +229,6 @@ export function checkPrerequisites({ CONFIG, CONFIG_DIR, PKG }) {
   }
   if (!fs.existsSync(path.join(PKG, 'package.json'))) problems.push(`${CONFIG.package}/package.json not found — the UI package is where the engine resolves its stack`)
   if (!version('esbuild')) problems.push(`esbuild: not installed for ${CONFIG.package} — add it as a dev dependency there`)
-  if (!version('colorjs.io')) problems.push(`colorjs.io: not installed for ${CONFIG.package} — add it as a dev dependency there`)
   const tw = version('tailwindcss')
   if (!tw) problems.push(`tailwindcss: not installed for ${CONFIG.package} — the engine is built for Tailwind v4`)
   else if (Number(tw.split('.')[0]) < 4) problems.push(`tailwindcss ${tw}: the engine is built for Tailwind v4`)

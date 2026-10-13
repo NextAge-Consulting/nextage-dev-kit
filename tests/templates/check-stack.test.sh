@@ -113,4 +113,27 @@ expect "a CI-installed tool the workflow does not pin fails" "$r" 1 "installs py
 r=$(ci other-pin 'uv run --with pyright==1.1.400 pyright --stats')
 expect "a CI-installed tool pinned at another version fails" "$r" 1 "installs pyright without the blessed version 1.1.409"
 
+# lockrepo <name> <nested version or empty> — packages/ui declares esbuild at the blessed
+# version; the lockfile holds another dependency's 0.25.12 at the root, and the
+# workspace's own copy when <nested version> is given.
+lockrepo() {
+    local r; r=$(repo "$1" "" UNSET)
+    jq '.packages.esbuild = {version:"0.28.2",applies:"whenDeclared",severity:"required"}' \
+        "$r/.claude/stack-manifest.json" > "$r/m.json" && mv "$r/m.json" "$r/.claude/stack-manifest.json"
+    mkdir -p "$r/packages/ui"
+    echo '{"name":"@acme/ui","devDependencies":{"esbuild":"0.28.2"}}' > "$r/packages/ui/package.json"
+    jq -n --arg v "$2" '{lockfileVersion:3,packages:({"node_modules/esbuild":{version:"0.25.12"}}
+        + (if $v == "" then {} else {"packages/ui/node_modules/esbuild":{version:$v}} end))}' > "$r/package-lock.json"
+    echo "$r"
+}
+
+r=$(lockrepo nested 0.28.2)
+expect "a workspace's own blessed copy passes though another dependency holds an older one at the root" "$r" 0 "✓"
+
+r=$(lockrepo hoisted "")
+expect "a workspace that resolves the root's older copy fails" "$r" 1 "esbuild resolves to 0.25.12, blessed is 0.28.2"
+
+r=$(lockrepo nested-old 0.27.0)
+expect "a workspace's own older copy fails, naming the workspace" "$r" 1 "esbuild resolves to 0.27.0 for packages/ui, blessed is 0.28.2"
+
 exit $fail

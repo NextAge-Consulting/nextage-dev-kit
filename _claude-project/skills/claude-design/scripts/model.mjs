@@ -10,8 +10,12 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { loadPackage, packageRequire } from './config.mjs'
+import { createRequire } from 'node:module'
+import { packageRequire } from './config.mjs'
 import { DEFAULT_THEME_SELECTORS, isColorToken, parseTokenBlocks, resolveColor } from './resolve.mjs'
+
+/** Color.js, vendored beside the engine (../vendor/README.md), so a mix resolves as the browser computes it. */
+const Color = createRequire(import.meta.url)('../vendor/color.cjs').default
 
 /** The spacing utilities the README promises at every spacing step. */
 export const SPACING_UTILITIES = ['p', 'px', 'py', 'pt', 'pr', 'pb', 'pl', 'm', 'mx', 'my', 'mt', 'mr', 'mb', 'ml', 'gap', 'gap-x', 'gap-y']
@@ -56,14 +60,7 @@ export function buildModel({ CONFIG, PKG }) {
     return u ?? ''
   }
 
-  // Colour arithmetic is Color.js, from the UI package, so a mix resolves as the browser computes it.
-  let Color = null
-  try {
-    Color = loadPackage(PKG, 'colorjs.io')
-  } catch (e) {
-    problems.push(e.message)
-  }
-  const colorNames = new Set(Color ? lightDecls.filter((d) => isColorToken(d.value, lightEnv, Color)).map((d) => d.name) : [])
+  const colorNames = new Set(lightDecls.filter((d) => isColorToken(d.value, lightEnv, Color)).map((d) => d.name))
   // A declaration inside a `/* publish: off */` block resolves others but is not carried itself.
   const published = (d) => d.publish !== false
   const publishedColors = new Set(lightDecls.filter((d) => colorNames.has(d.name) && published(d)).map((d) => d.name))
@@ -85,7 +82,7 @@ export function buildModel({ CONFIG, PKG }) {
     if (value.dark === value.light) delete value.dark
     colorTokens.push({ name: d.name, value, usage: requireUsage(d.name) })
   }
-  if (Color && !colorTokens.length) problems.push(`no colour tokens found in ${CONFIG.tokens.join(', ')} — the token files hold the system's colours, so a read of none means the paths or the theme selectors are wrong`)
+  if (!colorTokens.length) problems.push(`no colour tokens found in ${CONFIG.tokens.join(', ')} — the token files hold the system's colours, so a read of none means the paths or the theme selectors are wrong`)
 
   // Every other published token lands in a family.
   const radius = []

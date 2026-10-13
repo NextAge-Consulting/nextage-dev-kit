@@ -1,11 +1,10 @@
 // node --test .claude/skills/claude-design/scripts/resolve.test.mjs
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { fileURLToPath } from 'node:url'
-import { loadPackage } from './config.mjs'
+import { createRequire } from 'node:module'
 import { parseTokenBlocks, resolveColor } from './resolve.mjs'
 
-const Color = loadPackage(fileURLToPath(new URL('.', import.meta.url)), 'colorjs.io')
+const Color = createRequire(import.meta.url)('../vendor/color.cjs').default
 
 const env = new Map([
   ['hue', '252.8'],

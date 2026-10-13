@@ -197,14 +197,26 @@ for (const [name, spec] of Object.entries(blessed)) {
     }
   }
 
-  // -- the lockfile can still resolve something the declarations do not say.
-  if (spec.installedBy !== "ci") {
-    const top = lock?.packages?.[`node_modules/${name}`];
-    if (top?.version && spec.version && top.version !== spec.version) {
-      report(
-        severity,
-        `package-lock.json: ${name} resolves to ${top.version}, blessed is ${spec.version}. Reinstall so the lockfile matches.`,
-      );
+  // -- the lockfile can still resolve something the declarations do not say. A workspace
+  // that declares the package loads its own nested copy when the root holds another
+  // version (one a different dependency dragged in), so each declaring workspace is
+  // checked at the copy it resolves; the root copy only when nothing declares it.
+  if (spec.installedBy !== "ci" && spec.version) {
+    const root = `node_modules/${name}`;
+    const declaring = manifests.filter((m) => depsOf(m.pkg)[name] !== undefined).map(({ dir }) => dir);
+    // Each lockfile copy a declaring workspace resolves, once: its own nested copy, or the root's.
+    const copies = new Map();
+    for (const dir of declaring.length ? declaring : ["."]) {
+      const nested = dir === "." ? root : `${dir}/node_modules/${name}`;
+      copies.set(lock?.packages?.[nested] ? nested : root, dir);
+    }
+    for (const [key, dir] of copies) {
+      const version = lock?.packages?.[key]?.version;
+      if (version && version !== spec.version)
+        report(
+          severity,
+          `package-lock.json: ${name} resolves to ${version}${key === root ? "" : ` for ${dir}`}, blessed is ${spec.version}. Reinstall so the lockfile matches.`,
+        );
     }
   }
 }

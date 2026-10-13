@@ -166,18 +166,6 @@
       "blessedAt": "2026-10-01",
       "why": "The kit's claude-design engine bundles the design system with it, resolved from the UI package. A different version emits a different bundle for the same source, so the published system would change with no code change behind it."
     },
-    "colorjs.io": {
-      "version": "0.7.1",
-      "applies": {
-        "whenFile": [
-          "{{DESIGN_UI_PACKAGE}}/design-system/design-system.config.mjs"
-        ]
-      },
-      "severity": "required",
-      "installedBy": "project",
-      "blessedAt": "2026-10-12",
-      "why": "The kit's claude-design engine resolves every colour token with it, resolved from the UI package, so a color-mix() publishes as the browser computes it. A different version can round a mixed colour differently, so the published system would change with no code change behind it."
-    },
     "@tailwindcss/cli": {
       "version": "4.3.3",
       "applies": {
