@@ -312,6 +312,11 @@
       "plus": "our Hono entry, ssr.noExternal, runtime assets"
     },
     {
+      "file": "security-headers.md",
+      "distilled_from": [],
+      "plus": "the opt-in security-headers module beside it (security-headers.ts) and its wiring: per-request nonce through router ssr.nonce, HTML-only policy, HTTPS from X-Forwarded-Proto"
+    },
+    {
       "file": "debugging.md",
       "distilled_from": [],
       "plus": "ours \u2014 failure shapes specific to this stack"

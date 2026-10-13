@@ -476,6 +476,13 @@ export function constantClasses(src, exported = new Map()) {
 
 const isColour = (v) => /^(#[0-9a-f]{3,8}|oklch\(|oklab\(|rgba?\(|hsla?\(|color-mix\()/i.test(v.trim())
 
+/** Every class a Tailwind `@source inline()` pattern names: `{bg,text}-{a,b}` → bg-a bg-b text-a text-b. */
+export function expandBraces(pattern) {
+  const m = /\{([^{}]*)\}/.exec(pattern)
+  if (!m) return pattern.split(/\s+/).filter(Boolean)
+  return m[1].split(',').flatMap((alt) => expandBraces(pattern.slice(0, m.index) + alt + pattern.slice(m.index + m[0].length)))
+}
+
 /** Light/dark parity: a token only dark has no light value, and a colour other
  * tokens build on (the ramp) that dark does not redefine leaves every alias on it
  * light on a dark surface. Parity applies only when a dark theme exists. */
@@ -842,8 +849,26 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
   // `hover:bg-(--x)`, `bg-(color:--x)` with a type hint, in a class or an @apply.
   for (const src of [componentSrc, ...css.map(([, s]) => s)])
     for (const m of src.matchAll(/(?<![\w-])[a-z][a-z0-9-]*-\((?:[a-z-]+:)?(--[A-Za-z0-9-]+)\)/g)) reached.add(m[1])
+  // A breakpoint is used through the variant Tailwind names after it: `tablet:`, `max-tablet:`.
+  const variants = new Set()
+  for (const src of [componentSrc, ...css.map(([, s]) => s)]) for (const m of src.matchAll(/(?<![\w-])(?:max-|min-)?([a-z][a-z0-9-]*):(?=[a-z!-])/g)) variants.add(m[1])
+  for (const name of realDefs) {
+    const bp = /^--breakpoint-(.+)$/.exec(name)
+    if (bp && variants.has(bp[1])) reached.add(name)
+  }
+  // A project that publishes to Claude Design promises designs a bg-/text-/border- class for
+  // every published colour, and its generated safelist ships them: the theme entries behind
+  // those classes are used by the published system even before a screen writes one.
+  let safelistCss = ''
+  const publishConfig = path.join(pkg, 'design-system/design-system.config.mjs')
+  if (existsSync(publishConfig)) {
+    const { readConfig } = await import(new URL('../../claude-design/scripts/config.mjs', import.meta.url).href)
+    const { ctx } = await readConfig(publishConfig)
+    const file = ctx && path.join(pkg, ctx.CONFIG.generated.safelist)
+    if (file && existsSync(file)) safelistCss = [...readFileSync(file, 'utf8').matchAll(/@source\s+inline\("([^"]*)"\)/g)].flatMap((m) => expandBraces(m[1])).join(' ')
+  }
   const written = new Set()
-  for (const src of [componentSrc, ...css.map(([, s]) => s)]) for (const m of src.matchAll(/(?<![\w-])[a-z][a-z0-9-]*(?![\w-])/g)) written.add(m[0])
+  for (const src of [componentSrc, safelistCss, ...css.map(([, s]) => s)]) for (const m of src.matchAll(/(?<![\w-])[a-z][a-z0-9-]*(?![\w-])/g)) written.add(m[0])
   const COLOUR_PREFIXES = 'text bg border ring outline fill stroke from via to divide accent caret shadow decoration placeholder'.split(' ')
   const SPACING_PREFIXES = [...SPACE_PROPS.split('|'), 'w', 'h', 'size', 'min-w', 'min-h', 'max-w', 'max-h', 'basis', 'inset', 'top', 'right', 'bottom', 'left']
   const UTILITY = [

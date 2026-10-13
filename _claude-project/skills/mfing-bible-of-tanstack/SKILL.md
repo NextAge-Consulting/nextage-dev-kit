@@ -1,6 +1,6 @@
 ---
 name: mfing-bible-of-tanstack
-description: House rules for TanStack Start, Router, Query, Table and Form in business applications — which data layer a screen uses, server functions and auth, browses, record forms, loading states, and how to find upstream guidance for anything not covered here. Use when creating routes, server functions, browses or forms, wiring queries or mutations, adding or upgrading a TanStack dependency, implementing authentication, building webhooks, or debugging data fetching.
+description: House rules for TanStack Start, Router, Query, Table and Form in business applications — which data layer a screen uses, server functions and auth, browses, record forms, loading states, and how to find upstream guidance for anything not covered here. Use when creating routes, server functions, browses or forms, wiring queries or mutations, adding or upgrading a TanStack dependency, implementing authentication, building webhooks, adding a Content-Security-Policy or security headers, adding a third-party script or host to an app that has one, or debugging data fetching.
 user-invocable: false
 ---
 
@@ -89,6 +89,7 @@ Next.js; do not bring those assumptions.
 | Navigation guard vs data protection, roles, betterAuth pitfalls | `auth.md` |
 | Public endpoints, signature verification, idempotency | `webhooks.md` |
 | Build output, the Hono server, static files, runtime assets | `deployment.md` |
+| Content-Security-Policy and security headers, opt-in: the module, its wiring, allowing a third-party host | `security-headers.md` |
 | Hydration mismatches, CJS/ESM, stale caches, testing server functions | `debugging.md` |
 | Dependabot triage, `overrides` safety | `dependency-management.md` |
 

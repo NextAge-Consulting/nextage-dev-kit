@@ -31,6 +31,7 @@ The single walkthrough for taking a brand-new project from nothing to "kit insta
 - [ ] **4** — `/sync-dev-kit` run; substitutions walkthrough completed `[claude+you]`
 - [ ] **5** — Gemini Code Review installed + repo linked — or explicitly marked not-installed `[you]` then `[claude]`
 - [ ] **6** — Secrets & env: `.env`, GitHub Actions secrets, MCP API keys `[claude+you]`
+- [ ] **6b** — (optional) Security headers: a Content-Security-Policy and friends, for a project that will face a security audit `[claude]`
 - [ ] **7** — Project-specific CodeBuild deploy pipeline authored (buildspecs + projects + CodeConnections), + registry repo AND lifecycle policy per image, all as Terraform (if this project deploys) `[claude+you]`
 - [ ] **8** — Every section's verify command passes `[claude]`
 - [ ] **9** — First `/work` session — pipeline proven end-to-end `[claude]`
@@ -299,6 +300,10 @@ Full procedure (two lanes — billing/IAM owner vs configurer) lives in **`gemin
 grep -oE '\$\{[A-Z_]+\}' .mcp.json 2>/dev/null | tr -d '${}' | sort -u \
   | while read -r v; do [ -n "${!v:-}" ] && echo "  set:   $v" || echo "  UNSET: $v"; done
 ```
+
+### 6b — Security headers (optional) `[claude]`
+
+For a TanStack Start app that will face a security audit or a client's security review, ask Claude to add security headers. It follows the TanStack skill's `references/security-headers.md`: a Content-Security-Policy with a per-request nonce, `nosniff`, a referrer policy and HSTS, with every host the app loads from listed by name. Without it the app sends none of these.
 
 ### 7 — Deploy pipeline (if this project deploys) `[claude+you]`
 

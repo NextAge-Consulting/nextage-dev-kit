@@ -225,6 +225,15 @@ function scriptCheck(script, OLD, NEW, consumer) {
         for (const e of readdirSync(path.join(consumer, '.claude'))) symlinkSync(path.join(consumer, '.claude', e), path.join(mirror, '.claude', e))
         rmSync(path.join(mirror, '.claude/stack-manifest.json'), { force: true })
         cpSync(path.join(root, 'stack-manifest.json'), path.join(mirror, '.claude/stack-manifest.json'))
+        // The manifest names the TanStack skill's reference docs, which sync delivers with it:
+        // the skill comes from the same kit version, so a reference added in this change is present.
+        const skills = path.join(mirror, '.claude/skills')
+        if (existsSync(path.join(consumer, '.claude/skills/mfing-bible-of-tanstack'))) {
+          rmSync(skills)
+          mkdirSync(skills)
+          for (const e of readdirSync(path.join(consumer, '.claude/skills'))) if (e !== 'mfing-bible-of-tanstack') symlinkSync(path.join(consumer, '.claude/skills', e), path.join(skills, e))
+          symlinkSync(path.join(root, 'skills/mfing-bible-of-tanstack'), path.join(skills, 'mfing-bible-of-tanstack'))
+        }
       }
       const r = spawnSync('node', ['--preserve-symlinks', '--preserve-symlinks-main', path.join(mirror, 'scripts', script)], { cwd: mirror, encoding: 'utf8' })
       return { code: r.status, findings: findingsOf(`${r.stdout}\n${r.stderr}`) }

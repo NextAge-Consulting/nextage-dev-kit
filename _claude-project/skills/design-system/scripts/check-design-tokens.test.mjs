@@ -361,6 +361,15 @@ test('a token nothing reaches fails, unless it is marked not-yet-built', async (
   assert.deepEqual(marked.problems, [])
 })
 
+test('a breakpoint used only through its variant prefix is reached; one used nowhere still fails', async () => {
+  const { problems } = await run({
+    'packages/ui/src/tokens.css': TOKENS.replace(':root {', ':root {\n  --breakpoint-tablet: 48rem;\n  --breakpoint-wide: 80rem;\n  --breakpoint-later: 96rem;'),
+    'packages/ui/src/components/bar.tsx': 'export const bar = "grid tablet:grid-cols-2 max-wide:hidden"\n',
+  })
+  assert.ok(!problems.some((p) => /--breakpoint-(tablet|wide)/.test(p)), problems.join('\n'))
+  assert.ok(problems.some((p) => /--breakpoint-later {2}— defined but nothing reaches it/.test(p)))
+})
+
 test('a token named by Tailwind\'s variable shorthand is reached; one used nowhere still fails', async () => {
   const { problems } = await run({
     'packages/ui/src/tokens.css': TOKENS.replace(':root {', ':root {\n  --tall: 40px;\n  --hint: #00ff00;\n  --later: #ff0000;'),
@@ -461,6 +470,23 @@ async function withConfig(extra = {}) {
   execFileSync('git', ['init', '-q'], { cwd: dir })
   return dir
 }
+
+test('a theme colour no screen uses is reached once the generated safelist ships its class', async () => {
+  const dir = await withConfig({
+    'packages/ui/src/tokens.css': TOKENS.replace(':root {', ':root {\n  /* a status no screen shows yet */\n  --status-new: oklch(0.6 0.15 250);'),
+    'packages/ui/src/styles.css': STYLES.replace('@theme inline {', '@theme inline {\n  --color-status-new: var(--status-new);'),
+  })
+  const before = await checkDesignTokens(dir)
+  assert.ok(before.problems.some((p) => /--color-status-new {2}— defined but nothing reaches it/.test(p)))
+
+  const { readConfig } = await import(path.join(ENGINE, 'config.mjs'))
+  const { buildModel } = await import(path.join(ENGINE, 'model.mjs'))
+  const { writeGenerated } = await import(path.join(ENGINE, 'generate.mjs'))
+  const { ctx } = await readConfig(path.join(dir, 'packages/ui/design-system/design-system.config.mjs'))
+  writeGenerated(ctx, buildModel(ctx))
+  const after = await checkDesignTokens(dir)
+  assert.ok(!after.problems.some((p) => /--color-status-new/.test(p)), after.problems.join('\n'))
+})
 
 test('generated files missing, then not imported, then current', async () => {
   const dir = await withConfig()
