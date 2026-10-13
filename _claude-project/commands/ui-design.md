@@ -108,7 +108,7 @@ conversation.
    `brief.md` records it. Each change agreed is published to the design by the Design type's revise
    rules — group changes that land together into one publish.
 3. **Say so the moment a change creates a gap** — what you added, what the design system
-   lacks, and the tweak's key — in the same reply as the change. The person decides it
+   lacks, the tweak's key and the page it is on — in the same reply as the change. The person decides it
    whenever they choose. When a part of the page is wrapping up, push for a decision on
    that part's undecided gaps. Land approved gaps together, not one publish per decision
    (the reference's Tweaks section). When the person finishes reviewing a part of the page, add

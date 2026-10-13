@@ -19,8 +19,8 @@
 #   - Commit with --no-verify (validation is done by this script)
 #   - Push to origin via safe_push (sets upstream correctly on first push)
 #   - Mark the --complete issues code complete and move them to Staged. The
-#     slash command asks which linked issues are complete; this script only
-#     acts on the answer, and only after the push has landed.
+#     slash command decides which linked issues are complete; this script only
+#     acts on that decision, and only after the push has landed.
 #   - Post each newly staged issue's comment from <notes_dir>/<N>.md. Refuses to
 #     run at all, before committing, when one is missing.
 #

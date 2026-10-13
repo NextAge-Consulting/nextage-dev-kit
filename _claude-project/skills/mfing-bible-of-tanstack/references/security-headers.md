@@ -60,7 +60,9 @@ The client needs nothing more: it reads the nonce from the `<meta property="csp-
 
 **3. `nosniff` on static files**, in the app's server wrapper, on every static response it serves.
 
-**A proxy that sends `X-Frame-Options` either drops it or sends `DENY`**, matching the policy's `frame-ancestors 'none'`.
+**A proxy in front of the app sends none of the headers the module sets** — nosniff, the
+referrer policy, HSTS. It may add `X-Frame-Options`, as `DENY` only, matching the policy's
+`frame-ancestors 'none'`.
 
 ## Check it
 

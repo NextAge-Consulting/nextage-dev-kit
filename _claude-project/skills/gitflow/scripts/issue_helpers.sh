@@ -13,7 +13,7 @@
 #   accumulate after merges.
 #
 # - An issue is marked CODE COMPLETE per branch, in a second list beside the
-#   links: branch.<name>.gitflow-complete = "23 25". /commit and /ship-main ask
+#   links: branch.<name>.gitflow-complete = "23 25". /commit and /ship-main decide
 #   which linked issues are complete; /open-pr refuses to open while any linked
 #   issue is not. Complete is what moves an issue to Staged.
 #

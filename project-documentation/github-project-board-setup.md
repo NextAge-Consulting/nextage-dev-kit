@@ -64,7 +64,7 @@ Put the ids into the project's `.claude/sync-substitutions.json`, then re-apply 
 - `GITFLOW_STATUS_DEPLOYED_ID` = the deploy column's option id (`Done`, or `Deployed`)
 - remove those keys from `_intentionally_empty`
 
-With `GITFLOW_PROJECT_ID` set, all four other keys are required: an empty one fails the command that needs it, loudly — it never skips. Empty `GITFLOW_PROJECT_ID` means no board; issue links, the code-complete question and the `Closes #N` lines all still work.
+With `GITFLOW_PROJECT_ID` set, all four other keys are required: an empty one fails the command that needs it, loudly — it never skips. Empty `GITFLOW_PROJECT_ID` means no board; issue links, the code-complete decision and the `Closes #N` lines all still work.
 ```bash
 ~/.claude/scripts/sync-dev-kit.sh --apply-file _claude-project/gitflow-project.conf
 ```

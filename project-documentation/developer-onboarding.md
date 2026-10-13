@@ -220,7 +220,7 @@ Short version:
 | "start work on #23" | `/work #23` — links the issue to the branch you are on, assigns it, moves it to In Progress |
 | "also works on #25" (mid-branch) | `/work #25` — links an additional issue to the current branch |
 | "checkpoint" or "save progress" | `/checkpoint` — local WIP save point; pushes nothing |
-| "commit this" | `/commit` — full conventional commit with AI-generated message; asks which linked issues are code complete and moves those to Staged |
+| "commit this" | `/commit` — full conventional commit with AI-generated message; decides which linked issues are code complete and moves those to Staged |
 | "open a pr" | `/open-pr` — asks whether the PR finishes each linked issue or is part of it, pushes the branch, creates the PR, prepends `Closes #N` for the finished ones (moved to Staged) and `Part of #N` for the rest |
 | "merge to main" | `/merge` — verify CI passed, squash-merge, pull main |
 

@@ -1363,7 +1363,7 @@ checker runs with the API its header documents.
 `skills/claude-design/references/working-with-claude-design.md` is the reference the
 skill reads before any design work: what Claude Design is for, what a design is (an
 interactive prototype), how a design is driven and shared — from Claude Code or its
-chat, and from Claude Code by link for an editor in another organization — what the
+chat, by anyone with edit access — what the
 engine handles, and the
 review and two-person processes.
 

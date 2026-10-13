@@ -77,7 +77,7 @@ start ──► create-design ──► work / feedback ⟲ ──► implement
    of date, reads it and says where it stands, then holds the conversation: each change
    agreed is published to the design and added to `brief.md` under `## Decisions`. A
    missing design-system piece becomes a gap tweak, and Claude tells you when it creates
-   one; you flip it to Approved or System as is whenever you choose, and approvals land in
+   one and which page its tweak is on; you flip it to Approved or System as is whenever you choose, and approvals land in
    the design system together. All are decided before implement.
 4. **feedback** — `work` with the reviewers' comments as the agenda. Share the design,
    reviewers comment, then run it. Comments are shaped into items, discussed one at a time
@@ -152,13 +152,13 @@ npm run check:design-system    # renders every component in light, dark and canv
   edit access. Every invitee needs a Claude account; a free one is enough. A signed-out
   viewer can click through, but anything the prototype saves needs a signed-in viewer.
 - **Viewers open it in Chrome.** In Firefox the design loads but every frame is blank.
-- **A comment is never deleted, only resolved,** and a thread stays on the design
-  through every later version.
-- **A feedback round reads open threads only.** Resolving is what takes a thread out of
-  the next round.
+- **A thread stays on the design through every later version** until it is resolved or
+  deleted.
+- **A feedback round reads open threads only.** Resolving or deleting is what takes a
+  thread out of the next round.
 - **`feedback` resolves only threads a writer has sent to Claude.** Every other thread
-  the round dealt with is listed as still open — resolve those in the design view, or the
-  next round reads them again.
+  the round dealt with is listed as still open — resolve or delete those in the design
+  view, or the next round reads them again.
 
 ---
 
@@ -166,13 +166,7 @@ npm run check:design-system    # renders every component in light, dark and canv
 
 Share the design with **edit** access; each person drives their own turns.
 
-- **The creator** drives it from Claude Code or the design's chat.
-- **An editor in another organization drives it from Claude Code, naming the design's
-  link in the prompt.** Their browser chat treats the design as read-only despite edit
-  access and edits a copy instead.
-- **Shared from another organization, nothing appears in their lists** — Shared with you,
-  `/artifacts`, the design-system picker, `apply-system`. They name the design's link,
-  and the system's link when starting a design of their own. By link, everything works.
+- **Anyone with edit access** drives it from Claude Code or the design's chat.
 
 ---
 
@@ -200,7 +194,5 @@ Share the design with **edit** access; each person drives their own turns.
 | Build fails: the cover has no `<!-- ds-stamp -->` mark | Put the mark where the cover should show the release line. |
 | A design shows the system's colours but no components | The system has never been edited on its page. Make one small edit there, then run `apply-system` on the design. |
 | Publish refused because someone saved meanwhile | The action re-reads and redoes the edit once; a second refusal stops and says so. |
-| A collaborator's change landed in a copy, not your design | Their browser chat can't write to a design shared from another organization. They drive it from Claude Code, by link. |
 | A viewer sees the page list but every frame is blank white | They are in Firefox. Open it in Chrome. |
-| The design system isn't in someone's picker | It was shared from another organization. Name its link in the prompt. |
-| Old comments come back every feedback round | They were never resolved. Resolve each thread a round dealt with, in the design view. |
+| Old comments come back every feedback round | They were never resolved. Resolve or delete each thread a round dealt with, in the design view. |

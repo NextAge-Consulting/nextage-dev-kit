@@ -81,7 +81,7 @@ Full conventional commit with AI-generated message.
 - Categorize changes by feature/purpose
 - Load `references/commit-types.md` for emoji/type mapping
 - Build commit message: `<emoji> <type>: <description>` for single feature, or multi-line format for multiple features
-- Ask which linked issues are code complete (finished, waiting for deployment); each yes becomes `--complete "<N,N>"`, is marked on the branch and moves to Staged after the push
+- Decide which linked issues are code complete (finished, waiting for deployment) from the issue and the work, asking only about one you cannot judge; each becomes `--complete "<N,N>"`, is marked on the branch and moves to Staged after the push
 - Invoke `/commit` passing the message
 
 Auto-branch behavior: if on `main`, `/commit` derives a `<type>/<slug>` branch from the commit message and creates it before committing. Unpushed `/checkpoint` commits are folded into the one commit it makes.
@@ -95,7 +95,7 @@ Direct conventional commit straight to `main` — no branch, no PR, no CI. The *
 **Procedure:**
 - Confirm this is genuinely a deliberate direct-to-main change — if it looks like feature work or the user said "commit" (not "ship to main"), use `/commit` instead.
 - Build a conventional message exactly as for `/commit` (required — the next `/deploy` reads it for bump-level + changelog).
-- Ask the same code-complete question as `/commit`. Only complete issues get a `Closes #N` line, move to Staged and are unlinked; incomplete ones stay parked on `main`.
+- Decide code complete as `/commit` does. Only complete issues get a `Closes #N` line, move to Staged and are unlinked; incomplete ones stay parked on `main`.
 - Invoke `/ship-main` passing the message.
 
 **Critical distinction:** `/ship-main` is the OPPOSITE of `/commit`'s auto-branch. Bare "commit" on `main` auto-branches (the safety); `/ship-main` commits ON `main` and pushes directly. Route here ONLY on the explicit triggers ("ship to main", "infra commit", "emergency to main") — NEVER from a bare "commit", and NEVER inferred from the user being on `main`. The script refuses unless actually on `main`.
@@ -110,7 +110,7 @@ A local save point, without deep analysis.
 - Optional: take a short message from the user
 - Invoke `/checkpoint`
 
-See `commands/checkpoint.md`. The command auto-formats the message as `🔖 wip: <timestamp or user message>`. It asks no code-complete question — a checkpoint is partway by definition.
+See `commands/checkpoint.md`. The command auto-formats the message as `🔖 wip: <timestamp or user message>`. It makes no code-complete decision — a checkpoint is partway by definition.
 
 No branch is cut and nothing is pushed: the checkpoint is a local commit on the current branch, `main` included. `/commit` and `/ship-main` fold every unpushed checkpoint into the one real commit they make, so a `🔖 wip:` subject never reaches origin.
 

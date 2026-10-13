@@ -26,22 +26,21 @@ In a repo holding infrastructure (`REPO_KIND` is `org` or `combo`) the script re
 
 Same rules as `/commit` — `<emoji> <type>(<scope>): <subject>`. **Conventional format is required**, not optional: `/ship-main` commits land on `main` and are read by the next `/deploy` (commit subjects since the last tag) to compute the bump level + changelog, exactly like a merged-PR squash commit. A malformed subject mis-classifies the release.
 
-### Step 3: Ask which linked issues are code complete
+### Step 3: Decide which linked issues are code complete
 
-Same question as `/commit` Step 6, and it decides more here: only complete issues are
-named in this commit's `Closes` line. An incomplete one stays parked on `main` for the work
-that finishes it.
+Decided exactly as `/commit` Step 6 decides it — from the evidence, asking only about an
+issue you cannot judge — and it decides more here: only complete issues are named in this
+commit's `Closes` line. An incomplete one stays parked on `main` for the work that
+finishes it.
 
 ```bash
 bash -c 'source .claude/skills/gitflow/scripts/issue_helpers.sh && read_branch_incomplete_issues'
 ```
 
-Empty → no question. Otherwise ask in prose and wait — "Are any of #42, #43 code complete?
-Complete ones are named as closed by this commit and move to Staged." Map the answer to
-`--complete "<N,N>"`, or pass nothing.
+Map the result to `--complete "<N,N>"`, or pass nothing.
 
 **Then write the Staged comment for each issue reaching Staged** — those already complete
-plus the ones just confirmed — that has not had one; the issue's author reviews against it.
+plus the ones just decided — that has not had one; the issue's author reviews against it.
 List them:
 
 ```bash

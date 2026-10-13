@@ -56,25 +56,33 @@ Resolve in this order:
 
 `GEMINI_NOT_INSTALLED="true"` in `.claude/sync-substitutions.json` makes `--review` a no-op (script skips the post and logs it). The prompt still appears — the slash command doesn't read the substitution file. That's intentional: the flag is the contract; the runtime decides whether the contract is satisfiable.
 
-### Step 6: Ask which linked issues are code complete
+### Step 6: Decide which linked issues are code complete
 
 Code complete means finished and waiting for deployment — not "some of it is committed".
 A complete issue moves to Staged on the project board; `/open-pr` later refuses to open
 while any linked issue is not complete.
 
+**You decide this, and ask only when the evidence cannot.**
+
 1. **User already said in `$ARGUMENTS`** — `/commit --complete 42,43`, or "commit, #42 is
-   done". Honor it and skip the question.
+   done". Honor it.
 2. **List the linked issues not yet complete:**
    ```bash
    bash -c 'source .claude/skills/gitflow/scripts/issue_helpers.sh && read_branch_incomplete_issues'
    ```
-   Empty → no question, pass nothing.
-3. **Otherwise ask, in prose, and wait** — one question naming them all, e.g. "Are any of
-   #42, #43 code complete? Complete ones move to Staged." All, none, or a subset are all
-   valid answers. Ask it on its own, before the Step 5 review question when both apply —
-   one question at a time.
+   Empty → nothing to decide, pass nothing.
+3. **Judge each one against its issue** (`gh issue view <N>`): what it asks for, its
+   "done when" if it has one, and its comments. It is complete when every condition it
+   states is met by work you can point to — in this session or in the tree — and nothing
+   in it waits on an open question or decision.
+4. **Ask only about the ones you cannot judge** — a condition you cannot check, a scope
+   reaching past the work in front of you, an open question or decision still on the
+   issue. One question in prose naming just those and why each is unclear, then wait. Ask
+   it on its own, before the Step 5 review question when both apply — one question at a
+   time.
 
-Map the answer to `--complete "<N,N>"`, or pass nothing for none.
+Map the result to `--complete "<N,N>"`, or pass nothing for none. The report names each
+issue marked complete with the evidence in a clause.
 
 **Then write the Staged comment for each of them that has not had one** — the issue's
 author reviews against it. List the ones still needing it:

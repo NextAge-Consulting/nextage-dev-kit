@@ -39,20 +39,12 @@ and builds on it.
 - **From Claude Code — anyone with edit access.** The session that creates a design is
   attached to it. A later session picks the design up with `/ui-design work`, which
   reads its link from the design's folder and watches it (`ArtifactComments`
-  `action: "watch"`), attaching the session to it. `/artifacts`
-  does not list a design shared from another organization; the link always works. A change it publishes
-  shows on an open canvas at once.
+  `action: "watch"`), attaching the session to it. A change it publishes shows on an open
+  canvas at once.
 - **From claude.ai.** The design's Chat button opens a chat that reads the canvas and
   revises it, using the system the design has installed; there is no design-system
   picker there and none is needed. Once the creating session has ended, that chat starts
   without its history.
-- **An editor in another organization drives it from Claude Code.** Their browser chat
-  treats a design shared from another organization as read-only despite edit access, and
-  makes a copy in their own account instead.
-- **Nothing shared from another organization appears in its recipient's lists** —
-  Shared with you, `/artifacts`, the design-system picker, a `list` from Claude Code. They
-  name the design's link in the prompt, and the design system's link when starting a
-  design of their own.
 - **A Claude Code session is never told of a change made elsewhere.** A new version
   starts no turn and sends no notification, so read the design before every edit — every
   `/ui-design` action does.
@@ -132,17 +124,15 @@ Reviewers comment on the shared design; `/ui-design feedback` pulls the comments
 shapes them into items, settles each with the owner, revises, republishes and reports
 what changed.
 
-A comment is never deleted, only resolved, and a thread stays on the design through every
-later version. Resolving is what ends it: each round reads only open threads. The command
-resolves only a thread a writer has sent to Claude; every other thread a round dealt with
-is resolved by a person in the design view, or the next round reads it again.
+A thread stays on the design through every later version until it is resolved or
+deleted, and each round reads only open threads. The command resolves only a thread a
+writer has sent to Claude; every other thread a round dealt with is resolved or deleted by
+a person in the design view, or the next round reads it again.
 
 ## Co-design
 
 Two people who both design share the design with edit access and each drive their own
-turns; the design's copy of the system travels with it, so nothing is exported. A
-collaborator in another organization drives it from Claude Code by its link ("Driving a
-design", above).
+turns; the design's copy of the system travels with it, so nothing is exported.
 
 ## Tweaks
 
@@ -156,15 +146,21 @@ control in the canvas's Tweaks panel and read as `this.props.<name>`.
   Theme tweak sets `data-theme`) — none at all while Design system only is on — and each
   gap's rules in the PREVIEW block are keyed `html.<class> …`. The document root, not the
   page's own, because overlays such as a select's list render outside the page. So one
-  flip shows the system exactly as it stands, every override off, and nothing about a gap
-  renders without its tweak.
+  flip shows the system exactly as it stands, every override off.
+- **A gap's tweak lives on ONE page, the one it is judged on** — a tweak flips only the
+  page it is on. A gap that also appears on other pages shows there as designed, with no
+  tweak, until it is decided. Name its home page when you tell the person about the gap.
 - **A gap's options carry their state, because the person's choice is also their
   approval.** For each option X: `Undecided — X` (shown, not yet approved) and
   `Approved — X` (shown, approved); then `System as is` (rejected — the person does not
-  want the addition). Undecided and Approved render the same; only the approval differs.
+  want the addition), optionally followed by ` — <what that leaves>`. Undecided and
+  Approved render the same; only the approval differs.
   The default is `Undecided — <the option you recommend>`. `check-design.mjs` reads the
   states from the saved defaults and reports them; an option without one of these
   prefixes fails it.
+- **X says in plain words what the option adds, with its values** — "Pay as Guest
+  spacing: divider above Card and Billing address, 24px between columns" — never a bare
+  "Current design". The key stays the gap's name.
 - **Tell the person the moment you create a gap** — in the same reply as the change that
   needed it: what you added, what the design system lacks, and the tweak's key. "I added
   the account switcher's options with the address beneath; the system's select option

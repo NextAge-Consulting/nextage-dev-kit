@@ -24,8 +24,8 @@ The next real commit folds checkpoints away, so they never reach `main`.
 **Commit with `/commit`.** Claude writes the message. Before anything is staged, the type
 check, lint and security scan run over what you changed, so problems surface in seconds
 here instead of minutes later in CI. On `main`, `/commit` cuts a branch named from the
-message. It asks which linked issues are finished, and moves those to Staged with a note
-for whoever filed them.
+message. It decides which linked issues are finished, asks you only about one it cannot
+judge, and moves the finished ones to Staged with a note for whoever filed them.
 
 **Review with `/open-pr`, then `/triage`.** `/open-pr` pushes, opens the PR with
 `Closes #N` for your issues, and waits for CI and the AI reviewer. `/triage` walks the

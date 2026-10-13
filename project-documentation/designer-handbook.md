@@ -156,20 +156,26 @@ A gap is anything the design needs that the design system doesn't have yet: a me
 tab bar, spacing inside a card that the card doesn't give. Every gap is on the canvas as a
 tweak, so you judge it by looking, never from a description of pixels.
 
-**Where to find them.** Open the Tweaks panel. The **Design system** section holds one
-setting per gap, under a short name (`menu`, `tabBar`, `contact`). The panel cuts labels
-short and can't be widened, which is why the names are short.
+**Where to find them.** Each gap's tweak is on the page you judge it on: open that page
+and its Tweaks panel. The **Design system** section holds one setting per gap, under a
+short name (`menu`, `tabBar`, `contact`) — the name you use when you talk about it. The
+panel cuts labels short and can't be widened, which is why the names are short. A gap
+that also appears on other pages shows there as designed, with no tweak, until you
+decide it.
 
 **Claude tells you the moment it creates one.** In the same reply as the change, it says
-what it added, what the design system lacks, and the tweak's name: "I added the account
-switcher's options with the address beneath; the system's select has no second line, so
-there's a new tweak, `acctList`." Nothing appears in the panel without that.
+what it added, what the design system lacks, the tweak's name and the page it is on: "I
+added the account switcher's options with the address beneath; the system's select has
+no second line, so there's a new tweak, `acctList`, on View My Bills." Nothing appears in
+the panel without that.
 
 **Decide them whenever you like.** Now, or when you review that part of the page — the
 only deadline is implement. As a part of the page wraps up, Claude asks for a decision on
 that part's gaps, since that's when you've just looked at it closely. The design's `brief.md` records which parts you've reviewed.
 
-**What the options mean.** Each gap's options say where your decision stands:
+**What the options mean.** Each gap's options say where your decision stands, and X says
+in plain words what the addition is, with its values ("Pay as Guest spacing: divider above
+Card and Billing address, 24px between columns"):
 
 - **Undecided — X:** shown on the page, not approved. Every gap starts here.
 - **Approved — X:** shown the same way, and approved. With more than one option, each has
@@ -242,8 +248,8 @@ How Claude builds tweaks is in the `claude-design` skill's
 invite with view, comment or edit access. Every invitee needs a Claude account, and a free
 one is enough. Tell them to open it in Chrome: in Firefox the design loads but every frame
 stays blank. They leave comments on the design, and a feedback round works through them.
-A comment is never deleted, only resolved, and only open comments come up in the next
-round, so resolve each one the round dealt with.
+Only open comments come up in the next round, so resolve or delete each one the round
+dealt with.
 
 **Two people who both design**, such as a designer and a developer, share the design with
 edit access and each drive their own turns. The designer pushes for the ambitious
@@ -251,14 +257,8 @@ version; the developer keeps it grounded in the codebase ("we already have that 
 "that control can't exist"). A reaction relayed through a third person costs several
 round trips, so each person talks to the design directly.
 
-How you drive a design depends on where it came from:
-
-- **You created it:** use Claude Code, or the design's own chat in claude.ai.
-- **It was shared with you from another organization:** use Claude Code, naming the
-  design's link. Your browser chat treats that design as read-only and edits a copy in
-  your own account instead.
-- **Anything shared from another organization is missing from your lists:** `/artifacts`,
-  Shared with you, and the design-system picker won't show it. The link always works.
+Anyone with edit access drives a design from Claude Code or from the design's own chat in
+claude.ai, whoever created it.
 
 Neither Claude Code nor the chat is told when the other side changes the design, which is
 why every `/ui-design` action reads the design fresh before touching it.

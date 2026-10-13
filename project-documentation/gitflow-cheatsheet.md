@@ -49,7 +49,7 @@ semgrep scan --config auto --error <files>   # the CI security scan, on demand
 
 Use `/checkpoint` freely for in-progress snapshots. Use `/commit` when a unit of work is coherent.
 
-**`/commit` asks which linked issues are code complete** — finished, waiting for deployment. Each yes is marked on the branch and moves to Staged once the push lands. Answer in prose, or pass `/commit --complete 42,43`. `/checkpoint` never asks: a checkpoint is partway by definition.
+**`/commit` decides which linked issues are code complete** — finished, waiting for deployment — from each issue and the work done, and asks you only about one it cannot judge: a condition it cannot check, or a question still open on the issue. Each complete issue is marked on the branch and moves to Staged once the push lands; the report names each with its evidence, so a wrong call is one correction. Say it yourself with `/commit --complete 42,43`. `/checkpoint` never decides: a checkpoint is partway by definition.
 
 **Every issue reaching Staged gets one comment for its author** — what was built, what they will see, and where it differs from what they asked. Claude writes it (shape: `skills/gitflow/references/staged-comment.md`) and the script posts it once the board has moved; you are not asked to approve the wording. It is posted once per issue, so `/open-pr` re-staging an issue `/commit` already staged posts nothing.
 
@@ -104,7 +104,7 @@ No new branch, no stash. Just link and keep working.
                 # fires only on its own triggers ("ship to main", "infra commit"); a bare
                 #   "commit" always routes to /commit, which auto-branches instead
                 # the message still must be conventional — the next /deploy reads it
-                # asks which linked issues are code complete; only those get `Closes #N`,
+                # decides which linked issues are code complete; only those get `Closes #N`,
                 #   move to Staged (with their Staged comment) and are unlinked — the rest
                 #   stay parked on main
 ```
@@ -239,7 +239,7 @@ Dev server lifecycle governed by `.claude/rules/dev-server.md` — Claude checks
 ... more work ...
 /work 42             ← another issue joins this branch (board → In Progress for #42)
 ... finish ...
-/commit              ← coherent final commit; answer "#23, #42 code complete? → yes" (board → Staged for both, each with its Staged comment)
+/commit              ← coherent final commit; #23 and #42 judged code complete (board → Staged for both, each with its Staged comment)
 /open-pr             ← submit for review (Closes #23, #42 auto-added; both already complete, so no question)
 ... CI runs, Gemini reviews ...
 /triage              ← walk Gemini items one at a time (fix or skip, your call)
