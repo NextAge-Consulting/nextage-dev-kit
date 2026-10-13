@@ -1,0 +1,14 @@
+// Fails an assignment to innerHTML or outerHTML in application code.
+//
+// The string is parsed as HTML, so any data in it can run script. Tests are exempt.
+// A sanctioned site (a sanitizer's own output, say) carries, on the line above:
+//   // biome-ignore lint/plugin/no-inner-html: <why>
+language js
+
+or { `$x.innerHTML = $_`, `$x.outerHTML = $_`, `$x.innerHTML += $_`, `$x.outerHTML += $_` } as $assignment where {
+  $filename <: not r".*(?:\.test\.|\.spec\.|(?:^|/)test/|(?:^|/)e2e/).*",
+  register_diagnostic(
+    span = $assignment,
+    message = "Assigning innerHTML/outerHTML parses a string as HTML, so data in it can run script. Render it with React, build it with textContent/createElement, or pass it through the project's HTML sanitizer."
+  )
+}

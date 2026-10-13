@@ -881,6 +881,8 @@ The orchestration is in the `/sync-dev-kit` slash command (`_claude-maintainer/c
 - the suites beside each changed file — `foo.mjs` → `foo.test.mjs` / `foo.test.sh`, `foo.sh` → `foo.test.sh`, a template script → `tests/templates/<name>.test.sh`, the stack manifest → the check-stack suite; a `.claude/` copy runs its `_claude-project/` source's suites;
 - `.claude/kit-gate/replay.mjs`: each changed project-facing check — the token check, the comparison tool, the UI status check, the knip config, check-stack, workspace tiers — runs in its committed and its working-tree version against every consumer beside the kit, and a finding only the new version reports fails the gate.
 
+**A change whose new findings in consumers are expected and theirs to fix on sync skips the replay on the maintainer's word:** `SKIP_KIT_REPLAY=1`. The other steps still run.
+
 **A change that breaks projects on purpose ships the migration that fixes them.** The migration's `gate-accepts.txt` lists those findings as literal fragments, one per line; while the migration is among the changed files, a finding holding one is reported as resolved by it rather than failing the gate.
 
 ### 9.12. Repo kind — what an org repo receives

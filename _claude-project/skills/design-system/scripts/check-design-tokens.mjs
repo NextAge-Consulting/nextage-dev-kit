@@ -44,6 +44,9 @@
  *              named with a t-shirt size (`md`, `2xl`);
  *   tokens     every var() resolves, every token is reached, and the dark theme
  *              redefines every colour other tokens build on and adds none of its own;
+ *   contrast   every text pair — design.md components' textColor on backgroundColor, and
+ *              --<x>-foreground on --<x> — measures 4.5:1 in each theme, or its text
+ *              token's line marks the ratio accepted (contrast.mjs);
  *   design.md  every token reference and quoted class exists, every type and radius
  *              role has its frontmatter entry, every pixel value in the frontmatter is
  *              on the grid;
@@ -67,6 +70,7 @@ import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parseTokenBlocks } from '../../claude-design/scripts/resolve.mjs'
 import { atomModule, readBlockTypes } from './block-types.mjs'
+import { contrastProblems } from './contrast.mjs'
 
 export const KEYS = [
   'DESIGN_UI_PACKAGE', 'DESIGN_TOKEN_FILES', 'DESIGN_TYPE_FILE', 'DESIGN_STYLES_FILE', 'DESIGN_SOURCE_DIRS',
@@ -849,9 +853,11 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
   // `hover:bg-(--x)`, `bg-(color:--x)` with a type hint, in a class or an @apply.
   for (const src of [componentSrc, ...css.map(([, s]) => s)])
     for (const m of src.matchAll(/(?<![\w-])[a-z][a-z0-9-]*-\((?:[a-z-]+:)?(--[A-Za-z0-9-]+)\)/g)) reached.add(m[1])
-  // A breakpoint is used through the variant Tailwind names after it: `tablet:`, `max-tablet:`.
+  // A breakpoint is used through the variant Tailwind names after it: `tablet:` and
+  // `max-tablet:` in a class, `@variant tablet { … }` in a stylesheet.
   const variants = new Set()
   for (const src of [componentSrc, ...css.map(([, s]) => s)]) for (const m of src.matchAll(/(?<![\w-])(?:max-|min-)?([a-z][a-z0-9-]*):(?=[a-z!-])/g)) variants.add(m[1])
+  for (const [, s] of css) for (const m of s.matchAll(/@variant\s+(?:max-|min-)?([a-z][a-z0-9-]*)\s*\{/g)) variants.add(m[1])
   for (const name of realDefs) {
     const bp = /^--breakpoint-(.+)$/.exec(name)
     if (bp && variants.has(bp[1])) reached.add(name)
@@ -904,6 +910,12 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
   problems.push(...parity.problems)
   // A token file that would not parse is already a problem; it is not evidence of no dark theme.
   if (!parity.applies && !parity.problems.length) notes.push('light/dark parity: no dark theme in the token files — does not apply')
+
+  // --- every text pair is readable on its background ------------------------
+  const contrast = contrastProblems(tokenCss, design)
+  problems.push(...contrast.problems)
+  for (const s of contrast.skipped) notes.push(`contrast: skipped ${s}`)
+  for (const e of contrast.exempt) notes.push(`contrast: exempt ${e} — an inactive control's text (WCAG 1.4.3)`)
 
   // --- design.md describes what the code is ---------------------------------
   if (design !== null) {
@@ -1023,6 +1035,9 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
       weight: weightRoles.size,
       colours: colours.size,
       tokens: realDefs.size,
+      contrastPairs: contrast.pairs,
+      contrastMeasured: contrast.measured,
+      themes: contrast.themes,
       generated: generatedChecked,
       projectChecks: projectChecks.length,
     },
@@ -1060,7 +1075,7 @@ async function main() {
   console.log(
     `✓ design tokens: scanned ${counts.sourceFiles} source files (${counts.lines} lines), ${counts.stylesheets} stylesheets and design.md; ` +
       `${counts.classesChecked} classes checked against ${counts.typeRoles} type roles, ${counts.radius} radius, ${counts.weight} weight, ` +
-      `${counts.colours} colours; ${counts.tokens} tokens resolve; ${counts.generated} generated files current; ${counts.projectChecks} project checks`,
+      `${counts.colours} colours; ${counts.tokens} tokens resolve; ${counts.contrastPairs} text pairs measured in ${counts.themes} theme(s) (${counts.contrastMeasured} measurements); ${counts.generated} generated files current; ${counts.projectChecks} project checks`,
   )
 }
 

@@ -1,0 +1,16 @@
+// Fails an iframe sandbox that includes allow-scripts.
+//
+// Scripts inside the frame then run; together with allow-same-origin the sandbox can be
+// removed from inside. A frame that genuinely must run script carries, on the line above:
+//   // biome-ignore lint/plugin/no-iframe-allow-scripts: <why>
+language js
+
+JsxAttribute() as $attr where {
+  $attr <: r"(?s)sandbox=.*allow-scripts.*",
+  $attr <: within or { JsxOpeningElement() as $element, JsxSelfClosingElement() as $element },
+  $element <: r"(?s)<iframe[\s/>].*",
+  register_diagnostic(
+    span = $attr,
+    message = "This iframe's sandbox allows scripts, so code in the frame runs. Drop allow-scripts, or render the content without a frame."
+  )
+}

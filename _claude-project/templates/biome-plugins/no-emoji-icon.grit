@@ -1,0 +1,16 @@
+// Fails an emoji or pictographic symbol in JSX text or a JSX attribute string.
+//
+// Emoji render differently on every platform and read aloud as their Unicode names.
+// Covers U+1F300–1FAFF and U+2600–27BF; comments, plain strings and tests are not
+// checked. A site that genuinely shows one carries, on the line above:
+//   // biome-ignore lint/plugin/no-emoji-icon: <why>
+language js
+
+or { JsxText() as $text, JsxString() as $text } where {
+  $filename <: not r".*(?:\.test\.|\.spec\.|(?:^|/)test/|(?:^|/)e2e/).*",
+  $text <: r"(?s).*[\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}].*",
+  register_diagnostic(
+    span = $text,
+    message = "An emoji or symbol used as an icon renders differently on every platform and is read aloud by its Unicode name. Use an icon from the project's icon set, with an aria-label where it carries meaning."
+  )
+}

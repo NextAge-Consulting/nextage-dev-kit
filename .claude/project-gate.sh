@@ -7,6 +7,8 @@
 #   bash .claude/project-gate.sh <base>
 #
 # Exits 0 when every step passes, 1 otherwise. A step with nothing to check says so.
+# SKIP_KIT_REPLAY=1 skips the replay, on the human's word only ("ignore the gate"): for a
+# change whose new findings in consumers are expected and theirs to fix on sync.
 
 set -u
 
@@ -27,6 +29,10 @@ suites_for() {
             ;;
         _claude-project/stack-manifest.json)
             echo "tests/templates/check-stack.test.sh"
+            return
+            ;;
+        _claude-project/templates/biome.base.json | _claude-project/templates/biome-plugins/*)
+            echo "tests/templates/biome-plugins.test.sh"
             return
             ;;
         _claude-project/templates/scripts/*.mjs)
@@ -126,9 +132,13 @@ main() {
     fi
 
     # The changed project-facing checks, replayed against every consumer.
-    local changed=()
-    while IFS= read -r f; do changed+=("$f"); done < <({ git diff --name-only "$base" && git ls-files --others --exclude-standard; } | sort -u)
-    node .claude/kit-gate/replay.mjs "${changed[@]}" >&2 || fails=1
+    if [ "${SKIP_KIT_REPLAY:-}" = "1" ]; then
+        echo "project gate: replay skipped (SKIP_KIT_REPLAY=1) — consumers meet this change's findings on sync." >&2
+    else
+        local changed=()
+        while IFS= read -r f; do changed+=("$f"); done < <({ git diff --name-only "$base" && git ls-files --others --exclude-standard; } | sort -u)
+        node .claude/kit-gate/replay.mjs "${changed[@]}" >&2 || fails=1
+    fi
 
     rm -f "$list"
     if [ "$fails" -ne 0 ]; then

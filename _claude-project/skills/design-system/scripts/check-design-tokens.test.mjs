@@ -354,6 +354,73 @@ test('a var() that resolves to nothing fails', async () => {
   assert.ok(problems.some((p) => /--nowhere {2}— referenced but never defined/.test(p)))
 })
 
+const contrastOf = (problems) => problems.filter((p) => /contrast|names no token/.test(p))
+const withTokens = (light, dark = '') => ({ 'packages/ui/src/tokens.css': TOKENS.replace(':root {', `:root {\n${light}`).replace('.dark {', `.dark {\n${dark}`) })
+
+test('contrast: the foreground on background pair is measured in both themes and passes', async () => {
+  const { problems, counts } = await run()
+  assert.deepEqual(contrastOf(problems), [])
+  assert.equal(counts.contrastPairs, 1)
+  assert.equal(counts.themes, 2)
+  assert.equal(counts.contrastMeasured, 2)
+})
+
+test('contrast: a -foreground pair that passes in light and fails in dark fails for dark only', async () => {
+  const { problems } = await run(withTokens('  --muted: oklch(0.95 0 0);\n  --muted-foreground: oklch(0.45 0 0);', '  --muted: oklch(0.2 0 0);\n  --muted-foreground: oklch(0.3 0 0);'))
+  const found = contrastOf(problems)
+  assert.equal(found.length, 1, found.join('\n'))
+  assert.match(found[0], /--muted-foreground on --muted \(dark\) {2}— contrast 1\.33:1, below 4\.5:1/)
+})
+
+test('contrast: an accepted failure passes at its ratio, and fails once it measures lower', async () => {
+  const pair = (r) => withTokens(`  --muted: oklch(0.95 0 0);\n  --muted-foreground: oklch(0.6 0 0); /* contrast-accepted: ${r} — placeholder text only */`)
+  assert.deepEqual(contrastOf((await run(pair('3.41'))).problems), [])
+  const worse = contrastOf((await run(pair('4.0'))).problems)
+  assert.equal(worse.length, 2)
+  assert.match(worse[0], /contrast 3\.41:1, below its accepted 4\.00:1 — the colour got worse/)
+})
+
+test('contrast: a design.md component pair is measured, and a colour key with no token is reported', async () => {
+  const design = DESIGN.replace('colors:\n', 'colors:\n  ink: "#999999"\n  paper: "#ffffff"\n  ghost: "#000000"\n').replace(
+    'typography:',
+    'components:\n  chip:\n    textColor: "{colors.ink}"\n    backgroundColor: "{colors.paper}"\n  badge:\n    textColor: "{colors.ghost}"\n    backgroundColor: "{colors.paper}"\ntypography:',
+  )
+  const { problems } = await run({ ...withTokens('  --ink: oklch(0.6 0 0);\n  --paper: oklch(0.95 0 0);'), 'design.md': design })
+  const found = contrastOf(problems)
+  assert.ok(found.some((p) => /--ink on --paper \(light\) {2}— contrast 3\.41:1/.test(p)), found.join('\n'))
+  assert.ok(found.some((p) => /components\.badge\.textColor {2}— \{colors\.ghost\} names no token/.test(p)), found.join('\n'))
+})
+
+test('contrast: a design.md key matches a --color-<key> token, as a Tailwind v4 theme names it', async () => {
+  const design = DESIGN.replace('colors:\n', 'colors:\n  ink: "#999999"\n  paper: "#ffffff"\n').replace(
+    'typography:',
+    'components:\n  chip:\n    textColor: "{colors.ink}"\n    backgroundColor: "{colors.paper}"\ntypography:',
+  )
+  const { problems } = await run({ ...withTokens('  --color-ink: oklch(0.6 0 0);\n  --color-paper: oklch(0.95 0 0);'), 'design.md': design })
+  const found = contrastOf(problems)
+  assert.ok(found.some((p) => /--color-ink on --color-paper \(light\) {2}— contrast 3\.41:1/.test(p)), found.join('\n'))
+  assert.ok(!found.some((p) => /names no token/.test(p)), found.join('\n'))
+})
+
+test('contrast: a disabled pair is exempt and listed, never measured', async () => {
+  const { problems, notes } = await run(withTokens('  --disabled: oklch(0.95 0 0);\n  --disabled-foreground: oklch(0.8 0 0);'))
+  assert.deepEqual(contrastOf(problems), [])
+  assert.ok(notes.some((n) => /contrast: exempt --disabled-foreground on --disabled/.test(n)), notes.join('\n'))
+})
+
+test('contrast: no text pair to measure fails, naming both ways to declare one', async () => {
+  const { problems } = await run({ 'packages/ui/src/tokens.css': TOKENS.replaceAll('--foreground', '--body-ink') })
+  assert.ok(problems.some((p) => /contrast: no text pairs to measure — name them in design\.md components/.test(p)))
+})
+
+test('contrast: translucent colours are laid over what is under them, never skipped when that is opaque', async () => {
+  const { problems, notes } = await run(withTokens('  --overlay: oklch(0.98 0 0 / 0.6);\n  --overlay-foreground: oklch(0.2 0 0 / 0.9);'))
+  assert.deepEqual(contrastOf(problems), [])
+  assert.ok(!notes.some((n) => /skipped --overlay/.test(n)), notes.join('\n'))
+  const bare = await run({ 'packages/ui/src/tokens.css': TOKENS.replace('--background: oklch(0.98 0 0)', '--background: oklch(0.98 0 0 / 0.5)') })
+  assert.ok(bare.notes.some((n) => /contrast: skipped --foreground on --background \(light\)/.test(n)), bare.notes.join('\n'))
+})
+
 test('a token nothing reaches fails, unless it is marked not-yet-built', async () => {
   const unused = await run({ 'packages/ui/src/tokens.css': TOKENS.replace(':root {', ':root {\n  /* a colour for later */\n  --later: #ff0000;') })
   assert.ok(unused.problems.some((p) => /--later {2}— defined but nothing reaches it/.test(p)))
@@ -361,12 +428,12 @@ test('a token nothing reaches fails, unless it is marked not-yet-built', async (
   assert.deepEqual(marked.problems, [])
 })
 
-test('a breakpoint used only through its variant prefix is reached; one used nowhere still fails', async () => {
+test('a breakpoint used only through its variant prefix or an @variant block is reached; one used nowhere still fails', async () => {
   const { problems } = await run({
-    'packages/ui/src/tokens.css': TOKENS.replace(':root {', ':root {\n  --breakpoint-tablet: 48rem;\n  --breakpoint-wide: 80rem;\n  --breakpoint-later: 96rem;'),
+    'packages/ui/src/tokens.css': `${TOKENS.replace(':root {', ':root {\n  --breakpoint-phone: 30rem;\n  --breakpoint-tablet: 48rem;\n  --breakpoint-wide: 80rem;\n  --breakpoint-later: 96rem;')}\n@utility sheet {\n  bottom: 0;\n  @variant phone {\n    bottom: auto;\n  }\n}\n`,
     'packages/ui/src/components/bar.tsx': 'export const bar = "grid tablet:grid-cols-2 max-wide:hidden"\n',
   })
-  assert.ok(!problems.some((p) => /--breakpoint-(tablet|wide)/.test(p)), problems.join('\n'))
+  assert.ok(!problems.some((p) => /--breakpoint-(phone|tablet|wide)/.test(p)), problems.join('\n'))
   assert.ok(problems.some((p) => /--breakpoint-later {2}— defined but nothing reaches it/.test(p)))
 })
 

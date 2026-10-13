@@ -14,6 +14,8 @@ check "_claude-project/hooks/h.sh" "_claude-project/hooks/h.test.sh " "a shell s
 check "_claude-project/hooks/h.test.sh" "_claude-project/hooks/h.test.sh " "a changed suite runs itself"
 check ".claude/hooks/git-guard.sh" "_claude-project/hooks/git-guard.test.sh " "a dogfood copy maps to its source's suite"
 check ".claude/kit-gate/replay.mjs" ".claude/kit-gate/replay.test.mjs .claude/kit-gate/replay.test.sh " "a kit-only file keeps its own path"
+check "_claude-project/templates/biome-plugins/no-inner-html.grit" "tests/templates/biome-plugins.test.sh " "a Biome plugin maps to the Biome suite"
+check ".claude/templates/biome.base.json" "tests/templates/biome-plugins.test.sh " "the Biome base config, through its dogfood copy, maps to the Biome suite"
 check "_claude-project/stack-manifest.json" "tests/templates/check-stack.test.sh " "the stack manifest maps to the check-stack suite"
 check "_claude-project/templates/scripts/check-stack.mjs" "tests/templates/check-stack.test.sh _claude-project/templates/scripts/check-stack.test.mjs _claude-project/templates/scripts/check-stack.test.sh " "a template script maps to its tests/templates suite"
 check "project-documentation/x.md" "" "a doc maps to no suite"

@@ -27,11 +27,43 @@
 	"linter": {
 		"enabled": true,
 		"rules": {
-			"preset": "recommended"
+			"preset": "recommended",
+			"suspicious": {
+				"noConsole": "error"
+			}
 		}
 	},
 	"javascript": {
 		"jsxRuntime": "transparent"
 	},
-	"plugins": ["./biome-plugins/server-fn-logging.grit"]
+	"plugins": [
+		"./biome-plugins/server-fn-logging.grit",
+		"./biome-plugins/no-inner-html.grit",
+		"./biome-plugins/no-new-function.grit",
+		"./biome-plugins/no-emoji-icon.grit",
+		"./biome-plugins/no-iframe-allow-scripts.grit"
+	],
+	"overrides": [
+		{
+			"includes": [
+				"**/*.test.*",
+				"**/*.spec.*",
+				"**/test/**",
+				"**/e2e/**",
+				"**/scripts/**",
+				"**/*.config.*",
+				"**/server-start.mjs",
+				"**/server.mjs",
+				"**/design-system/checks/**",
+				"**/infra/**"
+			],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noConsole": "off"
+					}
+				}
+			}
+		}
+	]
 }

@@ -311,6 +311,12 @@ each with why and a fix, and the developer fixes it or skips it.
 - **Every project with a UI package names it in `DESIGN_UI_PACKAGE`**, whether or not it publishes to Claude Design, and the check runs. Only a project with no UI package sets it to `""` and lists it in `_intentionally_empty`; the check then passes saying it does not apply, and fails while the key is missing or empty without that listing.
 - **A token for a screen not built yet says so on its line** —
   `/* not-yet-built: <screen> */` — or the check reads it as one a rewrite left behind.
+- **Every text colour measures 4.5:1 on its background, in each theme.** The check
+  measures each `design.md` component's `textColor` on its `backgroundColor`, and each
+  `--<x>-foreground` on `--<x>`; declare a pair one of those two ways. A pair with a
+  `disabled` token is exempt. A failure kept on
+  purpose says so on the text token's line with its measured ratio —
+  `/* contrast-accepted: 3.8 — <reason> */` — and fails again if it measures lower.
 
 ### Tokens must survive the trip to Claude Design
 

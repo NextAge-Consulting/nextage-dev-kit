@@ -44,7 +44,7 @@ export function buildCsp(nonce: string, allow: CspAllow = {}): string {
  * HTTP, so the balancer's X-Forwarded-Proto decides. */
 export function isHttps(request: Request): boolean {
   const forwarded = request.headers.get("x-forwarded-proto");
-  if (forwarded) return forwarded.split(",")[0].trim() === "https";
+  if (forwarded) return forwarded.split(",")[0]?.trim() === "https";
   return new URL(request.url).protocol === "https:";
 }
 

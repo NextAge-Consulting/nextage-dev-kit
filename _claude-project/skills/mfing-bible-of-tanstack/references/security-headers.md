@@ -27,9 +27,9 @@ import { type CspAllow, newNonce, withSecurityHeaders } from './lib/security-hea
 const allow: CspAllow = { connect: ['https://api.example.com'] }
 
 const securityHeaders = createMiddleware().server(async ({ next, request }) => {
-  if (process.env.NODE_ENV !== 'production') return next()
   const nonce = newNonce()
   const result = await next({ context: { nonce } })
+  if (process.env.NODE_ENV !== 'production') return result
   return { ...result, response: withSecurityHeaders(request, result.response, { nonce, allow }) }
 })
 

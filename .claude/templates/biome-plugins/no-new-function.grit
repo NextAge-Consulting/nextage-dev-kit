@@ -1,0 +1,12 @@
+// Fails new Function(...), which compiles a string as code the way eval does.
+//
+// A site that genuinely must carries, on the line above:
+//   // biome-ignore lint/plugin/no-new-function: <why>
+language js
+
+`new Function($args)` as $call where {
+  register_diagnostic(
+    span = $call,
+    message = "new Function compiles a string as code, the same as eval. Write the function directly."
+  )
+}

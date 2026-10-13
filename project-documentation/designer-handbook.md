@@ -27,6 +27,12 @@ The design system has two themes, light and dark. Settings a user changes in the
 app — an accent colour, a colour-blind mode, a text size — are covered in
 `custom-themes.md`; Claude Design shows light and dark only.
 
+Text stays readable by rule: the token check measures every text colour against the
+background it sits on, in light and in dark, and fails below WCAG's 4.5:1. It knows which
+colours go together from the components in `design.md` and from names like `card` and
+`card-foreground`. A colour you keep on purpose below the bar is marked accepted, with its
+ratio and the reason, on the token's line.
+
 ### Nothing new ships until you approve it
 
 Claude builds screens from what the system already has. When a screen needs something
