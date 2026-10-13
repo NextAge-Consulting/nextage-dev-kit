@@ -391,6 +391,17 @@ test('contrast: a design.md component pair is measured, and a colour key with no
   assert.ok(found.some((p) => /components\.badge\.textColor {2}— \{colors\.ghost\} names no token/.test(p)), found.join('\n'))
 })
 
+test('contrast: a camelCase design.md key matches its kebab-case token', async () => {
+  const design = DESIGN.replace('colors:\n', 'colors:\n  textMuted: "#999999"\n  surfaceCard: "#ffffff"\n').replace(
+    'typography:',
+    'components:\n  chip:\n    textColor: "{colors.textMuted}"\n    backgroundColor: "{colors.surfaceCard}"\ntypography:',
+  )
+  const { problems } = await run({ ...withTokens('  --text-muted: oklch(0.6 0 0);\n  --surface-card: oklch(0.95 0 0);'), 'design.md': design })
+  const found = contrastOf(problems)
+  assert.ok(found.some((p) => /--text-muted on --surface-card \(light\) {2}— contrast 3\.41:1/.test(p)), found.join('\n'))
+  assert.ok(!found.some((p) => /names no token/.test(p)), found.join('\n'))
+})
+
 test('contrast: a design.md key matches a --color-<key> token, as a Tailwind v4 theme names it', async () => {
   const design = DESIGN.replace('colors:\n', 'colors:\n  ink: "#999999"\n  paper: "#ffffff"\n').replace(
     'typography:',

@@ -32,8 +32,12 @@ const ACCEPTED = /\/\*\s*contrast-accepted:\s*([\d.]+)\s*[—-]\s*(.+?)\s*\*\//
 export function contrastPairs(lightEnv, design) {
   const pairs = new Map()
   const unknown = []
-  // `{colors.primary}` is `--primary`, or `--color-primary` in a Tailwind v4 theme.
-  const tokenOf = (key) => (lightEnv.has(key) ? key : lightEnv.has(`color-${key}`) ? `color-${key}` : null)
+  // `{colors.primary}` is `--primary`, or `--color-primary` in a Tailwind v4 theme; a
+  // camelCase key (`textPrimary`) names its kebab-case token (`--text-primary`).
+  const tokenOf = (key) => {
+    const kebab = key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)
+    return [key, kebab, `color-${key}`, `color-${kebab}`].find((name) => lightEnv.has(name)) ?? null
+  }
   const add = (text, background, from) => {
     const key = `${text}|${background}`
     if (!pairs.has(key)) pairs.set(key, { text, background, from })
