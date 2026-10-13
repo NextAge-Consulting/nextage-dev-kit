@@ -194,12 +194,14 @@ if (uiPackage) {
 }
 
 // Entries whose exports a tool or framework consumes, not an import: the server entry,
-// the Claude Design config and its icon module, and the project's own token checks,
-// which check-design-tokens.mjs loads by path.
+// the Claude Design config, its icon module and the Vite config that builds its feed
+// stylesheet, and the project's own token checks, which check-design-tokens.mjs loads
+// by path.
 const consumedExports = [
   "**/src/server.ts",
   ...wxtApps.flatMap((dir) => [`${dir}/entrypoints/**`, `${dir}/wxt.config.ts`]),
   "**/design-system/design-system.config.mjs",
+  "**/design-system/vite.feed.config.ts",
   "**/design-system/checks/*.mjs",
   ...iconModules,
   served,

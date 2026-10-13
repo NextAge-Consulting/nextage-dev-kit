@@ -16,7 +16,9 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       input: resolve(import.meta.dirname, "feed.css"),
-      output: { assetFileNames: "feed.css" },
+      // The stylesheet is feed.css; anything else it pulls in, such as a font file an
+      // @font-face names, goes under assets/ so it cannot take the stylesheet's name.
+      output: { assetFileNames: ({ names }) => (names.some((n) => n.endsWith(".css")) ? "feed.css" : "assets/[name]-[hash][extname]") },
     },
   },
 });

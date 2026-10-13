@@ -4,7 +4,8 @@
 set -uo pipefail
 S="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/design-review.sh"
 # The token checker: beside this script in a consumer, in the kit's source when run from the
-# kit's own copy, where the design-system skill is template-only.
+# kit's own copy, where the design-system skill is template-only. An org repo has neither —
+# it receives no design-system skill — so only the cases that stop before the checker run.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CHECKER="$HERE/../../design-system/scripts/check-design-tokens.mjs"
 [ -f "$CHECKER" ] || CHECKER="$(git -C "$HERE" rev-parse --show-toplevel)/_claude-project/skills/design-system/scripts/check-design-tokens.mjs"
@@ -57,6 +58,12 @@ new_repo; printf 'x\n' >> "$repo/src/components/ui/badge.tsx"; rm -f "$tmp/log"
 t 0 "$(gate finding)" 'a vendored atom, not restyled, is not reviewed'
 new_repo; printf 'x\n' > "$repo/src/routes/orders.test.tsx"; rm -f "$tmp/log"
 t 0 "$(gate finding)" 'a test file is not reviewed'
+
+if [ ! -f "$CHECKER" ]; then
+  echo "REVIEWED, CANNOT RUN: do not apply — the design-system skill is not installed, so this repo has no UI to review."
+  [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
+  exit "$fail"
+fi
 
 echo "REVIEWED:"
 new_repo; printf 'export const S = () => <Button className="bg-surface" />\n' > "$repo/src/routes/orders.tsx"

@@ -86,6 +86,19 @@ brew install --cask claude-code
 
 <https://code.claude.com/docs> · Run `claude` and sign in when prompted.
 
+Then turn off Claude's built-in git instructions, once per machine, in
+`~/.claude/settings.json` (keep any other settings already there):
+
+```json
+{
+  "includeGitInstructions": false
+}
+```
+
+Without it, Claude reaches for plain `git commit` and `git push`, which every kit project's
+git guard blocks, so each git request costs a refused attempt before it goes through the
+gitflow commands.
+
 **From here, Claude can drive the rest.** `cd` to any directory, run `claude`, and paste the
 steps you want done.
 
@@ -107,7 +120,7 @@ brew link --overwrite node@24
 | `ripgrep` | Backs the editor's and Claude's text search. |
 | `shellcheck` | Required before committing any shell change. |
 | `uv`, `pipx` | Python tooling. Homebrew's Python is externally managed, so `pip install` outside a venv fails by design — use `pipx` for standalone CLI tools and `uv` for project environments. |
-| `libpq` | `psql` and `pg_dump` for Postgres, without installing a local server. |
+| `libpq` | `psql` and `pg_dump` for Postgres, without installing a local server. It is keg-only, so Homebrew never links them: `zshrc.example` puts `/opt/homebrew/opt/libpq/bin` on PATH. |
 
 Python itself comes with Homebrew as a dependency; you should not need to install or manage
 it directly.
@@ -141,12 +154,14 @@ brew install --cask iterm2
 Make it your default terminal and enable **iTerm2 → Install Shell Integration** from the
 menu; it is what makes tab titles and marks behave.
 
-### Shift+Enter for a new line
+### Shift+Enter and the clipboard
 
-Run `/terminal-setup` once, inside Claude Code in iTerm2. It adds an iTerm2 key binding
-(Settings → Keys → Key Bindings) so Shift+Enter puts a new line in your prompt instead of
-sending it. The binding is iTerm2's, so it holds in every session on this machine; a new
-machine needs the command run again.
+Shift+Enter puts a new line in the prompt in iTerm2 with no setup.
+
+Run `/terminal-setup` once, inside Claude Code in iTerm2, then restart iTerm2. It turns on
+**Settings → General → Selection → Applications in terminal may access clipboard**, which
+`/copy` needs to put text on the system clipboard. The setting is iTerm2's, so it holds in
+every session on this machine; a new machine needs the command run again.
 
 ### The two dynamic profiles
 
@@ -189,8 +204,10 @@ brew install --cask zed@preview
 Set it as the shell's editor in `~/.zshrc`, which `zshrc.example` already shows:
 
 ```bash
-export EDITOR="zed --wait"
+export EDITOR="zed-preview --wait"
 ```
+
+The `zed@preview` cask installs the command as `zed-preview`, not `zed`.
 
 `--wait` is load-bearing: git and `gh` open the editor for commit and PR messages, and a
 non-blocking editor silently submits an empty one.
@@ -395,8 +412,9 @@ for c in brew git gh node npm jq rg shellcheck uv pipx psql aws docker claude; d
 done
 echo "EDITOR=$EDITOR"
 echo "secrets file: $(ls -l ~/.zshrc.secrets 2>/dev/null | awk '{print $1}' || echo 'not created')"
-echo "shift+enter: $(defaults read com.googlecode.iterm2 GlobalKeyMap 2>/dev/null | grep -q '"0xd-0x20000' && echo 'new line' || echo 'MISSING — run /terminal-setup in Claude Code')"
+echo "clipboard: $([ "$(defaults read com.googlecode.iterm2 AllowClipboardAccess 2>/dev/null)" = 1 ] && echo 'allowed' || echo 'MISSING — run /terminal-setup in Claude Code, then restart iTerm2')"
+echo "git instructions off: $(jq -e '.includeGitInstructions == false' ~/.claude/settings.json >/dev/null 2>&1 && echo yes || echo 'MISSING — set includeGitInstructions: false (step 4)')"
 ```
 
-`psql` should resolve from Homebrew, the secrets file should read `-rw-------`, and
-Shift+Enter should read `new line`.
+`psql` should resolve from Homebrew, the secrets file should read `-rw-------`, clipboard
+should read `allowed`, and git instructions off should read `yes`.

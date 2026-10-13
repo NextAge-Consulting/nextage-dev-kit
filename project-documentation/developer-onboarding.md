@@ -105,17 +105,9 @@ declines or defers, proceed — the rest of onboarding does not depend on it.
 
 ### Desired state
 
-Certain user-level settings reduce friction with the project-level gitflow subsystem. The developer's `~/.claude/settings.json` should include:
+`"includeGitInstructions": false` in `~/.claude/settings.json`, set during machine setup on a Mac (`macbook-setup.md` step 4). This section checks it is there, and sets it on a machine that skipped that step.
 
-```json
-{
-  "includeGitInstructions": false
-}
-```
-
-**Why**: `includeGitInstructions: false` removes Claude's native git instructions from the system prompt. Without this, Claude defaults to raw `git commit` / `git push` on git-related requests, which the project's `git-guard.sh` hook will block. The hook backstop catches the error, but the setting prevents the fallback in the first place. Reduces noise.
-
-This setting is user-level and does NOT load in Anthropic cloud sessions. It helps local Claude only.
+The setting is user-level and does not load in Anthropic cloud sessions; it helps local Claude only.
 
 ### Check
 
