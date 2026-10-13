@@ -158,25 +158,13 @@
       "version": "0.28.2",
       "applies": {
         "whenFile": [
-          "{{DESIGN_UI_PACKAGE}}/design-system/design-system.config.mjs"
+          "$DESIGN_UI_PACKAGE/design-system/design-system.config.mjs"
         ]
       },
       "severity": "required",
       "installedBy": "project",
       "blessedAt": "2026-10-01",
       "why": "The kit's claude-design engine bundles the design system with it, resolved from the UI package. A different version emits a different bundle for the same source, so the published system would change with no code change behind it."
-    },
-    "@tailwindcss/cli": {
-      "version": "4.3.3",
-      "applies": {
-        "whenFile": [
-          "{{DESIGN_UI_PACKAGE}}/design-system/design-system.config.mjs"
-        ]
-      },
-      "severity": "required",
-      "installedBy": "project",
-      "blessedAt": "2026-10-01",
-      "why": "The kit's claude-design engine builds the design system's stylesheet with it (the config's css.build), and the build fails when a class the system promises is missing from that output. Tailwind v4 is the stack the engine is built for."
     },
     "knip": {
       "version": "5.88.1",

@@ -109,8 +109,8 @@ const harness = "test/{define,globalSetup,integration-helpers,test-utils,auth-mo
 
 // Packages nothing imports by name: pino resolves its transport from a string
 // (typescript-rules.md, the logger), and the claude-design engine — whose code
-// lives under .claude/ — drives esbuild and the Tailwind CLI (stack-manifest.json).
-const ignoreDependencies = ["pino-pretty", ...(uiPackage ? ["esbuild", "@tailwindcss/cli"] : [])];
+// lives under .claude/ — drives esbuild (stack-manifest.json).
+const ignoreDependencies = ["pino-pretty", ...(uiPackage ? ["esbuild"] : [])];
 // commitlint.yml installs commitlint at run time (stack-manifest.json, installedBy ci).
 const ignoreBinaries = ["commitlint"];
 

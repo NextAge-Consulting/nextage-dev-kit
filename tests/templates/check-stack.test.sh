@@ -136,4 +136,23 @@ expect "a workspace that resolves the root's older copy fails" "$r" 1 "esbuild r
 r=$(lockrepo nested-old 0.27.0)
 expect "a workspace's own older copy fails, naming the workspace" "$r" 1 "esbuild resolves to 0.27.0 for packages/ui, blessed is 0.28.2"
 
+# pinrepo <name> <DESIGN_UI_PACKAGE value> — the manifest pins esbuild whenever the UI
+# package's design-system config exists, with the key read when the check runs; the config
+# exists under packages/ui and esbuild is declared nowhere.
+pinrepo() {
+    local r; r=$(repo "$1" "" "$2")
+    jq '.packages.esbuild = {version:"0.28.2",applies:{whenFile:["$DESIGN_UI_PACKAGE/design-system/design-system.config.mjs"]},severity:"required",installedBy:"project"}' \
+        "$r/.claude/stack-manifest.json" > "$r/m.json" && mv "$r/m.json" "$r/.claude/stack-manifest.json"
+    mkdir -p "$r/packages/ui/design-system"
+    echo 'export default {}' > "$r/packages/ui/design-system/design-system.config.mjs"
+    echo '{"name":"@acme/ui"}' > "$r/packages/ui/package.json"
+    echo "$r"
+}
+
+r=$(pinrepo key-set packages/ui)
+expect "a whenFile trigger reads DESIGN_UI_PACKAGE when the check runs, so a key set after sync applies the pin" "$r" 1 "is present but \"esbuild\" is declared nowhere"
+
+r=$(pinrepo key-off OFF)
+expect "a whenFile trigger whose key is deliberately empty names no file, so the pin does not apply" "$r" 0 "✓"
+
 exit $fail

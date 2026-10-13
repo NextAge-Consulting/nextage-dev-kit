@@ -79,8 +79,8 @@ export default {
   timeZone: 'America/New_York', // the project's IANA zone; the build dates each release in it
   spacing: { steps: [0, 1, 2, 3, 4, 6, 8, 12, 16], base: 4 }, // the spacing steps the system promises; base defaults to 4 (px per step)
   css: {
-    build: 'npm run build:css', // builds the feed stylesheet, run in the UI package
-    file: 'dist/feed.css', // what that build writes
+    build: 'npx vite build --config design-system/vite.feed.config.ts', // builds the feed stylesheet, run in the UI package; the Vite config arrives by sync
+    file: 'dist/design-system-feed/feed.css', // what that build writes
     darkClass: '.dark', // default: the class that forces the dark theme
     lightClass: '.light', // default: the class that forces the light theme
   },

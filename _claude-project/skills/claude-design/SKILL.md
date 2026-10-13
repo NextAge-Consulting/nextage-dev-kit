@@ -120,8 +120,10 @@ guide wherever it lays screens out as fixed-size artboards per device on one can
 2. Copy `references/config-example.mjs` to `<UI package>/design-system/design-system.config.mjs`,
    fill in the content, and replace its header with the one-line pointer the example
    shows.
-3. Wire the scripts, with `esbuild` and `@tailwindcss/cli` as dev dependencies of the UI
-   package at the versions `stack-manifest.json` pins — `check-stack.mjs` fails until
+3. Wire the scripts, with `esbuild` as a dev dependency of the UI package at the version
+   `stack-manifest.json` pins, and `vite` and `@tailwindcss/vite` at the versions the app
+   declares — `/sync-dev-kit` lands `design-system/vite.feed.config.ts`, which the config's
+   `css.build` runs — `check-stack.mjs` fails until
    every piece is there. In the UI package:
 
    ```json

@@ -17,7 +17,8 @@
  *
  *   whenDeclared   this project declares it -> it must be the blessed version
  *   whenFile       a kit-shipped config is present -> the tool behind it must be
- *                  pinned. No config, no opinion, no output.
+ *                  pinned. No config, no opinion, no output. A `$KEY` in the path
+ *                  is read from sync-substitutions.json when the check runs.
  *   whenResolved   present anywhere in the LOCKFILE, transitive included -> one
  *                  major across the whole tree
  *
@@ -117,6 +118,7 @@ if (!existsSync(manifestPath)) {
   process.exit(1);
 }
 const manifest = readJson(manifestPath);
+const subsNow = existsSync(resolve(repoRoot, ".claude/sync-substitutions.json")) ? readJson(resolve(repoRoot, ".claude/sync-substitutions.json")) : {};
 const blessed = manifest.packages ?? {};
 const banned = manifest.banned ?? {};
 const formLib = manifest.form_library ?? "@tanstack/react-form";
@@ -140,7 +142,11 @@ for (const [name, spec] of Object.entries(blessed)) {
 
   // -- whenFile: a kit-shipped config is present, so the tool behind it is ours.
   if (typeof applies === "object" && Array.isArray(applies.whenFile)) {
-    const present = applies.whenFile.find((f) => existsSync(resolve(repoRoot, f)));
+    // A `$KEY` in a trigger path is read from sync-substitutions.json now, so a key set after
+    // the last sync still applies; a trigger whose key is empty names no file and cannot match.
+    const present = applies.whenFile
+      .map((f) => f.replace(/\$([A-Z][A-Z0-9_]*)/g, (_, k) => String(subsNow[k] ?? "").trim().replace(/\/$/, "") || "\0"))
+      .find((f) => !f.includes("\0") && existsSync(resolve(repoRoot, f)));
     if (!present) continue; // no config, no opinion
     evaluated++;
 
