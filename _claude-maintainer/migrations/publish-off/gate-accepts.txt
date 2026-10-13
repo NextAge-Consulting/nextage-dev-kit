@@ -1,0 +1,5 @@
+# Findings the kit gate's replay accepts while this migration ships: the engine no longer
+# reads families.skip, so a project that still has one fails its config check until step 1
+# moves the pattern into publish: off pairs.
+families.skip: not a config key the engine reads
+no design-system family for this token

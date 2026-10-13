@@ -75,10 +75,12 @@ behind.
 **What the engine handles, so a project does not have to:**
 
 - **Token translation.** The format reads literals and references only, each family as a
-  list of `{name, value, usage}`. The engine resolves `color-mix()` (exactly, as the
-  browser does), `transparent`, numeric knobs and theme blocks, and fails the build on
-  anything it cannot translate — the format itself would drop it silently, and a colour
-  missing from the dark theme inherits the light one.
+  list of `{name, value, usage}`. The engine resolves `var()`, `color-mix()` in any
+  colour space and named colours (exactly, as the browser does, with Color.js) and
+  theme blocks, and fails the build on anything it cannot translate — the format itself
+  would drop it silently, and a colour missing from the dark theme inherits the light
+  one. A token inside a `/* publish: off */` … `/* publish: on */` pair is not carried;
+  a published colour that refers to one carries its resolved value.
 - **Usage notes.** A token's usage is the comment directly above its declaration, or
   trailing it on the same line; a blank line between comment and token breaks the link,
   and a comment containing `─` (`/* ─── name ─── */`) is a group header belonging to no

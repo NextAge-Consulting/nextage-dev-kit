@@ -10,8 +10,8 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { packageRequire } from './config.mjs'
-import { DEFAULT_THEME_SELECTORS, isColorValue, parseTokenBlocks, resolveColor } from './resolve.mjs'
+import { loadPackage, packageRequire } from './config.mjs'
+import { DEFAULT_THEME_SELECTORS, isColorToken, parseTokenBlocks, resolveColor } from './resolve.mjs'
 
 /** The spacing utilities the README promises at every spacing step. */
 export const SPACING_UTILITIES = ['p', 'px', 'py', 'pt', 'pr', 'pb', 'pl', 'm', 'mx', 'my', 'mt', 'mr', 'mb', 'ml', 'gap', 'gap-x', 'gap-y']
@@ -56,24 +56,28 @@ export function buildModel({ CONFIG, PKG }) {
     return u ?? ''
   }
 
-  const chase = (v, env, depth = 0) => {
-    const ref = /^var\(--([\w-]+)\)$/.exec(v)
-    return ref && depth < 16 ? chase(env.get(ref[1]) ?? '', env, depth + 1) : v
+  // Colour arithmetic is Color.js, from the UI package, so a mix resolves as the browser computes it.
+  let Color = null
+  try {
+    Color = loadPackage(PKG, 'colorjs.io')
+  } catch (e) {
+    problems.push(e.message)
   }
-  const colorNames = new Set(
-    lightDecls.filter((d) => isColorValue(d.value) || (/^var\(--[\w-]+\)$/.test(d.value) && isColorValue(chase(d.value, lightEnv)))).map((d) => d.name),
-  )
+  const colorNames = new Set(Color ? lightDecls.filter((d) => isColorToken(d.value, lightEnv, Color)).map((d) => d.name) : [])
+  // A declaration inside a `/* publish: off */` block resolves others but is not carried itself.
+  const published = (d) => d.publish !== false
+  const publishedColors = new Set(lightDecls.filter((d) => colorNames.has(d.name) && published(d)).map((d) => d.name))
 
   const colorTokens = []
   for (const d of lightDecls) {
-    if (!colorNames.has(d.name)) continue
+    if (!publishedColors.has(d.name)) continue
     const value = {}
     for (const [theme, env] of [
       ['light', lightEnv],
       ['dark', darkEnv],
     ]) {
       try {
-        value[theme] = resolveColor(env.get(d.name), env, colorNames)
+        value[theme] = resolveColor(env.get(d.name), env, publishedColors, Color)
       } catch (e) {
         problems.push(`--${d.name} (${theme}): ${e.message}`)
       }
@@ -81,19 +85,18 @@ export function buildModel({ CONFIG, PKG }) {
     if (value.dark === value.light) delete value.dark
     colorTokens.push({ name: d.name, value, usage: requireUsage(d.name) })
   }
-  if (!colorTokens.length) problems.push(`no colour tokens found in ${CONFIG.tokens.join(', ')} — the token files hold the system's colours, so a read of none means the paths or the theme selectors are wrong`)
+  if (Color && !colorTokens.length) problems.push(`no colour tokens found in ${CONFIG.tokens.join(', ')} — the token files hold the system's colours, so a read of none means the paths or the theme selectors are wrong`)
 
-  // Every other token lands in a family, or is one the config says the type
-  // roles or spacing consume.
+  // Every other published token lands in a family.
   const radius = []
   const shadow = []
   for (const d of lightDecls) {
-    if (colorNames.has(d.name) || families.skip.test(d.name)) continue
+    if (colorNames.has(d.name) || !published(d)) continue
     if (families.radius.test(d.name)) radius.push({ name: d.name, value: d.value, usage: requireUsage(d.name) })
     else if (families.shadow.test(d.name)) {
       const dark = darkEnv.get(d.name)
       shadow.push({ name: d.name, value: dark === d.value ? d.value : { light: d.value, dark }, usage: requireUsage(d.name) })
-    } else problems.push(`--${d.name}: no design-system family for this token — map it in the config's families rather than dropping it`)
+    } else problems.push(`--${d.name}: no design-system family for this token — map it in the config's families, or put it inside a /* publish: off */ block`)
   }
 
   // Spacing: the framework's scale as named steps, plus named measurements the

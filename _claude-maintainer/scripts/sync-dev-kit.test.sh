@@ -270,12 +270,15 @@ printf 'export const v = 2\n' > "$KIT/_claude-project/templates/testing/project.
 st=$(scan | jq -r '.files[] | select(.kit_path == "_claude-project/templates/testing/project.ts") | .state')
 [ "$st" = "declined" ] && ok "a declined seed stays declined when the kit changes it" || bad "declined seed: $st"
 [ "$(scan | jq -r '.files[] | select(.kit_path == "_claude-project/templates/testing/smoke.test.ts") | .mode')" = "owned" ] && ok "the test scaffolding is kit-owned" || bad "smoke.test.ts mode"
-printf 'import "pg"\n' > "$KIT/_claude-project/templates/testing/integration-helpers.ts"; kit_commit "postgres harness"
+printf 'import "pg"\n' > "$KIT/_claude-project/templates/testing/integration-helpers.ts"; printf 'import "./integration-helpers"\n' > "$KIT/_claude-project/templates/testing/harness.integration.test.ts"; kit_commit "postgres harness"
 jq '.DB_ENGINE = "SQLServer"' "$PROJ/.claude/sync-substitutions.json" > "$tmp/s" && mv "$tmp/s" "$PROJ/.claude/sync-substitutions.json"
 out=$(scan)
 jq -e '[.files[] | select(.kit_path == "_claude-project/templates/testing/integration-helpers.ts")] == []' <<<"$out" >/dev/null \
     && jq -e '[.skipped_unconfigured[] | select(.kit_path == "_claude-project/templates/testing/integration-helpers.ts") | .key] == ["DB_ENGINE"]' <<<"$out" >/dev/null \
     && ok "another engine skips the Postgres harness, reported under DB_ENGINE" || bad "non-Postgres harness: $(jq -c .skipped_unconfigured <<<"$out")"
+jq -e '[.files[] | select(.kit_path == "_claude-project/templates/testing/harness.integration.test.ts")] == []' <<<"$out" >/dev/null \
+    && jq -e '[.skipped_unconfigured[] | select(.kit_path == "_claude-project/templates/testing/harness.integration.test.ts") | .key] == ["DB_ENGINE"]' <<<"$out" >/dev/null \
+    && ok "another engine skips the harness's own test, reported under DB_ENGINE" || bad "non-Postgres harness test: $(jq -c .skipped_unconfigured <<<"$out")"
 jq -e '[.files[] | select(.kit_path == "_claude-project/templates/testing/smoke.test.ts")] | length == 1' <<<"$out" >/dev/null \
     && ok "another engine still gets the unit scaffolding" || bad "non-Postgres unit scaffolding"
 L="$PROJ/.claude/.kit-sync.json"

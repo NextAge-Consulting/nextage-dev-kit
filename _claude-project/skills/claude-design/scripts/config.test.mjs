@@ -120,6 +120,12 @@ test('references/config-example.mjs is a valid config', async () => {
 })
 
 test('a families pattern given as a string fails by name; a RegExp literal passes', () => {
-  assert.deepEqual(validateConfig({ ...minimal(), families: { skip: /^step-/ } }), [])
-  assert.deepEqual(validateConfig({ ...minimal(), families: { skip: '^step-' } }), ['families.skip: must be a RegExp literal such as /^radius-/, not a string: "^step-"'])
+  assert.deepEqual(validateConfig({ ...minimal(), families: { radius: /^corner-/ } }), [])
+  assert.deepEqual(validateConfig({ ...minimal(), families: { radius: '^corner-' } }), ['families.radius: must be a RegExp literal such as /^radius-/, not a string: "^corner-"'])
+})
+
+test('families.skip is gone, and the error says where a value the system does not carry is marked', () => {
+  assert.deepEqual(validateConfig({ ...minimal(), families: { skip: /^step-/ } }), [
+    'families.skip: not a config key the engine reads — a token the system does not carry sits inside a /* publish: off */ … /* publish: on */ block in the token CSS',
+  ])
 })

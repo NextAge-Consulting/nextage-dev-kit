@@ -286,12 +286,16 @@ what makes the rule real; without one it is a preference.
 `.claude/skills/design-system/scripts/check-design-tokens.mjs`, and CI runs it whenever
 `design.md` exists.** It reads the roles live from the stylesheets and the project's
 paths and named sets from the design keys in `.claude/sync-substitutions.json`, and
-fails on a class off a role, a call site repainting a component (through a constant
-too), a screen or feature file drawing a box or fading a colour on a line the change
-touched, a frame
-atom imported outside a part, a
-raw field painting the field look, a token that resolves to nothing or that nothing reaches, a light/dark
+fails on a class off a role, a call site fixing a component's height (through a constant
+too), a screen or feature file fading a colour on a line the change touched, a frame
+atom imported outside a part, a raw field painting the field look, a role named with a
+t-shirt size, a token that resolves to nothing or that nothing reaches, a light/dark
 mismatch, `design.md` naming what does not exist, and a stale generated file.
+
+**The judgements go to the design review at `/commit` and `/ship-main`:** a call site
+repainting a part, a screen drawing a frame a part owns, a role or size prop named by
+magnitude, an incomplete variant, and `design.md` prose contradicting the roles. It flags
+each with why and a fix, and the developer fixes it or skips it.
 
 - **Name the exemptions in the keys, never in code.** Vendored atoms are
   `DESIGN_VENDORED_DIR`, with `DESIGN_VENDORED_RESTYLED` saying whether they are on the
@@ -314,17 +318,21 @@ The token file is also the source a design system is published from, and the
 design tool reads a narrower language than a browser. Write every token so a
 producer can translate it without losing anything.
 
-**Every value resolves to a plain colour or length.** Use a literal (`oklch()`,
-`oklab()`, `rgb()`, hex, a length), a `var()` reference to another token, or
-`color-mix(in oklab, …)` of `oklch()` / `oklab()` colours, token references or
-`transparent` —
-`color-mix(in oklab, var(--input) 30%, transparent)` is exactly `input` at 30%
-opacity, and a producer writes it that way. Keep the reference in the source:
-it is what makes a change to a light token carry into dark without anyone
-remembering which tokens were derived from it. Anything else needs the producer
-taught first. The producer must fail the sync on a construct it does not know,
-because the design tool never does: it drops what it cannot read, and a colour
-missing from the dark theme silently inherits the light one.
+**Every value resolves to a plain colour or length.** Use a literal colour or
+length, a `var()` reference to another token, or a `color-mix()` in any colour
+space, its operands and percentages literals or tokens. The producer resolves each
+per theme exactly as the browser does. Keep the reference in the source: it is
+what makes a change to a light token carry into dark without anyone remembering
+which tokens were derived from it. The producer fails the sync on a construct it
+does not know, because the design tool never does: it drops what it cannot read,
+and a colour missing from the dark theme silently inherits the light one.
+
+**A user theme setting** — accent colour, colour-blind mode, text size, spacing — follows `references/custom-themes.md`.
+
+**Wrap what the design system does not carry in `/* publish: off */` …
+`/* publish: on */`** — raw palette colours, the sizes and weights the type roles
+consume, layout measurements. The pair wraps declarations inside a block, or whole
+blocks. Wrapped tokens still resolve the ones that use them.
 
 **Every token carries a comment saying what it is for.** One line, directly
 above the declaration or trailing it on the same line: "the border of a field",

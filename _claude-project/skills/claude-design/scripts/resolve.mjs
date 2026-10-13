@@ -4,12 +4,20 @@
  * The artifact reads a narrower colour language than a browser: literals and
  * aliases only — no var(), no color-mix(), no named colours. The source keeps its
  * references (a dark token defined as a mix of another follows that token when
- * it changes); this module resolves them per theme at sync time. Anything it does
- * not recognise throws, so a new construct fails the sync instead of dropping a
- * token silently — the artifact would otherwise fill a missing dark value with the
- * light one. */
+ * it changes); this module resolves them per theme at sync time, with Color.js
+ * doing the colour arithmetic exactly as the browser does. Anything it does not
+ * recognise throws, so a new construct fails the sync instead of dropping a token
+ * silently — the artifact would otherwise fill a missing dark value with the
+ * light one.
+ *
+ * Color.js is passed in, never imported: the token checker imports this module's
+ * parser in projects that do not publish to Claude Design and have no Color.js. */
 
 const HEADER = /─/;
+
+/** The comment pair that keeps declarations out of the published system. */
+const PUBLISH_OFF = /^\/\*\s*publish:\s*off\b/;
+const PUBLISH_ON = /^\/\*\s*publish:\s*on\b/;
 
 /** The selectors a token file may use for its light and dark themes, unless the
  * project's config names its own. */
@@ -23,40 +31,80 @@ const normalizeSelector = (s) => s.replace(/\s+/g, '').replace(/['"]/g, '');
 /** Parse the top-level blocks that declare custom properties into declarations
  * with their usage comment: the comment directly above a declaration, or trailing
  * it on the same line. A comment containing `─` is a group header and belongs to
- * no token. Each block is `light` or `dark`; a block declaring tokens under any
- * other selector throws, because skipping it would silently give its tokens the
- * light values. A light block holding only `@variant dark { … }` — Tailwind's
- * way of writing dark values once for both the OS preference and a class — is
- * a dark block. */
+ * no token. A declaration between `/* publish: off *\/` and `/* publish: on *\/`
+ * is marked `publish: false` — the pair may wrap declarations inside a block, or
+ * whole blocks. Each block is `light` or `dark`; a block declaring
+ * tokens under any other selector throws, because skipping it would silently give
+ * its tokens the light values. A light block holding only `@variant dark { … }` —
+ * Tailwind's way of writing dark values once for both the OS preference and a
+ * class — is a dark block. A block may sit on one line. */
 export function parseTokenBlocks(css, selectors = DEFAULT_THEME_SELECTORS) {
   const light = new Set(selectors.light.map(normalizeSelector));
   const dark = new Set(selectors.dark.map(normalizeSelector));
   const blocks = [];
-  const flat = css.replace(
-    /(^|\n)([^\n{}]+?)\s*\{\s*\n\s*@variant\s+([\w-]+)\s*\{([^{}]*)\n\s*\}\s*\n\}/g,
-    (_, lead, selector, variant, body) => {
-      if (!light.has(normalizeSelector(selector.trim())) || variant !== 'dark')
-        throw new Error(`token block under an unrecognised variant: ${selector.trim()} @variant ${variant}`);
-      if (/^\s*--[\w-]+\s*:/m.test(body)) blocks.push({ selector: `${selector.trim()} @variant dark`, theme: 'dark', decls: parseDecls(body) });
-      return lead;
-    },
-  );
-  for (const m of flat.matchAll(/(^|\n)([^\n{}]+?)\s*\{([^{}]*)\n\}/g)) {
-    const selector = m[2].trim();
-    if (!/^\s*--[\w-]+\s*:/m.test(m[3])) continue;
+  for (const { selector, body, off } of topLevelBlocks(css)) {
+    const variant = /^\s*@variant\s+([\w-]+)\s*\{([\s\S]*)\}\s*$/.exec(body);
+    if (variant) {
+      if (!light.has(normalizeSelector(selector)) || variant[1] !== 'dark')
+        throw new Error(`token block under an unrecognised variant: ${selector} @variant ${variant[1]}`);
+      if (/(^|[\s;{])--[\w-]+\s*:/.test(variant[2])) blocks.push({ selector: `${selector} @variant dark`, theme: 'dark', decls: parseDecls(variant[2], !off) });
+      continue;
+    }
+    if (!/(^|[\s;{])--[\w-]+\s*:/.test(body)) continue;
     const key = normalizeSelector(selector);
     const theme = light.has(key) ? 'light' : dark.has(key) ? 'dark' : null;
     if (!theme) throw new Error(`token block under an unrecognised selector: ${selector}`);
-    blocks.push({ selector, theme, decls: parseDecls(m[3]) });
+    blocks.push({ selector, theme, decls: parseDecls(body, !off) });
   }
   return blocks;
 }
 
-function parseDecls(body) {
+/** Every top-level `selector { body }`, braces matched and comments skipped, so a
+ * block on one line is found the same as one spread over several. `off` is true
+ * for a block between top-level publish: off and publish: on comments. At-rules
+ * that wrap other rules (`@layer`, `@media`) are not token blocks and are passed over. */
+function topLevelBlocks(css) {
+  const out = [];
+  let depth = 0;
+  let start = 0;
+  let open = -1;
+  let off = false;
+  for (let i = 0; i < css.length; i++) {
+    if (css.startsWith('/*', i)) {
+      const end = css.indexOf('*/', i + 2);
+      const comment = css.slice(i, end < 0 ? css.length : end + 2);
+      if (depth === 0 && PUBLISH_OFF.test(comment)) off = true;
+      if (depth === 0 && PUBLISH_ON.test(comment)) off = false;
+      i = end < 0 ? css.length : end + 1;
+      continue;
+    }
+    const ch = css[i];
+    if (ch === '{') {
+      if (depth === 0) open = i;
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        const selector = css.slice(start, open).replace(/\/\*[\s\S]*?\*\//g, '').trim();
+        const body = css.slice(open + 1, i);
+        // An at-rule wrapping rules (`@layer`, `@media`) is passed over; one declaring
+        // tokens directly (`@theme`) is a block, and an unrecognised one.
+        if (selector && (!selector.startsWith('@') || !body.includes('{'))) out.push({ selector, body, off });
+        start = i + 1;
+      }
+    } else if (ch === ';' && depth === 0) start = i + 1;
+  }
+  return out;
+}
+
+function parseDecls(body, publishAtStart = true) {
   const decls = [];
   let pending = null;
   let open = null;
-  for (const raw of body.split('\n')) {
+  let publish = publishAtStart;
+  // A one-line block holds its declarations on one line; give each its own.
+  const lines = body.includes('\n') ? body.split('\n') : body.split(/;(?![^(]*\))/).map((d) => (d.trim() ? `${d.trim()};` : ''));
+  for (const raw of lines) {
     const line = raw.trim();
     if (open !== null) {
       open.push(line);
@@ -70,6 +118,11 @@ function parseDecls(body) {
       pending = null;
       continue;
     }
+    if (PUBLISH_OFF.test(line) || PUBLISH_ON.test(line)) {
+      publish = PUBLISH_ON.test(line);
+      pending = null;
+      continue;
+    }
     if (line.startsWith('/*')) {
       if (line.endsWith('*/')) pending = clean(line);
       else open = [line];
@@ -79,7 +132,7 @@ function parseDecls(body) {
     if (!d) throw new Error(`unparsed line in token block: ${line}`);
     const trailing = d[4] ? d[4].trim() : '';
     const above = pending && !HEADER.test(pending) ? pending : '';
-    decls.push({ name: d[1], value: d[2].trim(), usage: trailing || above });
+    decls.push({ name: d[1], value: d[2].trim(), usage: trailing || above, ...(publish ? {} : { publish: false }) });
     pending = null;
   }
   return decls;
@@ -92,51 +145,82 @@ const clean = (s) =>
     .replace(/\s+/g, ' ')
     .trim();
 
-const COLOR_FN = /^(oklch|oklab)\(\s*([\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s*(?:\/\s*([\d.]+%?))?\s*\)$/;
-const RGBA_FN = /^rgba?\([^()]*\)$/;
+/** Literal forms the artifact accepts as written: plain numeric colour functions and hex. */
+const ACCEPTED_LITERAL = /^(?:(?:oklch|oklab|rgba?|hsla?|lab|lch)\([^()]*\)|color\([^()]*\)|#[0-9a-f]{3,8})$/i;
 
-/** Is this raw CSS value a colour expression (as opposed to a number or length)? */
-export function isColorValue(raw) {
-  return /^(oklch|oklab|rgba?|color-mix)\(/.test(raw) || raw === 'transparent' || /^#[0-9a-f]{3,8}$/i.test(raw);
+/** Replace every var() with its value in this theme, innermost first, following
+ * chains and fallbacks. A variable that resolves to nothing throws. */
+export function substitute(raw, env, depth = 0) {
+  if (depth > 32) throw new Error(`var() chain too deep or circular at ${raw}`);
+  let out = raw;
+  const ref = /var\(\s*--([\w-]+)\s*(?:,\s*((?:[^()]|\([^()]*\))*))?\)/;
+  for (let m = ref.exec(out); m; m = ref.exec(out)) {
+    const own = env.get(m[1]);
+    const value = own !== undefined ? substitute(own, env, depth + 1) : m[2] !== undefined ? substitute(m[2].trim(), env, depth + 1) : null;
+    if (value === null) throw new Error(`var(--${m[1]}) resolves to nothing`);
+    out = out.slice(0, m.index) + value + out.slice(m.index + m[0].length);
+  }
+  return out.trim();
+}
+
+/** Is this token, resolved in its theme, a colour (as opposed to a number or length)? */
+export function isColorToken(raw, env, Color) {
+  let v;
+  try {
+    v = substitute(raw, env);
+  } catch {
+    return false;
+  }
+  if (/^color-mix\(/.test(v)) return true;
+  if (/^-?[\d.]+[a-z%]*$/i.test(v)) return false;
+  try {
+    new Color(v);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
  * Resolve one colour token's raw value in a theme.
  * @param {string} raw        the declared value
  * @param {Map<string,string>} env  every token's raw value in this theme
- * @param {Set<string>} colorNames   tokens that are colours (aliases allowed to these)
+ * @param {Set<string>} published   the colour tokens the artifact carries (aliases allowed to these)
+ * @param {typeof import('colorjs.io').default} Color  Color.js, loaded from the UI package
  * @returns {string} a literal the artifact accepts, or `{name}` for an alias
  */
-export function resolveColor(raw, env, colorNames) {
-  const v = substituteNumbers(raw, env);
-  const alias = /^var\(--([\w-]+)\)$/.exec(v);
-  if (alias) {
-    if (!colorNames.has(alias[1])) throw new Error(`alias to a token that is not a colour: ${raw}`);
-    return `{${alias[1]}}`;
-  }
+export function resolveColor(raw, env, published, Color) {
+  const alias = /^var\(--([\w-]+)\)$/.exec(raw.trim());
+  if (alias && published.has(alias[1])) return `{${alias[1]}}`;
+  const v = substitute(raw, env);
   if (v === 'transparent') return 'oklch(0 0 0 / 0)';
-  if (COLOR_FN.test(v) || RGBA_FN.test(v) || /^#[0-9a-f]{3,8}$/i.test(v)) return v;
-  if (v.startsWith('color-mix(')) return mix(v, env, colorNames);
+  if (ACCEPTED_LITERAL.test(v)) return v;
+  if (v.startsWith('color-mix(')) return format(mix(v, Color), Color);
+  let named;
+  try {
+    named = new Color(v);
+  } catch {
+    throw new Error(`unsupported colour value: ${raw}`);
+  }
+  // A named colour (`white`), which the artifact refuses, as hex.
+  if (/^[a-z]+$/i.test(v)) return named.to('srgb').toString({ format: 'hex', collapse: false });
   throw new Error(`unsupported colour value: ${raw}`);
 }
 
-/** var(--x) where --x is a plain number (a hue knob) → that number. */
-function substituteNumbers(raw, env) {
-  return raw.replace(/var\(--([\w-]+)\)/g, (whole, name) => {
-    const val = env.get(name);
-    return val !== undefined && /^-?[\d.]+$/.test(val) ? val : whole;
-  });
-}
-
-/** color-mix(in oklab, A p%, B q%) with premultiplied alpha, per CSS Color 5. */
-function mix(raw, env, colorNames) {
-  const inner = /^color-mix\(\s*in oklab\s*,(.*)\)$/.exec(raw);
-  if (!inner) throw new Error(`unsupported colour-mix space (only oklab): ${raw}`);
-  const parts = splitTopLevel(inner[1]);
-  if (parts.length !== 2) throw new Error(`unsupported colour-mix arguments: ${raw}`);
+/** color-mix(in <space>, A p%, B q%) per CSS Color 5: percentages normalised, a
+ * sum under 100% lowering alpha, premultiplied interpolation in the named space.
+ * Returns the mixed Color, and the operand written as oklch when the other side
+ * is fully transparent — so the result can be written in the token's own form. */
+function mix(expr, Color) {
+  const inner = /^color-mix\(\s*in\s+([\w-]+)(?:\s+(?:shorter|longer|increasing|decreasing)\s+hue)?\s*,(.*)\)$/s.exec(expr);
+  if (!inner) throw new Error(`unsupported colour-mix: ${expr}`);
+  const space = inner[1];
+  const parts = splitTopLevel(inner[2]);
+  if (parts.length !== 2) throw new Error(`unsupported colour-mix arguments: ${expr}`);
   const [a, b] = parts.map((p) => {
-    const m = /^(.*?)(?:\s+([\d.]+)%)?$/.exec(p.trim());
-    return { color: concrete(m[1].trim(), env, colorNames), pct: m[2] === undefined ? undefined : Number(m[2]) };
+    const m = /^(.*?)(?:\s+([\d.]+)%)?$/s.exec(p.trim());
+    const text = m[1].trim();
+    return { text, color: operand(text, Color), pct: m[2] === undefined ? undefined : Number(m[2]) };
   });
   let pa = a.pct;
   let pb = b.pct;
@@ -144,45 +228,40 @@ function mix(raw, env, colorNames) {
   else if (pa === undefined) pa = 100 - pb;
   else if (pb === undefined) pb = 100 - pa;
   const total = pa + pb;
-  const wa = pa / total;
-  const wb = pb / total;
-  const alpha = a.color.alpha * wa + b.color.alpha * wb;
-  const scale = total < 100 ? total / 100 : 1;
-  if (alpha === 0) return 'oklch(0 0 0 / 0)';
-  const L = (a.color.L * a.color.alpha * wa + b.color.L * b.color.alpha * wb) / alpha;
-  const A = (a.color.a * a.color.alpha * wa + b.color.a * b.color.alpha * wb) / alpha;
-  const B = (a.color.b * a.color.alpha * wa + b.color.b * b.color.alpha * wb) / alpha;
-  const outAlpha = round(alpha * scale);
-  // Mixing with transparent keeps the colour and only lowers alpha — write it in
-  // the source colour's own oklch form so it reads like the token it came from.
-  if (b.color.alpha === 0 && a.color.oklch) return oklch(a.color.oklch, outAlpha);
-  if (a.color.alpha === 0 && b.color.oklch) return oklch(b.color.oklch, outAlpha);
-  const tail = outAlpha < 1 ? ` / ${outAlpha}` : '';
-  return `oklab(${round(L)} ${round(A)} ${round(B)}${tail})`;
-}
-
-function oklch([L, C, H], alpha) {
-  return `oklch(${L} ${C} ${H}${alpha < 1 ? ` / ${alpha}` : ''})`;
-}
-
-/** Resolve an operand to concrete oklab, following aliases within the theme. */
-function concrete(expr, env, colorNames, depth = 0) {
-  if (depth > 16) throw new Error(`alias chain too deep at ${expr}`);
-  const v = substituteNumbers(expr, env);
-  if (v === 'transparent') return { L: 0, a: 0, b: 0, alpha: 0 };
-  const ref = /^var\(--([\w-]+)\)$/.exec(v);
-  if (ref) {
-    if (!colorNames.has(ref[1])) throw new Error(`colour-mix operand is not a colour token: ${expr}`);
-    return concrete(env.get(ref[1]), env, colorNames, depth + 1);
+  if (total === 0) throw new Error(`colour-mix percentages sum to zero: ${expr}`);
+  let mixed;
+  try {
+    mixed = Color.mix(a.color, b.color, pb / total, { space, premultiplied: true, outputSpace: space });
+  } catch (e) {
+    throw new Error(`unsupported colour-mix space ${space}: ${expr} (${e.message})`);
   }
-  const m = COLOR_FN.exec(v);
-  if (!m) throw new Error(`unsupported colour-mix operand: ${expr}`);
-  const n = [Number(m[2]), Number(m[3]), Number(m[4])];
-  const alpha = m[5] === undefined ? 1 : m[5].endsWith('%') ? Number(m[5].slice(0, -1)) / 100 : Number(m[5]);
-  if (m[1] === 'oklab') return { L: n[0], a: n[1], b: n[2], alpha };
-  const [L, C, H] = n;
-  const rad = (H * Math.PI) / 180;
-  return { L, a: C * Math.cos(rad), b: C * Math.sin(rad), alpha, oklch: [m[2], m[3], m[4]] };
+  mixed.alpha = mixed.alpha * (total < 100 ? total / 100 : 1);
+  const keep = b.color.alpha === 0 ? a.text : a.color.alpha === 0 ? b.text : null;
+  return { mixed, keep: keep && /^oklch\(/.test(keep) ? keep : null };
+}
+
+/** One colour-mix operand as a Color: a literal, a named colour, or a nested mix. */
+function operand(text, Color) {
+  if (text.startsWith('color-mix(')) return mix(text, Color).mixed;
+  try {
+    return new Color(text);
+  } catch {
+    throw new Error(`unsupported colour-mix operand: ${text}`);
+  }
+}
+
+/** A mixed colour in a form the artifact accepts. Mixing with transparent keeps
+ * the colour and only lowers alpha — written in the source colour's own oklch
+ * form so it reads like the token it came from; anything else as oklab. */
+function format({ mixed, keep }, Color) {
+  const alpha = round(mixed.alpha);
+  if (alpha === 0) return 'oklch(0 0 0 / 0)';
+  if (keep) {
+    const [L, C, H] = /^oklch\(\s*([\d.]+)\s+([\d.]+)\s+(-?[\d.]+)/.exec(keep).slice(1);
+    return `oklch(${L} ${C} ${H}${alpha < 1 ? ` / ${alpha}` : ''})`;
+  }
+  const [L, A, B] = new Color(mixed).to('oklab').coords.map((n) => round(n ?? 0));
+  return `oklab(${L} ${A} ${B}${alpha < 1 ? ` / ${alpha}` : ''})`;
 }
 
 function splitTopLevel(s) {

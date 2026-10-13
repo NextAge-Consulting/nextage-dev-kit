@@ -23,6 +23,10 @@ The project's look is defined once, in code, and everything else reads from it:
 Claude won't style a screen in a project that has no `design.md`. That refusal is what
 stops a design from drifting one screen at a time.
 
+The design system has two themes, light and dark. Settings a user changes in the running
+app — an accent colour, a colour-blind mode, a text size — are covered in
+`custom-themes.md`; Claude Design shows light and dark only.
+
 ### Nothing new ships until you approve it
 
 Claude builds screens from what the system already has. When a screen needs something

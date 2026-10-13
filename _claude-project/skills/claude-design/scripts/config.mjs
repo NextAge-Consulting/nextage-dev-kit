@@ -42,7 +42,7 @@ const SHAPE = {
   typeRoles: { $optional: true, utilityPrefix: 'optional' },
   typeFamilies: 'optional',
   themeSelectors: 'optional',
-  families: { $optional: true, radius: 'optional', shadow: 'optional', skip: 'optional' },
+  families: { $optional: true, radius: 'optional', shadow: 'optional' },
   spacing: { base: 'optional', steps: 'required' },
   css: { build: 'required', file: 'required', darkClass: 'optional', lightClass: 'optional' },
   types: { $optional: true, build: 'required', dir: 'required' },
@@ -65,6 +65,7 @@ const ELSEWHERE = {
   tokens: 'the token files are DESIGN_TOKEN_FILES in .claude/sync-substitutions.json',
   styles: 'the styles file is DESIGN_STYLES_FILE in .claude/sync-substitutions.json',
   'typeRoles.file': 'the type-role file is DESIGN_TYPE_FILE in .claude/sync-substitutions.json',
+  'families.skip': 'a token the system does not carry sits inside a /* publish: off */ … /* publish: on */ block in the token CSS',
 }
 const COMPONENT_SHAPE = { name: 'required', group: 'required', height: 'required', width: 'optional', cardMode: 'optional', doc: 'required', render: 'required' }
 
@@ -139,7 +140,7 @@ export function withDefaults(config, subs) {
   c.styles = subs.DESIGN_STYLES_FILE || undefined
   c.typeRoles = subs.DESIGN_TYPE_FILE ? { file: subs.DESIGN_TYPE_FILE, utilityPrefix: config.typeRoles?.utilityPrefix ?? 'type-' } : undefined
   c.typeFamilies = config.typeFamilies ?? { sans: 'font-sans', mono: 'font-mono' }
-  c.families = { radius: /^radius-/, shadow: /^shadow-/, skip: /^$/, ...config.families }
+  c.families = { radius: /^radius-/, shadow: /^shadow-/, ...config.families }
   c.spacing = { base: 4, ...config.spacing }
   c.css = { darkClass: '.dark', lightClass: '.light', ...config.css }
   c.types = config.types ?? {
@@ -199,6 +200,27 @@ export function packageRequire(PKG) {
   return createRequire(path.join(PKG, 'package.json'))
 }
 
+let globalRoot
+/** A package the engine loads at run time, as its default export: from the UI package,
+ * else from the global npm root — where the kit's own suites find it, having no
+ * package.json. Throws, naming both places, when neither has it. */
+export function loadPackage(PKG, name) {
+  let mod
+  try {
+    mod = packageRequire(PKG)(name)
+  } catch (fromPackage) {
+    if (fromPackage.code !== 'MODULE_NOT_FOUND') throw fromPackage
+    globalRoot ??= execSync('npm root -g', { encoding: 'utf8' }).trim()
+    try {
+      mod = createRequire(path.join(globalRoot, 'noop.js'))(name)
+    } catch {
+      throw new Error(`${name}: not installed for ${path.basename(PKG)} nor globally — add it as a dev dependency of the UI package`)
+    }
+  }
+  // An ES module's CommonJS build carries its default export under `default`.
+  return mod?.default ?? mod
+}
+
 /** The `icons` value as esbuild should import it: a package name stays as it is,
  * a relative path resolves against the config's own folder. */
 export function iconsSpecifier(icons, CONFIG_DIR) {
@@ -227,6 +249,7 @@ export function checkPrerequisites({ CONFIG, CONFIG_DIR, PKG }) {
   }
   if (!fs.existsSync(path.join(PKG, 'package.json'))) problems.push(`${CONFIG.package}/package.json not found — the UI package is where the engine resolves its stack`)
   if (!version('esbuild')) problems.push(`esbuild: not installed for ${CONFIG.package} — add it as a dev dependency there`)
+  if (!version('colorjs.io')) problems.push(`colorjs.io: not installed for ${CONFIG.package} — add it as a dev dependency there`)
   const tw = version('tailwindcss')
   if (!tw) problems.push(`tailwindcss: not installed for ${CONFIG.package} — the engine is built for Tailwind v4`)
   else if (Number(tw.split('.')[0]) < 4) problems.push(`tailwindcss ${tw}: the engine is built for Tailwind v4`)

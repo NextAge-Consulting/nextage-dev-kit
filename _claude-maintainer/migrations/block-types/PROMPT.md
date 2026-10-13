@@ -37,9 +37,9 @@ Two parts of one type: ask me whether they are the same thing. Same: merge them 
 
 Every reference in `.claude/skills/ui-patterns/references/` gets `block-types:` in its frontmatter: the types it governs as a list (`[BrowseScreen, Pager]`), or `cross-cutting` when it governs every type. A reference named for this project's data is renamed for the kind it governs, and its inventory line with it.
 
-## 5. Repaints through constants
+## 5. Fixed heights through constants
 
-For each "a call site places a component, never repaints it" finding, make the look a variant on the component, named for what the thing is.
+For each "a call site never fixes how tall a component is" finding, make the height a size or variant on the component, named for what the thing is.
 
 ## 6. Prove it
 

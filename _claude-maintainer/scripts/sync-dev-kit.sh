@@ -702,7 +702,7 @@ dest_for_kit_path() {
             [ -z "$shared_dir" ] && { echo ""; return; }
             echo "${shared_dir}/vitest.config.ts"
             ;;
-        _claude-project/templates/testing/globalSetup.ts|_claude-project/templates/testing/integration-helpers.ts)
+        _claude-project/templates/testing/globalSetup.ts|_claude-project/templates/testing/integration-helpers.ts|_claude-project/templates/testing/harness.integration.test.ts)
             # The integration harness is Postgres on Neon: a branch per run, a
             # rolled-back pg transaction per test. Another engine — or one not
             # yet declared — gets the unit scaffolding only.
@@ -774,7 +774,7 @@ dest_key_for_kit_path() {
         return
     fi
     case "$1" in
-        _claude-project/templates/testing/globalSetup.ts|_claude-project/templates/testing/integration-helpers.ts)
+        _claude-project/templates/testing/globalSetup.ts|_claude-project/templates/testing/integration-helpers.ts|_claude-project/templates/testing/harness.integration.test.ts)
             if [ -z "$(subst_value SHARED_MODULE_DIR)" ]; then echo "SHARED_MODULE_DIR"; else echo "DB_ENGINE"; fi ;;
         _claude-project/templates/testing/*)       echo "SHARED_MODULE_DIR" ;;
         _claude-project/templates/design-system/*)

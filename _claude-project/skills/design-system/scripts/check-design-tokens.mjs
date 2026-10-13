@@ -3,6 +3,7 @@
  * Every design token family is set by a ROLE, and the tokens underneath resolve.
  *
  *   node .claude/skills/design-system/scripts/check-design-tokens.mjs [--base <ref> | --all]   (npm run lint:tokens)
+ *   node .claude/skills/design-system/scripts/check-design-tokens.mjs --roles [--repo <root>]   (every role, one family per line)
  *
  * The screen rules judge only lines changed since --base (or DESIGN_TOKENS_BASE; default:
  * where this work left origin/main), so new code is held to the design language and an
@@ -32,20 +33,24 @@
  * Checks, each naming file and line:
  *   classes    type, radius, weight, shadow, spacing, line width, `dark:`, bare scroll
  *              areas — off a role, arbitrary, or off the 4px grid;
- *   call sites a component imported from the project's component trees placed, never
- *              repainted or sized by magnitude (`size="sm"`); a raw <input>/<textarea>
+ *   call sites a component imported from the project's component trees is never given
+ *              a fixed height or a t-shirt size (`size="sm"`); a raw <input>/<textarea>
  *              painting the field look; a className naming a constant is read as the
  *              constant's classes;
- *   screens    a file outside a part — a route, a feature folder — draws no box
- *              (background, border, radius, shadow, padding), fades no colour, and imports no frame
- *              atom (the Wraps column of references/block-types.md); a part is a .tsx
- *              under a `components/` folder outside `features/`;
- *   names      every role — type, radius, weight, shadow, spacing, leading, tracking —
- *              named for what it is, never a size (`md`, `2xl`, `semibold`);
+ *   screens    a file outside a part — a route, a feature folder — fades no colour and
+ *              imports no frame atom (the Wraps column of references/block-types.md); a
+ *              part is a .tsx under a `components/` folder outside `features/`;
+ *   names      no role — type, radius, weight, shadow, spacing, leading, tracking — is
+ *              named with a t-shirt size (`md`, `2xl`);
  *   tokens     every var() resolves, every token is reached, and the dark theme
  *              redefines every colour other tokens build on and adds none of its own;
  *   design.md  every token reference and quoted class exists, every type and radius
- *              role has its frontmatter entry, every stated pixel value is on the grid;
+ *              role has its frontmatter entry, every pixel value in the frontmatter is
+ *              on the grid;
+ *
+ * Whether a call site repaints a part, whether a screen draws a box a part should, and
+ * whether a name says what a thing is for are judgements: the design review at /commit
+ * (gitflow's design-review.sh) makes them.
  *   generated  with a claude-design config, the safelist and class-merge files are
  *              current and imported;
  *   project    every `*.mjs` in <DESIGN_UI_PACKAGE>/design-system/checks/ — the
@@ -56,6 +61,7 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { existsSync, globSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -83,28 +89,10 @@ const NOT_CLASSES = new Set([
 const SPACE_PROPS = 'p|px|py|pt|pb|pl|pr|ps|pe|m|mx|my|mt|mb|ml|mr|ms|me|gap|gap-x|gap-y|space-x|space-y'
 const CORNER = 't|r|b|l|tl|tr|br|bl|s|e|ss|se|es|ee'
 
-/** What a call site may write on a component: where it sits, never how it looks. */
-const PLACEMENT = new RegExp(
-  '^-?(?:' +
-    [
-      'm[xytrblse]?-.+', // margin
-      // The box's extent: the parent decides how wide a field is, and may bound or
-      // stretch its height. A fixed height is NOT here, and neither is `size-*` —
-      // how tall a control is belongs to the control.
-      '(?:min-|max-)?w-.+', '(?:min-|max-)h-.+', 'h-(?:full|auto|screen|fit|min|max|dvh|svh|lvh)',
-      'flex-(?:\\d+|\\[[^\\]]+\\]|1|auto|initial|none)', 'grow(?:-0)?', 'shrink(?:-0)?', 'basis-.+',
-      'order-.+', 'self-.+', 'justify-self-.+', 'place-self-.+', 'col-.+', 'row-.+',
-      'relative', 'absolute', 'sticky', 'fixed', 'inset-.+', 'top-.+', 'right-.+', 'bottom-.+', 'left-.+', 'z-.+',
-      'block', 'inline-block', 'inline', 'hidden', 'sr-only',
-      'text-(?:left|center|right|start|end)', // where the text sits in the box
-      'truncate', 'whitespace-.+', 'break-.+', // how the text fits the box
-    ].join('|') +
-    ')$',
-)
+/** A fixed height or size at a call site: how tall a control is belongs to the control. */
+const FIXED_SIZE = /^(?:h|size)-(?!full$|auto$|screen$|fit$|min$|max$|dvh$|svh$|lvh$).+$/
 /** A token a class list can hold — never an operator or a stray quote. */
 const CLASS_SHAPE = /^!?-?[a-z0-9@*[][^\s'"`{}]*$/i
-/** A box: what a part draws and a screen never does. */
-const BOX = /^-?(?:bg-|border|rounded|shadow|p[xytrblse]?-|ring|outline|divide-)/
 /** Where a file sits: a part draws its box; a screen or feature file never does. */
 export const isPart = (file) => {
   const parts = file.split('/')
@@ -114,8 +102,8 @@ const isContent = (file) => file.endsWith('.tsx') && !isPart(file) && !/\.(test|
 /** Modules whose components are glyphs, painting in currentColor. */
 const GLYPH_MODULE = /(?:^|\/)icons?$|^lucide-react$|^@tabler\/icons-react$|^@heroicons\/|^@phosphor-icons\/|^@radix-ui\/react-icons$/
 const NOT_TEXT = /\stype="(?:radio|checkbox|file|hidden|range|color)"/
-/** A role name that is a size, not a thing: `md`, `2xl`, `base`, `semibold`, `tight`. */
-const MAGNITUDE_NAME = /^(?:\d*x[sl]|sm|md|lg|base|thin|extralight|light|normal|medium|semibold|bold|extrabold|black|tighter|tight|snug|relaxed|loose|wide|wider|widest)$/
+/** A role named with a t-shirt size: `sm`, `md`, `lg`, `xs`, `2xl`. */
+const MAGNITUDE_NAME = /^(?:\d*x[sl]|sm|md|lg)$/
 /** A size prop naming a magnitude (`sm`, `lg`, `icon-sm`), not a role. */
 const MAGNITUDE_SIZE = /\ssize=(?:"((?:icon-)?(?:\d?xs|sm|md|lg|\d?xl))"|\{\s*["'`]((?:icon-)?(?:\d?xs|sm|md|lg|\d?xl))["'`]\s*\})/
 
@@ -156,80 +144,334 @@ export function readKeys(repo) {
   return { keys, problems }
 }
 
-/** The class-merge helpers: their arguments are class lists. */
-const CLASS_HELPERS = new Set(['cn', 'clsx', 'cva', 'tv', 'twMerge', 'twJoin', 'cx'])
-
-/** An expression with the arguments of every other call blanked — `colourFor(x, "submitted")`
- * returns classes, but its arguments are values, not class lists. */
-export function withoutCallArguments(expr) {
-  let out = ''
-  let i = 0
-  for (const m of expr.matchAll(/([A-Za-z_$][\w$.]*)\s*\(/g)) {
-    if (m.index < i) continue
-    const open = m.index + m[0].length - 1
-    if (CLASS_HELPERS.has(m[1].split('.').pop())) continue
-    const close = closeOf(expr, open, '(', ')')
-    if (close < 0) break
-    out += `${expr.slice(i, open + 1)}${' '.repeat(close - open - 1)})`
-    i = close + 1
+/** Every role the stylesheets define, per family, as sets of names: `colours` holds
+ * `primary` for `--color-primary`, `typeRoles` holds `type-body`. */
+export function rolesOf(css) {
+  const themeDecls = []
+  for (const [, s] of css) for (const m of s.matchAll(/--([a-z0-9-]+)\s*:/g)) themeDecls.push(m[1])
+  const themeKeys = (prefix) => new Set(themeDecls.filter((k) => k.startsWith(`${prefix}-`)).map((k) => k.slice(prefix.length + 1)))
+  const typeRoles = new Set()
+  const utilities = new Set()
+  for (const [, s] of css) {
+    for (const m of s.matchAll(/@utility\s+(type-[a-z0-9-]+)\s*\{/g)) typeRoles.add(m[1])
+    for (const m of s.matchAll(/@utility\s+([a-z][a-z0-9-]*)\s*\{/g)) utilities.add(m[1])
   }
-  return out + expr.slice(i)
+  return {
+    colours: themeKeys('color'),
+    radiusRoles: themeKeys('radius'),
+    weightRoles: themeKeys('font-weight'),
+    fontFamilies: new Set([...themeKeys('font')].filter((k) => !k.startsWith('weight-'))),
+    shadowRoles: themeKeys('shadow'),
+    textShadowRoles: themeKeys('text-shadow'),
+    spacingAliases: themeKeys('spacing'),
+    leadingRoles: themeKeys('leading'),
+    trackingRoles: themeKeys('tracking'),
+    typeRoles,
+    utilities,
+  }
 }
 
-/** Every JSX opening tag matching `pattern`, with the string literals of its OWN
- * `className` — read at brace depth 0, so JSX passed in a prop is not mistaken for
- * it, with comments inside a `cn(…)` stripped and a compared value
- * (`x === 'a' ? …`) not read as a class. */
-export function* openingTags(src, pattern) {
-  for (const tag of src.matchAll(pattern)) {
-    let depth = 0
-    let end = tag.index
-    for (; end < src.length; end++) {
-      const c = src[end]
-      if (c === '{') depth++
-      else if (c === '}') depth--
-      else if (c === '>' && depth === 0 && src[end - 1] !== '=') break
+/** The project's roles as the classes a screen writes, one family per line — what the
+ * design review is handed so it never guesses what exists. Null when the keys are unset. */
+export function roleList(repo) {
+  const { keys, problems } = readKeys(repo)
+  if (!keys || problems.length) return null
+  const pkgRel = keys.DESIGN_UI_PACKAGE.replace(/\/$/, '')
+  const rels = [...new Set([...keys.DESIGN_TOKEN_FILES.split(/\s+/), keys.DESIGN_TYPE_FILE, keys.DESIGN_STYLES_FILE].filter(Boolean))]
+  const css = rels.map((r) => path.join(repo, pkgRel, r)).filter(existsSync).map((f) => [f, readFileSync(f, 'utf8')])
+  const r = rolesOf(css)
+  const line = (label, set, prefix = '') => `${label}: ${[...set].sort().map((n) => `${prefix}${n}`).join(' ') || '(none)'}`
+  return [
+    line('type roles', r.typeRoles),
+    line('colours (bg-, text-, border-)', r.colours),
+    line('radius', r.radiusRoles, 'rounded-'),
+    line('weight', r.weightRoles, 'font-'),
+    line('font family', r.fontFamilies, 'font-'),
+    line('shadow', r.shadowRoles, 'shadow-'),
+    line('text shadow', r.textShadowRoles, 'text-shadow-'),
+    line('spacing aliases', r.spacingAliases),
+    line('leading', r.leadingRoles, 'leading-'),
+    line('tracking', r.trackingRoles, 'tracking-'),
+    line('utilities', [...r.utilities].filter((u) => !u.startsWith('type-'))),
+  ].join('\n')
+}
+
+/** Array methods a class list built as an array passes through on its way to a string. */
+const ARRAY_JOINS = new Set(['join', 'filter', 'concat', 'flat'])
+/** The class-merge helpers: their arguments are class lists. */
+const CLASS_HELPERS = new Set(['cn', 'clsx', 'cva', 'tv', 'twMerge', 'twJoin', 'cx'])
+/** The helpers whose call, as a constant's initialiser, makes that constant a class list. */
+const CONSTANT_HELPERS = new Set(['cn', 'clsx', 'twMerge', 'twJoin', 'cx'])
+/** A prop or binding named for classes: `className`, `class`, `contentClassName`, `toneClasses`. */
+const CLASS_NAMED = /^(?:className|class|[A-Za-z]\w*(?:ClassName|Classes|Class))$/
+
+// --- reading source: TypeScript's own parser ------------------------------------
+// Source is read as the compiler reads it, so an attribute, an import path, a URL or a
+// logger name is never mistaken for a class list.
+
+let typescript = null
+/** TypeScript, from the checked repository, else the global npm root; loaded once. A
+ * package without the compiler API (a stub some tools leave behind) is passed over. */
+export function loadTypeScript(repo = process.cwd()) {
+  if (typescript) return typescript
+  const usable = (base) => {
+    try {
+      const ts = createRequire(base)('typescript')
+      return typeof ts?.createSourceFile === 'function' ? ts : null
+    } catch {
+      return null
     }
-    const open = src.slice(tag.index, end)
-    let at0 = -1
-    for (let i = 0, d = 0; i < open.length; i++) {
-      if (open[i] === '{') d++
-      else if (open[i] === '}') d--
-      else if (d === 0 && open.startsWith('className=', i) && /\s/.test(open[i - 1])) {
-        at0 = i + 'className='.length
-        break
-      }
-    }
-    let value = ''
-    const quote = open[at0]
-    if (at0 >= 0 && (quote === '"' || quote === "'")) value = open.slice(at0, open.indexOf(quote, at0 + 1) + 1)
-    else if (at0 >= 0) {
-      let d = 1
-      let i = at0 + 1
-      for (; i < open.length && d; i++) d += open[i] === '{' ? 1 : open[i] === '}' ? -1 : 0
-      value = open
-        .slice(at0 + 1, i - 1)
-        .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '')
-        .replace(/[!=]==?\s*(["'`])[^"'`]*\1|(["'`])[^"'`]*\2\s*[!=]==?/g, '')
-      value = withoutCallArguments(value)
-    }
-    // A template's text and the strings inside each of its `${…}` are class lists; the
-    // expression around them (`x ? … : …`) is not.
-    const lists = []
-    for (const lit of value.matchAll(/"([^"]*)"|'([^']*)'|`([^`]*)`/g)) {
-      if (lit[3] === undefined) {
-        lists.push(lit[1] ?? lit[2])
-        continue
-      }
-      lists.push(lit[3].replace(/\$\{[^}]*\}/g, ' '))
-      for (const expr of lit[3].matchAll(/\$\{([^}]*)\}/g)) for (const q of expr[1].matchAll(/"([^"]*)"|'([^']*)'/g)) lists.push(q[1] ?? q[2])
-    }
-    const classes = lists.flatMap((l) => l.split(/\s+/)).filter((c) => CLASS_SHAPE.test(c))
-    // The bare names the className reads — a constant (`DIVIDED`), a map (`tone[x]`) —
-    // never a call (`cn(`) or a property after a dot.
-    const ids = [...value.replace(/"[^"]*"|'[^']*'|`[^`]*`/g, '').matchAll(/(?<![\w$.])[A-Za-z_$][\w$]*(?![\w$]*\s*\()/g)].map((m) => m[0])
-    yield { name: tag[1], open, line: src.slice(0, tag.index).split('\n').length, classes, ids }
   }
+  typescript = usable(path.join(repo, 'package.json'))
+  if (typescript) return typescript
+  let root = ''
+  try {
+    root = execFileSync('npm', ['root', '-g'], { encoding: 'utf8' }).trim()
+  } catch {}
+  typescript = root ? usable(path.join(root, 'noop.js')) : null
+  if (typescript) return typescript
+  throw new Error(`TypeScript not found from ${repo} or the global npm root — the design token check reads source with it; install it (npm i -D typescript in the project, or npm i -g typescript)`)
+}
+
+const parsed = new Map()
+/** A source file's syntax tree: as TSX, or as plain TypeScript when it parses better so. */
+function parse(src) {
+  let sf = parsed.get(src)
+  if (sf) return sf
+  const ts = loadTypeScript()
+  sf = ts.createSourceFile('source.tsx', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  if (sf.parseDiagnostics?.length) {
+    const plain = ts.createSourceFile('source.ts', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+    if (plain.parseDiagnostics.length < sf.parseDiagnostics.length) sf = plain
+  }
+  parsed.set(src, sf)
+  return sf
+}
+
+/** The last name of a callee: `cn` for `cn(…)`, `twMerge` for `utils.twMerge(…)`. */
+function calleeName(ts, expr) {
+  if (ts.isIdentifier(expr)) return expr.text
+  if (ts.isPropertyAccessExpression(expr)) return expr.name.text
+  return null
+}
+
+/** The text spans of a string or template literal: its characters, never its `${…}`. With
+ * `quoted`, a span keeps its quotes and backticks, so a reader of the blanked text can
+ * still tell one string from the next. */
+function literalRanges(ts, node, sf, out, quoted = false) {
+  const q = quoted ? 0 : 1
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+    out.push([node.getStart(sf) + q, node.end - q])
+    return true
+  }
+  if (ts.isTemplateExpression(node)) {
+    out.push([node.head.getStart(sf) + q, node.head.end - 2])
+    for (const span of node.templateSpans) {
+      const lit = span.literal
+      out.push([lit.getStart(sf) + 1, lit.end - (ts.isTemplateTail(lit) ? q : 2)])
+    }
+    return true
+  }
+  return false
+}
+
+/**
+ * Walk an expression that yields classes. Its strings and template text are class lists;
+ * a condition, a compared value and a non-class-merge call's arguments are not. With
+ * `follow`, a name it reads is followed to its declaration in the same file, and a call to
+ * the function it names is followed into that function's returns.
+ */
+function walkClasses(ts, sf, node, acc) {
+  if (!node) return
+  if (literalRanges(ts, node, sf, acc.ranges, acc.quoted)) {
+    if (ts.isTemplateExpression(node)) for (const span of node.templateSpans) walkClasses(ts, sf, span.expression, acc)
+    return
+  }
+  if (ts.isConditionalExpression(node)) {
+    walkClasses(ts, sf, node.whenTrue, acc)
+    walkClasses(ts, sf, node.whenFalse, acc)
+  } else if (ts.isBinaryExpression(node)) {
+    const op = node.operatorToken.kind
+    const K = ts.SyntaxKind
+    if (op === K.AmpersandAmpersandToken) walkClasses(ts, sf, node.right, acc)
+    else if (op === K.BarBarToken || op === K.QuestionQuestionToken || op === K.PlusToken) {
+      walkClasses(ts, sf, node.left, acc)
+      walkClasses(ts, sf, node.right, acc)
+    }
+  } else if (ts.isCallExpression(node)) {
+    const name = calleeName(ts, node.expression)
+    // A class list built as an array: `[a, b].join(' ')`, `[a, x && b].filter(Boolean).join(' ')`.
+    if (ts.isPropertyAccessExpression(node.expression) && ARRAY_JOINS.has(node.expression.name.text)) {
+      walkClasses(ts, sf, node.expression.expression, acc)
+      if (node.expression.name.text === 'concat') for (const arg of node.arguments) walkClasses(ts, sf, arg, acc)
+    } else if (name && CLASS_HELPERS.has(name)) for (const arg of node.arguments) walkClasses(ts, sf, arg, acc)
+    else if (acc.follow && ts.isIdentifier(node.expression)) {
+      acc.ids.add(name)
+      acc.follow(name)
+    }
+  } else if (ts.isIdentifier(node)) {
+    acc.ids.add(node.text)
+    acc.follow?.(node.text)
+  } else if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+    walkClasses(ts, sf, node.expression, acc)
+  } else if (ts.isObjectLiteralExpression(node)) {
+    for (const p of node.properties) {
+      if (ts.isPropertyAssignment(p)) walkClasses(ts, sf, p.initializer, acc)
+      else if (ts.isShorthandPropertyAssignment(p)) walkClasses(ts, sf, p.name, acc)
+      else if (ts.isSpreadAssignment(p)) walkClasses(ts, sf, p.expression, acc)
+    }
+  } else if (ts.isArrayLiteralExpression(node)) {
+    for (const el of node.elements) walkClasses(ts, sf, el, acc)
+  } else if (
+    ts.isParenthesizedExpression(node) ||
+    ts.isAsExpression(node) ||
+    ts.isNonNullExpression(node) ||
+    ts.isTypeAssertionExpression(node) ||
+    ts.isAwaitExpression(node) ||
+    ts.isSpreadElement(node) ||
+    (ts.isSatisfiesExpression && ts.isSatisfiesExpression(node))
+  ) {
+    walkClasses(ts, sf, node.expression, acc)
+  } else if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
+    walkReturns(ts, sf, node, acc)
+  }
+}
+
+/** A function's results: its expression body, or every `return` in its block. */
+function walkReturns(ts, sf, fn, acc) {
+  if (!fn.body) return
+  if (!ts.isBlock(fn.body)) return walkClasses(ts, sf, fn.body, acc)
+  const visit = (n) => {
+    if (ts.isFunctionLike(n)) return
+    if (ts.isReturnStatement(n)) walkClasses(ts, sf, n.expression, acc)
+    else ts.forEachChild(n, visit)
+  }
+  ts.forEachChild(fn.body, visit)
+}
+
+/** Every class-list span in a file, and the names its class lists read. `names` are
+ * declarations another file's class list reads, followed here too. */
+function readClassLists(src, names = new Set()) {
+  const ts = loadTypeScript()
+  const sf = parse(src)
+  const declared = new Map()
+  const roots = []
+  const visit = (n) => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer && !declared.has(n.name.text)) declared.set(n.name.text, n)
+    else if (ts.isFunctionDeclaration(n) && n.name && !declared.has(n.name.text)) declared.set(n.name.text, n)
+    if (ts.isJsxAttribute(n) && CLASS_NAMED.test(n.name.getText(sf)) && n.initializer) {
+      roots.push(ts.isJsxExpression(n.initializer) ? n.initializer.expression : n.initializer)
+    } else if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      const target = ts.isPropertyAccessExpression(n.left) ? n.left.name.text : ts.isIdentifier(n.left) ? n.left.text : null
+      if (target && CLASS_NAMED.test(target)) roots.push(n.right)
+    } else if ((ts.isBindingElement(n) || ts.isParameter(n)) && ts.isIdentifier(n.name) && CLASS_NAMED.test(n.name.text) && n.initializer) {
+      roots.push(n.initializer)
+    } else if (ts.isCallExpression(n) && CLASS_HELPERS.has(calleeName(ts, n.expression) ?? '')) {
+      roots.push(n)
+    }
+    ts.forEachChild(n, visit)
+  }
+  visit(sf)
+  const seen = new Set()
+  const acc = { ranges: [], ids: new Set(), quoted: true }
+  acc.follow = (name) => {
+    if (seen.has(name)) return
+    seen.add(name)
+    const d = declared.get(name)
+    if (!d) return
+    if (ts.isVariableDeclaration(d)) walkClasses(ts, sf, d.initializer, acc)
+    else walkReturns(ts, sf, d, acc)
+  }
+  for (const name of names) acc.follow(name)
+  for (const r of roots) walkClasses(ts, sf, r, acc)
+  return acc
+}
+
+/**
+ * The source with everything but its class lists blanked, line breaks kept: className and
+ * class attribute values and any prop named for classes (`contentClassName`, `toneClasses`),
+ * the arguments of the class-merge helpers, the initialiser of any variable those use
+ * (`const base = "…"`, a size map), and the returns of any function they call
+ * (`className={toneFor(order)}`). An import path, a URL, a logger name or a prop value
+ * (`size="text-meta"`) is not a class list.
+ */
+export function classText(src, { names = new Set() } = {}) {
+  const keep = new Uint8Array(src.length)
+  for (const [a, b] of readClassLists(src, names).ranges) keep.fill(1, a, b)
+  let out = ''
+  for (let i = 0; i < src.length; i++) out += keep[i] || src[i] === '\n' ? src[i] : ' '
+  return out
+}
+
+/** The names every file's class lists read, so a constant exported from one file and
+ * used in another's class list is checked where it is declared. */
+export function classNames(sources) {
+  const names = new Set()
+  for (const src of sources) for (const id of readClassLists(src).ids) names.add(id)
+  return names
+}
+
+/** Every JSX opening tag whose `<name` matches `pattern`, with the classes of its OWN
+ * `className` and the names it reads (a constant, a map), never a call's. */
+export function* openingTags(src, pattern) {
+  const ts = loadTypeScript()
+  const sf = parse(src)
+  const tags = []
+  const visit = (n) => {
+    if (ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n)) tags.push(n)
+    ts.forEachChild(n, visit)
+  }
+  visit(sf)
+  for (const n of tags) {
+    // The caller's pattern, matched only from the tag's start.
+    pattern.lastIndex = 0
+    const m = pattern.exec(`<${n.tagName.getText(sf)} `)
+    if (!m || m.index !== 0) continue
+    const acc = { ranges: [], ids: new Set() }
+    const attr = n.attributes.properties.find((p) => ts.isJsxAttribute(p) && p.name.getText(sf) === 'className')
+    if (attr?.initializer) walkClasses(ts, sf, ts.isJsxExpression(attr.initializer) ? attr.initializer.expression : attr.initializer, acc)
+    const classes = acc.ranges.flatMap(([a, b]) => src.slice(a, b).split(/\s+/)).filter((c) => CLASS_SHAPE.test(c))
+    const start = n.getStart(sf)
+    yield { name: m[1], open: src.slice(start, n.end), line: sf.getLineAndCharacterOfPosition(start).line + 1, classes, ids: [...acc.ids] }
+  }
+}
+
+/** Every constant a file declares, with the classes in its initialiser — a string, a
+ * template, a class-merge call, an array or a map — so a className that names it is read
+ * as those classes. `exported` collects the ones another file may import. */
+export function constantClasses(src, exported = new Map()) {
+  const ts = loadTypeScript()
+  const sf = parse(src)
+  const local = new Map()
+  const visit = (n) => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer) {
+      const init = n.initializer
+      const list =
+        ts.isStringLiteral(init) ||
+        ts.isNoSubstitutionTemplateLiteral(init) ||
+        ts.isTemplateExpression(init) ||
+        ts.isArrayLiteralExpression(init) ||
+        ts.isObjectLiteralExpression(init) ||
+        ts.isParenthesizedExpression(init) ||
+        (ts.isCallExpression(init) && ts.isIdentifier(init.expression) && CONSTANT_HELPERS.has(init.expression.text))
+      if (list) {
+        const ranges = []
+        const collect = (c) => {
+          if (!literalRanges(ts, c, sf, ranges) || ts.isTemplateExpression(c)) ts.forEachChild(c, collect)
+        }
+        collect(init)
+        const classes = ranges.flatMap(([a, b]) => src.slice(a, b).split(/\s+/)).filter(Boolean)
+        if (classes.length) {
+          local.set(n.name.text, classes)
+          const stmt = n.parent?.parent
+          if (stmt && ts.isVariableStatement(stmt) && stmt.modifiers?.some((mod) => mod.kind === ts.SyntaxKind.ExportKeyword)) exported.set(n.name.text, classes)
+        }
+      }
+    }
+    ts.forEachChild(n, visit)
+  }
+  visit(sf)
+  return local
 }
 
 const isColour = (v) => /^(#[0-9a-f]{3,8}|oklch\(|oklab\(|rgba?\(|hsla?\(|color-mix\()/i.test(v.trim())
@@ -259,148 +501,6 @@ export function parityProblems(cssByFile) {
     if (referenced.has(k) && isColour(v) && !/var\(/.test(v) && !dark.has(k))
       out.push(`${file}  ${k}  — other tokens build on this colour, and the dark theme does not redefine it, so they stay light on a dark surface`)
   return { problems: out, applies: true }
-}
-
-/**
- * Where a bracketed span that opens at `start` closes, skipping strings, template
- * literals and comments; -1 when it never does.
- */
-function closeOf(src, start, open, close) {
-  let depth = 0
-  for (let i = start; i < src.length; i++) {
-    const ch = src[i]
-    if (ch === '"' || ch === "'" || ch === '`') {
-      for (i++; i < src.length && src[i] !== ch; i++) if (src[i] === '\\') i++
-    } else if (ch === '/' && src[i + 1] === '/') i = src.indexOf('\n', i) < 0 ? src.length : src.indexOf('\n', i)
-    else if (ch === '/' && src[i + 1] === '*') i = src.indexOf('*/', i + 2) < 0 ? src.length : src.indexOf('*/', i + 2) + 1
-    else if (ch === open) depth++
-    else if (ch === close && --depth === 0) return i
-  }
-  return -1
-}
-
-/** The class-merge helpers whose arguments are class lists. */
-/** Every constant a file declares, with the classes in its initialiser — a string, a
- * template, a class-merge call, an array or a map — so a className that names it is read
- * as those classes. `exported` collects the ones another file may import. */
-export function constantClasses(src, exported = new Map()) {
-  const local = new Map()
-  for (const d of src.matchAll(/(\bexport\s+)?\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*/g)) {
-    const at = d.index + d[0].length
-    const ch = src[at]
-    let span = ''
-    if (ch === '"' || ch === "'" || ch === '`') span = src.slice(at, src.indexOf(ch, at + 1) + 1)
-    else if (ch === '[' || ch === '{' || ch === '(') span = src.slice(at, closeOf(src, at, ch, { '[': ']', '{': '}', '(': ')' }[ch]) + 1)
-    else {
-      const call = src.slice(at).match(/^(?:cn|clsx|twMerge|twJoin|cx)\s*\(/)
-      if (call) span = src.slice(at, closeOf(src, at + call[0].length - 1, '(', ')') + 1)
-    }
-    if (!span) continue
-    const classes = []
-    for (const lit of span.matchAll(/"([^"]*)"|'([^']*)'|`([^`]*)`/g))
-      for (const cls of (lit[1] ?? lit[2] ?? lit[3]).split(/\s+/).filter(Boolean)) if (!cls.includes('${')) classes.push(cls)
-    if (!classes.length) continue
-    local.set(d[2], classes)
-    if (d[1]) exported.set(d[2], classes)
-  }
-  return local
-}
-
-const CLASS_CALLS = /\b(?:cn|clsx|cva|tv|twMerge|twJoin|cx)\s*\(/g
-
-/**
- * The source with everything but its class lists blanked, line breaks kept: className and
- * class attribute values and any prop named for classes (`contentClassName`, `toneClasses`), the arguments of the class-merge helpers, the initialiser of any
- * variable those use (`const base = "…"`, a size map), and the body of any function they
- * call (`className={toneFor(order)}`). An import path, a URL, a logger name or a prop value
- * (`size="text-meta"`) is not a class list.
- */
-export function classText(src, { names = new Set() } = {}) {
-  const keep = new Uint8Array(src.length)
-  const mark = (a, b) => {
-    for (let i = a; i <= b && i < src.length; i++) keep[i] = 1
-  }
-  const spans = []
-  for (const m of src.matchAll(/(?<!\b(?:const|let|var)\s+)\b(?:className|class|[A-Za-z]\w*(?:ClassName|Classes|Class))\s*=(?![=>])\s*/g)) {
-    const at = m.index + m[0].length
-    const ch = src[at]
-    if (ch === '"' || ch === "'") spans.push([at, src.indexOf(ch, at + 1)])
-    else if (ch === '{') spans.push([at, closeOf(src, at, '{', '}')])
-  }
-  for (const m of src.matchAll(CLASS_CALLS)) {
-    const open = m.index + m[0].length - 1
-    spans.push([open, closeOf(src, open, '(', ')')])
-  }
-  // A variable a class list names contributes its initialiser, once — named here, or in
-  // another file's class list (`names`), for a constant exported to it.
-  const seen = new Set()
-  // Every declaration's initialiser start, by name — the first one wins.
-  const declared = new Map()
-  for (const d of src.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*/g)) {
-    if (!declared.has(d[1])) declared.set(d[1], d.index + d[0].length)
-  }
-  for (const d of src.matchAll(/\bfunction\s+([A-Za-z_$][\w$]*)\s*(?=[(<])/g)) {
-    if (!declared.has(d[1])) declared.set(d[1], d.index + d[0].length)
-  }
-  // A call's span (`toneFor(order)`), so the function it names is followed in turn.
-  const callEnd = (start) => {
-    const call = src.slice(start).match(/^(?:await\s+)?[A-Za-z_$][\w$.]*\s*\(/)
-    return call ? closeOf(src, start + call[0].length - 1, '(', ')') : -1
-  }
-  // A function's span: its block body, or an arrow's expression to the end of its line.
-  const fnEnd = (start) => {
-    const open = src.indexOf('(', start)
-    if (open < 0) return -1
-    const close = closeOf(src, open, '(', ')')
-    if (close < 0) return -1
-    const after = src.slice(close + 1).match(/^\s*(?::[^={]*)?(=>)?\s*/)
-    const at = close + 1 + after[0].length
-    if (src[at] === '{') return closeOf(src, at, '{', '}')
-    if (!after[1]) return close
-    const eol = src.indexOf('\n', at)
-    return eol < 0 ? src.length - 1 : eol
-  }
-  const declare = (name) => {
-    if (seen.has(name)) return
-    seen.add(name)
-    const start = declared.get(name)
-    if (start === undefined) return
-    const ch = src[start]
-    const end =
-      ch === '{'
-        ? closeOf(src, start, '{', '}')
-        : ch === '['
-          ? closeOf(src, start, '[', ']')
-          : ch === '"' || ch === "'" || ch === '`'
-            ? src.indexOf(ch, start + 1)
-            : ch === '(' || ch === '<' || src.startsWith('async', start)
-              ? fnEnd(start)
-              : callEnd(start)
-    if (end >= 0) spans.push([start, end])
-  }
-  for (const name of names) declare(name)
-  for (let k = 0; k < spans.length; k++) {
-    const [a, b] = spans[k]
-    if (b < 0) continue
-    mark(a, b)
-    for (const id of src.slice(a, b + 1).matchAll(/(?<![\w$.'"`-])[A-Za-z_$][\w$]*/g)) {
-      declare(id[0])
-    }
-  }
-  let out = ''
-  for (let i = 0; i < src.length; i++) out += keep[i] || src[i] === '\n' ? src[i] : ' '
-  return out
-}
-
-/** The identifiers every file's class lists name, so a constant exported from one file and
- * used in another's class list is checked where it is declared. */
-export function classNames(sources) {
-  const names = new Set()
-  for (const src of sources) {
-    const text = classText(src)
-    for (const id of text.matchAll(/(?<![\w$.'"`-])[A-Za-z_$][\w$]*/g)) names.add(id[0])
-  }
-  return names
 }
 
 /** Every file and line a change touched since `base`, tracked or not: a Map of file to its
@@ -493,26 +593,9 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
   if (design === null) problems.push(`${designPath}  — not found at the repository root; the checks compare the code against it`)
 
   // --- the roles, read from the CSS -----------------------------------------
-  const themeDecls = []
-  for (const [, s] of css) for (const m of s.matchAll(/--([a-z0-9-]+)\s*:/g)) themeDecls.push(m[1])
-  const themeKeys = (prefix) => new Set(themeDecls.filter((k) => k.startsWith(`${prefix}-`)).map((k) => k.slice(prefix.length + 1)))
-  const colours = themeKeys('color')
-  const radiusRoles = themeKeys('radius')
-  const weightRoles = themeKeys('font-weight')
-  const fontFamilies = new Set([...themeKeys('font')].filter((k) => !k.startsWith('weight-')))
-  const shadowRoles = themeKeys('shadow')
-  const textShadowRoles = themeKeys('text-shadow')
-  const spacingAliases = themeKeys('spacing')
-  const leadingRoles = themeKeys('leading')
-  const trackingRoles = themeKeys('tracking')
-  const typeRoles = new Set()
-  const utilities = new Set()
-  for (const [, s] of css) {
-    for (const m of s.matchAll(/@utility\s+(type-[a-z0-9-]+)\s*\{/g)) typeRoles.add(m[1])
-    for (const m of s.matchAll(/@utility\s+([a-z][a-z0-9-]*)\s*\{/g)) utilities.add(m[1])
-  }
-  // A role is named for what it is, never for its size: `--radius-md`, `--font-weight-semibold`,
-  // `--shadow-lg` and `type-sm` are sizes in token clothing, whichever stylesheet defines them.
+  const { colours, radiusRoles, weightRoles, fontFamilies, shadowRoles, textShadowRoles, spacingAliases, leadingRoles, trackingRoles, typeRoles, utilities } = rolesOf(css)
+  // A t-shirt size is never a role name: `--radius-md`, `--shadow-lg` and `type-sm` are
+  // sizes in token clothing, whichever stylesheet defines them.
   const definedAt = (text) => {
     for (const [f, src] of css) {
       const i = src.indexOf(text)
@@ -656,9 +739,8 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
   }
   const frameModules = new Map([...blockTypes.frames].map(([atom, types]) => [atomModule(atom), { atom, types }]))
   const fieldClass = (cls) => /^rounded-(?!none$).+/.test(cls) || fieldLook.has(cls)
-  // A box a screen or feature file draws, or a colour it fades, belongs in a part.
+  // A colour a screen or feature file fades belongs in a colour role of its own.
   const screenFinding = (base) => {
-    if (BOX.test(base)) return 'a screen or feature file draws no box; a background, border, radius, shadow or padding comes from a part (block-types.md)'
     const colour = base.match(/^text-(.+?)\/\d+$/)
     if (colour && colours.has(colour[1])) return 'a screen or feature file never fades a colour; a muted look is a colour role of its own'
     return null
@@ -718,7 +800,9 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
       }
       for (const cls of classesOf(t)) {
         classesChecked++
-        if (!PLACEMENT.test(cls.split(':').pop())) add(`${file}:${t.line}`, `<${t.name}> ${cls}`, 'a call site places a component, never repaints it; add a variant')
+        if (FIXED_SIZE.test(cls.split(':').pop())) add(`${file}:${t.line}`, `<${t.name}> ${cls}`, 'a call site never fixes how tall a component is; that belongs to the component (a size or variant for what the control is)')
+        const paint = /^(?:text|bg|border|ring|outline|fill|stroke)-(.+?)(?:\/\d+)?$/.exec(cls.split(':').pop())
+        if (paint && colours.has(paint[1])) add(`${file}:${t.line}`, `<${t.name}> ${cls}`, 'a call site never repaints a component\'s colour; add a variant for what it shows')
       }
       const size = t.open.match(MAGNITUDE_SIZE)
       if (size) add(`${file}:${t.line}`, `<${t.name}> size="${size[1] ?? size[2]}"`, 'a size named by magnitude; the component names the role (a size or variant for what the control is), and a call site never picks how big it is')
@@ -737,7 +821,8 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
     }
   for (const [file, s] of css)
     s.split('\n').forEach((line, i) => {
-      for (const m of line.matchAll(/var\((--[A-Za-z0-9-]+)/g)) if (!realDefs.has(m[1])) problems.push(`${file}:${i + 1}  ${m[1]}  — referenced but never defined; resolves to nothing`)
+      // A var() with a fallback resolves to the fallback when the token is unset — a value set at run time.
+      for (const m of line.matchAll(/var\((--[A-Za-z0-9-]+)\s*(,)?/g)) if (!m[2] && !realDefs.has(m[1])) problems.push(`${file}:${i + 1}  ${m[1]}  — referenced but never defined; resolves to nothing`)
     })
 
   // --- …and nothing is defined that nothing reaches -------------------------
@@ -753,6 +838,10 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
       }
     }
   for (const m of componentSrc.matchAll(/var\((--[A-Za-z0-9-]+)/g)) reached.add(m[1])
+  // Tailwind v4's variable shorthand names the token in the utility: `min-h-(--x)`,
+  // `hover:bg-(--x)`, `bg-(color:--x)` with a type hint, in a class or an @apply.
+  for (const src of [componentSrc, ...css.map(([, s]) => s)])
+    for (const m of src.matchAll(/(?<![\w-])[a-z][a-z0-9-]*-\((?:[a-z-]+:)?(--[A-Za-z0-9-]+)\)/g)) reached.add(m[1])
   const written = new Set()
   for (const src of [componentSrc, ...css.map(([, s]) => s)]) for (const m of src.matchAll(/(?<![\w-])[a-z][a-z0-9-]*(?![\w-])/g)) written.add(m[0])
   const COLOUR_PREFIXES = 'text bg border ring outline fill stroke from via to divide accent caret shadow decoration placeholder'.split(' ')
@@ -796,7 +885,9 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
     const lineOf = (i) => design.slice(0, i).split('\n').length
     const declared = {}
     let group = null
-    for (const line of (design.split('---')[1] ?? '').split('\n')) {
+    // The frontmatter is what lies between the first two lines that are exactly `---`;
+    // a `---` inside a YAML comment or a value does not end it.
+    for (const line of (design.split(/^---$/m)[1] ?? '').split('\n')) {
       const g = line.match(/^([a-z]+):\s*$/)
       if (g) {
         group = g[1]
@@ -825,11 +916,14 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
     for (const m of design.matchAll(/`font-([a-z0-9-]+)`/g))
       if (!weightRoles.has(m[1]) && !fontFamilies.has(m[1])) add(`${designPath}:${lineOf(m.index)}`, `font-${m[1]}`, 'no such weight role or font family')
     for (const m of design.matchAll(/`(scroll-[a-z-]+|[a-z]+-theme-only)`/g)) if (!utilities.has(m[1])) add(`${designPath}:${lineOf(m.index)}`, m[1], 'no such utility')
-    // A pixel value the prose states is on the grid, unless the stylesheets declare
+    // A pixel value the frontmatter states is on the grid, unless the stylesheets declare
     // it (an odd type step, a pill's 999) or it is a 1px hairline.
     const declaredPx = new Set()
     for (const [, s] of css) for (const m of s.matchAll(/(?<![\w.])(\d+(?:\.\d+)?)px/g)) declaredPx.add(m[1])
-    for (const m of design.matchAll(/(?<![\w.])(\d+(?:\.\d+)?)px/g)) {
+    const fmStart = design.search(/^---$/m)
+    const fmEnd = fmStart < 0 ? -1 : design.slice(fmStart + 3).search(/^---$/m)
+    const frontmatter = fmEnd < 0 ? '' : design.slice(0, fmStart + 3 + fmEnd)
+    for (const m of frontmatter.matchAll(/(?<![\w.])(\d+(?:\.\d+)?)px/g)) {
       const v = m[1]
       if (v === '1' || declaredPx.has(v)) continue
       if (v.includes('.') || Number(v) % 2 !== 0) add(`${designPath}:${lineOf(m.index)}`, `${v}px`, 'off the grid, and no token declares it')
@@ -914,6 +1008,16 @@ async function main() {
   // The repository root, from this script's own place: .claude/skills/design-system/scripts/.
   const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
   const argv = process.argv.slice(2)
+  if (argv.includes('--roles')) {
+    const at = argv.indexOf('--repo')
+    const roles = roleList(at >= 0 ? path.resolve(argv[at + 1]) : repo)
+    if (!roles) {
+      console.error('design roles: the design keys in .claude/sync-substitutions.json are not set')
+      process.exit(2)
+    }
+    console.log(roles)
+    return
+  }
   const at = argv.indexOf('--base')
   const base = at >= 0 ? argv[at + 1] : process.env.DESIGN_TOKENS_BASE || undefined
   const { problems, notes, counts, notApplicable } = await checkDesignTokens(repo, { base, all: argv.includes('--all') })

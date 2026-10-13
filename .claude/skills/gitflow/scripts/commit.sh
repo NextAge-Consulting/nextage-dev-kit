@@ -201,6 +201,7 @@ run_project_gate "$FOLD_BASE" "committing" || exit $?
 # New-part review: every part added since FOLD_BASE, checked by a headless Claude against
 # the parts the UI inventory already lists. A suspected duplicate goes to the human.
 "$SCRIPT_DIR/part-review.sh" "$FOLD_BASE" || exit 4
+"$SCRIPT_DIR/design-review.sh" "$FOLD_BASE" || exit 4
 
 # Every gate passed — fold the checkpoints, then stage everything.
 fold_checkpoints "$FOLD_BASE"

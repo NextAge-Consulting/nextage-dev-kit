@@ -36,11 +36,20 @@ const isServer = typeof (globalThis as Record<string, unknown>).window === 'unde
 
 function buildTransport() {
   if (!isServer) return undefined;   // browser: no transport, falls back to console
-  // …server transports (pino-pretty in dev, file/stdout in prod)…
+  if (process.env.NODE_ENV === 'production') return undefined;   // prod: JSON to stdout
+  return { target: prettyPath(), options: { colorize: true, translateTime: 'SYS:HH:MM:ss' } };
+}
+
+// getBuiltinModule rather than an import: the browser loads this file too.
+function prettyPath(): string {
+  const { createRequire } = process.getBuiltinModule('node:module');
+  return createRequire(`${process.cwd()}/`).resolve('pino-pretty');
 }
 
 export const logger = pino({ level: process.env.LOG_LEVEL ?? 'info', transport: buildTransport() });
 ```
+
+**Give pino every transport target as an absolute path, never a package name.**
 
 A bare `pino({ level })` inside an app is not enough — imported from a component it tries to build a server transport in the browser. Put the environment check in the logger.
 

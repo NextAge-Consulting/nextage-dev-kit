@@ -9,18 +9,18 @@
 //
 // Databases beyond the main one, and fixups the fork needs, come from test/project.ts.
 
-import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createApiClient, EndpointType } from "@neondatabase/api-client";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { Pool } from "pg";
 import project from "./project";
 
-// drizzle-kit resolves a config's paths from the working directory, so it runs from the
-// folder holding the project's drizzle config: the shared module, or else the repository
-// root (the nearest folder above holding .claude/sync-substitutions.json).
+// A drizzle config's paths are relative to the folder holding it: the shared module, or
+// else the repository root (the nearest folder above holding .claude/sync-substitutions.json).
 const sharedModule = fileURLToPath(new URL("..", import.meta.url));
 function findRepoRoot(from: string): string {
   for (let dir = from; ; dir = dirname(dir)) {
@@ -28,10 +28,11 @@ function findRepoRoot(from: string): string {
     if (dir === dirname(dir)) throw new Error(`globalSetup: no .claude/sync-substitutions.json above ${from}`);
   }
 }
-function drizzleDir(): string {
-  const configs = ["drizzle.config.ts", "drizzle.config.mts", "drizzle.config.js", "drizzle.config.mjs", "drizzle.config.json"];
+const CONFIGS = ["drizzle.config.ts", "drizzle.config.mts", "drizzle.config.js", "drizzle.config.mjs"];
+function drizzleConfigFile(): { dir: string; file: string } {
   for (const dir of [sharedModule, findRepoRoot(sharedModule)]) {
-    if (configs.some((c) => existsSync(resolve(dir, c)))) return dir;
+    const file = CONFIGS.find((c) => existsSync(resolve(dir, c)));
+    if (file) return { dir, file };
   }
   throw new Error(`globalSetup: no drizzle config in ${sharedModule} or the repository root`);
 }
@@ -51,22 +52,35 @@ function pick(kind: string, named: string | undefined, names: string[]): string 
   );
 }
 
-// drizzle-kit's own entry script, run by this Node: no npx and no shell, so it runs the
-// same on Windows, where npx is a batch file a shell-less spawn cannot start.
-function drizzleKit(cwd: string): string {
-  const main = createRequire(resolve(cwd, "package.json")).resolve("drizzle-kit");
-  return resolve(dirname(main), "bin.cjs");
-}
-
-function migrate(cwd: string, label: string, url: string, args: string[]): void {
+/**
+ * Applies a drizzle config's migrations to the test branch, and ONLY to it.
+ *
+ * The config is read for where its migrations are, never for where to connect: a config
+ * reads its connection from whatever variable its project chose (an owner-role URL beside
+ * the runtime one, say), and `drizzle-kit migrate` with only `DATABASE_URL` overridden
+ * follows that variable to the developer's own database. So the migrations are applied
+ * here, by drizzle's own migrator — the one `drizzle-kit migrate` runs — on a connection
+ * to the branch this setup created.
+ */
+async function migrateBranch(dir: string, file: string, label: string, url: string): Promise<void> {
   try {
-    execFileSync(process.execPath, [drizzleKit(cwd), "migrate", ...args], {
-      cwd,
-      stdio: "inherit",
-      env: { ...process.env, DATABASE_URL: url },
-      timeout: 55_000,
-      killSignal: "SIGTERM",
-    });
+    const config = (await import(pathToFileURL(resolve(dir, file)).href)).default as {
+      dialect?: string;
+      out?: string;
+      migrations?: { table?: string; schema?: string };
+    };
+    if (config.dialect !== "postgresql") throw new Error(`${file}: dialect is ${config.dialect}, not postgresql`);
+    if (!config.out) throw new Error(`${file}: no \`out\` folder of migrations`);
+    const pool = new Pool({ connectionString: url, max: 1 });
+    try {
+      await migrate(drizzle(pool), {
+        migrationsFolder: resolve(dir, config.out),
+        migrationsTable: config.migrations?.table,
+        migrationsSchema: config.migrations?.schema,
+      });
+    } finally {
+      await pool.end();
+    }
   } catch (err) {
     throw new Error(`globalSetup: migrating the ${label} database on the test branch failed`, { cause: err });
   }
@@ -117,9 +131,9 @@ export async function setup(): Promise<void> {
 
   // The branch forked production, which lacks any migration this change adds; drizzle
   // records what it applied, so this applies exactly the new ones and is otherwise a no-op.
-  const cwd = drizzleDir();
-  migrate(cwd, "main", main, []);
-  for (const { extra, url: extraUrl } of extras) migrate(cwd, extra.envVar, extraUrl, ["--config", extra.drizzleConfig]);
+  const { dir, file } = drizzleConfigFile();
+  await migrateBranch(dir, file, "main", main);
+  for (const { extra, url: extraUrl } of extras) await migrateBranch(dir, extra.drizzleConfig, extra.envVar, extraUrl);
 
   await project.afterMigrate?.(urls);
 }

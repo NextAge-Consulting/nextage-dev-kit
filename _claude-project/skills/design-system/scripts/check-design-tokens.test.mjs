@@ -43,6 +43,7 @@ const TOKENS = `:root {
   --radius-panel: 8px;
   /* the one lift */
   --shadow-overlay: 0 4px 12px oklch(0 0 0 / 0.2);
+  /* publish: off — consumed by the type roles and spacing aliases */
   /* a field's height */
   --size-control: 32px;
   /* body size */
@@ -53,6 +54,7 @@ const TOKENS = `:root {
   --weight-strong: 600;
   /* prose leading */
   --leading-prose: 1.6;
+  /* publish: on */
 }
 
 .dark {
@@ -253,25 +255,25 @@ test('an SVG attribute in a string is not a class', async () => {
   assert.deepEqual(problems, [])
 })
 
-test('a call site that repaints a component fails; placing it passes; an exempt component passes', async () => {
+test('a call site may set a width or bound a height, never fix a height or size; an exempt component may', async () => {
   const imports = 'import { Button } from "@acme/ui/components/button"\nimport { PopoverTrigger } from "@acme/ui/components/popover"'
-  const bad = await run(screen('<><Button className="p-2 mt-1" /><PopoverTrigger className="p-2" /></>', imports))
-  assert.equal(bad.problems.length, 1)
-  assert.match(bad.problems[0], /<Button> p-2 {2}— a call site places a component/)
+  const { problems } = await run(screen('<><Button className="h-8 w-8" /><Button className="w-full h-full max-h-60 p-2" /><Button className="size-6" /><PopoverTrigger className="h-8" /></>', imports))
+  assert.deepEqual(problems.map((p) => p.split('  ')[1]), ['<Button> h-8', '<Button> size-6'])
+  assert.match(problems[0], /a call site never fixes how tall a component is/)
+})
+
+test('a call site repainting a component with a colour role fails; an exempt component and a non-colour class pass', async () => {
+  const imports = 'import { Button } from "@acme/ui/components/button"\nimport { PopoverTrigger } from "@acme/ui/components/popover"'
+  const { problems } = await run(screen('<><Button className="mt-2 text-primary" /><Button className="hover:bg-background/80" /><Button className="text-wrap" /><PopoverTrigger className="text-primary" /></>', imports))
+  assert.deepEqual(problems.map((p) => p.split('  ')[1]), ['<Button> text-primary', '<Button> hover:bg-background/80'])
+  assert.match(problems[0], /never repaints a component's colour/)
 })
 
 test('a single-quoted className at a call site is read like a double-quoted one', async () => {
   const imports = 'import { Button } from "@acme/ui/components/button"'
-  const { problems } = await run(screen(`<Button className='p-2 mt-1' />`, imports))
+  const { problems } = await run(screen(`<Button className='h-8 mt-1' />`, imports))
   assert.equal(problems.length, 1)
-  assert.match(problems[0], /<Button> p-2 {2}— a call site places a component/)
-})
-
-test('a call site may set a width or bound a height, never fix a height', async () => {
-  const imports = 'import { Button } from "@acme/ui/components/button"'
-  const { problems } = await run(screen('<><Button className="h-8 w-8" /><Button className="w-full h-full max-h-60" /></>', imports))
-  assert.equal(problems.length, 1)
-  assert.match(problems[0], /<Button> h-8 {2}— a call site places a component/)
+  assert.match(problems[0], /<Button> h-8 {2}— a call site never fixes/)
 })
 
 test('a call site picking a size by magnitude fails; a role-named size passes', async () => {
@@ -308,6 +310,18 @@ test('only class lists are read: imports, URLs, logger names and prop values are
   assert.deepEqual(problems.map((p) => p.split('  ')[1]), ['text-sm'])
 })
 
+test('source is read as the compiler reads it: what is not a class list is never checked as one', async () => {
+  const src = [
+    'import { Help } from "./text-sm-rounded-lg"',
+    'const log = logger.child({ name: "text-red" })',
+    'const url = "https://example.com/rounded-lg/text-sm.html"',
+    'const svg = <svg><text textAnchor="middle" fontSize="text-sm">A</text></svg>',
+    'export const S = ({ x }) => <Chart label="text-sm rounded-lg" className={cn(/* text-sm */ x === "rounded-lg" ? "type-body" : "")} />',
+  ].join('\n')
+  const { problems } = await run({ [PIECE]: src })
+  assert.deepEqual(problems, [])
+})
+
 test('a class constant is checked where it is declared, used here or in another file', async () => {
   const { problems } = await run({
     'apps/web/src/styles.ts': 'export const cell = "px-[10px]"\nexport const notClasses = "text-only"\n',
@@ -335,7 +349,8 @@ test('a function a class list calls is checked — directly, through a variable 
 })
 
 test('a var() that resolves to nothing fails', async () => {
-  const { problems } = await run({ 'packages/ui/src/styles.css': `${STYLES}\n.x { color: var(--nowhere); }\n` })
+  const { problems } = await run({ 'packages/ui/src/styles.css': `${STYLES}\n.x { color: var(--nowhere); width: var(--measured, 100%); }\n` })
+  assert.ok(!problems.some((p) => /--measured/.test(p)), 'a var() with a fallback is set at run time, not undefined')
   assert.ok(problems.some((p) => /--nowhere {2}— referenced but never defined/.test(p)))
 })
 
@@ -346,17 +361,27 @@ test('a token nothing reaches fails, unless it is marked not-yet-built', async (
   assert.deepEqual(marked.problems, [])
 })
 
-test('a role named by its size fails where it is defined, in every family', async () => {
+test('a token named by Tailwind\'s variable shorthand is reached; one used nowhere still fails', async () => {
   const { problems } = await run({
-    'packages/ui/src/styles.css': STYLES.replace('@theme inline {', '@theme inline {\n  --radius-md: 4px;\n  --font-weight-semibold: 600;\n  --shadow-lg: 0 0 4px black;'),
+    'packages/ui/src/tokens.css': TOKENS.replace(':root {', ':root {\n  --tall: 40px;\n  --hint: #00ff00;\n  --later: #ff0000;'),
+    'packages/ui/src/components/bar.tsx': 'export const bar = "min-h-(--tall) hover:bg-(color:--hint)"\n',
+  })
+  assert.ok(!problems.some((p) => /--tall|--hint/.test(p)), problems.join('\n'))
+  assert.ok(problems.some((p) => /--later {2}— defined but nothing reaches it/.test(p)))
+})
+
+test('a role named with a t-shirt size fails where it is defined, in every family; other names are the judge\'s', async () => {
+  const { problems } = await run({
+    'packages/ui/src/styles.css': STYLES.replace('@theme inline {', '@theme inline {\n  --radius-md: 4px;\n  --font-weight-semibold: 600;\n  --shadow-lg: 0 0 4px black;\n  --tracking-2xl: 0.1em;'),
     'packages/ui/src/type.css': `${TYPE}\n@utility type-sm {\n  font-size: 14px;\n}\n`,
   })
   const named = problems.filter((p) => /named by its size/.test(p))
   assert.equal(named.length, 4)
   assert.match(named.join('\n'), /packages\/ui\/src\/styles\.css:2 {2}--radius-md {2}— a radius role named by its size/)
-  assert.match(named.join('\n'), /--font-weight-semibold {2}— a weight role named by its size/)
   assert.match(named.join('\n'), /--shadow-lg {2}— a shadow role named by its size/)
+  assert.match(named.join('\n'), /--tracking-2xl {2}— a tracking role named by its size/)
   assert.match(named.join('\n'), /type-sm {2}— a type role named by its size/)
+  assert.doesNotMatch(named.join('\n'), /semibold/)
 })
 
 test('parity: a dark-only token and a ramp colour dark leaves light both fail', () => {
@@ -380,8 +405,8 @@ test('a token file that does not parse fails, and is not reported as having no d
   assert.doesNotMatch(notes.join(' '), /no dark theme/)
 })
 
-test('design.md: a missing frontmatter key, a role without an entry, an unknown quoted class, an off-grid pixel', async () => {
-  const design = DESIGN.replace('  formControl:\n    fontSize: 14px\n', '').replace('a 14px body.', 'a 14px body, `rounded.huge`, {colors.secondary}, `type-caption`, 15px padding.')
+test('design.md: a missing frontmatter key, a role without an entry, an unknown quoted class, an off-grid frontmatter pixel', async () => {
+  const design = DESIGN.replace('  formControl:\n    fontSize: 14px\n', '').replace('  panel: 8px\n', '  panel: 8px\n  card: 15px\n').replace('a 14px body.', 'a 14px body, `rounded.huge`, {colors.secondary}, `type-caption`, and a 375px phone.')
   const { problems } = await run({ 'design.md': design })
   const text = problems.join('\n')
   assert.match(text, /type-form-control {2}— a type role with no typography entry/)
@@ -389,7 +414,14 @@ test('design.md: a missing frontmatter key, a role without an entry, an unknown 
   assert.match(text, /\{colors\.secondary\} {2}— no such key/)
   assert.match(text, /type-caption {2}— no such type role/)
   assert.match(text, /15px {2}— off the grid/)
-  assert.equal(problems.length, 5)
+  assert.doesNotMatch(text, /375px/, 'a pixel value in the prose is the judge\'s')
+  assert.ok(problems.length >= 5)
+})
+
+test('design.md: a `---` inside a frontmatter comment does not end the frontmatter', async () => {
+  const design = DESIGN.replace('---\n', '---\n# --- the ramp: raw values ---\n')
+  const { problems } = await run({ 'design.md': design })
+  assert.deepEqual(problems, [])
 })
 
 test("the project slot runs every check in the UI package's design-system/checks/", async () => {
@@ -414,7 +446,6 @@ const CONFIG = `export default {
   namespace: 'FX',
   artifact: '',
   timeZone: 'America/Chicago',
-  families: { skip: /^(size-|step-|weight-|leading-)/ },
   spacing: { steps: [0, 1, 2] },
   css: { build: 'true', file: 'dist/feed.css' },
   components: [{ name: 'Button', group: 'Actions', height: 80, doc: { source: 'components/button.tsx' }, render: "h(U.Button, null, 'Save')" }],
@@ -483,41 +514,41 @@ test('DESIGN_UI_PACKAGE missing: fails naming the key and both choices', async (
 
 const PAINTS = 'a screen or feature file'
 
-test('a screen or feature file places, arranges and picks text roles; a box it draws fails, wherever the file sits outside a part', async () => {
-  const body = '<div className="flex flex-col gap-2 mt-4 w-full md:grid-cols-2 type-body font-strong text-foreground uppercase border-t-2 border-input pt-4" />'
+test('a screen or feature file places, arranges, draws and picks text roles; a colour it fades fails, wherever the file sits outside a part', async () => {
+  const body = '<div className="flex flex-col gap-2 mt-4 w-full md:grid-cols-2 type-body font-strong text-foreground uppercase border-t-2 border-input pt-4 text-foreground/60" />'
   for (const file of ['apps/web/src/routes/orders.tsx', 'apps/web/src/features/orders/review.tsx', 'apps/web/src/features/orders/components/review.tsx']) {
     const { problems } = await run({ [file]: `export const S = () => ${body}\n` })
     const found = problems.filter((p) => p.includes(PAINTS))
-    assert.deepEqual(found.map((p) => p.split('  ')[1]), ['<div> border-t-2', '<div> border-input', '<div> pt-4'], file)
+    assert.deepEqual(found.map((p) => p.split('  ')[1]), ['<div> text-foreground/60'], file)
   }
 })
 
 test('the same look inside a part passes', async () => {
-  const { problems } = await run({ 'apps/web/src/components/review-dialog.tsx': 'export const R = () => <div className="flex border-t-2 border-input pt-4" />\n' })
+  const { problems } = await run({ 'apps/web/src/components/review-dialog.tsx': 'export const R = () => <div className="flex border-t-2 border-input pt-4 text-foreground/60" />\n' })
   assert.deepEqual(problems.filter((p) => p.includes(PAINTS)), [])
 })
 
-test('a glyph a screen colours passes; a box drawn on a third-party component fails', async () => {
+test('a glyph a screen colours passes; a colour faded on a third-party component fails', async () => {
   const { problems } = await run({
-    'apps/web/src/routes/orders.tsx': 'import { Check } from "lucide-react"\nimport { Link } from "@tanstack/react-router"\nexport const S = () => <><Check className="size-4 text-primary" /><Link className="text-primary mt-2 bg-primary px-4" to="/" /></>\n',
+    'apps/web/src/routes/orders.tsx': 'import { Check } from "lucide-react"\nimport { Link } from "@tanstack/react-router"\nexport const S = () => <><Check className="size-4 text-primary" /><Link className="text-primary mt-2 text-foreground/50" to="/" /></>\n',
   })
-  assert.deepEqual(problems.filter((p) => p.includes(PAINTS)).map((p) => p.split('  ')[1]), ['<Link> bg-primary', '<Link> px-4'])
+  assert.deepEqual(problems.filter((p) => p.includes(PAINTS)).map((p) => p.split('  ')[1]), ['<Link> text-foreground/50'])
 })
 
-test('a class constant is read at the call site — declared here or imported — and a repaint through it fails', async () => {
+test('a class constant is read at the call site — declared here or imported — and a fixed height through it fails', async () => {
   const { problems } = await run({
     'apps/web/src/routes/orders.tsx': [
       'import { Button } from "@acme/ui/components/button"',
-      'import { EDGE } from "./styles"',
-      "const DIVIDED = 'border-t-2 pt-4'",
-      'export const S = () => <><Button className={DIVIDED}>a</Button><Button className={cn(EDGE, "mt-2")}>b</Button><div className={DIVIDED} /></>',
+      'import { TALL } from "./styles"',
+      "const DIM = 'h-10 text-foreground/50'",
+      'export const S = () => <><Button className={DIM}>a</Button><Button className={cn(TALL, "mt-2")}>b</Button><div className={DIM} /></>',
       '',
     ].join('\n'),
-    'apps/web/src/routes/styles.ts': 'export const EDGE = "rounded-panel"\n',
+    'apps/web/src/routes/styles.ts': 'export const TALL = "size-12"\n',
   })
   const at = (p) => p.split('  ')[1]
-  assert.deepEqual(problems.filter((p) => p.includes('never repaints it')).map(at), ['<Button> border-t-2', '<Button> pt-4', '<Button> rounded-panel'])
-  assert.deepEqual(problems.filter((p) => p.includes(PAINTS)).map(at), ['<div> border-t-2', '<div> pt-4'])
+  assert.deepEqual(problems.filter((p) => p.includes('never fixes how tall')).map(at), ['<Button> h-10', '<Button> size-12'])
+  assert.deepEqual(problems.filter((p) => p.includes(PAINTS)).map(at), ['<div> text-foreground/50'])
 })
 
 test('a frame atom is imported only inside a part, and the finding names the block types that wrap it', async () => {
@@ -537,14 +568,14 @@ test('a template class list is read as its text and the strings in each ${…}; 
   const { problems } = await run({
     'apps/web/src/routes/orders.tsx': [
       'export const S = ({ busy, item, Icon }) => <>',
-      '  <button className={`w-full mt-2 ${busy ? "bg-primary" : "hover:underline"}`} />',
+      '  <button className={`w-full mt-2 ${busy ? "text-foreground/40" : "hover:underline"}`} />',
       '  <Icon className="size-4 text-primary" />',
       '  <item.icon className="size-6 text-primary" />',
       '</>',
       '',
     ].join('\n'),
   })
-  assert.deepEqual(problems.filter((p) => p.includes(PAINTS)).map((p) => p.split('  ')[1]), ['<button> bg-primary'])
+  assert.deepEqual(problems.filter((p) => p.includes(PAINTS)).map((p) => p.split('  ')[1]), ['<button> text-foreground/40'])
 })
 
 test('a screen may name any colour role, brand colours included; a faded one fails', async () => {
@@ -559,30 +590,30 @@ test('a screen may name any colour role, brand colours included; a faded one fai
 
 test('the arguments of a helper that returns classes are values, not classes; a class-merge helper\'s arguments are classes', async () => {
   const { problems } = await run({
-    'apps/web/src/routes/orders.tsx': 'export const S = ({ o, tz }) => <><p className={colourFor(o.date, "border", tz)} /><p className={cn("rounded-panel", o.x)} /></>\n',
+    'apps/web/src/routes/orders.tsx': 'export const S = ({ o, tz }) => <><p className={colourFor(o.date, "text-foreground/50", tz)} /><p className={cn("text-foreground/60", o.x)} /></>\n',
   })
-  assert.deepEqual(problems.filter((p) => p.includes(PAINTS)).map((p) => p.split('  ')[1]), ['<p> rounded-panel'])
+  assert.deepEqual(problems.filter((p) => p.includes(PAINTS)).map((p) => p.split('  ')[1]), ['<p> text-foreground/60'])
 })
 
 test('the screen rules judge only lines changed since the base; untouched lines pass, all: true judges every line', async () => {
-  const dir = fixture({ 'apps/web/src/routes/orders.tsx': 'export const S = () => <>\n  <div className="border-t-2 pt-4" />\n</>\n' })
+  const dir = fixture({ 'apps/web/src/routes/orders.tsx': 'export const S = () => <>\n  <div className="text-foreground/50" />\n</>\n' })
   const git = (...args) => execFileSync('git', ['-C', dir, '-c', 'user.email=t@example.com', '-c', 'user.name=t', ...args])
   git('init', '-q')
   git('add', '-A')
   git('commit', '-qm', 'base')
   const base = String(git('rev-parse', 'HEAD')).trim()
-  fs.writeFileSync(path.join(dir, 'apps/web/src/routes/orders.tsx'), 'export const S = () => <>\n  <div className="border-t-2 pt-4" />\n  <p className="bg-primary">new</p>\n</>\n')
-  fs.writeFileSync(path.join(dir, 'apps/web/src/routes/fresh.tsx'), 'export const F = () => <div className="rounded-panel" />\n')
+  fs.writeFileSync(path.join(dir, 'apps/web/src/routes/orders.tsx'), 'export const S = () => <>\n  <div className="text-foreground/50" />\n  <p className="text-foreground/60">new</p>\n</>\n')
+  fs.writeFileSync(path.join(dir, 'apps/web/src/routes/fresh.tsx'), 'export const F = () => <div className="text-foreground/70" />\n')
   const at = (r) => r.problems.filter((p) => p.includes(PAINTS)).map((p) => p.split('  ').slice(0, 2).join(' '))
   const scoped = await checkDesignTokens(dir, { base })
-  assert.deepEqual(at(scoped).sort(), ['apps/web/src/routes/fresh.tsx:1 <div> rounded-panel', 'apps/web/src/routes/orders.tsx:3 <p> bg-primary'])
+  assert.deepEqual(at(scoped).sort(), ['apps/web/src/routes/fresh.tsx:1 <div> text-foreground/70', 'apps/web/src/routes/orders.tsx:3 <p> text-foreground/60'])
   assert.ok(scoped.notes.some((n) => /screen rules: 1 changed line\(s\) and 1 new file\(s\)/.test(n)))
   const everything = await checkDesignTokens(dir, { all: true })
-  assert.equal(at(everything).length, 4)
+  assert.equal(at(everything).length, 3)
 })
 
 test('a screen moved into a feature folder is judged by its edits, not as a new file', async () => {
-  const dir = fixture({ 'apps/web/src/components/Roles.tsx': 'export const R = () => <>\n  <div className="border-t-2 pt-4" />\n</>\n' })
+  const dir = fixture({ 'apps/web/src/components/Roles.tsx': 'export const R = () => <>\n  <div className="text-foreground/50" />\n</>\n' })
   const git = (...args) => execFileSync('git', ['-C', dir, '-c', 'user.email=t@example.com', '-c', 'user.name=t', ...args])
   git('init', '-q')
   git('add', '-A')
@@ -590,7 +621,23 @@ test('a screen moved into a feature folder is judged by its edits, not as a new 
   const base = String(git('rev-parse', 'HEAD')).trim()
   fs.rmSync(path.join(dir, 'apps/web/src/components/Roles.tsx'))
   fs.mkdirSync(path.join(dir, 'apps/web/src/features/admin'), { recursive: true })
-  fs.writeFileSync(path.join(dir, 'apps/web/src/features/admin/Roles.tsx'), 'export const R = () => <>\n  <div className="border-t-2 pt-4" />\n  <p className="bg-primary">new</p>\n</>\n')
+  fs.writeFileSync(path.join(dir, 'apps/web/src/features/admin/Roles.tsx'), 'export const R = () => <>\n  <div className="text-foreground/50" />\n  <p className="text-foreground/60">new</p>\n</>\n')
   const { problems } = await checkDesignTokens(dir, { base })
-  assert.deepEqual(problems.filter((p) => p.includes(PAINTS)).map((p) => p.split('  ').slice(0, 2).join(' ')), ['apps/web/src/features/admin/Roles.tsx:3 <p> bg-primary'])
+  assert.deepEqual(problems.filter((p) => p.includes(PAINTS)).map((p) => p.split('  ').slice(0, 2).join(' ')), ['apps/web/src/features/admin/Roles.tsx:3 <p> text-foreground/60'])
+})
+
+test('the role list names every role a screen may write, one family per line', async () => {
+  const { roleList } = await import('./check-design-tokens.mjs')
+  const list = roleList(fixture())
+  assert.match(list, /^type roles: type-body type-form-control$/m)
+  assert.match(list, /^radius: rounded-control rounded-panel$/m)
+  assert.match(list, /^colours \(bg-, text-, border-\): .*\bprimary\b/m)
+  assert.match(list, /^utilities: scroll-region$/m)
+})
+
+test('a class list built as an array and joined is read as classes', async () => {
+  const { problems } = await run({
+    'packages/ui/src/components/banner.tsx': "export const B = ({ on }) => <div className={['flex rounded-lg', 'shadow-lg', on && 'text-sm'].filter(Boolean).join(' ')} />\n",
+  })
+  assert.deepEqual(problems.map((p) => p.split('  ')[1]).sort(), ['rounded-lg', 'shadow-lg', 'text-sm'])
 })

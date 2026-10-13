@@ -107,7 +107,7 @@ export default {
   // ─── defaults: set one only to change it ───
   // typeRoles: { utilityPrefix: 'type-' }, // the prefix of the `@utility` blocks in DESIGN_TYPE_FILE
   // typeFamilies: { sans: 'font-sans', mono: 'font-mono' }, // family → the token holding its stack
-  // families: { radius: /^radius-/, shadow: /^shadow-/, skip: /^$/ }, // RegExp literals matching token names; `skip` names the tokens the type roles and spacing aliases consume
+  // families: { radius: /^radius-/, shadow: /^shadow-/ }, // RegExp literals matching token names; a token the system does not carry sits in a /* publish: off */ … /* publish: on */ block in the token CSS
   // themeSelectors: { light: [':root'], dark: ['.dark'] }, // only when the token files use neither the common forms nor `@variant dark`
   // types: { build: 'npx tsc -p design-system/tsconfig.types.json', dir: 'dist/design-system-types/<feed folder>' }, // the type emit; the kit ships that tsconfig
   // tsconfig: 'tsconfig.json', // what esbuild reads for the bundle

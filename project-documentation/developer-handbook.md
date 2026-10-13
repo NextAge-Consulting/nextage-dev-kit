@@ -89,7 +89,8 @@ of block types, and each app builds one component per type the first time it nee
 screen's own content lives in the app's `src/features/<feature>/`, arranges those
 components and styles its own text from the semantic roles — every box comes from a
 component. When a screen should be worked out visually first, that's
-`designer-handbook.md`.
+`designer-handbook.md`. User theme settings (accent colour, colour-blind mode, text size)
+are `custom-themes.md`.
 
 Anything new Claude adds to the design system is marked pending until a human approves it,
 and `/deploy` refuses while anything is pending — `designer-handbook.md`, "Nothing new ships
