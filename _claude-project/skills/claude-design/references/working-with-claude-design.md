@@ -147,21 +147,34 @@ control in the canvas's Tweaks panel and read as `this.props.<name>`.
   gap's rules in the PREVIEW block are keyed `html.<class> …`. The document root, not the
   page's own, because overlays such as a select's list render outside the page. So one
   flip shows the system exactly as it stands, every override off.
+- **Name a gap for what it is, never for where it first appears** — `fieldRow`, not
+  `payForm`. Settle what it is before building its tweak, by the design-system skill's
+  check for a new part: a fresh agent shown only a description says which existing part it
+  extends, or the generic name a new part takes. The key is that name.
 - **A gap's tweak lives on ONE page, the one it is judged on** — a tweak flips only the
   page it is on. A gap that also appears on other pages shows there as designed, with no
   tweak, until it is decided. Name its home page when you tell the person about the gap.
+- **A gap seen only below the phone breakpoint lives on that page's phone frame.** A tweak
+  on the page never reaches the frame, which embeds the page with no tweak values of its
+  own. The frame's Tweaks panel holds the tweak and passes it into the page as a
+  `<dc-import>` attribute.
 - **A gap's options carry their state, because the person's choice is also their
-  approval.** For each option X: `Undecided — X` (shown, not yet approved) and
-  `Approved — X` (shown, approved); then `System as is` (rejected — the person does not
-  want the addition), optionally followed by ` — <what that leaves>`. Undecided and
-  Approved render the same; only the approval differs.
-  The default is `Undecided — <the option you recommend>`. `check-design.mjs` reads the
-  states from the saved defaults and reports them; an option without one of these
-  prefixes fails it.
-- **X says in plain words what the option adds** — "a line above the store badges" —
-  never a bare "Current design". The key stays the gap's name.
+  approval.** Each option is a letter: `Undecided — A` (shown, not yet approved) and
+  `Approved — A` (shown, approved), then B and C for further options; then `System as is`
+  (rejected — the person does not want the addition). Undecided and Approved render the
+  same; only the approval differs. The default is `Undecided — <the letter you
+  recommend>`. `check-design.mjs` reads the states from the saved defaults and reports
+  them; an option without one of these prefixes fails it.
+- **The design folder's `tweaks-to-approve.md` defines every letter.** One entry per open gap,
+  grouped by the page its tweak is on: what the letter adds; what it is for; where it is,
+  on every page it shows; a `System as is → A` table of the exact values that change; what
+  the page draws outside the tweak, which approving it approves too; every value off the
+  scale; the part it extends or the new part's name; and **Phone only**, naming the frame
+  to flip it on, when it applies. It changes in the same edit as the design, and an entry
+  leaves when its gap lands or is rejected.
 - **Tell the person the moment you create a gap** — in the same reply as the change that
-  needed it: what you added, what the design system lacks, and the tweak's key. "I added
+  needed it: what you added, what the design system lacks, and the tweak's key; its
+  `tweaks-to-approve.md` entry carries the detail. "I added
   the account switcher's options with the address beneath; the system's select option
   has no second line, so there is a new tweak, `acctList`." A person cannot find a gap
   from its key alone, and a gap nobody was told about is never decided. They decide it
@@ -207,7 +220,8 @@ control in the canvas's Tweaks panel and read as `this.props.<name>`.
   `data-props` double-quoted and HTML-entity encoded. Re-read the page before every publish,
   parse `data-props` in either quoting, and keep the values the person saved as defaults.
 - **Land what the person approves; remove what they reject.** Read their states from the
-  design — each flip is a save — rather than asking. An approved gap is decided with them
+  design — each flip is a save — rather than asking. Every approved gap lands in the next
+  batch; none waits for a later one. An approved gap is decided with them
   into what it becomes (an existing component it should have used, a new component, a UI
   pattern), built in the UI package, published with `publish-system` and applied to the
   design; then its tweak, preview rules and candidate mark come out in the same change. A

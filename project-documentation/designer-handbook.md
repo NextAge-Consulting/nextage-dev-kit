@@ -247,22 +247,35 @@ decide it.
 **Claude tells you the moment it creates one.** In the same reply as the change, it says
 what it added, what the design system lacks, the tweak's name and the page it is on: "I
 added the account switcher's options with the address beneath; the system's select has
-no second line, so there's a new tweak, `acctList`, on View My Bills." Nothing appears in
-the panel without that.
+no second line, so there's a new tweak, `acctList`, on the account page." Nothing appears
+in the panel without that. Before building it, Claude has a fresh agent — one that sees only
+a description, never the screen — say which existing part it extends or what generic name a
+new part takes, so a tweak is named for what it is (`fieldRow`), never for the screen that
+first needed it.
+
+**Review with three windows side by side.** The design folder's `tweaks-to-approve.md`,
+open in your editor, defines every option: what it adds, what it is for, where it is on
+every page, the exact values it changes against the design system as it is, anything the
+page draws outside the tweak that approving it approves too, and the part it extends.
+The canvas's Tweaks panel is where you flip it; a second tab in Play shows the result. Ask
+Claude when something needs discussing.
 
 **Decide them whenever you like.** Now, or when you review that part of the page — the
 only deadline is implement. As a part of the page wraps up, Claude asks for a decision on
 that part's gaps, since that's when you've just looked at it closely. The design's `brief.md` records which parts you've reviewed.
 
-**What the options mean.** Each gap's options say where your decision stands, and X says
-in plain words what the addition is, with its values ("Pay as Guest spacing: divider above
-Card and Billing address, 24px between columns"):
+**What the options mean.** Each gap's options say where your decision stands, and the
+letter is defined in `tweaks-to-approve.md` — the panel cuts off anything longer:
 
-- **Undecided — X:** shown on the page, not approved. Every gap starts here.
-- **Approved — X:** shown the same way, and approved. With more than one option, each has
-  its own Approved entry.
+- **Undecided — A:** shown on the page, not approved. Every gap starts here.
+- **Approved — A:** shown the same way, and approved. With more than one option, B and C
+  each have their own Approved entry.
 - **System as is:** you don't want the addition. The page shows what the design system
   gives today.
+
+**A tweak you can only see on a phone is on the phone frame.** It is marked **Phone only**
+in `tweaks-to-approve.md`, and its control is in that page's phone frame's Tweaks panel —
+a tweak on the full page never reaches the frame. Skip these on a desktop pass.
 
 **Flipping the setting is the decision.** Each flip saves the design, and Claude reads your
 choice from it, so there's nothing to repeat in chat.
@@ -277,8 +290,8 @@ see how much of a screen is still proposal.
 - **Approved:** Claude works out with you what it becomes (a new component, a variant of
   an existing one, or a pattern), builds it into the design system, publishes the system
   and applies it to the design. The tweak then disappears, because it's no longer a gap.
-  Approvals are usually landed together, once a review is finished, so the system is
-  published once rather than for every decision.
+  Every approval lands in the next batch, together with the others, so the system is
+  published once rather than for every decision — and nothing approved waits for a later one.
 - **System as is:** the addition comes out of the design, and the tweak goes with it.
 
 **Implement waits for every gap.** `/ui-design implement` won't start while any gap is

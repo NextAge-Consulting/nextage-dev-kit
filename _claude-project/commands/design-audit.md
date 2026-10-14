@@ -21,7 +21,7 @@ Material:
 - `design.md`;
 - the token, type and styles files named by `DESIGN_UI_PACKAGE`, `DESIGN_TOKEN_FILES`,
   `DESIGN_TYPE_FILE` and `DESIGN_STYLES_FILE` in `.claude/sync-substitutions.json`;
-- `.claude/rules/project/ui-inventory.md`;
+- `.claude/rules/project/ui-inventory.md`, and the source of every part it lists;
 - `.claude/skills/design-system/references/block-types.md` and `design-opinion.md`.
 
 The agent reports only:
@@ -32,6 +32,9 @@ The agent reports only:
   the project's reason where the system holds the value.
 - **Inconsistent with itself** — a role named by size; two roles doing one job; a token with
   no comment saying what it is for; a value off the system's own scale.
+- **A part that is not what its name says** — named for the one screen that first used it;
+  two parts doing one job; a part that is a variant of another. Recommend the generic name,
+  or the part it should fold into.
 
 Where the opinion is guidance, the project's own value is its decision and never a
 finding. The agent lists such differences apart, as **worth a look** — the guideline, the

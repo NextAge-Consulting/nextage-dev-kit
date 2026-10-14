@@ -52,6 +52,8 @@ Why hard-stop: ad-hoc styling without a design system spec is how token drift st
 
 **Where the system covers the piece, use it as it is.** An improvement you would make to how it looks is a proposal to the human, never a local restyle at this one site.
 
+**Before building any new part, check that nothing fits — with a fresh agent.** Give it only a neutral description of the piece — what it looks like and does, never the screen, its data or a working name — plus the inventory and the parts' code, and ask: which existing part should carry this, and what would it gain (a variant, a slot, a prop named for meaning)? Or, if none, what generic name says what it is, and which block type? Build what it decides.
+
 **Where nothing fits, build the new piece and keep going.** Research how primary-source design systems handle it — never invent from `design.md` prose alone. Build it from the existing tokens and components as a real part — a token, a component or variant, a pattern reference — and mark it pending. Never stop the work to ask about each one; the review below is where the human sees them.
 
 **A screen or feature file draws no box.** It places and arranges what it holds — margin, width, its slot in a flex or grid, `gap` — and styles its own text freely from the semantic roles: a type role, a weight, a semantic text colour. A background, border, radius, shadow or padding is a box, and a box comes from a part: the part of its block type, or a part typed `<none>` when no type covers it. Colour in a screen is any colour role, brand colours included, and never faded with an opacity modifier. Approval is still one review at the end of the work, never a stop per screen.

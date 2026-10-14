@@ -32,6 +32,9 @@ Every design has one folder, `project-documentation/temporary/design-<name>/`, f
   the person has reviewed, and under `## Decisions` every change settled since, each with
   its reason. It is the design's history, kept on purpose: the
   folder is transient, and `implement` carries what is worth keeping into permanent docs.
+- `tweaks-to-approve.md` — every open gap, by page, defining the letters its tweak offers
+  (the claude-design skill's reference, Tweaks). `brief.md` points to it rather than
+  repeating it.
 - The source screenshots and other material, copied in.
 - `export/` — the design's pages and assets, written by `implement` only.
 
