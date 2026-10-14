@@ -35,6 +35,9 @@ The agent reports only:
 - **A part that is not what its name says** — named for the one screen that first used it;
   two parts doing one job; a part that is a variant of another. Recommend the generic name,
   or the part it should fold into.
+- **A part held by one app that belongs to every app** — an app's own part that imports
+  nothing app-specific, or that another app's screens redraw. Recommend moving it into the
+  shared UI package, with what it needs passed in.
 
 Where the opinion is guidance, the project's own value is its decision and never a
 finding. The agent lists such differences apart, as **worth a look** — the guideline, the
