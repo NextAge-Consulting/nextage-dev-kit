@@ -42,9 +42,11 @@ When the button already has a name and the icon is an inline `<svg>`, mark the S
 
 ## Target size — a 24px floor; touch sizing comes from the design system
 
-**Every interactive target is at least 24px in both dimensions** (WCAG 2.5.8). Above that floor, desktop controls stay as compact as the design wants.
+**Every interactive target is at least 24px in both dimensions** (WCAG 2.5.8). Above that floor, a control driven by a mouse or trackpad stays as compact as the design wants.
 
-**A control grows for a finger through the design system:** a control-size token the stylesheet redefines under `@media (pointer: coarse)`, so the same button is mouse-sized with a mouse and finger-sized (44px, Apple HIG) on touch. Never a page-level size override, and never a 44px minimum applied to desktop.
+**A control grows for a finger through the design system:** a control-size token the stylesheet redefines under `@media (pointer: coarse)`, so the same button is mouse-sized when the browser's primary input is a mouse or trackpad and finger-sized (44px, Apple HIG) when it is touch. Never a page-level size override, and never a 44px minimum regardless of input.
+
+**Size by the primary input, never by the kind of device.** A touch-screen laptop shows compact or 44px controls depending on which input its browser reports as primary; treat either as correct.
 
 ## SVG icons — `<title>` or hidden
 
