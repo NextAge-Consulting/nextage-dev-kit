@@ -15,7 +15,7 @@
 # .ts, .tsx, .mts or .cts file git sees, outside node_modules, .claude and dist. The
 # root knip.config.ts is the kit's, read by knip, not the project's source. When
 # git cannot answer, the answer is yes: the check then applies, as it always did.
-# CI's `check-types` job asks the same question the same way.
+# CI's `check-types` step asks the same question the same way.
 has_typescript_sources() {
     local files own
     files=$(git ls-files --cached --others --exclude-standard -- '*.ts' '*.tsx' '*.mts' '*.cts' 2>/dev/null) || return 0
@@ -36,7 +36,7 @@ pyright_pin() {
 #
 # A root package.json applies when it declares a `check-types` script or the
 # repository has TypeScript sources; then a missing script FAILS, as CI's
-# `check-types` job does — passing here would only move that failure to the open
+# `check-types` step does — passing here would only move that failure to the open
 # PR. With neither, the check does not apply, and the gate says so.
 #
 # A root pyproject.toml or pyrightconfig.json runs pyright, else mypy — the second
@@ -187,7 +187,7 @@ knip_pin() {
 
 # run_knip_gate <action>
 #
-# Unused code — the CI `knip` job, run before the push rather than after it. It
+# Unused code — the CI `knip` step, run before the push rather than after it. It
 # applies exactly where that job does: a root package.json, and KNIP_GATE set to
 # "true" in .claude/sync-substitutions.json. A repository that has not reached
 # zero findings leaves KNIP_GATE unset, and the gate says so and passes, as CI

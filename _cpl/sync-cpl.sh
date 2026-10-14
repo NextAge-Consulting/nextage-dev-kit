@@ -21,15 +21,12 @@ INSTALLED_VERSION_FILE="$HOME/.cpl-version"
 # every installed user must re-grant.
 SIGN_IDENTITY_NAME="CPL Local Signing"
 CPL_BUNDLE_ID="com.cpl.launcher"
-# Dedicated keychain that holds ONLY CPL's local, self-signed signing cert. Kept
-# separate from the login keychain so we can manage it with a known password and
-# never touch the user's real credentials.
+# Dedicated keychain that holds ONLY CPL's local, self-signed signing cert, kept
+# apart from the user's real credentials. Nobody ever types its password: it is
+# random, generated once per machine, and stored as an item in the login keychain
+# that `security` created and so reads back without a prompt.
 SIGN_KEYCHAIN="$HOME/Library/Keychains/cpl-signing.keychain-db"
-# NOT a secret in the constitution-III sense: it guards a keychain whose only
-# contents are a self-signed, machine-local code-signing cert with no value on any
-# other system. A fixed local value is the standard pattern (cf. fastlane match's
-# MATCH_KEYCHAIN_PASSWORD) and lets the unattended re-sign work on every sync.
-SIGN_KEYCHAIN_PW="cpl-local-signing"
+SIGN_KEYCHAIN_PW_SERVICE="cpl-signing-keychain"
 
 # Colors
 RED='\033[0;31m'
@@ -42,6 +39,22 @@ error() { echo -e "${RED}ERROR: $1${NC}" >&2; exit 1; }
 info() { echo -e "${BLUE}$1${NC}"; }
 success() { echo -e "${GREEN}$1${NC}"; }
 warn() { echo -e "${YELLOW}$1${NC}"; }
+
+# signing_keychain_password — echo this machine's CPL keychain password, generating
+# and storing one on first use. Non-zero on failure.
+signing_keychain_password() {
+  local pw
+  if pw=$(security find-generic-password -s "$SIGN_KEYCHAIN_PW_SERVICE" -a "$USER" -w 2>/dev/null) \
+     && [ -n "$pw" ]; then
+    printf '%s\n' "$pw"
+    return 0
+  fi
+  pw=$(openssl rand -hex 24) || return 1
+  security add-generic-password -U -s "$SIGN_KEYCHAIN_PW_SERVICE" -a "$USER" -w "$pw" \
+    -l "CPL signing keychain (managed by sync-cpl.sh)" -T /usr/bin/security \
+    >/dev/null 2>&1 || return 1
+  printf '%s\n' "$pw"
+}
 
 # ensure_signing_identity NAME — idempotently provision a stable, per-machine,
 # self-signed code-signing identity in the dedicated CPL keychain and echo its
@@ -73,16 +86,26 @@ warn() { echo -e "${YELLOW}$1${NC}"; }
 #     and required: codesign refuses an untrusted self-signed identity.
 ensure_signing_identity() {
   local name="$1"
-  local kc="$SIGN_KEYCHAIN" kcpw="$SIGN_KEYCHAIN_PW"
+  local kc="$SIGN_KEYCHAIN" kcpw
   local hash tmp
 
-  # 1. Dedicated keychain. Create if absent; disable auto-lock so it stays usable;
-  #    unlock for this run.
+  kcpw=$(signing_keychain_password) || return 1
+
+  # 1. Dedicated keychain. Any call that touches a LOCKED keychain makes macOS ask
+  #    the user for its password, so nothing reaches it before a successful unlock.
+  #    One this machine cannot unlock holds only a regenerable cert: delete the file
+  #    (no keychain call, so no prompt) and build a fresh one. A new cert means one
+  #    more "Allow" for CPL→iTerm on the next launch.
+  if [ -f "$kc" ] && ! security unlock-keychain -p "$kcpw" "$kc" >/dev/null 2>&1; then
+    printf '  Replacing a CPL signing keychain this machine cannot unlock...\n' >&2
+    rm -f "$kc" || return 1
+  fi
   if [ ! -f "$kc" ]; then
     security create-keychain -p "$kcpw" "$kc" >/dev/null 2>&1 || return 1
   fi
-  security set-keychain-settings "$kc" >/dev/null 2>&1 || true
   security unlock-keychain -p "$kcpw" "$kc" >/dev/null 2>&1 || return 1
+  # Disable auto-lock so later syncs find it usable.
+  security set-keychain-settings "$kc" >/dev/null 2>&1 || true
 
   # 2. Ensure the keychain is in the user search list — codesign needs it there to
   #    resolve the identity (verified: signing fails with "no identity found"

@@ -80,6 +80,33 @@ own. Run `npm test` from the repo root. `/e2e` drives
 the app in a browser through plain-English flows; it is a check you run, not a gate.
 Setup and the flow format: `testing.md`.
 
+## Adding your own build-output checks
+
+A check on what the build produces — a secret scan of the browser bundle, no source maps
+in production — goes in a `postbuild` script in the `package.json` of the app that builds
+it:
+
+```json
+"scripts": {
+  "build": "vite build",
+  "postbuild": "gitleaks dir dist/client --no-banner"
+}
+```
+
+npm runs `postbuild` after every `npm run build`, and a non-zero exit fails the build.
+`/merge` and the deploy image's build stage both run `npm run build`, so this one hook
+stops a merge and a deploy alike; it needs no CI step. The tool must exist in both places:
+a scanner installed as a dev dependency arrives with `npm ci` in each, while a standalone
+binary such as gitleaks has to be on every developer's machine and installed in the
+Dockerfile's build stage too, or every deploy fails. Point it at the client output
+(`dist/client` on TanStack Start), have it print how many files it checked so a scan that
+read nothing never passes, and commit any allowlist it uses (for gitleaks,
+`.gitleaksignore` at the repo root). `package.json` is the project's, so a kit sync never
+touches it.
+
+A check on your source, rather than on the build, belongs in `.claude/project-gate.sh`
+instead, which runs at every commit (see "When something goes wrong").
+
 ## UI work
 
 Screens use the project's design system: tokens and rules in `design.md` at the repo

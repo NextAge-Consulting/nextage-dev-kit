@@ -114,7 +114,7 @@
       "severity": "required",
       "installedBy": "project",
       "blessedAt": "2026-09-10",
-      "why": "The kit ships biome.json AND a CI biome job, so the kit owns the linter. biome.json's $schema names a version; a different binary reads that config as something else. Worse, a project that declares nothing at all gets `npx biome` resolving to an UNRELATED package of that name on npm which exits 0 \u2014 a lint gate that passes without linting, locally and on a runner."
+      "why": "The kit ships biome.json AND a CI biome check, so the kit owns the linter. biome.json's $schema names a version; a different binary reads that config as something else. Worse, a project that declares nothing at all gets `npx biome` resolving to an UNRELATED package of that name on npm which exits 0 \u2014 a lint gate that passes without linting, locally and on a runner."
     },
     "@commitlint/cli": {
       "version": "21.2.2",
@@ -126,8 +126,8 @@
       "severity": "required",
       "installedBy": "ci",
       "blessedAt": "2026-09-10",
-      "ciWorkflow": ".github/workflows/commitlint.yml",
-      "why": "commitlint.yml installs this at run time. Unpinned, that executes whatever the registry serves under the name, and --no-save leaves no record of what ran. This file owns the version and the guard asserts the workflow names it, so the two cannot drift apart."
+      "ciWorkflow": ".github/workflows/pr-title.yml",
+      "why": "pr-title.yml installs this at run time. Unpinned, that executes whatever the registry serves under the name, and --no-save leaves no record of what ran. This file owns the version and the guard asserts the workflow names it, so the two cannot drift apart."
     },
     "@commitlint/config-conventional": {
       "version": "21.2.2",
@@ -139,8 +139,8 @@
       "severity": "required",
       "installedBy": "ci",
       "blessedAt": "2026-09-10",
-      "ciWorkflow": ".github/workflows/commitlint.yml",
-      "why": "commitlint.yml installs this at run time. Unpinned, that executes whatever the registry serves under the name, and --no-save leaves no record of what ran. This file owns the version and the guard asserts the workflow names it, so the two cannot drift apart."
+      "ciWorkflow": ".github/workflows/pr-title.yml",
+      "why": "pr-title.yml installs this at run time. Unpinned, that executes whatever the registry serves under the name, and --no-save leaves no record of what ran. This file owns the version and the guard asserts the workflow names it, so the two cannot drift apart."
     },
     "@google/design.md": {
       "version": "0.4.0",
@@ -177,7 +177,7 @@
       "installedBy": "ci",
       "blessedAt": "2026-10-02",
       "ciWorkflow": ".github/workflows/ci.yml",
-      "why": "The kit ships knip.config.ts and the CI knip job, so the kit owns the tool. The config is written against knip 5's schema and plugin behaviour: which entries a plugin contributes, how includeEntryExports treats a workspace's exports map, how ignoreIssues matches. Another version reads the same file differently and the gate reports a different set of findings with no change in the code. The job installs it at run time; this file owns the version and the guard asserts the workflow names it."
+      "why": "The kit ships knip.config.ts and the CI knip check, so the kit owns the tool. The config is written against knip 5's schema and plugin behaviour: which entries a plugin contributes, how includeEntryExports treats a workspace's exports map, how ignoreIssues matches. Another version reads the same file differently and the gate reports a different set of findings with no change in the code. The job installs it at run time; this file owns the version and the guard asserts the workflow names it."
     },
     "pyright": {
       "version": "1.1.409",

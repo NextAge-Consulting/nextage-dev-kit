@@ -427,23 +427,59 @@ func buildCommand(action: Action, path: String, name: String, mon: Int, slot: In
 
 // MARK: - Project listing
 
+// Claude Code keeps each project's sessions in <config>/projects/<encoded path>, where
+// the encoded path is the project's real absolute path with every character outside
+// [A-Za-z0-9] replaced by "-". Its newest entry is when Claude last ran there, however
+// it was started. The encoding is Claude Code's, undocumented: if it changes, every
+// project reads as having no activity and the list falls back to folder dates.
+func claudeProjectsRoot() -> String {
+    if let d = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"], !d.isEmpty {
+        return expandTilde(d) + "/projects"
+    }
+    return home.path + "/.claude/projects"
+}
+
+func lastClaudeActivity(projectPath: String, root: String) -> Date? {
+    let real = (projectPath as NSString).resolvingSymlinksInPath
+    let encoded = String(String.UnicodeScalarView(real.unicodeScalars.map { s in
+        s.isASCII && CharacterSet.alphanumerics.contains(s) ? s : "-"
+    }))
+    let url = URL(fileURLWithPath: root + "/" + encoded)
+    guard let entries = try? FileManager.default.contentsOfDirectory(
+        at: url, includingPropertiesForKeys: [.contentModificationDateKey]) else { return nil }
+    return entries
+        .compactMap { try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate }
+        .max()
+}
+
+// Most recently used first: projects Claude has run in, newest activity first, then the
+// rest by folder modification date.
 func listProjects(_ projectsDir: String) -> [String] {
     let dir = expandTilde(projectsDir)
     let fm = FileManager.default
     guard let entries = try? fm.contentsOfDirectory(atPath: dir) else { return [] }
-    return entries
+    let root = claudeProjectsRoot()
+    let ranked: [(name: String, activity: Date?, modified: Date)] = entries
         .filter { name in
             guard !name.hasPrefix(".") else { return false }
             var isDir: ObjCBool = false
             return fm.fileExists(atPath: dir + "/" + name, isDirectory: &isDir) && isDir.boolValue
         }
-        .sorted { a, b in
-            let aa = try? fm.attributesOfItem(atPath: dir + "/" + a)
-            let bb = try? fm.attributesOfItem(atPath: dir + "/" + b)
-            let da = aa?[.modificationDate] as? Date ?? .distantPast
-            let db = bb?[.modificationDate] as? Date ?? .distantPast
-            return da > db
+        .map { name in
+            let path = dir + "/" + name
+            let modified = (try? fm.attributesOfItem(atPath: path))?[.modificationDate] as? Date ?? .distantPast
+            return (name, lastClaudeActivity(projectPath: path, root: root), modified)
         }
+    return ranked
+        .sorted { a, b in
+            switch (a.activity, b.activity) {
+            case let (x?, y?): return x > y
+            case (_?, nil): return true
+            case (nil, _?): return false
+            case (nil, nil): return a.modified > b.modified
+            }
+        }
+        .map { $0.name }
 }
 
 // MARK: - Controller

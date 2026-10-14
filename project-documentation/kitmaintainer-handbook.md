@@ -573,7 +573,7 @@ Setting up a new project to use this kit:
    ```
 3. Commit the new `.claude/` and `.mcp.json`
 4. No branch protection to apply — the pipeline uses none (`/merge` self-gates; see `pipeline.md` §1.1). Just confirm `main` does not require a PR (the default), so the direct-push paths work.
-5. Copy `commitlint.yml` and `ci.yml` templates (pipeline.md Part 3) into `.github/workflows/`. If the project deploys, stand up its CodeBuild pipeline (`new-project-setup.md` step 7, pipeline.md §2.7) — dispatched only by `/deploy` (pipeline.md §2.5).
+5. Copy `pr-title.yml` and `ci.yml` templates (pipeline.md Part 3) into `.github/workflows/`. If the project deploys, stand up its CodeBuild pipeline (`new-project-setup.md` step 7, pipeline.md §2.7) — dispatched only by `/deploy` (pipeline.md §2.5).
 7. Optional, per dev: set `EXA_API_KEY` in their shell rc (research tier 3; the built-in tools need no key)
 
 ---
@@ -734,7 +734,7 @@ Current kit-referenced placeholders (authoritative list is in `_claude-project/s
 | `ORG_AUDIT` | `open-pr.sh`, `deploy-org.sh` (runtime-read) | Org repos. `on` → `/deploy` refuses without `infrastructure-access-and-change.md` (exit 32) and an org `/open-pr` refuses a PR linking no issue (exit 15). Off during setup. Empty and listed in `_intentionally_empty` → off |
 | `ORG_DEPLOY_APPROVAL` | `deploy-org.sh` (runtime-read) | Org repos. `required` → `/deploy` applies only a PR whose GitHub review decision is `APPROVED` (exit 33). Empty and listed in `_intentionally_empty` → off |
 | `REPO_KIND` | `sync-dev-kit.sh` (read at scan and apply); the gitflow scripts through `repo_kind.sh` (runtime-read) | `app` — every kit file syncs, gitflow as documented; `org` — an org repo: skips the application tooling (§9.12), and gitflow follows `org-repo-cheatsheet.md` (§6.6); `combo` — both: every kit file syncs, and each command runs both halves (§6.6). Empty → undecided: behaves as `app`, re-surfaced every sync. Any other value stops the scan with exit 2 |
-| `KNIP_GATE` | the `knip` job in `ci.yml` (runtime-read) | `"true"` → CI runs knip with the kit's `knip.config.ts` and fails on any finding. Empty and listed in `_intentionally_empty` → the gate is off. Missing, or empty and unlisted → undecided: the job passes with a warning naming the key. `pipeline.md` §3.9 |
+| `KNIP_GATE` | the `knip` step of `ci.yml`'s `node-checks` job (runtime-read) | `"true"` → CI runs knip with the kit's `knip.config.ts` and fails on any finding. Empty and listed in `_intentionally_empty` → the gate is off. Missing, or empty and unlisted → undecided: the job passes with a warning naming the key. `pipeline.md` §3.9 |
 
 The kit ships a template at `_claude-project/sync-substitutions.json` with empty values and inline docs of every placeholder kit templates currently reference. Consumer projects bootstrap automatically: `load_substitutions` in `sync-dev-kit.sh` copies the kit template to `.claude/sync-substitutions.json` on first run if absent. Population is then walked through interactively — see §9.8.
 
@@ -1258,7 +1258,7 @@ npm run lint:design
 
 The linter is wired as a **declared** dev tool, not run ad-hoc: each consumer adds `@google/design.md` to `devDependencies` and a `"lint:design": "design.md lint design.md"` script. Declaring it (rather than `npx @google/design.md …`) keeps the lint reproducible and avoids agent sandboxes blocking an undeclared external download. `package.json` is consumer-owned (not a kit-synced file), so this dep + script are added per project at setup.
 
-Lint must pass before the change is committed. In CI the `biome` job runs `lint:tokens` and `lint:design` whenever a `design.md` exists at the repository root, and a missing script fails the job. The spec defines: optional YAML frontmatter token block (`colors`, `typography`, `rounded`, `spacing`, `components`), markdown body with required-order sections (Overview, Colors, Typography, Layout, Elevation & Depth, Shapes, Components, Do's and Don'ts), atom-level component definitions with property tokens.
+Lint must pass before the change is committed. In CI the design-checks step of the `node-checks` job runs `lint:tokens` and `lint:design` whenever a `design.md` exists at the repository root, and a missing script fails the job. The spec defines: optional YAML frontmatter token block (`colors`, `typography`, `rounded`, `spacing`, `components`), markdown body with required-order sections (Overview, Colors, Typography, Layout, Elevation & Depth, Shapes, Components, Do's and Don'ts), atom-level component definitions with property tokens.
 
 ### 12a.5. Scope: atoms only
 

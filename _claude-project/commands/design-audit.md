@@ -31,7 +31,8 @@ The agent reports only:
   floor the file sets: contrast, target size, focus that can be seen. Adopt it, or record
   the project's reason where the system holds the value.
 - **Inconsistent with itself** — a role named by size; two roles doing one job; a token with
-  no comment saying what it is for; a value off the system's own scale.
+  no comment saying what it is for; a value off the system's own scale. For a missing
+  comment, draft one from where the token is used and put it to the human to correct.
 - **A part that is not what its name says** — named for the one screen that first used it;
   two parts doing one job; a part that is a variant of another. Recommend the generic name,
   or the part it should fold into.

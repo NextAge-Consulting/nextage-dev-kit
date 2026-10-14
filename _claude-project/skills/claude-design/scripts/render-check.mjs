@@ -19,6 +19,12 @@
  *
  *   node .claude/skills/claude-design/scripts/render-check.mjs <path/to/design-system.config.mjs>
  *
+ * The harness pages are served from a local origin for the length of the run: Chrome
+ * hides the message of any error thrown by a script from another origin, and treats
+ * every file:// script as one, so opened from disk a bundle that fails to load reads
+ * only "Script error.". Each error is reported with the file, line and column it
+ * came from.
+ *
  * Drives agent-browser's Chromium, headless, in a few named sessions side by side,
  * each rendering its share of the components. A render waits for what the page needs
  * — fonts loaded, two frames painted, an overlay preview's overlay open — never a
@@ -27,8 +33,8 @@
 
 import { execFile, execFileSync } from 'node:child_process'
 import fs from 'node:fs'
+import http from 'node:http'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import zlib from 'node:zlib'
 import { loadConfig } from './config.mjs'
@@ -102,6 +108,29 @@ const settled = (expectOverlay) => `(async function () {
   }
   return ${PROBE};
 })()`
+// The build output, served read-only on 127.0.0.1 for the length of the run.
+const TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf': 'font/ttf',
+}
+const server = http.createServer((req, res) => {
+  const file = path.join(OUT, decodeURIComponent(new URL(req.url, 'http://127.0.0.1').pathname))
+  if (!file.startsWith(OUT + path.sep)) return res.writeHead(403).end()
+  fs.readFile(file, (err, data) => {
+    if (err) return res.writeHead(404).end()
+    res.writeHead(200, { 'content-type': TYPES[path.extname(file)] ?? 'application/octet-stream' }).end(data)
+  })
+})
+await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve))
+const ORIGIN = `http://127.0.0.1:${server.address().port}`
+
 const evalB64 = (session, js) => browser(session, ['eval', '-b', Buffer.from(js).toString('base64')])
 
 // The first closed popup trigger in a preview, marked so the check can click it with a
@@ -181,18 +210,19 @@ async function renderComponent(session, c) {
     const harness = path.join(RENDER, `${c.name}.${mode}.html`)
     const mount = mode === 'canvas' ? body.replace('h = React.createElement', CANVAS_H) : body
     // A local harness page around this repository's own build output, opened
-    // headless by this check and never served — no outside input reaches it.
+    // headless by this check and served only to it on 127.0.0.1 — no outside input
+    // reaches it.
     fs.writeFileSync(
       harness, // nosemgrep: javascript.lang.security.audit.unknown-value-with-script-tag.unknown-value-with-script-tag
       `<!doctype html><html data-theme="${mode === 'dark' ? 'dark' : 'light'}"><head><meta charset="utf-8">
-<script>window.__errors=[];addEventListener('error',function(e){__errors.push(String(e.message))});var ce=console.error;console.error=function(){__errors.push([].slice.call(arguments).join(' '));ce.apply(console,arguments)};</script>
+<script>window.__errors=[];addEventListener('error',function(e){__errors.push(String(e.message)+(e.filename?' ('+e.filename.split('/').pop()+':'+e.lineno+':'+e.colno+')':''))});var ce=console.error;console.error=function(){__errors.push([].slice.call(arguments).join(' '));ce.apply(console,arguments)};</script>
 <link rel="stylesheet" href="../project/components/bundle.css"><style>${style}</style>
 <style>*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}</style>
 <script src="${REACT}"></script><script src="${REACT_DOM}"></script>
 <script src="../project/components/bundle.js"></script>
 </head><body>${mount}</body></html>`,
     )
-    await browser(session, ['open', pathToFileURL(harness).href])
+    await browser(session, ['open', `${ORIGIN}/render/${encodeURIComponent(path.basename(harness))}`])
     const report = JSON.parse(JSON.parse(await evalB64(session, settled(c.cardMode === 'overlay'))))
     await browser(session, ['screenshot', path.join(RENDER, `${c.name}.${mode}.png`)])
     if (report.errors.length) found.push(`${c.name} (${mode}): ${report.errors[0].slice(0, 200)}`)
@@ -248,6 +278,8 @@ try {
       execFileSync(CMD, argv(session, ['close']), { stdio: 'ignore', shell: WINDOWS })
     } catch {}
   }
+  server.closeAllConnections()
+  server.close()
 }
 
 if (failures.length) {

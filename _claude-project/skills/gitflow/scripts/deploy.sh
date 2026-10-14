@@ -592,8 +592,8 @@ fi
 # it re-fires on every push to main as version-bump housekeeping and can fail
 # for reasons unrelated to deployability (e.g. it can't open a bump PR). It is
 # NOT a code-quality/deployability gate, so a failed Dependabot update must not
-# block a release. Real CI checks (check-types, biome, vitest, semgrep, lint)
-# are still enforced.
+# block a release. Real CI checks (node-checks, vitest, semgrep, the PR-title
+# check) are still enforced.
 # Explicit error check (bash-rules §III: command-sub failure in an assignment
 # does not reliably trip `set -e` on bash 3.2). A gh API failure must fail loud,
 # not default to 0 and let an unverified gate pass (Constitution §X).

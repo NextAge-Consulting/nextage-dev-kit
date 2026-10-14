@@ -140,7 +140,7 @@ Project dropdown, then one-click action buttons (project-bound actions first, a 
 
 ### Config panel (⚙)
 
-- **Projects dir** — the root scanned for the project dropdown and resolved for `projects-dir` actions (default `~/projects`)
+- **Projects dir** — the root scanned for the project dropdown and resolved for `projects-dir` actions (default `~/projects`). The dropdown lists the most recently used first: projects Claude Code has run in, by their newest session activity under `~/.claude/projects/` (or `$CLAUDE_CONFIG_DIR/projects/`), then the rest by folder date
 - Per-monitor `maxSlots` for the active profile
 - Per-action placement override (monitor + slotMode) for the active profile
 - **Identify Monitors** — flashes each display's CPL number + resolution on-screen for ~2.5s, so you can map numbering (X-then-Y) to physical screens

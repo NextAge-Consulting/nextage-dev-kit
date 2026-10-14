@@ -111,7 +111,7 @@ const harness = "test/{define,globalSetup,integration-helpers,test-utils,auth-mo
 // (typescript-rules.md, the logger), and the claude-design engine — whose code
 // lives under .claude/ — drives esbuild (stack-manifest.json).
 const ignoreDependencies = ["pino-pretty", ...(uiPackage ? ["esbuild"] : [])];
-// commitlint.yml installs commitlint at run time (stack-manifest.json, installedBy ci).
+// pr-title.yml installs commitlint at run time (stack-manifest.json, installedBy ci).
 // psql is the PostgreSQL client the machine provides, which no package.json can declare.
 const ignoreBinaries = ["commitlint", "psql"];
 

@@ -41,7 +41,7 @@ If branch is identical to main, stop and report.
 
 ### Step 3: Generate PR title
 
-Conventional format: `<emoji> <type>: <description>`. Must match commitlint rules — the CI `commitlint.yml` check will block merge if malformed. Subject <72 chars, imperative mood.
+Conventional format: `<emoji> <type>: <description>`. Must match commitlint rules — the CI `pr-title.yml` check will block merge if malformed. Subject <72 chars, imperative mood.
 
 **Do NOT include issue numbers in the title** (no `#123`, no `(#123)`, no `123:` prefix). A PR may name multiple issues; embedding one number is misleading. Issue linkage lives in the `Closes #N` line auto-prepended to the PR body — the record `/deploy` reads to find what shipped. Whether merging closes the issue is the repository's auto-close setting, not this command's.
 
@@ -219,7 +219,7 @@ If the user runs `/triage` and lands a fix commit via `/commit --review`, that p
 
 On PR open:
 - `ci.yml` runs typecheck + Biome + Semgrep + tests (if installed)
-- `commitlint.yml` validates the PR title format (if installed)
+- `pr-title.yml` validates the PR title format (if installed)
 
 `changelog.md` is **not** modified on the feature branch. It receives one consolidated release entry at `/deploy` time, covering every commit since the last `v*.*.*` tag — see pipeline.md §2.1.
 

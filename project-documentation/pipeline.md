@@ -111,7 +111,7 @@ The migrate workflow body is project-owned and MUST exit 0 on a no-op and non-ze
 | Snyk | Redundant with Dependabot + surfacing + Semgrep at small-shop scale. Upgrade path is a 5-seat-minimum cliff. |
 | Socket.dev | Zero unique signal above Dependabot on a clean codebase; free tier truncates the dep tree; adds per-release triage cost. |
 
-**CI (`ci.yml`) runs every check that can tell, and fails rather than passing unlooked.** A `detect` job names the stacks present and notes the ones it skips. The `check-types` job applies when `package.json` declares `check-types` or the repository has TypeScript sources (`.ts`, `.tsx`, `.mts`, `.cts` outside `node_modules`, `.claude` and `dist`; the kit's `knip.config.ts` does not count) — then a missing script fails it; otherwise it passes saying check-types does not apply, and the commit gate does the same. The `biome` job runs `lint:tokens` and `lint:design` whenever `design.md` exists at the repository root, and a missing script fails it. The `vitest` job always runs a declared `test` script; without one it fails when the root package or a workspace holds a vitest config or a `*.test.*` / `*.spec.*` file, and otherwise passes saying it does not apply — tests inside a nested directory with its own `package.json` that is no workspace belong to that package. It also fails when the repository has `*.integration.test.ts` files and the `NEON_API_KEY` or `NEON_PROJECT_ID` secret is empty, because the integration project would otherwise drop out and the run pass green; Dependabot PRs, which GitHub runs without secrets, are the exception. The `python` job typechecks from the repository root whenever a root `pyproject.toml` or `pyrightconfig.json` exists, with the commit gate's choice of checker — pyright, else mypy — and fails on any error. Pyright is the stack manifest's pin (`pyright`, `installedBy: ci`), installed over any version the project declares; the commit gate runs the pyright installed locally and warns when it differs from the pin. The `knip` job runs knip when `KNIP_GATE` is `"true"`, passes with a notice when the project has decided against the gate, passes with a warning while the key is undecided, and fails on any other value (§3.9). The `project` job holds the repository's own CI steps in its `project-steps` region, which sync carries across kit updates.
+**CI (`ci.yml`) runs every check that can tell, and fails rather than passing unlooked.** A `detect` job names the stacks present and notes the ones it skips. GitHub bills each job by the minute, rounded up, so the Node checks that finish in seconds run as steps of one `node-checks` job — `dep-alignment`, `workspace-tiers`, `stack-standard`, `check-types`, `biome`, the design checks and `knip`. Each step runs even when an earlier one failed, so one run reports every failure, and any failed step fails the job. The `check-types` step applies when `package.json` declares `check-types` or the repository has TypeScript sources (`.ts`, `.tsx`, `.mts`, `.cts` outside `node_modules`, `.claude` and `dist`; the kit's `knip.config.ts` does not count) — then a missing script fails it; otherwise it passes saying check-types does not apply, and the commit gate does the same. The design-checks step runs `lint:tokens` and `lint:design` whenever `design.md` exists at the repository root, and a missing script fails it. The `vitest` job always runs a declared `test` script; without one it fails when the root package or a workspace holds a vitest config or a `*.test.*` / `*.spec.*` file, and otherwise passes saying it does not apply — tests inside a nested directory with its own `package.json` that is no workspace belong to that package. It also fails when the repository has `*.integration.test.ts` files and the `NEON_API_KEY` or `NEON_PROJECT_ID` secret is empty, because the integration project would otherwise drop out and the run pass green; Dependabot PRs, which GitHub runs without secrets, are the exception. The `python` job typechecks from the repository root whenever a root `pyproject.toml` or `pyrightconfig.json` exists, with the commit gate's choice of checker — pyright, else mypy — and fails on any error. Pyright is the stack manifest's pin (`pyright`, `installedBy: ci`), installed over any version the project declares; the commit gate runs the pyright installed locally and warns when it differs from the pin. The `knip` step runs knip when `KNIP_GATE` is `"true"`, passes with a notice when the project has decided against the gate, passes with a warning while the key is undecided, and fails on any other value (§3.9). The `project` job holds the repository's own CI steps in its `project-steps` region, which sync carries across kit updates; `detect` skips it while the region holds only the kit's placeholder step.
 
 **Revisit threshold for the rejected dep-security tools:** a real supply-chain incident slipping through Dependabot + cooldown + surfacing + Semgrep. The kit's cross-file caller analysis (what paid review vendors charge for) is handled in-house by constitution §XIV at edit time.
 
@@ -471,7 +471,7 @@ For a project whose Prod is its own environment, `/deploy` releases to Test and 
 
 The workflow and config templates reach a project with the kit and land in `.github/`, `.gemini/` and the repo root. The files in the project are authoritative; the snippets here are documentation.
 
-## 3.1 `commitlint.yml`
+## 3.1 `pr-title.yml`
 
 **PR-title validator (conventional commits). Title ONLY — not branch commits.**
 
@@ -486,7 +486,7 @@ Fires on `pull_request: opened/edited/synchronize/reopened`. Pipes the PR title 
 
 **Required `permissions:` block.** The workflow declares `permissions: { contents: read, pull-requests: read }`. Kept even though the inline approach only reads `github.event.pull_request.title` — cheap, documented, explicit.
 
-**Job name kept as `lint`** so the GitHub status check name stays `commitlint / lint`. `/merge` self-gates by reading the PR's check-runs by name; renaming the job changes the check name and can let a merge slip through without the gate seeing it.
+**Its own workflow, not a `ci.yml` job.** It must re-run when the title is edited, because editing the title is how a failed check gets fixed. `ci.yml` does not run on `edited`; adding it there would re-run every test on each title or description edit, and `cancel-in-progress` would cancel a test run still going.
 
 **`.commitlintrc.json` requires a custom `parserPreset`.** The gitflow commit format is emoji-prefix (`✨ feat: ...`, `🐛 fix: ...`), which stock `@commitlint/config-conventional` rejects because its default `headerPattern` expects the type token at position 0. The template ships a `parserOpts.headerPattern` that tolerates an optional leading emoji cluster before the type. Keep this in sync with the commit format in the gitflow skill's `references/commit-types.md` — if the commit format changes, the parser regex must change too.
 
@@ -579,7 +579,7 @@ less context than the person who built it, so a gate either stops them shipping 
 teaches them to bypass it. The cadence is honour-system by design; the document's job
 is to make "did we do it" answerable, not enforced.
 
-## 3.6 `dep-alignment` job + `scripts/check-dep-alignment.mjs` (cross-workspace dependency-version gate)
+## 3.6 `dep-alignment` check + `scripts/check-dep-alignment.mjs` (cross-workspace dependency-version gate)
 
 Monorepo invariant enforcement: every shared dependency is declared at **one** version across all workspaces. Version skew across apps produces runtime failures no other check catches, and Dependabot *creates* that skew because it bumps each manifest independently. This gate is the safety net. Full discipline (trust-but-verify, solid-version philosophy, the "logged-in not 200" verification standard, accepted-residuals handling) lives in **`dependency-management.md`**.
 
@@ -587,7 +587,7 @@ Monorepo invariant enforcement: every shared dependency is declared at **one** v
 
 **Lives at** `scripts/check-dep-alignment.mjs`, arriving with the kit.
 
-**CI wiring.** The `dep-alignment` job in `ci.yml` is Node-gated (`needs: detect`, `if: needs.detect.outputs.node == 'true'`), so a Python-only consumer skips it cleanly — it never blocks a non-Node repo (testing.md §1 "Wiring CI"; a skipped job is neutral, and `/merge` self-gates only on the check-runs that actually report). The job runs `node scripts/check-dep-alignment.mjs` directly (no `npm ci`).
+**CI wiring.** `dep-alignment` is a step of `ci.yml`'s `node-checks` job, which is Node-gated (`needs: detect`, `if: needs.detect.outputs.node == 'true'`), so a Python-only consumer skips it cleanly — it never blocks a non-Node repo (testing.md §1 "Wiring CI"; a skipped job is neutral, and `/merge` self-gates only on the check-runs that actually report). The step runs `node scripts/check-dep-alignment.mjs` directly, before `npm ci`.
 
 **Local convenience.** Consumers add to root `package.json`:
 
@@ -595,7 +595,7 @@ Monorepo invariant enforcement: every shared dependency is declared at **one** v
 "scripts": { "check:deps": "node scripts/check-dep-alignment.mjs" }
 ```
 
-so `npm run check:deps` reproduces the CI gate locally. The CI job calls the script directly and does NOT depend on this npm script existing, but adopting it is the documented convention (the script's failure message and `dependency-management.md §1` both assume `npm run check:deps`).
+so `npm run check:deps` reproduces the CI gate locally. The CI step calls the script directly and does NOT depend on this npm script existing, but adopting it is the documented convention (the script's failure message and `dependency-management.md §1` both assume `npm run check:deps`).
 
 **Updating a shared dep:** bump it to the same version in *every* workspace that declares it in one change, run `npm run check:deps` (must be ✓), then verify per `dependency-management.md §5`. Never bump one workspace and not the others — the gate fails the PR, by design.
 
@@ -710,7 +710,7 @@ Each dev's noise tolerance differs. This section maps every email GitHub sends o
 
 **Verifying your config:** check `https://github.com/notifications` shortly after a known-noisy event (open a draft PR, push to it). If something showed up that you tried to mute, the relevant setting is one of the rows above; trace the trigger column to the source.
 
-## 3.9 `knip` job + `knip.config.ts` (unused-code gate)
+## 3.9 `knip` check + `knip.config.ts` (unused-code gate)
 
 **What it catches.** Unused files, exports, types and dependencies, and imports of packages a workspace never declares — across workspaces, which neither `tsc` nor Biome sees.
 
@@ -722,14 +722,14 @@ Each dev's noise tolerance differs. This section maps every email GitHub sends o
 
 **The gate is the project's call, `KNIP_GATE`.** A codebase reaches zero findings once, in a cleanup, and the gate holds it there.
 
-| `KNIP_GATE` | The `knip` job |
+| `KNIP_GATE` | The `knip` step |
 |---|---|
-| `"true"` | Runs knip, prints each finding type with its count and annotates the PR; any finding fails the job |
+| `"true"` | Runs knip, prints each finding type with its count and annotates the PR; any finding fails the step, and so the `node-checks` job |
 | empty, listed in `_intentionally_empty` | Passes with a notice that the gate is off |
 | missing, or empty and unlisted | Passes with a warning naming the key — undecided, and re-surfaced every sync |
 | anything else | Fails |
 
-**The version is the stack manifest's** (`knip`, `installedBy: ci`). The job runs `npx --yes knip@<version>`, and `stack-standard` fails when the workflow names any other.
+**The version is the stack manifest's** (`knip`, `installedBy: ci`). The step runs `npx --yes knip@<version>`, and `stack-standard` fails when the workflow names any other.
 
 **Run it locally** from the repo root, after `npm install`:
 

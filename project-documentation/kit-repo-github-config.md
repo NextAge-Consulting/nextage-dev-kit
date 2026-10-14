@@ -58,8 +58,8 @@ Pushes branch, creates PR, prepends `Closes #N` from any branch-linked issues it
 
 | Workflow | Why not installed here |
 |----------|------------------------|
-| `ci.yml` | Its Node and Python jobs key off a `package.json` or `pyproject.toml` the kit does not have and would skip, leaving only `semgrep` and an empty `project` job. |
-| `commitlint.yml` | Optional. Nothing local validates commit messages — `/commit` composes a conventional one from `commit-types.md` — and the workflow checks only PR titles. Would need `.commitlintrc.json` at root. Install if a PR-title backstop is wanted. |
+| `ci.yml` | Its Node and Python jobs key off a `package.json` or `pyproject.toml` the kit does not have and would skip, leaving only `semgrep`. |
+| `pr-title.yml` | Optional. Nothing local validates commit messages — `/commit` composes a conventional one from `commit-types.md` — and the workflow checks only PR titles. Would need `.commitlintrc.json` at root. Install if a PR-title backstop is wanted. |
 
 Version bump and tag are **not** workflows and are not coming back as workflows — they
 live in the local `/deploy` command, single-writer and human-serialized (pipeline.md §2.1,
@@ -76,7 +76,7 @@ Run through this when adding/modifying anything in the kit. If any row answers *
 | Adding a new rule, skill, command, or hook under `_claude-project/` | ❌ No | Template-only — ships to consumers. Kit repo runs its own mirror copy. |
 | Adding a new workflow to `_github-project/workflows/` | ❌ No (ships to consumers) | Only install in kit if it's useful on a manifest-less repo (rare). |
 | Adding a `package.json` / `pyproject.toml` / `biome.json` to the kit root | ✅ **Yes** | `/commit` typecheck + biome gates now fire locally, and `ci.yml` becomes worth installing. |
-| Adding `.github/workflows/commitlint.yml` to kit | ✅ **Yes** | Needs `.commitlintrc.json` at kit root. |
+| Adding `.github/workflows/pr-title.yml` to kit | ✅ **Yes** | Needs `.commitlintrc.json` at kit root. |
 | Making kit public OR moving to a paid plan | ⚠️ Mostly no | Branch protection would become *available*, but the pipeline uses none — so there is nothing to apply. The only thing to watch: don't enable require-PR, or the direct-push paths (`/ship-main`, and `/deploy` if ever run against the kit's own repo) break. `/sync-dev-kit` does no git (you land its changes with `/ship-main`). `enforce_admins` is irrelevant — nothing admin-merges. |
 | Changing kit's merge method away from squash | ✅ **Yes** | `merge.sh` calls `gh pr merge --squash`. Repo must keep squash-merge enabled. |
 | Disabling delete-branch-on-merge | ⚠️ Cosmetic | `merge.sh` passes `--delete-branch` explicitly, so local merges still delete. Repo-wide hygiene only. |

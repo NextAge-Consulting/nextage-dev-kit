@@ -1,9 +1,10 @@
 # CI: stack-detected checks on every PR targeting main.
 #
 # The repo's stack is auto-detected by file presence — NO per-project config:
-#   - Node    (root `package.json`)      → dep-alignment, workspace-tiers,
-#                                           stack-standard, check-types, biome,
-#                                           vitest, knip
+#   - Node    (root `package.json`)      → node-checks (dep-alignment,
+#                                           workspace-tiers, stack-standard,
+#                                           check-types, biome, knip as steps
+#                                           of one job), then vitest
 #   - Python  (any `pyproject.toml`)      → ruff + pytest via uv, in each
 #                                           pyproject dir (monorepo layouts like
 #                                           services/<x>/ work with zero config);
@@ -20,18 +21,26 @@
 #
 # The kit owns every line of this file outside the `project:begin` /
 # `project:end` markers. The `project` job's region holds this repo's own CI
-# steps; /sync-dev-kit carries them across kit updates.
+# steps; /sync-dev-kit carries them across kit updates. A region holding only
+# the kit's placeholder step skips the job.
+#
+# GitHub bills each job by the minute, rounded up, so a check that finishes in
+# seconds still bills a whole minute as a job of its own. Small checks that
+# share a toolchain run as steps of one job; a job of its own is for a check
+# that is long (vitest), needs other tooling (python, terraform, semgrep) or
+# applies to a stack another job does not.
 #
 # Detection runs in a fast `detect` job (it checks out and sets outputs); the
-# stack jobs gate on `needs.detect.outputs.*`. We do NOT gate on `hashFiles()`
+# stack jobs and the project job gate on `needs.detect.outputs.*`. A gated-out
+# job never starts a runner, so it bills nothing. We do NOT gate on `hashFiles()`
 # at job level — the workspace isn't checked out when job `if:` is evaluated, so
 # hashFiles would be empty and every job would skip.
 #
 # A gated-out job reports "skipped" (neutral) — harmless: the pipeline uses no
-# branch protection (pipeline.md §1.1), and `/merge` self-gates on the check-runs
-# it actually finds, blocking on any failure. A skipped job is not a failure, so
-# it never blocks; there are no GitHub-required checks to wait forever on a
-# never-run job, and nothing to promote.
+# branch protection (pipeline.md §1.1), and `/merge` self-gates on every
+# check-run it finds, whatever its name, blocking on any failure. A skipped job
+# is not a failure, so it never blocks; there are no GitHub-required checks to
+# wait forever on a never-run job, and nothing to promote.
 #
 # NOTE: `/deploy` and `/ship-main` push DIRECTLY to main (no PR), so this
 # `pull_request`-triggered workflow never runs on a release or ship-main commit.
@@ -56,6 +65,7 @@ jobs:
       node: ${{ steps.d.outputs.node }}
       python: ${{ steps.d.outputs.python }}
       terraform: ${{ steps.d.outputs.terraform }}
+      project: ${{ steps.d.outputs.project }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       - id: d
@@ -73,113 +83,45 @@ jobs:
           if find . -name '*.tf' -not -path '*/.terraform/*' | grep -q .; then
             terraform=true
           fi
+          # The project job runs when its region holds anything besides the
+          # kit's placeholder step.
+          project=true
+          region=$(sed -n '/^[[:space:]]*# project:begin project-steps$/,/^[[:space:]]*# project:end project-steps$/p' .github/workflows/ci.yml \
+            | sed -e 's/^[[:space:]]*//' | { grep -vE '^(#|$)' || true; })
+          placeholder='- name: no project steps
+          run: echo "::notice::This repository adds no CI steps of its own."'
+          placeholder=$(printf '%s\n' "$placeholder" | sed -e 's/^[[:space:]]*//')
+          if [ -z "$region" ] || [ "$region" = "$placeholder" ]; then
+            project=false
+          fi
           {
             echo "node=$node"
             echo "python=$python"
             echo "terraform=$terraform"
+            echo "project=$project"
           } >> "$GITHUB_OUTPUT"
-          echo "detected: node=$node python=$python terraform=$terraform"
+          echo "detected: node=$node python=$python terraform=$terraform project=$project"
           skipped=""
-          [ "$node" = true ]   || skipped="$skipped Node (no root package.json: dep-alignment, workspace-tiers, stack-standard, check-types, biome, vitest, knip)"
+          [ "$node" = true ]   || skipped="$skipped Node (no root package.json: node-checks, vitest)"
           [ "$python" = true ] || skipped="$skipped Python (no pyproject.toml: ruff, pytest, typecheck)"
           [ "$terraform" = true ] || skipped="$skipped Terraform (no *.tf: fmt, validate)"
+          [ "$project" = true ] || skipped="$skipped project (no project steps in the project-steps region)"
           if [ -n "$skipped" ]; then
-            echo "::notice::Stacks not detected, their jobs are skipped:$skipped"
+            echo "::notice::Not detected, so their jobs are skipped:$skipped"
           fi
 
-  # Monorepo invariant: every shared dependency is ONE version across all
-  # workspaces. Dependabot bumps each manifest independently and cannot see
-  # cross-app drift, so this gate is what screams the moment a dep diverges — the
-  # class of skew that causes "works in one app, breaks in another" outages. No
-  # install needed; the script only reads package.json files. On a single-package
-  # repo (no `workspaces`) it's a guaranteed pass. Discipline: DEPENDENCY-
-  # MANAGEMENT.md in the kit. Ships via _claude-project/templates/scripts/.
-  dep-alignment:
-    name: dep-alignment
-    needs: detect
-    if: ${{ needs.detect.outputs.node == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
-        with:
-          node-version: '24'
-      - run: node scripts/check-dep-alignment.mjs
-
-  # The one invariant: database code and browser code never share a package.
-  # The script DETECTS which tiers exist (server-shared, ui, web, headless apps)
-  # and enforces only the walls the repo actually has — a repo with no shared
-  # workspace is a guaranteed pass, so this runs unconditionally like
-  # dep-alignment. Doctrine: .claude/rules/ui-design.md, "The client/server
-  # wall". Ships via _claude-project/templates/scripts/.
-  workspace-tiers:
-    name: workspace-tiers
-    needs: detect
-    if: ${{ needs.detect.outputs.node == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
-        with:
-          node-version: '24'
-      - run: node scripts/check-workspace-tiers.mjs
-
-  # TanStack publishes no LTS — no `lts` dist-tag, no support window, just one
-  # rolling line per library. So the KIT is the LTS: one blessed version per
-  # package in .claude/stack-manifest.json and every project runs it. This
-  # gate enforces exact pins (a caret range drifts off the blessed version on a
-  # fresh install), keeps banned form libraries out (`npx shadcn add form` pulls
-  # react-hook-form as a hard dep, which type-checks and builds and surfaces
-  # months later), and fails when a front-end app has never ANSWERED the
-  # form-library question. Hermetic: no network, reads manifests only. A repo
-  # with no @tanstack/* dependency exits 0 in silence. Ships via
-  # _claude-project/templates/scripts/.
-  stack-standard:
-    name: stack-standard
-    needs: detect
-    if: ${{ needs.detect.outputs.node == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
-        with:
-          node-version: '24'
-      - run: node scripts/check-stack.mjs
-
-  # Applies when package.json declares `check-types` or the repository has
-  # TypeScript sources of its own — then a missing script fails. The commit gate
-  # asks the same question (gitflow gates.sh has_typescript_sources); the root
-  # knip.config.ts is the kit's, not the project's.
-  check-types:
-    name: check-types
-    needs: detect
-    if: ${{ needs.detect.outputs.node == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-      - id: applies
-        name: does check-types apply
-        run: |
-          set -euo pipefail
-          ts=$(git ls-files -- '*.ts' '*.tsx' '*.mts' '*.cts' | { grep -vE '(^|/)(node_modules|\.claude|dist)/' || true; } | { grep -vxF knip.config.ts || true; })
-          if jq -e '.scripts["check-types"] | strings' package.json >/dev/null || [ -n "$ts" ]; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::check-types does not apply: no TypeScript sources."
-          fi
-      - if: steps.applies.outputs.run == 'true'
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
-        with:
-          node-version: '24'
-          cache: npm
-      - if: steps.applies.outputs.run == 'true'
-        run: npm ci
-      - if: steps.applies.outputs.run == 'true'
-        run: npm run check-types
-
-  biome:
-    name: biome
+  # The Node checks run as steps of ONE job. GitHub bills every job by the
+  # minute, rounded up, and each of these finishes in seconds — six jobs billed
+  # six minutes for well under one of work, each with its own checkout and
+  # install. One job checks out and installs once.
+  #
+  # Every step after setup carries `!cancelled()`, so a failing check does not
+  # skip the rest: one run reports every failure, as separate jobs would. The
+  # job fails when any step fails. The steps that need dependencies also need
+  # the install to have succeeded — a failed `npm ci` is reported once, by its
+  # own step, not again by every check behind it.
+  node-checks:
+    name: node-checks
     needs: detect
     if: ${{ needs.detect.outputs.node == 'true' }}
     runs-on: ubuntu-latest
@@ -193,25 +135,88 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-      - run: npm ci
+
+      # Monorepo invariant: every shared dependency is ONE version across all
+      # workspaces. Dependabot bumps each manifest independently and cannot see
+      # cross-app drift, so this gate is what screams the moment a dep diverges —
+      # the class of skew that causes "works in one app, breaks in another"
+      # outages. It reads package.json files only, so it runs before the install.
+      # On a single-package repo (no `workspaces`) it's a guaranteed pass.
+      # Discipline: DEPENDENCY-MANAGEMENT.md in the kit. Ships via
+      # _claude-project/templates/scripts/.
+      - name: dep-alignment
+        if: ${{ !cancelled() }}
+        run: node scripts/check-dep-alignment.mjs
+
+      # The one invariant: database code and browser code never share a package.
+      # The script DETECTS which tiers exist (server-shared, ui, web, headless
+      # apps) and enforces only the walls the repo actually has — a repo with no
+      # shared workspace is a guaranteed pass. Doctrine: .claude/rules/ui-design.md,
+      # "The client/server wall". Ships via _claude-project/templates/scripts/.
+      - name: workspace-tiers
+        if: ${{ !cancelled() }}
+        run: node scripts/check-workspace-tiers.mjs
+
+      # TanStack publishes no LTS — no `lts` dist-tag, no support window, just one
+      # rolling line per library. So the KIT is the LTS: one blessed version per
+      # package in .claude/stack-manifest.json and every project runs it. This
+      # gate enforces exact pins (a caret range drifts off the blessed version on
+      # a fresh install), keeps banned form libraries out (`npx shadcn add form`
+      # pulls react-hook-form as a hard dep, which type-checks and builds and
+      # surfaces months later), and fails when a front-end app has never ANSWERED
+      # the form-library question. Hermetic: no network, reads manifests only. A
+      # repo with no @tanstack/* dependency exits 0 in silence. Ships via
+      # _claude-project/templates/scripts/.
+      - name: stack-standard
+        if: ${{ !cancelled() }}
+        run: node scripts/check-stack.mjs
+
+      - id: install
+        name: npm ci
+        if: ${{ !cancelled() }}
+        run: npm ci
+
+      # Applies when package.json declares `check-types` or the repository has
+      # TypeScript sources of its own — then a missing script fails. The commit
+      # gate asks the same question (gitflow gates.sh has_typescript_sources); the
+      # root knip.config.ts is the kit's, not the project's.
+      - id: types
+        name: does check-types apply
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          ts=$(git ls-files -- '*.ts' '*.tsx' '*.mts' '*.cts' | { grep -vE '(^|/)(node_modules|\.claude|dist)/' || true; } | { grep -vxF knip.config.ts || true; })
+          if jq -e '.scripts["check-types"] | strings' package.json >/dev/null || [ -n "$ts" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::check-types does not apply: no TypeScript sources."
+          fi
+      - name: check-types
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.types.outputs.run == 'true' }}
+        run: npm run check-types
+
       # `@biomejs/biome` explicitly, and `--no-install`. A bare `npx biome`
       # resolves to an UNRELATED package of that name on npm, which accepts
-      # `lint` as an unknown command and EXITS 0 — so this job reported success
+      # `lint` as an unknown command and EXITS 0 — so the check reported success
       # without linting. Worse on a runner than locally: without `--no-install`,
       # npx DOWNLOADS and executes whatever the registry currently serves under
       # that name, install scripts included, inside a checked-out repo.
-      # `--no-install` makes the job fail when the linter is not a declared
+      # `--no-install` makes the step fail when the linter is not a declared
       # devDependency, which is the correct outcome: a gate that cannot run must
       # not pass.
-      - run: npx --no-install @biomejs/biome lint
+      - name: biome
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npx --no-install @biomejs/biome lint
       # Every design token family is set by a role (the design-system skill).
       # Biome cannot see this: a raw `text-sm` or `rounded-[6px]` is valid
       # Tailwind and valid TSX, and it is exactly how one thing ends up at four
       # sizes. A repo with a design.md has a design system, so both checks are
-      # required and a missing script fails the job: `lint:tokens` runs the
+      # required and a missing script fails the step: `lint:tokens` runs the
       # kit's token checker, `lint:design` validates design.md against its
-      # spec. Without a design.md neither applies, and the job says so.
+      # spec. Without a design.md neither applies, and the step says so.
       - name: design checks
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           DESIGN_TOKENS_BASE: ${{ format('origin/{0}', github.base_ref) }}
         run: |
@@ -221,6 +226,49 @@ jobs:
           else
             echo "::notice::No design.md at the repository root, so the design checks (lint:tokens, lint:design) do not apply."
           fi
+
+      # Unused code: files, exports, types and dependencies nothing uses, and
+      # imports of packages a workspace never declares. The kit's knip.config.ts
+      # is the whole configuration — there is no per-project ignore list, so a
+      # finding that is not dead code is a kit defect to raise, never a line to
+      # silence here. The gate is the project's call, KNIP_GATE in
+      # .claude/sync-substitutions.json, because a codebase reaches zero findings
+      # once, in a cleanup, before the gate can hold it there (pipeline.md §3.9).
+      # The knip version is the stack manifest's.
+      - id: knip-gate
+        name: KNIP_GATE
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          subs=.claude/sync-substitutions.json
+          gate=""
+          listed=false
+          if [ -f "$subs" ]; then
+            gate=$(jq -r '.KNIP_GATE // ""' "$subs")
+            listed=$(jq -r '(._intentionally_empty // []) | index("KNIP_GATE") != null' "$subs")
+          fi
+          case "$gate" in
+            true)
+              echo "run=true" >> "$GITHUB_OUTPUT" ;;
+            "")
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              if [ "$listed" = true ]; then
+                echo "::notice::KNIP_GATE is off for this repository (listed in _intentionally_empty), so unused code is not gated."
+              else
+                echo "::warning::KNIP_GATE is undecided in .claude/sync-substitutions.json, so unused code is not gated. Reach zero knip findings, then set it to \"true\" — or list it in _intentionally_empty to decide against the gate."
+              fi ;;
+            *)
+              echo "::error::KNIP_GATE is \"$gate\" — the only values are \"true\", or empty and listed in _intentionally_empty."
+              exit 1 ;;
+          esac
+      # The symbols reporter heads each finding type with its count; the
+      # github-actions reporter puts every finding on the PR diff. Exit 1 on
+      # any finding, 2 when knip itself cannot run — both fail the step. Knip
+      # loads the project's Vite and Vitest configs, which import its installed
+      # packages, so it needs the install.
+      - name: knip
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.knip-gate.outputs.run == 'true' }}
+        run: npx --yes knip@5.88.1 --no-progress --no-config-hints --reporter symbols --reporter github-actions
 
   vitest:
     name: vitest
@@ -301,60 +349,6 @@ jobs:
           fi
       - if: steps.applies.outputs.run == 'true'
         run: npm test
-
-  # Unused code: files, exports, types and dependencies nothing uses, and imports
-  # of packages a workspace never declares. The kit's knip.config.ts is the whole
-  # configuration — there is no per-project ignore list, so a finding that is not
-  # dead code is a kit defect to raise, never a line to silence here. The gate is
-  # the project's call, KNIP_GATE in .claude/sync-substitutions.json, because a
-  # codebase reaches zero findings once, in a cleanup, before the gate can hold it
-  # there (pipeline.md §3.9). The knip version is the stack manifest's.
-  knip:
-    name: knip
-    needs: detect
-    if: ${{ needs.detect.outputs.node == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-      - id: gate
-        name: KNIP_GATE
-        run: |
-          set -euo pipefail
-          subs=.claude/sync-substitutions.json
-          gate=""
-          listed=false
-          if [ -f "$subs" ]; then
-            gate=$(jq -r '.KNIP_GATE // ""' "$subs")
-            listed=$(jq -r '(._intentionally_empty // []) | index("KNIP_GATE") != null' "$subs")
-          fi
-          case "$gate" in
-            true)
-              echo "run=true" >> "$GITHUB_OUTPUT" ;;
-            "")
-              echo "run=false" >> "$GITHUB_OUTPUT"
-              if [ "$listed" = true ]; then
-                echo "::notice::KNIP_GATE is off for this repository (listed in _intentionally_empty), so unused code is not gated."
-              else
-                echo "::warning::KNIP_GATE is undecided in .claude/sync-substitutions.json, so unused code is not gated. Reach zero knip findings, then set it to \"true\" — or list it in _intentionally_empty to decide against the gate."
-              fi ;;
-            *)
-              echo "::error::KNIP_GATE is \"$gate\" — the only values are \"true\", or empty and listed in _intentionally_empty."
-              exit 1 ;;
-          esac
-      - if: steps.gate.outputs.run == 'true'
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
-        with:
-          node-version: '24'
-          cache: npm
-      # Knip loads the project's Vite and Vitest configs, which import its
-      # installed packages.
-      - if: steps.gate.outputs.run == 'true'
-        run: npm ci
-      # The symbols reporter heads each finding type with its count; the
-      # github-actions reporter puts every finding on the PR diff. Exit 1 on
-      # any finding, 2 when knip itself cannot run — both fail the job.
-      - if: steps.gate.outputs.run == 'true'
-        run: npx --yes knip@5.88.1 --no-progress --no-config-hints --reporter symbols --reporter github-actions
 
   python:
     name: python
@@ -498,8 +492,12 @@ jobs:
   # This repository's own CI steps. Everything between the markers belongs to
   # the project and survives every kit sync; the job around them is the kit's.
   # The checkout is done — a step that needs Node or Python sets it up first.
+  # Replace the placeholder step with the project's own and the job runs;
+  # `detect` skips it while the placeholder is all the region holds.
   project:
     name: project
+    needs: detect
+    if: ${{ needs.detect.outputs.project == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
