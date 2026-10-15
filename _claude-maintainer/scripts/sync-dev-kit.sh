@@ -13,7 +13,9 @@
 #                           the patch it sanctioned is gone. Prints the entry removed, so
 #                           the caller can close its project issue.
 #   --apply-gitignore       Append missing .gitignore-additions entries to project .gitignore.
-#   --finalize              Update lockfile kit commit SHA + timestamp after all decisions applied.
+#   --migration-done <name> Record that a migration the scan listed has been run in this sync.
+#   --finalize              Update lockfile kit commit SHA + timestamp after all decisions applied,
+#                           carrying any listed migration not run to the next sync.
 #
 # Claude invokes --scan, reviews the report interactively with the user, invokes
 # --apply-file for each accepted change, then invokes --finalize at the end.
@@ -33,13 +35,14 @@ while [[ $# -gt 0 ]]; do
         --decline-file)     MODE="decline"; APPLY_FILE="$2"; shift 2 ;;
         --remove-patch)     MODE="remove-patch"; APPLY_FILE="$2"; shift 2 ;;
         --apply-gitignore)  MODE="apply-gitignore"; shift 1 ;;
+        --migration-done)   MODE="migration-done"; APPLY_FILE="$2"; shift 2 ;;
         --finalize)         MODE="finalize"; shift 1 ;;
         *) echo "sync-dev-kit.sh: unknown option: $1" >&2; exit 2 ;;
     esac
 done
 
 if [ -z "$MODE" ]; then
-    echo "sync-dev-kit.sh: mode required (--scan | --apply-file <path> | --ack-file <path> | --decline-file <path> | --remove-patch <dest> | --apply-gitignore | --finalize)" >&2
+    echo "sync-dev-kit.sh: mode required (--scan | --apply-file <path> | --ack-file <path> | --decline-file <path> | --remove-patch <dest> | --apply-gitignore | --migration-done <name> | --finalize)" >&2
     exit 2
 fi
 
@@ -950,6 +953,46 @@ update_lockfile_file() {
     mv "$tmp" "$LOCKFILE"
 }
 
+# ─── Migrations ────────────────────────────────────────────────────────────
+# A migration is a folder under _claude-maintainer/migrations/ holding a PROMPT.md: the
+# instructions /sync-dev-kit runs in the consumer's session, after the files are applied.
+# The project's lastSyncedCommit is its version, as in an ORM: the migrations to run are
+# the ones the kit added after it, oldest first, plus any an earlier sync carried forward
+# unrun (`pendingMigrations`), less those already run in this sync (`migrationsDone`,
+# cleared by --finalize). A first sync runs none: the project starts on the current kit.
+MIGRATIONS_DIR="_claude-maintainer/migrations"
+
+# Names of the migrations the kit added after <commit>, oldest first. Fails when the
+# commit is not in the kit's history, since the project's version then cannot be read.
+migrations_added_since() {
+    local since="$1" out
+    [ -z "$since" ] && return 0
+    git -C "$KIT_PATH" cat-file -e "${since}^{commit}" 2>/dev/null || return 1
+    out=$(git -C "$KIT_PATH" log --reverse --diff-filter=A --name-only --format= "${since}..HEAD" -- "$MIGRATIONS_DIR") || return 1
+    printf '%s\n' "$out" | sed -n "s#^${MIGRATIONS_DIR}/\([^/]*\)/PROMPT\.md\$#\1#p"
+}
+
+# The migrations this project has still to run, oldest first, one name per line.
+pending_migrations() {
+    local since added carried ran name seen=" "
+    [ -f "$LOCKFILE" ] || return 0
+    since=$(jq -r '.lastSyncedCommit // ""' "$LOCKFILE")
+    if ! added=$(migrations_added_since "$since"); then
+        echo "sync-dev-kit.sh: this project's lastSyncedCommit ($since) is not in the kit's history, so the migrations since then cannot be read. Pull the kit, or correct the lockfile by hand." >&2
+        return 1
+    fi
+    carried=$(jq -r '(.pendingMigrations // [])[]' "$LOCKFILE")
+    ran=" $(jq -r '(.migrationsDone // []) | join(" ")' "$LOCKFILE") "
+    while IFS= read -r name; do
+        [ -z "$name" ] && continue
+        case "$seen" in *" $name "*) continue ;; esac
+        seen="$seen$name "
+        case "$ran" in *" $name "*) continue ;; esac
+        [ -f "$KIT_PATH/$MIGRATIONS_DIR/$name/PROMPT.md" ] || continue
+        echo "$name"
+    done <<<"$(printf '%s\n%s\n' "$carried" "$added")"
+}
+
 # ---------------------------------------------------------------------------
 # Mode: scan
 # ---------------------------------------------------------------------------
@@ -965,6 +1008,13 @@ if [ "$MODE" = "scan" ]; then
     if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
         KIT_CLEAN=false
     fi
+    # A migration is read from the kit's commits, so one the kit has not committed is never run.
+    UNCOMMITTED_MIGRATIONS="[]"
+    for mig in "$MIGRATIONS_DIR"/*/; do
+        [ -f "${mig}PROMPT.md" ] || continue
+        git cat-file -e "HEAD:${mig}PROMPT.md" 2>/dev/null && continue
+        UNCOMMITTED_MIGRATIONS=$(jq -c --arg n "$(basename "$mig")" '. + [$n]' <<<"$UNCOMMITTED_MIGRATIONS")
+    done
 
     KIT_BEHIND=false
     git fetch origin >/dev/null 2>&1 || true
@@ -1237,6 +1287,10 @@ if [ "$MODE" = "scan" ]; then
         done <<< "$LOCKED_FILES"
     fi
 
+    if ! MIGRATIONS=$(pending_migrations); then exit 5; fi
+    MIGRATIONS_JSON=$(printf '%s\n' "$MIGRATIONS" | jq -R -s -c --arg dir "${KIT_PATH}/${MIGRATIONS_DIR}" \
+        '[split("\n")[] | select(. != "") | {name: ., prompt: ($dir + "/" + . + "/PROMPT.md")}]')
+
     GITIGNORE_ADDITIONS_FILE="${KIT_PATH}/_claude-project/templates/.gitignore-additions"
     MISSING_ENTRIES="[]"
     if [ -f "$GITIGNORE_ADDITIONS_FILE" ]; then
@@ -1259,9 +1313,11 @@ if [ "$MODE" = "scan" ]; then
         --argjson unmapped "$UNMAPPED" \
         --argjson unconfigured "$UNCONFIGURED" \
         --argjson stale_patches "$STALE_PATCHES" \
+        --argjson migrations "$MIGRATIONS_JSON" \
+        --argjson migrations_uncommitted "$UNCOMMITTED_MIGRATIONS" \
         --arg repo_kind "$REPO_KIND" \
         --argjson repo_kind_skipped "$REPO_KIND_SKIPPED" \
-        '{kit_path: $kit_path, kit_commit: $kit_commit, kit_clean: $kit_clean, kit_behind_remote: $kit_behind, repo_kind: $repo_kind, skipped_by_repo_kind: $repo_kind_skipped, files: $files, gitignore_additions_missing: $gitignore_missing, unmapped_templates: $unmapped, skipped_unconfigured: $unconfigured, stale_patches: $stale_patches}'
+        '{kit_path: $kit_path, kit_commit: $kit_commit, kit_clean: $kit_clean, kit_behind_remote: $kit_behind, repo_kind: $repo_kind, skipped_by_repo_kind: $repo_kind_skipped, files: $files, gitignore_additions_missing: $gitignore_missing, unmapped_templates: $unmapped, skipped_unconfigured: $unconfigured, stale_patches: $stale_patches, migrations_pending: $migrations, migrations_uncommitted: $migrations_uncommitted}'
 
     exit 0
 fi
@@ -1577,6 +1633,23 @@ if [ "$MODE" = "apply-gitignore" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Mode: migration-done
+#
+# The scan listed a migration and this sync ran it. Recorded until --finalize, which
+# moves lastSyncedCommit past it; a migration the sync did not run is carried forward.
+# ---------------------------------------------------------------------------
+
+if [ "$MODE" = "migration-done" ]; then
+    [ -z "$APPLY_FILE" ] && { echo "sync-dev-kit.sh: --migration-done requires a migration name" >&2; exit 2; }
+    [ -f "${KIT_PATH}/${MIGRATIONS_DIR}/${APPLY_FILE}/PROMPT.md" ] || { echo "sync-dev-kit.sh: the kit has no migration named $APPLY_FILE" >&2; exit 4; }
+    [ -f "$LOCKFILE" ] || { echo "sync-dev-kit.sh: no lockfile — a first sync runs no migrations" >&2; exit 4; }
+    tmp=$(mktemp)
+    jq --arg m "$APPLY_FILE" '.migrationsDone = (((.migrationsDone // []) + [$m]) | unique)' "$LOCKFILE" > "$tmp" && mv "$tmp" "$LOCKFILE"
+    echo "sync-dev-kit.sh: recorded migration $APPLY_FILE as run" >&2
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
 # Mode: finalize
 # ---------------------------------------------------------------------------
 
@@ -1592,6 +1665,11 @@ if [ "$MODE" = "finalize" ]; then
     fi
 
     NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Read before lastSyncedCommit moves: a migration listed and not run is carried to
+    # the next sync rather than passed over.
+    if ! UNRUN=$(pending_migrations); then exit 5; fi
+    UNRUN_JSON=$(printf '%s\n' "$UNRUN" | jq -R -s -c '[split("\n")[] | select(. != "")]')
 
     # ─── Backfill: record every already-matching kit file ──────────────────
     #
@@ -1689,13 +1767,18 @@ if [ "$MODE" = "finalize" ]; then
 
     tmp=$(mktemp)
     jq --arg repo "$KIT_REMOTE" --arg commit "$KIT_COMMIT" --arg ts "$NOW" \
-        --argjson backfill "$BACKFILL" --argjson stale "$STALE" \
+        --argjson backfill "$BACKFILL" --argjson stale "$STALE" --argjson unrun "$UNRUN_JSON" \
         '.kitRepo = $repo | .lastSyncedCommit = $commit | .lastSyncedAt = $ts
-         | .files = ((.files + $backfill) | with_entries(select(.key as $k | $stale | index($k) == null)))' \
+         | .files = ((.files + $backfill) | with_entries(select(.key as $k | $stale | index($k) == null)))
+         | del(.migrationsDone)
+         | if ($unrun | length) > 0 then .pendingMigrations = $unrun else del(.pendingMigrations) end' \
         "$LOCKFILE" > "$tmp"
     mv "$tmp" "$LOCKFILE"
 
     echo "sync-dev-kit.sh: lockfile finalized (kit commit $KIT_COMMIT)" >&2
+    if [ -n "$UNRUN" ]; then
+        echo "sync-dev-kit.sh: carried to the next sync, not run: $(printf '%s' "$UNRUN" | tr '\n' ' ')" >&2
+    fi
     if [ "$BACKFILL_N" -gt 0 ]; then
         echo "sync-dev-kit.sh: baselined $BACKFILL_N already-matching file(s) that had no lockfile entry — the kit can now propagate their deletion." >&2
     fi

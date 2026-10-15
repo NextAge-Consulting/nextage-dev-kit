@@ -116,8 +116,9 @@ guide wherever it lays screens out as fixed-size artboards per device on one can
 
 1. Set the design keys in `.claude/sync-substitutions.json` — `DESIGN_UI_PACKAGE`,
    `DESIGN_FEED_BARREL`, `DESIGN_TOKEN_FILES`, `DESIGN_TYPE_FILE` and `DESIGN_STYLES_FILE`
-   for the engine, and `DESIGN_SOURCE_DIRS` through `DESIGN_EXEMPT_COMPONENTS` for the
-   token checker. The catalog's `_placeholders_referenced_by_kit` says what each holds.
+   for the engine, and `DESIGN_VENDORED_DIR` through `DESIGN_EXEMPT_COMPONENTS` for the
+   token checker, which finds the UI source itself: the UI package and every workspace
+   depending on it by name. The catalog's `_placeholders_referenced_by_kit` says what each holds.
    `/sync-dev-kit` then lands the type-emit `tsconfig.types.json` in
    `<UI package>/design-system/`.
 2. Copy `references/config-example.mjs` to `<UI package>/design-system/design-system.config.mjs`,

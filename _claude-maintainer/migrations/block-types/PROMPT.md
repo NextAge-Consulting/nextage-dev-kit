@@ -1,16 +1,14 @@
 # Migration: block types, parts and feature folders
 
-The maintainer pastes everything below the line into a consumer project's Claude session, on the maintainer machine. The session brings `main` level, syncs the kit, then migrates. A project whose `DESIGN_UI_PACKAGE` is intentionally empty and that has no component or pattern files needs none of it: both checks pass saying they do not apply.
+`/sync-dev-kit` runs everything below the line in the consumer project's session, once it has applied the kit's files. A project whose `DESIGN_UI_PACKAGE` is intentionally empty and that has no component or pattern files needs none of it: both checks pass saying they do not apply.
 
 ---
 
 Bring this project's UI onto the kit's block types. Work through every step below to the end. Make no git commits — leave everything uncommitted for me to review.
 
-## 0. Start on a clean, current main, then sync
+## 0. Start on a clean, current main
 
-`git status` must show `main` with nothing uncommitted. Run `git fetch origin`; when `main` is behind, bring it level with `git pull --ff-only origin main`. On another branch, with uncommitted work, or with a pull that will not fast-forward, stop and ask me — sync and migrate nothing until I have cleared it.
-
-Then run `/sync-dev-kit` and apply everything it offers. When auto mode refuses `sync-dev-kit.sh --apply-file`, ask me to approve it; never work around it.
+`git status` must show `main` with nothing uncommitted beyond the files this sync applied. Run `git fetch origin`; when `main` is behind, stop and ask me — migrate nothing until I have cleared it. On another branch, stop and ask me the same.
 
 Read these next, in full: `.claude/skills/design-system/references/block-types.md`, the `design-system` skill's Step 2, the `ui-patterns` skill's "Adding a reference", and the "How this list works" section of `.claude/rules/project/ui-inventory.md`. Invoke the `rule-authoring` skill before editing the inventory or a pattern reference.
 

@@ -59,7 +59,8 @@ changed until you approve it.
    project's token stylesheet and writes `design.md` from it.
 3. **Run `/design-audit system`.** Your theme covers colour, type and radius; it says
    nothing about spacing roles, focus, motion, badges and the rest. The audit lists each
-   place the kit has an opinion your system lacks, and you adopt them one by one.
+   place the kit has an opinion your system lacks, and you adopt them one by one. It then
+   checks your parts and your patterns against the system, in that order.
 4. **Start building.** Anything still missing is filled in the first time a screen needs
    it (below).
 
@@ -75,7 +76,7 @@ changed until you approve it.
 4. **Leave the old screens alone until you have time for them.** The checks at every commit
    judge only the lines that change, so existing screens never block your work, and nothing
    new can break the system. When you can spend time on an area, audit it
-   (`/design-audit project <path>`) and bring it into line.
+   (`/design-audit screens <path>`) and bring it into line.
 
 ### Where a value comes from after that
 
@@ -101,9 +102,10 @@ is written where your system holds the value. The kit never chooses your colours
 
 | Run | When |
 |---|---|
-| `/design-audit system` | After you set up or merge a design system; after a kit update adds opinions; whenever the system feels like it has drifted |
-| `/design-audit project` | When you have time to bring the whole app into line with the system |
-| `/design-audit project <path>` | When you have time for one area of it — an app, a folder, a set of screens |
+| `/design-audit system` | After you set up or merge a design system; after a kit update adds opinions; whenever the system feels like it has drifted. Checks the tokens, then the parts, then the patterns |
+| `/design-audit patterns` | After you write or change a UI pattern, to check it asks only for what the tokens and parts are for |
+| `/design-audit screens` | When you have time to bring the whole app into line with the system and its patterns |
+| `/design-audit screens <path>` | When you have time for one area of it — an app, a folder, a set of screens |
 | `/design-audit design <name or url>` | Before implementing a Claude Design design, to check it uses the system as it stands |
 
 The system audit checks three things only: whether your system is complete, whether it

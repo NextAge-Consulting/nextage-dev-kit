@@ -28,9 +28,10 @@ const P = '_claude-project'
 
 // What each check reads, so a change to it — or to a module it imports — replays it.
 const BLOCK_TYPES = [`${P}/skills/design-system/scripts/block-types.mjs`, `${P}/skills/design-system/references/block-types.md`]
+const UI_SOURCES = `${P}/skills/design-system/scripts/ui-sources.mjs`
 const CHECKS = [
-  { name: 'token check', files: [`${P}/skills/design-system/scripts/check-design-tokens.mjs`, `${P}/skills/claude-design/scripts/resolve.mjs`, ...BLOCK_TYPES], run: tokenCheck },
-  { name: 'comparison tool', files: [`${P}/skills/design-system/scripts/compare-ui-values.mjs`, `${P}/skills/design-system/scripts/check-design-tokens.mjs`], run: compareTool },
+  { name: 'token check', files: [`${P}/skills/design-system/scripts/check-design-tokens.mjs`, `${P}/skills/claude-design/scripts/resolve.mjs`, UI_SOURCES, ...BLOCK_TYPES], run: tokenCheck },
+  { name: 'comparison tool', files: [`${P}/skills/design-system/scripts/compare-ui-values.mjs`, `${P}/skills/design-system/scripts/check-design-tokens.mjs`, UI_SOURCES], run: compareTool },
   { name: 'UI status check', files: [`${P}/skills/ui-patterns/scripts/check-ui-status.mjs`, ...BLOCK_TYPES], run: statusCheck },
   { name: 'knip config', files: [`${P}/templates/knip.config.ts`], run: knipConfig },
   { name: 'check-stack', files: [`${P}/templates/scripts/check-stack.mjs`, `${P}/stack-manifest.json`], run: (o, n, c) => scriptCheck('check-stack.mjs', o, n, c) },

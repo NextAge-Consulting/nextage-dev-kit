@@ -1,6 +1,6 @@
 # Migration: UI status and the plain UI inventory
 
-The maintainer pastes everything below the line into a consumer project's Claude session, on the maintainer machine, after `/sync-dev-kit` has landed the kit version that ships `.claude/skills/ui-patterns/scripts/check-ui-status.mjs`. A project with no component or pattern files needs none of it: the check passes saying it does not apply.
+`/sync-dev-kit` runs everything below the line in the consumer project's session, once it has landed the kit version that ships `.claude/skills/ui-patterns/scripts/check-ui-status.mjs`. A project with no component or pattern files needs none of it: the check passes saying it does not apply.
 
 ---
 

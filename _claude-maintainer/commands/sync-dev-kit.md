@@ -25,6 +25,7 @@ Run the scan mode of the sync script:
 Parse the JSON output. Top-level fields:
 
 - `kit_clean` — `false` means the kit repo has uncommitted changes. Warn the user; suggest they commit kit work before syncing (otherwise the baseline they establish now will drift).
+- `migrations_uncommitted` — migrations in the kit's working tree that the kit has never committed. Sync runs only committed migrations, so these never run in this sync. When it is non-empty, stop before Step 1.5: name each one, say it will not run, and tell the user to commit the kit and sync again. Continue only on their explicit word.
 - `kit_behind_remote` — `true` means the kit repo is behind its remote. Warn the user to `git pull` the kit before syncing.
 - `kit_commit` — the kit HEAD SHA at scan time. This becomes the new lockfile baseline after `--finalize`.
 - `files` — array of per-file state entries.
@@ -33,6 +34,7 @@ Parse the JSON output. Top-level fields:
 - `skipped_unconfigured` — `{kit_path, key}` for each kit file skipped because the setting its destination depends on (`SHARED_MODULE_DIR`, `DB_ENGINE`, `DESIGN_UI_PACKAGE`, `DESIGN_FEED_BARREL`) is empty or rules it out. List them once, so the user knows what the setting costs.
 - `repo_kind` and `skipped_by_repo_kind` — the project's `REPO_KIND` and how many application-tooling files it skipped as an `org` repo. Say the count once; never list the files.
 - `stale_patches` — patch register entries that sanction nothing, each with the file's `current_state` (Step 2.2).
+- `migrations_pending` — `{name, prompt}` for each migration the kit added since this project last synced, oldest first, after any an earlier sync carried forward (Step 5.5).
 
 The scan also bootstraps `.claude/sync-substitutions.json` from the kit template if it doesn't exist. Look for `sync-dev-kit.sh: bootstrapped .claude/sync-substitutions.json` on stderr — that's the signal that this is a first-time sync and Step 1.5 is going to have work to do.
 
@@ -248,6 +250,16 @@ If `gitignore_additions_missing` is non-empty:
 - Ask: "Add these to `.gitignore`?"
 - On accept: `~/.claude/scripts/sync-dev-kit.sh --apply-gitignore`
 
+### Step 5.5: Run the migrations
+
+Every migration in `migrations_pending` runs in this session, in order, once the files are applied. For each:
+
+1. Read its `prompt` file in full. Tell the user, in a sentence, what it changes.
+2. Carry out everything below its `---` line as the user's instruction.
+3. When it is done, record it: `~/.claude/scripts/sync-dev-kit.sh --migration-done <name>`.
+
+A migration the user chooses to leave is not recorded. `--finalize` carries it to the next sync, which lists it first.
+
 ### Step 6: Finalize
 
 After all decisions processed, ALWAYS run:
@@ -256,7 +268,7 @@ After all decisions processed, ALWAYS run:
 ~/.claude/scripts/sync-dev-kit.sh --finalize
 ```
 
-`--finalize` does ONE thing: **stamps the lockfile** — sets `lastSyncedCommit` and `lastSyncedAt` (the per-file SHAs are already current because `--apply-file` updated them incrementally).
+`--finalize` **stamps the lockfile** — sets `lastSyncedCommit` and `lastSyncedAt` (the per-file SHAs are already current because `--apply-file` updated them incrementally) — and records in `pendingMigrations` any migration this sync listed and did not run.
 
 **Sync does NOT commit or push.** It applies kit updates to the working tree and stamps the lockfile — that's all. Committing is gitflow's job, not sync's. After `--finalize`, the synced `.claude/` files plus the lockfile bump are a normal uncommitted change in the working tree.
 
@@ -274,6 +286,7 @@ Summarize:
 - Files applied (count + list)
 - Files skipped with state
 - .gitignore entries added
+- Migrations run, and any carried to the next sync
 - Lockfile kit commit SHA (before vs after)
 - That the synced files are **uncommitted in the working tree** — and that `/ship-main` will land them (sync does not commit)
 
@@ -287,10 +300,10 @@ Summarize:
 
 ## What this command does NOT do
 
-- **Does not change the project's code.** A check the sync just landed may fail on code
-  that predates it — a new lint plugin, a stricter tier rule, a new gate. List each such
-  failure in the Step 7 report and stop: fixing it is the project work the maintainer
-  starts next (a kit migration prompt, or the next task), in this same project, under
+- **Does not change the project's code beyond its migrations.** A check the sync just
+  landed may fail on code that predates it — a new lint plugin, a stricter tier rule, a new
+  gate — that no migration covers. List each such failure in the Step 7 report and stop:
+  fixing it is the project work the maintainer starts next, in this same project, under
   §XII. The sync's body of work ends at `--finalize`.
 - Does not push the kit itself — user handles kit repo separately.
 - Does not edit files in the kit — purely a pull-from-kit operation. Kit-shared changes are made in the kit source and arrive here on the next sync.

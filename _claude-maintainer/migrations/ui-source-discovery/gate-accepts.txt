@@ -1,0 +1,5 @@
+# The token check now reads every workspace that depends on the UI package. An app the
+# project's old folder list left out is checked for the first time; what it holds today is
+# what this migration's prompt fixes.
+a call site never repaints a component's colour
+a frame atom is used only inside a part

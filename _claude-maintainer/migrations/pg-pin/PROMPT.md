@@ -1,6 +1,6 @@
 # Migration: pin pg to the kit's blessed version
 
-The maintainer pastes everything below the line into a consumer project's Claude session, on the maintainer machine, after `/sync-dev-kit` has landed the kit version whose `stack-manifest.json` blesses `pg`. A project that declares no `pg` dependency needs nothing.
+`/sync-dev-kit` runs everything below the line in the consumer project's session, once it has landed the kit version whose `stack-manifest.json` blesses `pg`. A project that declares no `pg` dependency needs nothing.
 
 ---
 

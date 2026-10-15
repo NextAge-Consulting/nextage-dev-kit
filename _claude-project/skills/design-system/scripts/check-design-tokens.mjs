@@ -4,6 +4,7 @@
  *
  *   node .claude/skills/design-system/scripts/check-design-tokens.mjs [--base <ref> | --all]   (npm run lint:tokens)
  *   node .claude/skills/design-system/scripts/check-design-tokens.mjs --roles [--repo <root>]   (every role, one family per line)
+ *   node .claude/skills/design-system/scripts/check-design-tokens.mjs --purposes [--repo <root>]   (every token and utility with what it is for)
  *
  * The screen rules judge only lines changed since --base (or DESIGN_TOKENS_BASE; default:
  * where this work left origin/main), so new code is held to the design language and an
@@ -16,12 +17,12 @@
  * finding, and the good sets are read live from the CSS, so a new role is allowed
  * the moment it is defined and a deleted one fails the moment it is gone.
  *
- * The project's values come from .claude/sync-substitutions.json:
+ * The source checked is the UI package and every workspace depending on it, found by
+ * ui-sources.mjs. The project's values come from .claude/sync-substitutions.json:
  *   DESIGN_UI_PACKAGE          the UI package, from the repository root
  *   DESIGN_TOKEN_FILES         its token stylesheets (light and dark blocks), from the package
  *   DESIGN_TYPE_FILE           its type-role stylesheet, from the package
  *   DESIGN_STYLES_FILE         its Tailwind entry (theme, utilities, aliases), from the package
- *   DESIGN_SOURCE_DIRS         the source trees whose .ts/.tsx are checked, from the root
  *   DESIGN_VENDORED_DIR        the vendored atoms (shadcn), from the root; empty for none
  *   DESIGN_VENDORED_RESTYLED   "true" when those atoms are restyled onto the roles at
  *                              source, so every class rule applies to them; empty
@@ -49,6 +50,7 @@
  *   contrast   every text pair — design.md components' textColor on backgroundColor, and
  *              --<x>-foreground on --<x> — measures 4.5:1 in each theme, or its text
  *              token's line marks the ratio accepted (contrast.mjs);
+ *   patterns   every type role, token and component a pattern reference names in code exists;
  *   design.md  every token reference and quoted class exists, every type and radius
  *              role has its frontmatter entry, every pixel value in the frontmatter is
  *              on the grid;
@@ -73,12 +75,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parseTokenBlocks } from '../../claude-design/scripts/resolve.mjs'
 import { atomModule, readBlockTypes } from './block-types.mjs'
 import { contrastProblems } from './contrast.mjs'
+import { uiSourceDirs } from './ui-sources.mjs'
 
 export const KEYS = [
-  'DESIGN_UI_PACKAGE', 'DESIGN_TOKEN_FILES', 'DESIGN_TYPE_FILE', 'DESIGN_STYLES_FILE', 'DESIGN_SOURCE_DIRS',
-  'DESIGN_VENDORED_DIR', 'DESIGN_VENDORED_RESTYLED', 'DESIGN_FIELD_LOOK_CLASSES', 'DESIGN_EXEMPT_COMPONENTS',
+  'DESIGN_UI_PACKAGE', 'DESIGN_TOKEN_FILES', 'DESIGN_TYPE_FILE', 'DESIGN_STYLES_FILE', 'DESIGN_VENDORED_DIR',
+  'DESIGN_VENDORED_RESTYLED', 'DESIGN_FIELD_LOOK_CLASSES', 'DESIGN_EXEMPT_COMPONENTS',
 ]
-const REQUIRED = new Set(['DESIGN_UI_PACKAGE', 'DESIGN_TOKEN_FILES', 'DESIGN_SOURCE_DIRS'])
+const REQUIRED = new Set(['DESIGN_UI_PACKAGE', 'DESIGN_TOKEN_FILES'])
 
 /** `text-*` utilities that are not typography: alignment, wrapping, keywords. */
 const NON_TYPE = new Set([
@@ -177,14 +180,67 @@ export function rolesOf(css) {
   }
 }
 
-/** The project's roles as the classes a screen writes, one family per line — what the
- * design review is handed so it never guesses what exists. Null when the keys are unset. */
-export function roleList(repo) {
+/** The stylesheets the design keys name, as [file, text]. Null when the keys are unset. */
+function designStylesheets(repo) {
   const { keys, problems } = readKeys(repo)
   if (!keys || problems.length) return null
   const pkgRel = keys.DESIGN_UI_PACKAGE.replace(/\/$/, '')
   const rels = [...new Set([...keys.DESIGN_TOKEN_FILES.split(/\s+/), keys.DESIGN_TYPE_FILE, keys.DESIGN_STYLES_FILE].filter(Boolean))]
-  const css = rels.map((r) => path.join(repo, pkgRel, r)).filter(existsSync).map((f) => [f, readFileSync(f, 'utf8')])
+  return rels.map((r) => path.join(repo, pkgRel, r)).filter(existsSync).map((f) => [f, readFileSync(f, 'utf8').replace(/\r\n/g, '\n')])
+}
+
+/** What each custom property and utility is for: the comment on its line or the comment
+ * directly above it, from the first stylesheet that gives one. A re-export with no comment
+ * of its own (`--spacing-x: var(--x)`) carries the purpose of what it points at. */
+export function purposesOf(css) {
+  const out = new Map()
+  const pointsAt = new Map()
+  for (const [, src] of css) {
+    const lines = src.split('\n')
+    let above = null
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim()
+      if (line.startsWith('/*')) {
+        let text = line
+        while (!text.includes('*/') && i + 1 < lines.length) text += ` ${lines[++i].trim()}`
+        above = text.replace(/^\/\*+\s*/, '').replace(/\s*\*\/.*$/, '').replace(/\s*\*\s+/g, ' ').trim()
+        continue
+      }
+      const decl = line.match(/^(--[A-Za-z0-9-]+)\s*:([^;]*);\s*(?:\/\*\s*(.*?)\s*\*\/)?/)
+      const util = line.match(/^@utility\s+([a-z][a-z0-9-]*)\s*\{/)
+      const name = decl?.[1] ?? util?.[1]
+      if (name) {
+        const purpose = decl?.[3] || above || ''
+        if (!out.get(name)) out.set(name, purpose)
+        const target = decl?.[2].trim().match(/^var\((--[A-Za-z0-9-]+)\)$/)?.[1]
+        if (target && target !== name && !pointsAt.has(name)) pointsAt.set(name, target)
+      }
+      if (line) above = null
+    }
+  }
+  for (const [name, target] of pointsAt) {
+    let to = target
+    for (let hops = 0; !out.get(name) && to && hops < 8; hops++) {
+      if (out.get(to)) out.set(name, out.get(to))
+      to = pointsAt.get(to)
+    }
+  }
+  return out
+}
+
+/** Each token and utility with what it is for, one per line — what the design review is
+ * handed to judge whether a role is used for its job. Null when the keys are unset. */
+export function rolePurposes(repo) {
+  const css = designStylesheets(repo)
+  if (!css) return null
+  return [...purposesOf(css)].map(([name, purpose]) => `${name} — ${purpose || '(no purpose written)'}`).join('\n')
+}
+
+/** The project's roles as the classes a screen writes, one family per line — what the
+ * design review is handed so it never guesses what exists. Null when the keys are unset. */
+export function roleList(repo) {
+  const css = designStylesheets(repo)
+  if (!css) return null
   const r = rolesOf(css)
   const line = (label, set, prefix = '') => `${label}: ${[...set].sort().map((n) => `${prefix}${n}`).join(' ') || '(none)'}`
   return [
@@ -591,14 +647,14 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
   for (const s of styleRels) if (!existsSync(path.join(repo, s))) problems.push(`${s}  — a stylesheet the design keys name, not found`)
   const css = styleRels.filter((s) => existsSync(path.join(repo, s))).map((s) => [s, readFileSync(path.join(repo, s), 'utf8').replace(/\r\n/g, '\n')])
 
-  const sourceDirs = list(keys.DESIGN_SOURCE_DIRS)
-  for (const d of sourceDirs) if (!existsSync(path.join(repo, d))) problems.push(`${d}  — a DESIGN_SOURCE_DIRS entry, not found`)
+  const { dirs: sourceDirs, problems: sourceProblems } = uiSourceDirs(repo, pkgRel)
+  if (sourceProblems.length) return { problems: [...problems, ...sourceProblems], notes, counts: null }
   const sourceFiles = [
     ...new Set(sourceDirs.flatMap((d) => globSync(`${d}/**/*.{ts,tsx}`, { cwd: repo }).map(posix))),
   ].filter((f) => !/\.(gen|generated)\.ts$/.test(f) && !/\/node_modules\//.test(f))
 
   if (!css.length || !sourceFiles.length) {
-    problems.push(`scanned ${sourceFiles.length} source file(s) under ${sourceDirs.join(', ') || '(none)'} and ${css.length} stylesheet(s) — nothing to check means the design keys point at the wrong paths`)
+    problems.push(`scanned ${sourceFiles.length} source file(s) under ${sourceDirs.join(', ') || '(none)'} and ${css.length} stylesheet(s) — nothing to check means the design keys point at the wrong paths, or no workspace depends on the UI package`)
     return { problems, notes, counts: null }
   }
   const designPath = 'design.md'
@@ -940,6 +996,54 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
   for (const s of contrast.skipped) notes.push(`contrast: skipped ${s}`)
   for (const e of contrast.exempt) notes.push(`contrast: exempt ${e} — an inactive control's text (WCAG 1.4.3)`)
 
+  // --- the patterns name only what exists ------------------------------------
+  // A role, token or component a pattern reference names in code is one the system has:
+  // a type role the stylesheets define, a custom property they declare, a component the
+  // UI source defines or imports. A property is checked only in a family the stylesheets
+  // declare (`--color-*`, `--radius-*`); another family is a library's own (`--radix-*`).
+  // Whether a name is the right one is the design review's call.
+  const patternsDir = path.join(repo, '.claude/skills/ui-patterns/references')
+  const patternFiles = existsSync(patternsDir) ? readdirSync(patternsDir).filter((f) => f.endsWith('.md') && f !== 'README.md').sort() : []
+  if (patternFiles.length) {
+    const components = new Set()
+    for (const src of sources.values()) {
+      for (const m of src.matchAll(/export\s+(?:default\s+)?(?:async\s+)?(?:function|const|class)\s+([A-Z]\w*)/g)) components.add(m[1])
+      for (const m of src.matchAll(/(?:export|import)\s+(?:type\s+)?\{([^}]+)\}/g))
+        for (const n of m[1].split(',')) {
+          const id = n.trim().split(/\s+as\s+/).pop()
+          if (/^[A-Z]/.test(id)) components.add(id)
+        }
+      for (const m of src.matchAll(/import\s+([A-Z]\w*)\s*(?:,|\s+from)/g)) components.add(m[1])
+    }
+    const properties = new Set()
+    for (const [, src] of css) for (const m of src.matchAll(/(--[A-Za-z0-9-]+)\s*:/g)) properties.add(m[1])
+    const family = (name) => name.slice(2).split('-')[0]
+    const families = new Set([...properties].map(family))
+    for (const f of patternFiles) {
+      const at = `.claude/skills/ui-patterns/references/${f}`
+      const lines = readFileSync(path.join(patternsDir, f), 'utf8').replace(/\r\n/g, '\n').split('\n')
+      let fenced = false
+      lines.forEach((line, i) => {
+        if (/^\s*```/.test(line)) {
+          fenced = !fenced
+          return
+        }
+        if (/design-accepted/.test(line) || /design-accepted/.test(lines[i - 1] ?? '')) return
+        for (const code of fenced ? [line] : [...line.matchAll(/`([^`]+)`/g)].map((m) => m[1])) {
+          for (const m of code.matchAll(/(?<![\w-])(type-[a-z0-9-]*[a-z0-9])/g))
+            if (!typeRoles.has(m[1])) add(`${at}:${i + 1}`, m[1], 'a pattern names a type role the stylesheets do not define')
+          for (const m of code.matchAll(/(?<![\w-])(--[A-Za-z][A-Za-z0-9-]*[A-Za-z0-9])/g))
+            if (families.has(family(m[1])) && !properties.has(m[1])) add(`${at}:${i + 1}`, m[1], 'a pattern names a token the stylesheets do not declare')
+          // An element is code: a fenced block, or an inline span that opens with it. A
+          // generic (`Column<Row>`) or a label template (`Download <Document> PDF`) is not.
+          if (!fenced && !code.trimStart().startsWith('<')) continue
+          for (const m of code.matchAll(/(?<![\w.])<([A-Z][A-Za-z0-9]*)(?=[\s/>])/g))
+            if (!components.has(m[1])) add(`${at}:${i + 1}`, `<${m[1]}>`, 'a pattern names a component the UI source neither defines nor imports')
+        }
+      })
+    }
+  }
+
   // --- design.md describes what the code is ---------------------------------
   if (design !== null) {
     const lineOf = (i) => design.slice(0, i).split('\n').length
@@ -1063,6 +1167,7 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
       themes: contrast.themes,
       generated: generatedChecked,
       projectChecks: projectChecks.length,
+      patterns: patternFiles.length,
     },
   }
 }
@@ -1071,9 +1176,10 @@ async function main() {
   // The repository root, from this script's own place: .claude/skills/design-system/scripts/.
   const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
   const argv = process.argv.slice(2)
-  if (argv.includes('--roles')) {
+  if (argv.includes('--roles') || argv.includes('--purposes')) {
     const at = argv.indexOf('--repo')
-    const roles = roleList(at >= 0 ? path.resolve(argv[at + 1]) : repo)
+    const of = at >= 0 ? path.resolve(argv[at + 1]) : repo
+    const roles = argv.includes('--purposes') ? rolePurposes(of) : roleList(of)
     if (!roles) {
       console.error('design roles: the design keys in .claude/sync-substitutions.json are not set')
       process.exit(2)
@@ -1098,7 +1204,7 @@ async function main() {
   console.log(
     `✓ design tokens: scanned ${counts.sourceFiles} source files (${counts.lines} lines), ${counts.stylesheets} stylesheets and design.md; ` +
       `${counts.classesChecked} classes checked against ${counts.typeRoles} type roles, ${counts.radius} radius, ${counts.weight} weight, ` +
-      `${counts.colours} colours; ${counts.tokens} tokens resolve; ${counts.contrastPairs} text pairs measured in ${counts.themes} theme(s) (${counts.contrastMeasured} measurements); ${counts.generated} generated files current; ${counts.projectChecks} project checks`,
+      `${counts.colours} colours; ${counts.tokens} tokens resolve; ${counts.contrastPairs} text pairs measured in ${counts.themes} theme(s) (${counts.contrastMeasured} measurements); ${counts.generated} generated files current; ${counts.projectChecks} project checks; ${counts.patterns} pattern references`,
   )
 }
 

@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { checkDesignTokens, NOT_SET_UP, parityProblems } from './check-design-tokens.mjs'
+import { checkDesignTokens, NOT_SET_UP, parityProblems, purposesOf } from './check-design-tokens.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ENGINE = path.resolve(HERE, '../../claude-design/scripts')
@@ -16,7 +16,6 @@ const KEYS = {
   DESIGN_TOKEN_FILES: 'src/tokens.css',
   DESIGN_TYPE_FILE: 'src/type.css',
   DESIGN_STYLES_FILE: 'src/styles.css',
-  DESIGN_SOURCE_DIRS: 'apps/web/src packages/ui/src',
   DESIGN_VENDORED_DIR: 'packages/ui/src/components/ui',
   DESIGN_VENDORED_RESTYLED: 'true',
   DESIGN_FIELD_LOOK_CLASSES: 'border-input bg-field type-form-control',
@@ -157,6 +156,9 @@ function fixture(files = {}, { keys = KEYS } = {}) {
   const all = {
     '.claude/sync-substitutions.json': JSON.stringify(keys, null, 2),
     'design.md': DESIGN,
+    'package.json': '{ "workspaces": ["apps/*", "packages/*"] }\n',
+    'packages/ui/package.json': '{ "name": "@acme/ui" }\n',
+    'apps/web/package.json': '{ "name": "web", "dependencies": { "@acme/ui": "*" } }\n',
     'packages/ui/src/tokens.css': TOKENS,
     'packages/ui/src/type.css': TYPE,
     'packages/ui/src/styles.css': STYLES,
@@ -199,14 +201,25 @@ test('a stylesheet named by two keys is read once', async () => {
 
 test('a missing design key fails by name', async () => {
   const keys = { ...KEYS }
-  delete keys.DESIGN_SOURCE_DIRS
+  delete keys.DESIGN_TOKEN_FILES
   const { problems } = await run({}, { keys })
-  assert.deepEqual(problems, ['DESIGN_SOURCE_DIRS: not set in .claude/sync-substitutions.json'])
+  assert.deepEqual(problems, ['DESIGN_TOKEN_FILES: not set in .claude/sync-substitutions.json'])
 })
 
-test('a source dir that does not exist fails by name', async () => {
-  const { problems } = await run({}, { keys: { ...KEYS, DESIGN_SOURCE_DIRS: 'apps/web/src apps/gone/src' } })
-  assert.ok(problems.some((p) => /apps\/gone\/src {2}— a DESIGN_SOURCE_DIRS entry, not found/.test(p)))
+test('every app depending on the UI package is checked without being listed; one that does not is not read', async () => {
+  const { problems } = await run({
+    'apps/admin/package.json': '{ "name": "admin", "devDependencies": { "@acme/ui": "*" } }\n',
+    'apps/admin/src/screen.tsx': 'export const S = () => <p className="text-sm" />\n',
+    'apps/worker/package.json': '{ "name": "worker" }\n',
+    'apps/worker/src/mail.tsx': 'export const M = () => <p className="text-sm" />\n',
+  })
+  assert.ok(problems.some((p) => p.startsWith('apps/admin/src/screen.tsx:1  text-sm')), problems.join('\n'))
+  assert.ok(!problems.some((p) => p.startsWith('apps/worker/')), problems.join('\n'))
+})
+
+test('a UI package its dependants cannot be found by fails by name', async () => {
+  const { problems } = await run({ 'packages/ui/package.json': '{}\n' })
+  assert.ok(problems.some((p) => /packages\/ui\/package\.json {2}— has no "name"/.test(p)), problems.join('\n'))
 })
 
 for (const [name, cls, why] of [
@@ -567,7 +580,6 @@ const CONFIG = `export default {
 
 async function withConfig(extra = {}) {
   const dir = fixture({
-    'packages/ui/package.json': '{ "name": "ui" }\n',
     'packages/ui/design-system/design-system.config.mjs': CONFIG,
     ...extra,
   })
@@ -770,4 +782,43 @@ test('a class list built as an array and joined is read as classes', async () =>
     'packages/ui/src/components/banner.tsx': "export const B = ({ on }) => <div className={['flex rounded-lg', 'shadow-lg', on && 'text-sm'].filter(Boolean).join(' ')} />\n",
   })
   assert.deepEqual(problems.map((p) => p.split('  ')[1]).sort(), ['rounded-lg', 'shadow-lg', 'text-sm'])
+})
+
+test('purposes: the comment above or beside a token or utility, a re-export taking what it points at, a gap left empty', () => {
+  const p = purposesOf([
+    ['tokens.css', ':root {\n  /* ─── ramp ─── */\n  /* the page */\n  --background: #fff;\n  --input: #ccc; /* a field\'s border */\n\n  --step-12: 12px;\n}\n'],
+    ['type.css', '/* why a field\'s value was refused,\n   and nothing else */\n@utility type-field-error {\n  font-size: var(--step-12);\n}\n'],
+    ['styles.css', '@theme {\n  --color-background: var(--background);\n  --color-x: var(--nowhere);\n}\n'],
+  ])
+  assert.equal(p.get('--background'), 'the page')
+  assert.equal(p.get('--input'), "a field's border")
+  assert.equal(p.get('--step-12'), '')
+  assert.equal(p.get('type-field-error'), "why a field's value was refused, and nothing else")
+  assert.equal(p.get('--color-background'), 'the page')
+  assert.equal(p.get('--color-x'), '')
+})
+
+test('patterns: every type role, token and component a reference names in code exists; a library variable and an accepted line pass', async () => {
+  const ref = (body) => ({ '.claude/skills/ui-patterns/references/save-errors.md': `---\nui-status: approved\nblock-types: cross-cutting\n---\n\n${body}\n` })
+  const run1 = async (body) => (await run(ref(body))).problems.filter((p) => p.startsWith('.claude/skills/ui-patterns/'))
+  assert.deepEqual(await run1('A failed save uses `type-body` and `--radius-panel`, never `type-caption`.'), [
+    '.claude/skills/ui-patterns/references/save-errors.md:6  type-caption  — a pattern names a type role the stylesheets do not define',
+  ])
+  assert.deepEqual(await run1('Corners are `--radius-big`; the menu is `--radix-popover-trigger-width` wide.'), [
+    '.claude/skills/ui-patterns/references/save-errors.md:6  --radius-big  — a pattern names a token the stylesheets do not declare',
+  ])
+  assert.deepEqual(await run1('```tsx\n<Button>Save</Button>\n<Banner tone="error" />\n```'), [
+    '.claude/skills/ui-patterns/references/save-errors.md:8  <Banner>  — a pattern names a component the UI source neither defines nor imports',
+  ])
+  assert.deepEqual(await run1('<!-- design-accepted — the role lands with the next release -->\nUse `type-caption`.'), [])
+  assert.deepEqual(await run1('Button labels are `Save` and `Close`; prose `type` words are not roles.'), [])
+  assert.deepEqual(await run1('Declare the columns as `Column<Row>[]` and `Map<Key, Value>`.'), [])
+  assert.deepEqual(await run1('The label is `Download <Document> PDF` everywhere else.'), [])
+  assert.deepEqual((await run1('Show it in `<Banner tone="error">`.')).length, 1)
+})
+
+test('patterns: the count says how many references were read, and none is no finding', async () => {
+  const { counts } = await run({ '.claude/skills/ui-patterns/references/a.md': 'x\n', '.claude/skills/ui-patterns/references/README.md': 'y\n' })
+  assert.equal(counts.patterns, 1)
+  assert.equal((await run({})).counts.patterns, 0)
 })

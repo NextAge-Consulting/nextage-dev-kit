@@ -15,7 +15,7 @@ The kit is just another project — it has its own `.claude/` with project-custo
 | `_claude-project/` | consumer `<project>/.claude/` via `/sync-dev-kit` | Project-level config that should exist in every project: rules, hooks, skills, the gitflow commands (`/work` included), agents, `settings.json`, `templates/` |
 | `_github-project/` | consumer `<project>/.github/` via `/sync-dev-kit` | GitHub Actions workflows + dependabot config |
 | `_gemini-project/` | consumer `<project>/.gemini/` via `/sync-dev-kit` | Gemini Code Assist config + styleguide (PR-time AI reviewer) |
-| `_claude-maintainer/` | `~/.claude/`, copied by hand (§0.1) | The MAINTAINER surface — only the person who syncs the kit into projects: `scripts/sync-dev-kit.sh`, `commands/sync-dev-kit.md`, `scripts/review-stack.sh`, `commands/review-stack.md`, `kit-maintainer.md`. A consumer machine never receives the sync machinery, so it cannot run a sync. `migrations/` is not copied: each holds a codemod and a `PROMPT.md` the maintainer pastes into a consumer session after a sync, which finds the codemod through `devKitPath`. |
+| `_claude-maintainer/` | `~/.claude/`, copied by hand (§0.1) | The MAINTAINER surface — only the person who syncs the kit into projects: `scripts/sync-dev-kit.sh`, `commands/sync-dev-kit.md`, `scripts/review-stack.sh`, `commands/review-stack.md`, `kit-maintainer.md`. A consumer machine never receives the sync machinery, so it cannot run a sync. `migrations/` is not copied: each holds a `PROMPT.md`, and sometimes a codemod it reaches through `devKitPath`, that `/sync-dev-kit` runs in the consumer's session (§9.4). |
 | `_statusline/statusline.sh` | `~/.claude/statusline.sh` via `/install-statusline` (one-time) | The kit's custom statusline asset; referenced by `install-statusline.md`. |
 | `tests/` | Nowhere — sync reads only the `_*-project/` folders | Tests for kit-shipped files that must not ship with them, e.g. `tests/templates/check-workspace-tiers.test.sh`. Each case copies the real script into a throwaway repo where sync would put it. |
 | `.claude/` | This kit repo's own active config | Mirror of `_claude-project/` PLUS kit-custom commands and scripts that only make sense in this repo: `install-cpl`, `install-statusline` (commands + their helper scripts). These never propagate anywhere. |
@@ -597,11 +597,12 @@ Nothing is ever full-replaced. Every sync is a three-way comparison per file: ki
     ".claude/hooks/git-guard.sh": { "sha": "<hash of what sync wrote>", "mode": "owned" },
     ".claude/rules/project/ui-inventory.md": { "sha": "<hash of what sync wrote>", "mode": "merge", "skeleton": "<hash of the kit-owned text>" },
     ".gemini/config.yaml": { "sha": "<kit hash at refusal>", "mode": "owned", "declined": true }
-  }
+  },
+  "pendingMigrations": ["<a migration a sync listed and did not run>"]
 }
 ```
 
-Committed so every dev and every cloud session has the same baseline. `sha` is the hash of what sync wrote — substituted, canonicalized for `settings.json`, region-merged for a `merge` file. `skeleton` is recorded for `merge` files only (§9.10).
+Committed so every dev and every cloud session has the same baseline. `sha` is the hash of what sync wrote — substituted, canonicalized for `settings.json`, region-merged for a `merge` file. `skeleton` is recorded for `merge` files only (§9.10). `pendingMigrations` is present only while a migration is carried to the next sync; `migrationsDone` exists only during a sync, between `--migration-done` and `--finalize`.
 
 ### 9.3. Sync states per file
 
@@ -623,7 +624,7 @@ Committed so every dev and every cloud session has the same baseline. `sha` is t
 | `project-deleted` | Baseline and kit have it; the project deleted it | Ask: re-add or accept |
 | `removed-kit` | Kit deleted a file the project still has | Ask: delete or keep as project-owned |
 
-The scan also reports `unmapped_templates` (a `templates/` file with no destination mapping — a kit defect), `skipped_unconfigured` (files skipped because the setting their destination depends on — `SHARED_MODULE_DIR`, `DB_ENGINE`, `DESIGN_UI_PACKAGE`, `DESIGN_FEED_BARREL` — is empty or rules them out), `repo_kind` and `skipped_by_repo_kind` (§9.12), and `stale_patches` (§9.10).
+The scan also reports `unmapped_templates` (a `templates/` file with no destination mapping — a kit defect), `skipped_unconfigured` (files skipped because the setting their destination depends on — `SHARED_MODULE_DIR`, `DB_ENGINE`, `DESIGN_UI_PACKAGE`, `DESIGN_FEED_BARREL` — is empty or rules them out), `repo_kind` and `skipped_by_repo_kind` (§9.12), `stale_patches` (§9.10), and `migrations_pending` (§9.4).
 
 ### 9.4. Sync procedure
 
@@ -637,7 +638,8 @@ The scan also reports `unmapped_templates` (a `templates/` file with no destinat
    - Clean → skip silently
    - Any other state → present diff, recommend, await decision
 5. On each accepted change: write to the project, update the lockfile entry
-6. At end (`--finalize`): **stamp the lockfile only** — set `lastSyncedCommit` to kit HEAD SHA + `lastSyncedAt` (per-file SHAs are already current from `--apply-file`). **Sync does not commit or push** — committing is gitflow's job, not sync's. The applied `.claude/` changes plus the lockfile bump are left as a normal uncommitted change in the working tree; the user lands them with `/ship-main` (or `/commit`). Sync runs **zero git mutations** (see §9.4.1).
+6. Run each migration the scan lists (`migrations_pending`) in the same session, oldest first, recording each with `--migration-done`. The list is the migrations the kit added after the project's `lastSyncedCommit`, plus any carried forward; a first sync runs none. A migration that breaks consumers on purpose is how the pre-ship gate's accepted findings get fixed (§9.11)
+7. At end (`--finalize`): **stamp the lockfile** — set `lastSyncedCommit` to kit HEAD SHA + `lastSyncedAt` (per-file SHAs are already current from `--apply-file`), and carry any listed migration not run into `pendingMigrations`. **Sync does not commit or push** — committing is gitflow's job, not sync's. The applied `.claude/` changes plus the lockfile bump are left as a normal uncommitted change in the working tree; the user lands them with `/ship-main` (or `/commit`). Sync runs **zero git mutations** (see §9.4.1).
 
 ### 9.4.1. Why sync does no git (the bootstrap problem)
 
@@ -721,12 +723,11 @@ Current kit-referenced placeholders (authoritative list is in `_claude-project/s
 | `DEPLOY_BACKEND`, `DEPLOY_WORKFLOWS`, `MIGRATE_WORKFLOW`, `MIGRATE_PATHS`, `CODEBUILD_PROJECT_PREFIX`, `CODEBUILD_MIGRATE_PROJECT`, `CODEBUILD_PROMOTE_PREFIX` | `deploy.sh` (runtime-read) | The release path `/deploy` dispatches to, its services, its gated migration phase, and — for a project with a separate Prod — the promote projects `/deploy promote` starts — DevOps reference, `pipeline.md` §2.1 |
 | `FORM_LIB_EXEMPT_APPS` | `scripts/check-stack.mjs` (runtime-read) | Front-end apps that deliberately use no form library. An app neither declaring the library nor listed here fails the check until someone answers the question |
 | `SHARED_MODULE_DIR` | sync's destination mapping for `templates/testing/*` | The workspace holding the shared module and its test scaffolding, e.g. `apps/shared`. Empty → the testing templates are skipped (`skipped_unconfigured`). `globalSetup.ts` and `integration-helpers.ts`, the Postgres integration harness, also need `DB_ENGINE` = `PostgreSQL`; any other engine gets them reported under `DB_ENGINE` instead. `testing.md` §1 |
-| `DESIGN_UI_PACKAGE` | sync's destination mapping for `templates/design-system/*`; the `claude-design` engine, `check-design-tokens.mjs` and `check-stack.mjs`, which also expands the manifest's `$DESIGN_UI_PACKAGE` trigger (runtime-read) | The UI package holding the design system, from the repository root, e.g. `packages/ui`. Its config sits at `<DESIGN_UI_PACKAGE>/design-system/design-system.config.mjs`. Empty → the project publishes no design system: the templates are skipped and the engine refuses to run |
+| `DESIGN_UI_PACKAGE` | sync's destination mapping for `templates/design-system/*`; the `claude-design` engine, `check-design-tokens.mjs` and `check-stack.mjs`, which also expands the manifest's `$DESIGN_UI_PACKAGE` trigger (runtime-read) | The UI package holding the design system, from the repository root, e.g. `packages/ui`. Its config sits at `<DESIGN_UI_PACKAGE>/design-system/design-system.config.mjs`. Empty → the project publishes no design system: the templates are skipped and the engine refuses to run. The UI source the token checker, the design review and `/design-audit` read is found from it, never listed: this package and every workspace whose `package.json` depends on it by name (`ui-sources.mjs`) |
 | `DESIGN_FEED_BARREL` | `templates/design-system/tsconfig.types.json` (substituted); the engine (runtime-read) | The module exporting every component a design may mount, relative to the UI package. Required whenever `DESIGN_UI_PACKAGE` is set |
 | `DESIGN_TOKEN_FILES` | the engine and the token checker (runtime-read) | Stylesheets declaring the tokens in light and dark blocks, relative to the UI package. Required whenever `DESIGN_UI_PACKAGE` is set |
 | `DESIGN_TYPE_FILE` | the engine and the token checker (runtime-read) | The stylesheet defining the `@utility type-*` roles. Empty → no type roles |
 | `DESIGN_STYLES_FILE` | the engine and the token checker (runtime-read) | The UI package's Tailwind entry stylesheet. Empty → none |
-| `DESIGN_SOURCE_DIRS` | the token checker (runtime-read) | Source trees, from the repository root, whose `.ts`/`.tsx` the checker reads. Required when the project has `design.md`; a listed folder that does not exist fails the check |
 | `DESIGN_VENDORED_DIR` | the token checker (runtime-read) | The vendored shadcn `components/ui` folder. Empty → nothing vendored |
 | `DESIGN_VENDORED_RESTYLED` | the token checker (runtime-read) | `"true"` when the vendored atoms are restyled onto the project's roles, so every class rule applies to them. Empty → they keep registry defaults and only the arbitrary-spacing rule applies |
 | `DESIGN_FIELD_LOOK_CLASSES` | the token checker (runtime-read) | Classes that paint a text field's look; a raw `<input>` or `<textarea>` carrying one fails. Empty → only `rounded-*` is checked |
@@ -1352,13 +1353,17 @@ classes, call sites that fix a component's height (through class constants too),
 and feature files that fade a colour or import a frame atom on a line the change touched
 (§12a.9), role names that are t-shirt sizes, token resolution and light/dark parity,
 `design.md`'s references, and the generated files, prints how many files and classes it
-inspected, and fails when that is nothing. The judgements a pattern cannot make — a call
-site repainting a part, a screen drawing a frame a part owns, a name or prop that is a
-magnitude — are the design review's: `skills/gitflow/scripts/design-review.sh`, run by
-`/commit` and `/ship-main` after the part review, local only. It hands a headless Claude
-the numbered diff of the UI source, stylesheets and `design.md`, the role list
-(`check-design-tokens.mjs --roles`), the UI inventory and the block-type list; each
-finding goes to the developer, who fixes it or commits with `SKIP_DESIGN_REVIEW=1`. A project's own extra checks go in
+inspected, and fails when that is nothing. It also checks that every type role, token and
+component a UI pattern reference names in code exists. The judgements a script cannot
+make are the design checks, `skills/design-system/references/design-checks.md`, one list
+by layer — tokens, parts, patterns, screens. The design review
+(`skills/gitflow/scripts/design-review.sh`, run by `/commit` and `/ship-main` after the part
+review, local only) applies them to the lines a change adds: it hands a headless Claude the
+numbered diff of the UI source, stylesheets, `design.md` and pattern references, the checks,
+the roles and what each is for (`check-design-tokens.mjs --roles` and `--purposes`), the
+UI inventory, the patterns, the block-type list and the design opinions. `/design-audit`
+applies the same checks to everything. Each review finding goes to the developer, who fixes
+it, marks the line `design-accepted` with a reason, or commits with `SKIP_DESIGN_REVIEW=1`. A project's own extra checks go in
 `<DESIGN_UI_PACKAGE>/design-system/checks/*.mjs`, each a default-exported function the
 checker runs with the API its header documents.
 
@@ -1418,8 +1423,8 @@ The token checker enforces the spacing scale: on changed lines, a padding, margi
 
 Two things read it:
 
-- **The design review** (`design-review.sh`, at `/commit` and `/ship-main`) receives it with the diff and reports `DUPLICATE-ROLE` — a new role doing a job an existing role already does — and `OPINION` — an added role, token, part or `design.md` rule that contradicts an opinion with no reason beside it. Changed lines only, like every design check.
-- **`/design-audit`**, run only when a project's owner asks for it, never in CI. Pass `system` audits the design system against the opinion file — whether it is complete, whether it breaks an absolute (a kit side or a floor), and whether it is consistent with itself; where an opinion is guidance, the project's own value is never a finding — the difference is listed apart as "worth a look", and keeping the project's value marks the line `design-choice` with no reason needed; pass `project [path]` — all the UI source `DESIGN_SOURCE_DIRS` names, or one area of it — or `design <name>` audits the work against the system, and only once the system pass is settled. Each pass runs in a fresh agent given only its material. Findings go to the human one at a time; each lands as a system change, a fix, or a line marked `design-accepted — <reason>`, which later audits skip.
+- **The design review** (`design-review.sh`, at `/commit` and `/ship-main`) receives it with the diff and applies the design checks that judge against it, such as `DUPLICATE-ROLE` and `OPINION`. Changed lines only.
+- **`/design-audit`**, run only when a project's owner asks for it, never in CI. It applies every design check, including those that need a whole layer, one layer per pass from the bottom up — `tokens`, `parts`, `patterns`, then `screens [path]` or `design <name>` — and settles each pass before the next; `system` is the first three. Where an opinion is guidance, the project's own value is never a finding — the difference is listed apart as "worth a look", and keeping the project's value marks the line `design-choice` with no reason needed. Each pass runs in a fresh agent given only the checks, its layer and the material beneath it. Findings go to the human one at a time; each lands as a fix in its layer, a change in a layer beneath, or a line marked `design-accepted — <reason>`, which later audits and reviews skip.
 
 ---
 

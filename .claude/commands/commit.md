@@ -149,7 +149,7 @@ The script will exit non-zero if:
 - Semgrep reports a finding in a file this commit touches (`.semgrepignore` applies, as in CI), CI declares a `semgrep` job and semgrep is not installed locally, or the changed files cannot be listed
 - The rule review finds history, justification or a counted list in a changed rule, skill, command or pattern reference, or cannot run. Fix the text; the human may override a wrong finding with `SKIP_RULE_REVIEW=1`
 - The part review suspects a new part duplicates one the UI inventory already lists, or cannot run. The human decides: the same thing folds into the existing part; different gets their reason on the new part's inventory line
-- The design review finds a change that breaks the design system — a call site repainting a part, a screen drawing a frame a part owns, a role or size named by magnitude, an incomplete variant, `design.md` prose contradicting the roles — or cannot run. Put each finding to the developer with its why and fix, and ask: fix it, or skip it. Fix: make the change and commit again. Skip: commit again with `SKIP_DESIGN_REVIEW=1`
+- The design review finds a change that breaks one of the design checks (`.claude/skills/design-system/references/design-checks.md`) — a screen using a role against its purpose or departing from its pattern, a pattern asking for what a part does not have, a call site repainting a part — or cannot run. Put each finding to the developer with its why and fix, and ask: fix it, or skip it. Fix: make the change and commit again. Skip: commit again with `SKIP_DESIGN_REVIEW=1`
 - Nothing is staged (empty diff)
 - `git commit` itself fails for any reason
 - `--review` and `--no-review` both passed (mutually exclusive — exit 2)

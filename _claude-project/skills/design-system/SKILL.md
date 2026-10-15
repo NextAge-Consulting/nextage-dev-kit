@@ -294,10 +294,10 @@ atom imported outside a part, a raw field painting the field look, a role named 
 t-shirt size, a token that resolves to nothing or that nothing reaches, a light/dark
 mismatch, `design.md` naming what does not exist, and a stale generated file.
 
-**The judgements go to the design review at `/commit` and `/ship-main`:** a call site
-repainting a part, a screen drawing a frame a part owns, a role or size prop named by
-magnitude, an incomplete variant, and `design.md` prose contradicting the roles. It flags
-each with why and a fix, and the developer fixes it or skips it.
+**The judgements are `references/design-checks.md`, by layer — tokens, parts, patterns,
+screens.** The design review at `/commit` and `/ship-main` applies them to the lines a
+change adds, and `/design-audit` to everything. The review flags each with why and a fix,
+and the developer fixes it, marks the line `design-accepted` with a reason, or skips it.
 
 - **Name the exemptions in the keys, never in code.** Vendored atoms are
   `DESIGN_VENDORED_DIR`, with `DESIGN_VENDORED_RESTYLED` saying whether they are on the
@@ -430,6 +430,7 @@ For **look-and-feel** (elevation, motion, composition, density) there is a secon
 This skill cooperates with — and never duplicates — the following:
 
 - **`references/design-opinion.md`** — the kit's opinions on spacing, type, colour, radius, elevation, motion, icons, controls, focus, dark mode and badges; read whenever the project's system is silent
+- **`references/design-checks.md`** — every judgement check on the design, by layer; what the design review and `/design-audit` apply, and what to build to
 
 - **`a11y-baseline.md` rule** — auto-loaded on every JSX/TSX edit; authoritative for accessibility patterns
 - **`ui-patterns.md` rule** — auto-loaded on JSX/TSX; authoritative for the no-toast policy

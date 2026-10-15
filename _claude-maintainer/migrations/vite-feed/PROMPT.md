@@ -1,6 +1,6 @@
 # Migration: build the design-system feed stylesheet with Vite
 
-The maintainer pastes everything below the line into a consumer project's Claude session, on the maintainer machine, after `/sync-dev-kit` has landed `<UI package>/design-system/vite.feed.config.ts`. It applies to a project whose design-system config's `css.build` runs the Tailwind CLI; any other project has nothing to do.
+`/sync-dev-kit` runs everything below the line in the consumer project's session, once it has landed `<UI package>/design-system/vite.feed.config.ts`. It applies to a project whose design-system config's `css.build` runs the Tailwind CLI; any other project has nothing to do.
 
 ---
 

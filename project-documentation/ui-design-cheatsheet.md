@@ -66,9 +66,10 @@ list. Nobody pastes a design's link — it comes from the folder.
 ## The design audit — only when you ask, never in CI
 
 ```
-/design-audit system                # the design system against the kit's design opinions
-/design-audit project              # all of the project's UI against the design system
-/design-audit project <path>       # one area of it
+/design-audit system                # tokens, then parts, then patterns — the design system
+/design-audit patterns              # the patterns alone, against the tokens and parts
+/design-audit screens              # all of the project's screens against the system
+/design-audit screens <path>       # one area of them
 /design-audit design <name or url>  # a Claude Design design, before implementing it
 ```
 

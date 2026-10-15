@@ -1,6 +1,6 @@
 # Migration: publish: off blocks for the Claude Design publisher
 
-The maintainer pastes everything below the line into a consumer project's Claude session, on the maintainer machine, after `/sync-dev-kit` has landed the kit version that removes `families.skip`. It applies to a project with `<UI package>/design-system/design-system.config.mjs`; any other project has nothing to do.
+`/sync-dev-kit` runs everything below the line in the consumer project's session, once it has landed the kit version that removes `families.skip`. It applies to a project with `<UI package>/design-system/design-system.config.mjs`; any other project has nothing to do.
 
 ---
 

@@ -1,6 +1,6 @@
 # Migration: kit-owned test scaffolding
 
-The maintainer pastes everything below the line into a consumer project's Claude session, on the maintainer machine, after `/sync-dev-kit` has scanned the kit version that ships `templates/testing/define.ts`. A project with `SHARED_MODULE_DIR` empty has no test scaffolding and needs none of it.
+`/sync-dev-kit` runs everything below the line in the consumer project's session, once it has scanned the kit version that ships `templates/testing/define.ts`. A project with `SHARED_MODULE_DIR` empty has no test scaffolding and needs none of it.
 
 ---
 

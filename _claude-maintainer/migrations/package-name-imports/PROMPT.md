@@ -1,6 +1,6 @@
 # Migration: package-name imports, then the knip gate
 
-The maintainer pastes everything below the line into a consumer project's Claude session, on the maintainer machine, after `/sync-dev-kit` has landed the kit version that ships `knip.config.ts`. It works for any kit project, whatever its layout, including one that never used cross-workspace aliases.
+`/sync-dev-kit` runs everything below the line in the consumer project's session, once it has landed the kit version that ships `knip.config.ts`. It works for any kit project, whatever its layout, including one that never used cross-workspace aliases.
 
 ---
 

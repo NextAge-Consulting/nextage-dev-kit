@@ -350,6 +350,38 @@ diff -u "$tmp/gi.want" "$PROJ/.gitignore" >/dev/null \
     && ok "gitignore: only the added section's comments are written" || bad "gitignore: $(diff -u "$tmp/gi.want" "$PROJ/.gitignore")"
 cp "$tmp/additions.orig" "$ADD"
 
+# ─── Migrations: the ones the kit added since the project's last sync ─────
+pending() { scan | jq -c '[.migrations_pending[].name]'; }
+L="$PROJ/.claude/.kit-sync.json"
+FRESH="$tmp/fresh"; mkdir -p "$FRESH"
+add_migration() { mkdir -p "$KIT/_claude-maintainer/migrations/$1"; printf '# %s\n\n---\n\nDo %s.\n' "$1" "$1" > "$KIT/_claude-maintainer/migrations/$1/PROMPT.md"; kit_commit "migration $1"; }
+run --finalize >/dev/null 2>&1
+[ "$(pending)" = "[]" ] && ok "migrations: none since the last sync, none listed" || bad "migrations at start: $(pending)"
+add_migration m-one; add_migration m-two
+[ "$(pending)" = '["m-one","m-two"]' ] && ok "migrations: the two added since the last sync, oldest first" || bad "pending: $(pending)"
+[ "$(scan | jq -r '.migrations_pending[0].prompt')" = "$KIT/_claude-maintainer/migrations/m-one/PROMPT.md" ] && ok "migrations: each names its prompt" || bad "prompt path"
+(cd "$FRESH" && /bin/bash "$S" --scan 2>/dev/null) | jq -e '.migrations_pending == []' >/dev/null && ok "migrations: a first sync runs none" || bad "first sync lists migrations"
+run --migration-done m-one >/dev/null 2>&1
+[ "$(pending)" = '["m-two"]' ] && ok "migrations: one recorded as run is no longer listed" || bad "after done: $(pending)"
+run --finalize >/dev/null 2>&1
+jq -e '.pendingMigrations == ["m-two"] and (has("migrationsDone") | not)' "$L" >/dev/null && ok "migrations: finalize carries the one not run, and clears what ran" || bad "finalize carry: $(jq -c '{pendingMigrations, migrationsDone}' "$L")"
+add_migration m-three
+[ "$(pending)" = '["m-two","m-three"]' ] && ok "migrations: the carried one stays, ahead of one added since" || bad "carried + new: $(pending)"
+run --migration-done m-two >/dev/null 2>&1; run --migration-done m-three >/dev/null 2>&1; run --finalize >/dev/null 2>&1
+[ "$(pending)" = "[]" ] && ! jq -e 'has("pendingMigrations")' "$L" >/dev/null && ok "migrations: all run, nothing carried" || bad "all run: $(pending)"
+mkdir -p "$KIT/_claude-maintainer/migrations/m-draft"; printf '# m-draft\n' > "$KIT/_claude-maintainer/migrations/m-draft/PROMPT.md"
+out=$(scan)
+jq -e '.migrations_uncommitted == ["m-draft"] and .migrations_pending == []' <<<"$out" >/dev/null \
+    && ok "migrations: an uncommitted one is named, and not listed to run" || bad "uncommitted: $(jq -c '{migrations_uncommitted, migrations_pending}' <<<"$out")"
+rm -rf "$KIT/_claude-maintainer/migrations/m-draft"
+scan | jq -e '.migrations_uncommitted == []' >/dev/null && ok "migrations: none uncommitted, none named" || bad "uncommitted after removal"
+run --migration-done no-such >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 4 ] && ok "migrations: an unknown name is refused" || bad "unknown migration (rc=$rc)"
+cp "$L" "$tmp/lock.orig"; jq '.lastSyncedCommit = "0000000000000000000000000000000000000000"' "$tmp/lock.orig" > "$L"
+run --scan >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 5 ] && ok "migrations: a last sync the kit's history does not hold fails the scan" || bad "unknown lastSyncedCommit (rc=$rc)"
+cp "$tmp/lock.orig" "$L"
+
 # ─── A broken register fails the scan loudly ──────────────────────────────
 printf '{not json' > "$PROJ/.claude/.kit-patches.json"
 run --scan >/dev/null 2>&1; rc=$?
