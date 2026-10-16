@@ -273,5 +273,49 @@ printf '{"name":"s","scripts":{"build":"echo built-s"}}\n' > "$single/package.js
 t 0 "$(build "$single")" 'single package with a build: builds'
 grep -q built-s "$tmp/out" && echo "  ✓ …and it really ran" || { echo "  ✗ FAIL — build did not run"; fail=1; }
 
+echo "integration:"
+new_repo
+t 0 "$(gate run_integration_gate "$BASE" committing)" 'no package.json passes'
+has 'integration: skipped — no root package.json' '…and says why'
+printf '{"name":"app"}\n' > package.json
+mkdir -p .claude scripts src test
+printf '{"DB_ENGINE":"None"}\n' > .claude/sync-substitutions.json
+t 0 "$(gate run_integration_gate "$BASE" committing)" 'DB_ENGINE None passes'
+has 'does not apply — DB_ENGINE is None' '…and says why'
+printf '{"DB_ENGINE":"PostgreSQL","INTEGRATION_COMMIT_OFF":"read-only reporting app"}\n' > .claude/sync-substitutions.json
+t 0 "$(gate run_integration_gate "$BASE" committing)" 'a declared INTEGRATION_COMMIT_OFF passes'
+has 'declared off at commit (INTEGRATION_COMMIT_OFF) — read-only reporting app' '…quoting the reason'
+printf '{"DB_ENGINE":"PostgreSQL","SHARED_MODULE_DIR":"."}\n' > .claude/sync-substitutions.json
+t 4 "$(gate run_integration_gate "$BASE" committing)" 'the coverage check missing fails'
+has 'check-integration-coverage.mjs is missing' '…naming it'
+touch scripts/check-integration-coverage.mjs
+t 4 "$(gate run_integration_gate "$BASE" committing)" 'node missing fails'
+has 'needs node' '…and says so'
+stub node 1 'echo "✗ check-integration-coverage: readOrders — queries the database and no integration test calls it"'
+t 4 "$(gate run_integration_gate "$BASE" committing)" 'a coverage finding fails'
+has 'readOrders — queries the database' '…replaying it'
+t "--base" "$(sed -n 2p "$tmp/node.args")" '…measuring from the fold base'
+stub node 0 'echo "✓ check-integration-coverage: 1 changed exported function(s)"'
+printf 'export const a = 1;\n' > src/a.ts
+t 0 "$(gate run_integration_gate "$BASE" committing)" 'no integration tests yet passes'
+has 'no integration tests yet' '…and says so'
+printf 'x\n' > test/a.integration.test.ts
+touch vitest.config.ts
+stub npx 1 'echo "Error: No projects matched the filter \"integration\"."'
+t 4 "$(gate run_integration_gate "$BASE" committing)" 'integration tests with no integration project fail'
+has 'no integration project runs here' '…and says why'
+grep -qx -- '-c' "$tmp/npx.args" && grep -qx './vitest.config.ts' "$tmp/npx.args" \
+  && echo "  ✓ …running the shared module's vitest config" || { echo "  ✗ FAIL — config not passed: $(cat "$tmp/npx.args")"; fail=1; }
+grep -qx 'src/a.ts' "$tmp/npx.args" && echo "  ✓ …on the changed files" || { echo "  ✗ FAIL — changed file not passed"; fail=1; }
+stub npx 1 'echo "FAIL |integration| test/a.integration.test.ts"'
+t 4 "$(gate run_integration_gate "$BASE" committing)" 'a failing integration test fails'
+has 'integration tests failed' '…and says so'
+stub npx 0 'echo "No test files found, exiting with code 0"'
+t 0 "$(gate run_integration_gate "$BASE" committing)" 'no test reaching the change passes'
+has 'no integration test reaches the' '…and says so'
+stub npx 0 'echo " ✓ |integration| test/a.integration.test.ts"'
+t 0 "$(gate run_integration_gate "$BASE" committing)" 'passing integration tests pass'
+has 'the tests reaching the' '…and says so'
+
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

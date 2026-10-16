@@ -25,12 +25,10 @@ ask, rather than assuming Postgres.
   foreign keys matching the parent PK, lowercase fields. House standards that
   hold on any engine, so they live in the constitution (§V). A project on MSSQL
   still follows them; it does not follow this skill.
-- **The human gate on applying migrations** — the always-on engine rule
-  (`postgres-drizzle.md` here, `sqlserver-drizzle.md` on SQL Server), backed by a
-  hook. A skill is consulted by choice; a safety gate cannot be.
-- **The three silent failures** — the always-on `postgres-drizzle.md` rule. They
-  are there rather than here because you would never think to invoke a skill
-  before typing `ilike`.
+- **The human gate on applying migrations, and queries through the schema** — the
+  always-on `drizzle.md` rule, backed by hooks and the integration coverage check.
+- **The collation failures and the branch check** — the always-on
+  `postgres-drizzle.md` rule.
 
 ## The opinions
 

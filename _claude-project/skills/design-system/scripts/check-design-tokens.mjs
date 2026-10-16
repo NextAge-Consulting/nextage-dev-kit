@@ -568,7 +568,7 @@ export function parityProblems(cssByFile) {
   for (const [, { v }] of light) for (const m of v.matchAll(/var\((--[A-Za-z0-9-]+)/g)) referenced.add(m[1])
   for (const [k, { v, file }] of light)
     if (referenced.has(k) && isColour(v) && !/var\(/.test(v) && !dark.has(k))
-      out.push(`${file}  ${k}  — other tokens build on this colour, and the dark theme does not redefine it, so they stay light on a dark surface`)
+      out.push(`${file}  ${k}  — other tokens build on this colour, and the dark theme does not redefine it, so they stay light on a dark surface — give it a dark value: the same value when it should not change (a brand colour), a colour picked for dark, or one derived from its light value with color-mix(), e.g. color-mix(in oklab, <light value> 70%, black)`)
   return { problems: out, applies: true }
 }
 

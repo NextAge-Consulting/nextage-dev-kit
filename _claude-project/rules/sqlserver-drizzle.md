@@ -15,7 +15,8 @@ populated.
 **Nothing in `postgres-drizzle.md` or the `postgres-neon-drizzle` skill transfers.**
 No `ILIKE`, no nondeterministic collations, no `ciVarchar`/`ciText`, no Neon
 branching. Engine-agnostic naming (singular tables, `{table}id`, UUID v7) still
-comes from the constitution §V.
+comes from the constitution §V, and the Drizzle rules every engine shares — queries
+through the schema, migrations, a partly-owned schema — from `drizzle.md`.
 
 ## I. The dialect is on the 1.0 release-candidate channel — pin it exactly
 
@@ -117,8 +118,8 @@ never at individual call sites, because the call site that forgets is the one th
 ships a padded value into a comparison, a key, or a UI.
 
 The same rule makes comparisons case-insensitive under the common
-`SQL_Latin1_General_CP1_CI_AS` collation. Do not wrap comparisons in
-`UPPER()`/`LOWER()`; it only suppresses index use.
+`SQL_Latin1_General_CP1_CI_AS` collation, so `drizzle.md` §IV applies to every
+column under it.
 
 ## IV-b. Primary key id strategy — a per-project decision, not inherited
 
@@ -155,51 +156,15 @@ default nor a real v7 need.
 whatever generated the value. If a query needs chronology, order by a timestamp
 column.
 
-## V. When the project does not own the whole schema
+## V. The integration tests' database
 
-Common here: the database predates the project and another application still
-writes to it. Then the schema divides in two, and the division is **code-based**.
-No database schema, no separate login, is required to make it safe.
+**Integration tests run against the project's non-production instance, every test
+inside a transaction the harness always rolls back.** SQL Server has no per-run
+copy, so isolation is the transaction alone: identity values are not rolled back,
+and the instance's data drifts between refreshes, so a test inserts its own rows
+and never relies on existing ones.
 
-**`drizzle-kit generate` diffs your TypeScript schema files against its own stored
-snapshot. It never connects to the database.** It cannot propose a change to a
-table it has not been shown. So the boundary is simply which files each config
-points at:
-
-- **Introspected tables** — pulled from the existing database, used for queries.
-  No config's `schema` ever points `generate` at them, so no migration can name
-  them.
-- **Owned tables** — everything this project adds. Its own schema entry point, its
-  own config, its own `out` directory and snapshot chain.
-
-Two rules make that boundary real:
-
-1. **Never run `drizzle-kit push`.** It is the one command that diffs against the
-   live database, and pointed at a partial schema it will propose dropping every
-   table it cannot see. This is already banned outright; here it would be
-   destructive to another application's data.
-2. **A schema change to a table the project does not own is a cross-team change**,
-   coordinated with whoever owns the other writer — never made because a migration
-   would be convenient.
-
-Prefix owned tables so they are identifiable in a shared namespace. `drizzle-kit
-migrate` adds its own bookkeeping table to the database; that is unavoidable if
-migrations are managed at all.
-
-**This separation is a convention, not an enforcement.** Nothing at the database
-level stops a mistake. If enforcement is wanted, that is a login-and-permissions
-conversation, not a schema-layout one.
-
-Record in the project's documentation which side of the line each table sits on,
-and whether full ownership of the schema is a goal — that intent decides whether
-the introspected side is a permanent fixture or a shrinking one.
-
-## VI. Applying a migration needs the human's explicit approval
-
-Identical to the Postgres rule and enforced by the same hook: `db:migrate` and
-`drizzle-kit migrate` change a database, so they run only with the human's
-explicit approval in the current conversation; an approved run is prefixed
-`SKIP_DB_GUARD=1`. `db:generate` is not gated — it opens no connection.
-
-`block-drizzle-handroll.sh` applies unchanged: only `drizzle-kit generate` writes
-the coupled migration files, and hand-authoring the bookkeeping desyncs the chain.
+**The project supplies its own `dbTest` on the `mssql` driver with that shape**, and
+registers its integration project in `test/project.ts`'s `vitestProjects` under the
+name `integration` — the name the commit gate, CI and `/deploy` run. Record in
+`rules/project/` which instance it reaches and how.

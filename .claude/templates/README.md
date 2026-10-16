@@ -25,7 +25,7 @@ Sync behavior (`/sync-dev-kit`):
 
 - **`ui-inventory.md`** — copied to consumer's `.claude/rules/project/ui-inventory.md`. Synced in **`merge` mode**: the kit owns the headings and instructions, the project owns each enumeration region. It cannot ship from `_claude-project/rules/project/`, which `is_skipped` excludes entirely. See kitmaintainer-handbook.md §11.3.
 - **`dependency-policy.md`** — copied to consumer's `project-documentation/dependency-policy.md`, `merge` mode. The `owners`, `timelines` and `project-notes` regions are the project's.
-- **`scripts/`** — `check-dep-alignment.mjs`, `check-workspace-tiers.mjs`, `check-stack.mjs`, `db-branch.mjs`, copied to the consumer's `/scripts/`.
+- **`scripts/`** — `check-dep-alignment.mjs`, `check-workspace-tiers.mjs`, `check-stack.mjs`, `db-branch.mjs`, `check-integration-coverage.mjs`, copied to the consumer's `/scripts/`.
 - **`testing/`** — vitest scaffolding, `template` mode, destination from the `SHARED_MODULE_DIR` substitution. Skipped entirely when that value is empty. See testing.md §1.
 - **`design-system/`** — `tsconfig.types.json`, the type emit the `claude-design` engine builds the design system's types from, `owned`, with `{{DESIGN_FEED_BARREL}}` substituted. Lands at `<DESIGN_UI_PACKAGE>/design-system/<file>`; skipped, and listed under `skipped_unconfigured`, when that value is empty.
 

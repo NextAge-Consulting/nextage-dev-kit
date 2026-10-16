@@ -349,6 +349,109 @@ run_terraform_lock_gate() {
     echo "gitflow: terraform lock: $count changed lock file(s), locked for every platform." >&2
 }
 
+# run_integration_gate <fold_base> <action>
+#
+# The integration tier at the commit (testing-verification.md). The coverage check
+# judges the exported functions this change touched (scripts/check-integration-coverage.mjs),
+# then the integration tests whose import graph reaches a changed file run, through
+# `vitest related`. It applies to a repository with a root package.json; DB_ENGINE
+# "None" and a declared INTEGRATION_COMMIT_OFF stand it down, saying why. A repository
+# with integration tests whose integration project does not run here fails: the tests
+# exist, so a pass would be one they never earned.
+run_integration_gate() {
+    local base="$1" action="$2" engine="" off="" shared="" out rc=0 list err f tests
+    if [ ! -f "package.json" ]; then
+        echo "gitflow: integration: skipped — no root package.json." >&2
+        return 0
+    fi
+    if [ -f .claude/sync-substitutions.json ]; then
+        engine=$(jq -r '.DB_ENGINE // "" | strings' .claude/sync-substitutions.json 2>/dev/null)
+        off=$(jq -r '.INTEGRATION_COMMIT_OFF // "" | strings' .claude/sync-substitutions.json 2>/dev/null)
+        shared=$(jq -r '.SHARED_MODULE_DIR // "" | strings' .claude/sync-substitutions.json 2>/dev/null)
+    fi
+    if [ "$engine" = "None" ]; then
+        echo "gitflow: integration: does not apply — DB_ENGINE is None." >&2
+        return 0
+    fi
+    if [ -n "$off" ]; then
+        echo "gitflow: integration: declared off at commit (INTEGRATION_COMMIT_OFF) — $off" >&2
+        return 0
+    fi
+    if [ ! -f "scripts/check-integration-coverage.mjs" ]; then
+        echo "" >&2
+        echo "gitflow: scripts/check-integration-coverage.mjs is missing, so the integration tier cannot be checked." >&2
+        echo "  A gate that cannot run must not report success, so this is a failure. Run /sync-dev-kit." >&2
+        return 4
+    fi
+    if ! command -v node >/dev/null 2>&1; then
+        echo "" >&2
+        echo "gitflow: the integration coverage check needs node, which is not installed here." >&2
+        echo "  A gate that cannot run must not report success, so this is a failure." >&2
+        return 4
+    fi
+    if ! out=$(node scripts/check-integration-coverage.mjs --base "$base" 2>&1); then
+        echo "" >&2
+        printf '%s\n' "$out" >&2
+        echo "gitflow: integration coverage. Fix before $action." >&2
+        return 4
+    fi
+    printf 'gitflow: %s\n' "$out" >&2
+
+    tests=$(git ls-files --cached --others --exclude-standard -- '*.integration.test.ts' '*.integration.test.tsx' '*.integration.test.mts' 2>/dev/null | { grep -vE '(^|/)node_modules/' || true; })
+    if [ -z "$tests" ]; then
+        echo "gitflow: integration: the repository has no integration tests yet — none to run." >&2
+        return 0
+    fi
+
+    list=$(mktemp)
+    err=$(mktemp)
+    if ! { git diff -z --name-only --diff-filter=d "$base" -- '*.ts' '*.tsx' '*.mts' '*.cts' \
+            && git ls-files -z --others --exclude-standard -- '*.ts' '*.tsx' '*.mts' '*.cts'; } >"$list" 2>"$err"; then
+        echo "" >&2
+        echo "gitflow: the integration gate cannot list the changed files (git diff against $base failed):" >&2
+        sed 's/^/  /' "$err" >&2
+        echo "  A gate that cannot run must not report success, so this is a failure." >&2
+        rm -f "$list" "$err"
+        return 4
+    fi
+    local files=()
+    while IFS= read -r -d '' f; do
+        case "$f" in node_modules/*|*/node_modules/*) continue ;; esac
+        [ -f "$f" ] && files+=("$f")
+    done < <(sort -zu "$list")
+    rm -f "$list" "$err"
+    if [ "${#files[@]}" -eq 0 ]; then
+        echo "gitflow: integration: no TypeScript changed — no integration test to run." >&2
+        return 0
+    fi
+
+    local config=()
+    if [ -n "$shared" ] && [ -f "${shared%/}/vitest.config.ts" ]; then
+        config=(-c "${shared%/}/vitest.config.ts")
+    fi
+    echo "gitflow: running the integration tests that reach ${#files[@]} changed file(s)..." >&2
+    out=$(npx --no-install vitest related --run --project integration ${config[@]+"${config[@]}"} "${files[@]}" 2>&1) || rc=$?
+    if printf '%s\n' "$out" | grep -qF 'No projects matched the filter "integration"'; then
+        echo "" >&2
+        echo "gitflow: the repository has integration tests, but no integration project runs here, so they cannot." >&2
+        echo "  On PostgreSQL: set NEON_API_KEY and NEON_PROJECT_ID in .env (testing.md §1)." >&2
+        echo "  On another engine: register the project's integration project in test/project.ts (the engine rule says how)." >&2
+        echo "  Fix before $action." >&2
+        return 4
+    fi
+    if [ "$rc" -ne 0 ]; then
+        echo "" >&2
+        printf '%s\n' "$out" >&2
+        echo "gitflow: integration tests failed. Fix before $action." >&2
+        return 4
+    fi
+    if printf '%s\n' "$out" | grep -qF 'No test files found'; then
+        echo "gitflow: integration: no integration test reaches the ${#files[@]} changed file(s)." >&2
+    else
+        echo "gitflow: integration: the tests reaching the ${#files[@]} changed file(s) pass." >&2
+    fi
+}
+
 # run_project_gate <fold_base> <action>
 #
 # The repository's own checks, beyond the ones every project shares: when

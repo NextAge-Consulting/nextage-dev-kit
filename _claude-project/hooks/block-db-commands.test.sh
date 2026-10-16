@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression suite for block-db-commands.sh — postgres-drizzle.md, commands that
+# Regression suite for block-db-commands.sh — drizzle.md §II, commands that
 # CHANGE a database never run on Claude's own judgment.
 #
 # This guard is default-DENY, so the cases that matter most are the ALLOWS: a false

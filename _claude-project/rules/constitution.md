@@ -56,7 +56,9 @@ Trace the full path from error to user visibility. Each of these is a swallowed 
 
 **Log the full detail and show the user a general statement — both.** Log-only is correct only when the failure genuinely does not affect what the user is doing or seeing.
 
-What the user sees names the system and the impact, never the cause: no error text, status codes, credential state, stack traces, or internal identifiers. "Couldn't reach QuickBooks, so the file list can't be shown," not the 401. "Trouble saving — your changes weren't applied," not the constraint violation. "That upload didn't go through," not the bucket name.
+What the user sees names the system and the impact, never internal detail: no error text, status codes, credential state, stack traces, or internal identifiers. "Couldn't reach QuickBooks, so the file list can't be shown," not the 401. "Trouble saving — your changes weren't applied," not the constraint violation. "That upload didn't go through," not the bucket name.
+
+**A reason the person can act on is said in our own words, with what to do next** — a declined or expired card, a billing address the bank does not match. "This card has expired. Use a current card," never the gateway's own text or its code.
 
 An empty state is not an error state. A failed lookup rendered as an empty list tells the user the thing does not exist — and a missing certificate and an unreachable server look identical that way.
 
@@ -135,7 +137,7 @@ Write no per-symbol reference counts for these. A count is unfalsifiable, adds n
 **Where the compiler is blind**, a change compiles green and breaks at runtime. These seams are the real bug surface:
 
 - Database, schema or Zod field renames referenced by string key.
-- Raw-SQL column and table names, including field names carried inside JSON/JSONB blobs.
+- Column and table names typed as text in SQL — in a project with no query builder, or in SQL that cannot interpolate the schema's objects (a migration body, a `.sql` file, a string another process runs) — including field names carried inside JSON/JSONB blobs. SQL that interpolates the schema's objects (`drizzle.md` §I) is type-visible.
 - String-keyed dispatch — event names, action-type strings, `obj[key]`, route paths, query-key arrays.
 - Cross-process, RPC, serverFn or webhook payload shapes where producer and consumer type-check independently.
 - Cross-language boundaries, such as a Python worker reading a renamed column.

@@ -1,6 +1,6 @@
 # Testing
 
-The developer reference for tests in a kit-enabled project: the Vitest scaffolding the kit ships, and `/e2e`. Who runs tests and which tier a test belongs in is the `testing-verification` rule; the model behind it is `pipeline.md` §1.5.
+The developer reference for tests in a kit-enabled project: the Vitest scaffolding the kit ships, `/e2e`, and the integration tier's gates. Who runs tests and which tier a test belongs in is the `testing-verification` rule; the model behind it is `pipeline.md` §1.5.
 
 ## 1 Vitest scaffolding
 
@@ -8,7 +8,7 @@ Per-app test infrastructure the kit owns. `/sync-dev-kit` keeps every file ident
 
 **Destination comes from the `SHARED_MODULE_DIR` substitution**, because test layout is project-specific (`apps/shared` in a monorepo, `src` or `.` in a flat repo, `packages/<name>` elsewhere). `vitest.config.ts` lands at `<SHARED_MODULE_DIR>/vitest.config.ts`; every other file at `<SHARED_MODULE_DIR>/test/<name>`. **Empty means the project has no shared test module and the scaffolding is skipped entirely** — so this costs nothing for projects it does not apply to.
 
-**The integration tier is Postgres on Neon.** `globalSetup.ts` and `integration-helpers.ts` sync only when `DB_ENGINE` is `PostgreSQL`, and `vitest.config.ts` runs the `integration` project only then. A project on another engine gets the unit tier and defines its own integration strategy (`testing-verification.md`).
+**The kit ships the integration harness for each engine; PostgreSQL on Neon is built.** `globalSetup.ts` and `integration-helpers.ts` sync only when `DB_ENGINE` is `PostgreSQL`, and `vitest.config.ts` runs the `integration` project only then. The SQL Server harness is not built yet (kit issue #10). Until it is, a SQL Server project writes its own `dbTest` with the same shape — a rolled-back transaction per test, the `tx` handed to the code under test — and registers its integration project in `project.ts`'s `vitestProjects` under the name `integration`, which every gate runs (`sqlserver-drizzle.md` §V). A project on `Other` does the same and records its database in `rules/project/`.
 
 **What differs between projects goes in `test/project.ts`**, typed by `test/define.ts`:
 
@@ -94,7 +94,7 @@ Integration tests use the `*.integration.test.ts` filename convention as the `in
 
 **No required-status-check promotion.** The pipeline uses no branch protection — `/merge` self-gates by reading the PR's check-runs directly and blocks on any failure, so a job gates merges as soon as it runs on a PR, with nothing to configure on GitHub. New CI jobs are picked up automatically.
 
-Integration tests run in the same `vitest` job (`NEON_API_KEY` + `NEON_PROJECT_ID` secrets via repo Settings — the integration project only activates when both are present). When the repository has `*.integration.test.ts` files and either secret is empty, the job fails rather than passing on unit tests alone; Dependabot PRs, which run without secrets, are exempt.
+Integration tests run in the same `vitest` job (`NEON_API_KEY` + `NEON_PROJECT_ID` secrets via repo Settings — on PostgreSQL the integration project only activates when both are present). When the repository has `*.integration.test.ts` files, the job fails unless the integration project ran — §3 has the rule and how a project declares CI unable to run them.
 
 **Smoke-test latency.** A consumer with only the smoke test takes ~5s in CI; not worth deferring the wiring. Land the workflow with the first real test file or the smoke-test scaffold — either is fine.
 
@@ -143,3 +143,34 @@ The shared module is a declared npm workspace with its own name, and every consu
 **Known open work (deferred).** One loose end worth capturing for future iteration:
 
 1. **Substantive behavioral assertions.** MVP flows are render-checks ("homepage loads", "form renders"). Real-value accretion is flow-specific business logic — validate price math on product detail, cart total recalculates when shipping address changes, Stripe elements actually mount and accept input, post-login dealer pricelist reflects the correct tier. Accretion-on-demand per flow when a specific bug class starts slipping through.
+
+## 3 The integration tier and its gates
+
+**Every exported function that queries the database has an integration test that calls it**, in any project whose `DB_ENGINE` is not `None`. "Queries" means the function's body uses a database handle — `db.select`, `tx.execute`, `pool.query` — whether the handle is a parameter, an import or a call's result. A function that only passes the handle on to another one is not judged; the one that receives it is. `testing-verification.md` holds the rule and the shape of a test.
+
+**The ratchet.** `scripts/check-integration-coverage.mjs` judges only exported functions that are new or changed since the branch left `main`. Touch an untested function and it needs its test in the same change; leave it alone and it is only counted (CI prints the count). Nobody is asked to backfill the codebase.
+
+**What the check reads.** TypeScript, through the compiler, so it recognises a handle by its type — a Drizzle database or transaction, or a driver's pool, client, connection or request — wherever it came from. It also fails a changed `.execute()` with no `// raw-sql: <reason>` comment (`drizzle.md` §I). A function no integration test can call carries `// integration-exempt: <reason>` above it.
+
+**The gates.**
+
+| Where | What runs | Fails when |
+|---|---|---|
+| `/commit`, `/ship-main` | The coverage check, then `vitest related --project integration` on the changed files: only the integration tests whose imports reach the change | A changed function lacks its test; a reached test fails; integration tests exist but no integration project runs here |
+| CI (`node-checks`, `vitest`) | The coverage check with the untouched count, then the full suite | The coverage check fails; integration tests exist and the `integration` project did not run |
+| `/deploy` | The full suite, before any bump, build or migration (exit 26) | It fails, cannot run, or runs without the integration tests the repository has |
+
+The SQL review rides the same commit: a headless reviewer reads every changed Drizzle `sql` template for a table or column typed as text, and the developer fixes it or skips with `SKIP_SQL_REVIEW=1`.
+
+**Turning one off.** The project owner declares it in `.claude/sync-substitutions.json`, and the value is the reason every check prints when it stands down:
+
+| Key | Turns off |
+|---|---|
+| `INTEGRATION_COMMIT_OFF` | The gate at `/commit` and `/ship-main`: the coverage check and the tests the change reaches — e.g. developers cannot reach the test database |
+| `INTEGRATION_CI_OFF` | The gate in CI: the coverage check and the requirement that the integration tests ran — e.g. CI cannot reach the non-production SQL Server |
+| `INTEGRATION_DEPLOY_OFF` | `/deploy`'s test run — e.g. deploys run from a machine with no database access |
+
+Empty is on, and any gate still on requires the tests. With all three set, the project does not require integration tests. Listing a key in `_intentionally_empty` confirms it stays on, and `/sync-dev-kit` stops asking. `DB_ENGINE` = `None` stands every gate down without them.
+
+**Python.** The coverage check reads TypeScript only, so a Python project has no ratchet yet; its gates still run its tests — CI's pytest and `/deploy`'s `uv run pytest`.
+

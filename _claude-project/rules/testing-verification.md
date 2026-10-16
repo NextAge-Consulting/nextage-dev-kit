@@ -49,6 +49,44 @@ Worked examples of a test that earns its place, each a real defect it would have
 - A value written into a legacy fixed-width column comes back trimmed.
 - A timestamp is stored in the zone every other row uses, not the server's.
 
+### The integration tier is required
+
+**Every exported function whose body queries the database has an integration test that
+calls it,** whenever `DB_ENGINE` is anything but `None`, undeclared included, unless every
+gate below is declared off. A body queries when it reads a property of a
+database handle — `db.select`, `tx.execute`, `pool.query` — whether the handle is a
+parameter, an import or a call's result. A function that only passes a handle along does
+not query.
+
+An integration test:
+
+- runs inside a transaction the harness always rolls back (`dbTest`);
+- inserts the rows it needs, with ids reserved for tests, and never relies on existing data;
+- calls the real function, handing it the test's transaction;
+- runs on a throwaway database per run where the engine allows one, else on the source the
+  engine rule names.
+
+**A function no integration test can call carries `// integration-exempt: <reason>`
+directly above it.** A function that resolves its own connection is not that case: give it
+the connection as a parameter (below) and test it.
+
+**Only new and changed functions are judged** — changed means any line of its
+declaration. `scripts/check-integration-coverage.mjs` measures from where the branch left
+`main`; editing an untested function means writing its
+test in the same change. Untouched code is counted, never failed.
+
+**The gates:** `/commit` and `/ship-main` run the coverage check and the integration tests
+whose imports reach the change (`vitest related`). CI runs the full suite and fails when
+integration tests exist and did not run. `/deploy` runs the full suite before it bumps.
+
+**Turning a gate off is the project owner's decision, declared with its reason** —
+`INTEGRATION_COMMIT_OFF`, `INTEGRATION_CI_OFF` or `INTEGRATION_DEPLOY_OFF` in
+`.claude/sync-substitutions.json`, where the value is the reason. A gate still on still
+requires the tests. Never set one on your own judgment; ask.
+
+**The coverage check reads TypeScript only.** In a Python project the rule above still
+applies; CI's pytest and `/deploy`'s `uv run pytest` run its tests.
+
 ### It changes how the code is shaped
 
 **A data function takes its connection as a parameter.** The harness runs each test inside
@@ -80,26 +118,27 @@ A project on a different stack runs whatever its own `package.json` or Makefile 
 
 **Before calling a suite blocked, run it the canonical way, read the actual error, quote it to the human, and name the specific cause.** A failure in global or session setup is a mis-invocation until proven otherwise. An inferred blocker is a fabricated one.
 
-### The integration tier is Postgres/Neon-specific
+### Running the integration suite
 
-Everything from here to the end of this section assumes `DB_ENGINE` is
-`PostgreSQL`. Check before applying any of it:
+**The engine rule names the integration tests' database** — `postgres-drizzle.md` or
+`sqlserver-drizzle.md`; on `Other`, the project's `rules/project/`. Check the engine first:
 
 ```bash
 jq -r '.DB_ENGINE // ""' .claude/sync-substitutions.json
 ```
 
-On any other engine the branch-per-run model does not exist — nothing else
-branches a database in one API call — so the project defines its own integration
-strategy (a disposable container per run, a transaction-rollback harness against a
-dev instance, or no integration tier) and records it in `rules/project/`. The
-root-invocation rule above, and the "read the actual error before calling it
-blocked" rule, hold on every engine.
+**Confirm the integration project actually ran.** It is dropped when it cannot reach its
+database — on PostgreSQL, when `NEON_API_KEY` or `NEON_PROJECT_ID` is missing from `.env` —
+and `npm test` still exits green. Read the summary for `|integration|` labels in the
+per-file output. A run with none means integration did not run — say so and name the
+missing credential rather than reporting a pass.
 
-**Confirm the integration project actually ran.** The vitest config drops it silently when `NEON_API_KEY` or `NEON_PROJECT_ID` is missing from `.env`, and `npm test` still exits green. Read the summary for `|integration|` labels in the per-file output, and for a duration in tens of seconds rather than about one. A short run with no labels means integration did not run — say so and name the missing credential rather than reporting a pass.
+**On PostgreSQL, run the integration suite: it cannot touch production.** Each run
+provisions its own throwaway Neon branch forked from production, migrates it, points
+`DATABASE_URL` at that branch before any worker spawns, and deletes it in teardown. Every
+write lands on the disposable copy; the fork is a read. The DB guard covers migration
+commands invoked from the shell, not the migrate inside the harness.
 
-**Run the integration suite. It cannot touch production.** Each run provisions its own throwaway Neon branch, migrates it, points `DATABASE_URL` at that branch before any worker spawns, and deletes it in teardown. Every test runs inside a rolled-back transaction. It costs about a cent a run.
-
-The branch is forked from production, which is why the data is real — but every write lands on the disposable copy, and the fork is a read. The DB guard covers migration commands invoked from the shell, not the migrate inside the harness, so it is not a reason to skip either.
-
-**Never skip or stall a test run over doubt about which database you are on.** That doubt has cost whole sessions. Tests provision their own branch, so the question does not arise; and where you genuinely need the answer, `node scripts/db-branch.mjs` gives it in one API call rather than an assumption.
+**Never skip or stall a test run over doubt about which database you are on.** On
+PostgreSQL tests provision their own branch, so the question does not arise; where you need
+the answer, `node scripts/db-branch.mjs` gives it in one API call.

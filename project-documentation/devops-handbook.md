@@ -84,6 +84,21 @@ secrets. The parts that are yours:
 - **The review bot and the board.** `gemini-code-review-setup.md` and
   `github-project-board-setup.md`.
 
+## The test gates
+
+Every project with a database gets integration tests by default, enforced at three points:
+`/commit` checks that each changed database function has a test and runs the ones the change
+reaches, CI runs the whole suite and fails if the integration tests didn't run, and
+`/deploy` runs the whole suite before it bumps anything. Turning a gate off is your call as
+the project owner. Write the reason as the value of `INTEGRATION_COMMIT_OFF`,
+`INTEGRATION_CI_OFF` or `INTEGRATION_DEPLOY_OFF` in `.claude/sync-substitutions.json`;
+the gate prints it when it stands down. The usual reason is reach: CI or the deploy machine
+can't get to the test database. Set all three and the project needs no integration tests. On Postgres, CI needs the `NEON_API_KEY` and
+`NEON_PROJECT_ID` secrets. (`testing.md` §3)
+
+The check asks nothing of code nobody touches. A developer editing an old database function
+writes its test then, so the untested count CI prints falls as the code is worked on.
+
 ## Keeping it healthy
 
 - **Dependencies.** Dependabot opens grouped PRs monthly, and waits a few days before

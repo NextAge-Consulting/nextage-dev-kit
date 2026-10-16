@@ -75,10 +75,19 @@ its schema only through migrations: `neon-branches.md`.
 
 Write a test in the same change as the code it covers. Logic that lives in the code gets a
 unit test; anything whose answer comes from the database gets an integration test. On
-Postgres each run gets a throwaway copy of the real database; other engines define their
-own. Run `npm test` from the repo root. `/e2e` drives
-the app in a browser through plain-English flows; it is a check you run, not a gate.
-Setup and the flow format: `testing.md`.
+Postgres each run gets a throwaway copy of the real database; the engine rule says where
+other engines run theirs. Run `npm test` from the repo root.
+
+Every function you add or change that queries the database needs an integration test that
+calls it, and `/commit` checks: it names the function and stops. Old code you do not touch
+is left alone; touch it and it needs its test too. When a function really cannot be
+tested that way, mark it `// integration-exempt: <why>`. A whole query written as raw SQL
+through `.execute()` needs `// raw-sql: <what the builder can't do>` above it. `/commit`
+also runs the integration tests your change reaches, and sends any `sql` template you wrote
+to a quick review for table or column names typed as text (`testing.md` §3).
+
+`/e2e` drives the app in a browser through plain-English flows; it is a check you run, not
+a gate. Setup and the flow format: `testing.md`.
 
 ## Adding your own build-output checks
 

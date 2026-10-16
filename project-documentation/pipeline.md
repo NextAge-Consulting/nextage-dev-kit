@@ -449,8 +449,11 @@ deploy buildspec. Checklist row: E67.
 - `19`: the migration failed → nothing app-side shipped; fix the migration, then re-dispatch the migration and the deploys by hand (`commands/deploy.md` Recovery) — never deploy apps against a failed migration
 - `20`: the `MIGRATE_PATHS` diff failed → the skip check errored, so nothing was skipped silently
 - `21`: the deploy-trigger AWS credential in `.env` is missing or invalid → fix it (`new-project-setup.md` §7c); caught before anything mutated. Under `promote`, the promote key
+- `22`: UI awaiting the human's approval, or out of step with the UI inventory → walk the pending items (the `design-system` skill's review); caught before anything mutated
 - `23`: `promote` named a version with no release tag on origin
 - `24`: `promote` succeeded and Prod is on the new version, but the GitHub Release was not created → run the `gh release create` the script printed
+- `25`: a commit in the release names `Needs <org-repo>#N` and that change is not live → `/deploy` it in the org repo first; caught before anything mutated
+- `26`: the test suite failed, could not run, or ran without the integration tests the repository has → fix it on a branch and ship the fix; caught before anything mutated (`testing.md` §3)
 
 A deploy build that fails after the migration ran leaves the new schema under the old code. Read the build log first: a failure outside the code — a registry rate limit, a transient network error — is fixed by re-dispatching the same builds, with no new bump and no second migration.
 

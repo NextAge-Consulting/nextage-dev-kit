@@ -21,7 +21,7 @@ from prod discards any object, row or grant that exists only on dev.
 IS a migration** — including a data seed, a collation, an extension, a role
 grant, a bookkeeping row. `drizzle-kit generate` writes the migration and its
 bookkeeping together, and editing the body of the generated `.sql` is the
-supported way to put arbitrary SQL inside it (`postgres-drizzle.md`). A migration
+supported way to put arbitrary SQL inside it (`drizzle.md`). A migration
 then reaches every branch by the normal path: dev now, prod at deploy, and a
 reset cannot destroy it.
 

@@ -109,9 +109,6 @@ footer outside the content and take one; a form in a card does not.
 - **A brand colour is never changed.** When it fails contrast, change the colour paired
   with it, accept the shortfall with the reason written on the token, or put it to the
   human.
-- A light token never needs a dark twin written by hand: its dark value can be derived
-  from it (`color-mix` of the light token), so a change to the light one carries through.
-  A project may set its own dark value wherever it chooses.
 - Every colour token carries a comment saying what it is for. Text takes the foreground of
   the surface it sits on.
 

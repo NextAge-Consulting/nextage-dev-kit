@@ -73,6 +73,8 @@
 #     PR merged, or a merged PR closes the org issue (org-repo-cheatsheet.md)
 #   - No UI awaiting the human's approval: the ui-patterns status check passes
 #     (rules/ui-design.md, "One app, one look and feel")
+#   - The full test suite passes, and integration tests that exist actually ran
+#     (testing.md §3) — unless INTEGRATION_DEPLOY_OFF declares why it cannot
 #
 # In a repo holding infrastructure, /deploy on a PR branch — and in an org repo,
 # always — hands over to deploy-org.sh instead (repo_kind.sh).
@@ -176,6 +178,8 @@
 #  25  a PR in this release names `Needs <org-repo>#N` and that change is not live
 #      (the org PR not merged, or no merged PR closes the org issue), or GitHub
 #      could not say — checked as a state gate before any mutation
+#  26  the test suite failed, could not run, or ran without the integration tests
+#      the repository has — checked as the last state gate, before any mutation
 #
 # ─── Recovery ────────────────────────────────────────────────────────────
 # The bump commit and the push to main happen together (steps 3–4). If the
@@ -672,10 +676,62 @@ if [ -f "$UI_STATUS_CHECK" ]; then
     fi
 fi
 
+# --- The full test suite passes, integration tests included --------------
+# The last state gate, so nothing is bumped, built or migrated before it (testing.md
+# §3). It runs the project's own suite — `npm test` for a root package.json declaring
+# one, else `uv run pytest` for a root pyproject.toml — against whatever database the
+# project's .env reaches. Integration tests that exist must actually run, unless the
+# project has no database (DB_ENGINE None). A project that
+# cannot run the suite from where it deploys declares why in INTEGRATION_DEPLOY_OFF.
+DEPLOY_SUBS=".claude/sync-substitutions.json"
+deploy_sub() {
+    [ -f "$DEPLOY_SUBS" ] || return 0
+    jq -r --arg k "$1" '.[$k] // "" | strings' "$DEPLOY_SUBS" 2>/dev/null || true
+}
+TESTS_DEPLOY_OFF=$(deploy_sub INTEGRATION_DEPLOY_OFF)
+TESTS_ENGINE=$(deploy_sub DB_ENGINE)
+INTEGRATION_FILES=$(git ls-files -- '*.integration.test.ts' '*.integration.test.tsx' '*.integration.test.mts' | { grep -vE '(^|/)node_modules/' || true; })
+if [ -n "$TESTS_DEPLOY_OFF" ]; then
+    echo "gitflow: test precheck: declared off at deploy (INTEGRATION_DEPLOY_OFF) — $TESTS_DEPLOY_OFF" >&2
+elif [ -f "package.json" ] && jq -e '.scripts.test | strings' package.json >/dev/null 2>&1; then
+    echo "gitflow: test precheck: running npm test..." >&2
+    if ! TEST_OUT=$(npm test 2>&1); then
+        printf '%s\n' "$TEST_OUT" | tail -60 >&2
+        echo "deploy.sh: the test suite failed. Refusing to deploy — nothing was bumped, built or migrated." >&2
+        exit 26
+    fi
+    if [ -n "$INTEGRATION_FILES" ] && [ "$TESTS_ENGINE" != "None" ] \
+        && ! printf '%s\n' "$TEST_OUT" | grep -qF '|integration|'; then
+        echo "deploy.sh: the repository has integration tests, but the integration project did not run, so the suite has not passed." >&2
+        echo "  On PostgreSQL: set NEON_API_KEY and NEON_PROJECT_ID in .env (testing.md §1)." >&2
+        echo "  If deploys cannot reach the test database, declare why in INTEGRATION_DEPLOY_OFF (testing.md §3)." >&2
+        exit 26
+    fi
+    echo "gitflow: test precheck: the suite passes." >&2
+elif [ -f "pyproject.toml" ]; then
+    if ! command -v uv >/dev/null 2>&1; then
+        echo "deploy.sh: the test precheck runs \`uv run pytest\`, and uv is not installed here." >&2
+        echo "  A gate that cannot run must not report success. Install uv, or declare why in INTEGRATION_DEPLOY_OFF." >&2
+        exit 26
+    fi
+    echo "gitflow: test precheck: running uv run pytest..." >&2
+    if ! TEST_OUT=$(uv run pytest 2>&1); then
+        printf '%s\n' "$TEST_OUT" | tail -60 >&2
+        echo "deploy.sh: the test suite failed. Refusing to deploy — nothing was bumped, built or migrated." >&2
+        exit 26
+    fi
+    echo "gitflow: test precheck: the suite passes." >&2
+elif [ -n "$INTEGRATION_FILES" ]; then
+    echo "deploy.sh: the repository has integration tests, but package.json declares no \"test\" script to run them (testing.md §1)." >&2
+    exit 26
+else
+    echo "gitflow: test precheck: the project declares no test suite (no \"test\" script, no root pyproject.toml)." >&2
+fi
+
 # --- Check-only: state gates pass, exit without mutating ----------------
 
 if [ "$CHECK_ONLY" -eq 1 ]; then
-    echo "deploy.sh: state gates OK (on main, clean, in-sync, checks green, infrastructure live, UI approved, ${COMMITS_SINCE:-?} commits since ${LAST_TAG:-no-tag})" >&2
+    echo "deploy.sh: state gates OK (on main, clean, in-sync, checks green, infrastructure live, UI approved, tests pass, ${COMMITS_SINCE:-?} commits since ${LAST_TAG:-no-tag})" >&2
     exit 0
 fi
 

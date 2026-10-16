@@ -252,7 +252,7 @@ is_app_only() {
     case "$1" in
         _claude-project/rules/a11y-baseline.md|_claude-project/rules/ui-design.md|_claude-project/rules/ui-patterns.md) return 0 ;;
         _claude-project/rules/dependencies.md|_claude-project/rules/dev-server.md) return 0 ;;
-        _claude-project/rules/postgres-drizzle.md|_claude-project/rules/sqlserver-drizzle.md) return 0 ;;
+        _claude-project/rules/drizzle.md|_claude-project/rules/postgres-drizzle.md|_claude-project/rules/sqlserver-drizzle.md) return 0 ;;
         _claude-project/rules/integrations/agent-browser.md) return 0 ;;
         _claude-project/commands/dev.md|_claude-project/commands/ui-design.md) return 0 ;;
         _claude-project/skills/agent-browser/*|_claude-project/skills/claude-design/*) return 0 ;;
@@ -665,6 +665,9 @@ dest_for_kit_path() {
             ;;
         _claude-project/templates/scripts/db-branch.mjs)
             echo "scripts/db-branch.mjs"
+            ;;
+        _claude-project/templates/scripts/check-integration-coverage.mjs)
+            echo "scripts/check-integration-coverage.mjs"
             ;;
         _claude-project/templates/dependency-policy.md)
             # Operating procedure for dependency + vulnerability work. Lands in

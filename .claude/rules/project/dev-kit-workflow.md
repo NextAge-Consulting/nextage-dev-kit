@@ -56,7 +56,7 @@ The kit dogfoods only what it actually uses. Everything below ships to consumers
 | `skills/shadcn/**` | Kit has no `components.json` / shadcn install. |
 | `skills/mfing-bible-of-tanstack/**` | Kit has no TanStack code. |
 | `stack-manifest.json` | Every version the kit blesses, each with the condition it applies under — `whenDeclared` (the library standard), `whenFile` (a kit-shipped config implies its tool), `whenResolved` (a package the kit's own choices drag in, transitively). Plus vendored-reference provenance. Kit has no `package.json`, no lockfile and no TanStack dependency, so none of the triggers could fire here. Consumed by the (also template-only) `scripts/check-stack.mjs`. |
-| `rules/postgres-drizzle.md`, `rules/sqlserver-drizzle.md`, `skills/postgres-neon-drizzle/**` | Kit has no database of any engine — its own `DB_ENGINE` is `None`, which is exactly the value that stands both engine rules down. |
+| `rules/drizzle.md`, `rules/postgres-drizzle.md`, `rules/sqlserver-drizzle.md`, `skills/postgres-neon-drizzle/**` | Kit has no database of any engine and no `drizzle-orm` — its own `DB_ENGINE` is `None`, which stands the engine rules down, and the Drizzle rule's gate finds no declaration. |
 | `rules/cli-utilities.md` | Kit runs no AWS / cloud CLI — the account/region discipline never applies. |
 | `skills/terraform/**` | Kit has no AWS account and no Terraform — nothing to plan, adopt or document. |
 | `skills/agent-browser/**`, `rules/integrations/agent-browser.md` | Kit has no web app to drive a browser against. |
@@ -69,7 +69,7 @@ The kit dogfoods only what it actually uses. Everything below ships to consumers
 | `rules/dependencies.md` | Kit has no `package.json` — nothing to install, no lockfile to protect. |
 | `skills/dependency-triage/**` | Kit has no `package.json` and no `.github/dependabot.yml` — no dependency PRs are ever opened here. |
 | `templates/knip.config.ts` | The kit's unused-code configuration. It reads a root `package.json` and the workspaces it declares; the kit has neither, and no JavaScript to analyse. |
-| `templates/scripts/**` | Seeds for a consumer's `scripts/` — `check-dep-alignment.mjs`, `check-workspace-tiers.mjs`, `check-stack.mjs`, `db-branch.mjs`. The first three read a `package.json` / workspace graph the kit does not have; the fourth resolves a Neon branch, and the kit has no database. |
+| `templates/scripts/**` | Seeds for a consumer's `scripts/` — `check-dep-alignment.mjs`, `check-workspace-tiers.mjs`, `check-stack.mjs`, `db-branch.mjs`, `check-integration-coverage.mjs`. The dependency, tier and stack checks read a `package.json` / workspace graph the kit does not have; the branch resolver and the coverage check need a database, and the kit has none. |
 | `rules/project/README.md` | Consumer scaffolding placeholder; the kit has its own `rules/project/` content. |
 
 Anything in `_claude-project/` not listed above IS dogfooded. Kit-custom items (listed under "The kit's own `.claude/`") live only in the kit's `.claude/` and are governed by the propagation table, not this one.

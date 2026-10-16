@@ -162,7 +162,8 @@ The `project/` subfolder is created automatically by `/sync-dev-kit` if it doesn
 | `testing-verification.md` | Who runs tests, and how the suite is invoked |
 | `dependencies.md` | Lockfile installs and pinned node version |
 | `typescript-rules.md` / `python-rules.md` | Language rules, loaded by path targeting |
-| `postgres-drizzle.md` | The three silent failures on Postgres + Drizzle |
+| `drizzle.md` | Drizzle on any engine: queries through the schema, migrations, a partly-owned schema |
+| `postgres-drizzle.md` / `sqlserver-drizzle.md` | Engine specifics, each gated on `DB_ENGINE` |
 | `ui-design.md` / `ui-patterns.md` / `a11y-baseline.md` | UI tokens, composition, accessibility floor |
 | `dev-server.md` | Dev servers are started by the human, via `/dev` |
 | `cli-utilities.md` | AWS CLI account/region discipline |

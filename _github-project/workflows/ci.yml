@@ -3,8 +3,9 @@
 # The repo's stack is auto-detected by file presence — NO per-project config:
 #   - Node    (root `package.json`)      → node-checks (dep-alignment,
 #                                           workspace-tiers, stack-standard,
-#                                           check-types, biome, knip as steps
-#                                           of one job), then vitest
+#                                           check-types, biome, integration
+#                                           coverage, knip as steps of one
+#                                           job), then vitest
 #   - Python  (any `pyproject.toml`)      → ruff + pytest via uv, in each
 #                                           pyproject dir (monorepo layouts like
 #                                           services/<x>/ work with zero config);
@@ -227,6 +228,26 @@ jobs:
             echo "::notice::No design.md at the repository root, so the design checks (lint:tokens, lint:design) do not apply."
           fi
 
+      # The integration tier's ratchet (testing-verification.md): every exported
+      # function this PR changed that queries the database has an integration
+      # test calling it, and every changed `.execute()` carries a `raw-sql:`
+      # reason. Untouched code is counted, never failed. A declared
+      # INTEGRATION_CI_OFF skips it, quoting the reason; the check stands down on
+      # its own, saying why, for DB_ENGINE None or a repository with no
+      # TypeScript. It reads source with TypeScript, so it needs the install.
+      - name: integration coverage
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          ci_off=""
+          [ -f .claude/sync-substitutions.json ] && ci_off=$(jq -r '.INTEGRATION_CI_OFF // "" | strings' .claude/sync-substitutions.json)
+          if [ -n "$ci_off" ]; then
+            echo "::notice::Integration tests are declared off in CI (INTEGRATION_CI_OFF): $ci_off"
+            exit 0
+          fi
+          node scripts/check-integration-coverage.mjs --base "origin/$BASE_REF" --report-untested
+
       # Unused code: files, exports, types and dependencies nothing uses, and
       # imports of packages a workspace never declares. The kit's knip.config.ts
       # is the whole configuration — there is no per-project ignore list, so a
@@ -333,22 +354,58 @@ jobs:
           cache: npm
       - if: steps.applies.outputs.run == 'true'
         run: npm ci
-      # vitest.config.ts drops the integration project when the Neon secrets
-      # are absent, and the run still passes — integration tests that exist
-      # but never ran would read as green. Dependabot PRs are the one
-      # exception: GitHub runs them without the repository's Actions secrets,
-      # and their unit tests are still real signal.
-      - name: integration tests have their database
-        if: steps.applies.outputs.run == 'true' && github.event.pull_request.user.login != 'dependabot[bot]'
+      # The integration gate (testing.md §3). The integration project is
+      # dropped when it cannot reach its database — on PostgreSQL, when the Neon
+      # secrets are absent — and the run still passes, so integration tests that
+      # exist but never ran would read as green. They must run unless the
+      # project declares why CI cannot run them (INTEGRATION_CI_OFF). Dependabot PRs are the one exception: GitHub
+      # runs them without the repository's Actions secrets, and their unit tests
+      # are still real signal.
+      - id: integration
+        name: must the integration tests run
+        if: steps.applies.outputs.run == 'true'
+        env:
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
-          files=$(git ls-files '*.integration.test.ts')
-          if [ -n "$files" ] && { [ -z "$NEON_API_KEY" ] || [ -z "$NEON_PROJECT_ID" ]; }; then
-            echo "::error::This repository has integration tests, but the NEON_API_KEY or NEON_PROJECT_ID secret is empty, so they would be skipped. Add both under Settings → Secrets and variables → Actions (testing.md §1)."
+          set -euo pipefail
+          subs=.claude/sync-substitutions.json
+          engine=""; ci_off=""
+          if [ -f "$subs" ]; then
+            engine=$(jq -r '.DB_ENGINE // "" | strings' "$subs")
+            ci_off=$(jq -r '.INTEGRATION_CI_OFF // "" | strings' "$subs")
+          fi
+          files=$(git ls-files -- '*.integration.test.ts' '*.integration.test.tsx' '*.integration.test.mts' | { grep -vE '(^|/)node_modules/' || true; })
+          required=false
+          if [ -z "$files" ]; then
+            echo "::notice::The repository has no integration tests, so none must run."
+          elif [ "$engine" = "None" ]; then
+            echo "::notice::DB_ENGINE is None, so the integration tests are not required."
+          elif [ -n "$ci_off" ]; then
+            echo "::notice::Integration tests are declared off in CI (INTEGRATION_CI_OFF): $ci_off"
+          elif [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
+            echo "::notice::Dependabot PRs run without the repository's secrets, so the integration tests are not required here."
+          elif [ "$engine" = "PostgreSQL" ] && { [ -z "$NEON_API_KEY" ] || [ -z "$NEON_PROJECT_ID" ]; }; then
+            echo "::error::This repository has integration tests, but the NEON_API_KEY or NEON_PROJECT_ID secret is empty, so they would be skipped. Add both under Settings → Secrets and variables → Actions (testing.md §1), or declare why CI cannot run them in INTEGRATION_CI_OFF."
             printf '%s\n' "$files"
             exit 1
+          else
+            required=true
           fi
+          echo "required=$required" >> "$GITHUB_OUTPUT"
       - if: steps.applies.outputs.run == 'true'
-        run: npm test
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee "$RUNNER_TEMP/vitest.log"
+      # vitest labels each file of a named project, so `|integration|` in the
+      # output is the integration project having run.
+      - name: integration tests ran
+        if: ${{ !cancelled() && steps.integration.outputs.required == 'true' }}
+        run: |
+          if ! grep -qF '|integration|' "$RUNNER_TEMP/vitest.log"; then
+            echo "::error::This repository has integration tests, but the integration project did not run. On another engine than PostgreSQL, register it in test/project.ts under the name \"integration\" (the engine rule says how), or declare why CI cannot run it in INTEGRATION_CI_OFF (testing.md §3)."
+            exit 1
+          fi
+          echo "The integration project ran."
 
   python:
     name: python
