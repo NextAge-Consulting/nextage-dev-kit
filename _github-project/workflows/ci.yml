@@ -392,7 +392,11 @@ jobs:
             required=true
           fi
           echo "required=$required" >> "$GITHUB_OUTPUT"
+      # NO_COLOR keeps vitest's project labels plain: on a runner, where `CI` is
+      # set, it otherwise prints each one as a coloured badge with no `|` around it.
       - if: steps.applies.outputs.run == 'true'
+        env:
+          NO_COLOR: "1"
         run: |
           set -o pipefail
           npm test 2>&1 | tee "$RUNNER_TEMP/vitest.log"
