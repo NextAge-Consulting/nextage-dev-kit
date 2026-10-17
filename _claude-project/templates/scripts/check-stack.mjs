@@ -22,10 +22,11 @@
  *   whenResolved   present anywhere in the LOCKFILE, transitive included -> one
  *                  major across the whole tree
  *
- * `whenResolved` is the one that catches what nobody wrote down. `zod` is the
- * live case: better-auth needs v4, drizzle-kit and shadcn pull v3, npm resolves
- * by hoist order, and the loser fails at RUNTIME — never at build, never in CI.
- * No declaration check could have seen it.
+ * `whenResolved` catches what nobody wrote down: a package two dependencies drag
+ * in at different majors. npm resolves by hoist order, and the loser fails at
+ * RUNTIME — never at build, never in CI. The zod split is that shape: better-auth
+ * and Start's build need v4 while shadcn's CLI pulls v3. Its `version` names the
+ * major, and every copy in the lockfile, nested ones included, is checked against it.
  *
  * SEVERITY is a field, not a convention. `required` fails; `advisory` prints and
  * passes, for a real problem whose fix is a fleet decision not yet taken.
@@ -140,6 +141,32 @@ for (const [name, spec] of Object.entries(blessed)) {
   const why = spec.why ? `\n      ${spec.why}` : "";
   const applies = spec.applies ?? "whenDeclared";
 
+  // -- whenResolved: one major across the whole tree. Every copy the lockfile holds is
+  // checked, nested ones included, because a nested copy is exactly where the loser of a
+  // hoist lands; a declaration may be a range, as long as it stays on the major.
+  if (applies === "whenResolved") {
+    const major = String(spec.version).split(".")[0];
+    const majorOf = (v) => String(v).replace(/^[^0-9]*/, "").split(".")[0];
+    const tail = `node_modules/${name}`;
+    const copies = Object.entries(lock?.packages ?? {}).filter(([key]) => key === tail || key.endsWith(`/${tail}`));
+    const declaring = manifests.filter((m) => depsOf(m.pkg)[name] !== undefined);
+    if (copies.length === 0 && declaring.length === 0) continue;
+    evaluated++;
+    for (const { dir, pkg } of declaring) {
+      const got = depsOf(pkg)[name];
+      if (majorOf(got) !== major) report(severity, `${where(dir)}: ${name} is "${got}" — the kit requires v${major} across the tree.${why}`);
+    }
+    for (const [key, entry] of copies) {
+      if (entry?.version && majorOf(entry.version) !== major)
+        report(
+          severity,
+          `package-lock.json: ${key} is ${entry.version} — the whole tree must resolve ${name} v${major}.\n` +
+            `      Find what pulls it: npm ls ${name}${why}`,
+        );
+    }
+    continue;
+  }
+
   // -- whenFile: a kit-shipped config is present, so the tool behind it is ours.
   if (typeof applies === "object" && Array.isArray(applies.whenFile)) {
     // A `$KEY` in a trigger path is read from sync-substitutions.json now, so a key set after
@@ -184,7 +211,7 @@ for (const [name, spec] of Object.entries(blessed)) {
   }
 
   // -- declaration check, shared by whenDeclared and whenFile/installedBy:project.
-  if (applies === "whenDeclared" || applies === "whenResolved") {
+  if (applies === "whenDeclared") {
     if (manifests.some((m) => depsOf(m.pkg)[name] !== undefined) || lock?.packages?.[`node_modules/${name}`]) evaluated++;
   }
   for (const { dir, pkg } of manifests) {
@@ -230,12 +257,11 @@ for (const [name, spec] of Object.entries(blessed)) {
 // --- 1b. Better Auth apps: the declaration (required) + bundling (advisory) --
 // Vite inlines better-auth into the server bundle, and the inlined `import 'x'`
 // resolves from the APP's directory. An app that declares the major itself is
-// immune to whatever npm hoisted to the root — which is why three projects with
-// two different root hoists all run in production.
+// immune to whatever npm hoisted to the root.
 //
-// So the DECLARATION fails and the bundling only advises. Measured, not assumed:
-// 6 of 7 apps in the fleet carry no `ssr.noExternal` and none of them is broken.
-// A check that failed them would be wrong, not strict.
+// So the DECLARATION fails and the bundling only advises: an app that declares the
+// major runs correctly without `ssr.noExternal`, and a check that failed it would be
+// wrong, not strict.
 // An app's ssr.noExternal as Vite resolves its config — through a shared config
 // factory, a spread or an import, which reading the file as text cannot follow.
 // { error } when this app's Vite cannot load it.

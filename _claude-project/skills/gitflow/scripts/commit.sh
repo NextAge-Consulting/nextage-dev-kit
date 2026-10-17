@@ -184,8 +184,10 @@ if is_protected_branch "$CURRENT_BRANCH" || [ -n "$HANDED_TO" ]; then
     fi
 fi
 
-# Typecheck, biome, knip, semgrep, terraform fmt and the integration tier — gates.sh holds each gate and why it is shaped
-# the way it is.
+# The integration preflight, then typecheck, biome, knip, semgrep, terraform fmt and the integration tier — gates.sh
+# holds each gate and why it is shaped the way it is. The preflight goes first: it is the one that can need a
+# decision from the person committing.
+run_integration_preflight INTEGRATION_COMMIT_OFF "committing" || exit $?
 run_typecheck_gate "$SKIP_TYPECHECK" "committing" || exit $?
 run_biome_gate "committing" || exit $?
 run_knip_gate "committing" || exit $?
@@ -194,6 +196,10 @@ run_terraform_gate "$FOLD_BASE" "committing" || exit $?
 run_terraform_lock_gate "$FOLD_BASE" "committing" || exit $?
 run_project_gate "$FOLD_BASE" "committing" || exit $?
 run_integration_gate "$FOLD_BASE" "committing" || exit $?
+
+# Fit checks: a pending component carries its fit check's approval of the file as it
+# stands. Cheap and local, so it runs before the headless reviews.
+run_fit_check_gate "committing" || exit $?
 
 # Rule-prose review: every rule, skill, command or pattern reference changed since
 # FOLD_BASE, reviewed by a headless Claude against the rule-authoring standard.

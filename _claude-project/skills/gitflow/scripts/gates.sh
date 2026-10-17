@@ -1,6 +1,6 @@
 #!/bin/bash
-# gitflow gates: the local checks /commit, /ship-main and /merge run before they
-# act. Sourced by commit.sh, ship-main.sh and merge.sh.
+# gitflow gates: the local checks /commit, /ship-main, /merge and /deploy run before
+# they act. Sourced by commit.sh, ship-main.sh, merge.sh and deploy.sh.
 #
 # Every gate passes (return 0) or fails (return 4, or 15 for the build gate), and
 # says which: what it inspected, how much, or why it does not apply here. A gate
@@ -349,6 +349,60 @@ run_terraform_lock_gate() {
     echo "gitflow: terraform lock: $count changed lock file(s), locked for every platform." >&2
 }
 
+# run_integration_preflight <off_key> <action>
+#
+# Whether the integration tests' database is ready, asked FIRST, while the person who
+# ran the command is still there. A database that needs a migration applied, or is not
+# set up for tests at all, then stops the command at its first step instead of after the
+# build, or halfway through a deploy left running unattended. It runs the root
+# package.json's `test:preflight` script; what that checks belongs to the project's
+# integration harness (the engine rule says what). It applies where the integration tests
+# will run: a root package.json, DB_ENGINE not None, <off_key> not declared, and
+# integration tests in the repository. A project that declares no `test:preflight`
+# passes, saying so.
+run_integration_preflight() {
+    local off_key="$1" action="$2" engine="" off="" tests out
+    if [ ! -f "package.json" ]; then
+        echo "gitflow: integration preflight: skipped — no root package.json." >&2
+        return 0
+    fi
+    if [ -f .claude/sync-substitutions.json ]; then
+        engine=$(jq -r '.DB_ENGINE // "" | strings' .claude/sync-substitutions.json 2>/dev/null)
+        off=$(jq -r --arg k "$off_key" '.[$k] // "" | strings' .claude/sync-substitutions.json 2>/dev/null)
+    fi
+    if [ "$engine" = "None" ]; then
+        echo "gitflow: integration preflight: does not apply — DB_ENGINE is None." >&2
+        return 0
+    fi
+    if [ -n "$off" ]; then
+        echo "gitflow: integration preflight: declared off ($off_key) — $off" >&2
+        return 0
+    fi
+    tests=$(git ls-files --cached --others --exclude-standard -- '*.integration.test.ts' '*.integration.test.tsx' '*.integration.test.mts' 2>/dev/null | { grep -vE '(^|/)node_modules/' || true; })
+    if [ -z "$tests" ]; then
+        echo "gitflow: integration preflight: the repository has no integration tests yet — no database to check." >&2
+        return 0
+    fi
+    if ! jq -e '.scripts["test:preflight"] | strings' package.json >/dev/null 2>&1; then
+        echo "gitflow: integration preflight: the project declares none (no \"test:preflight\" script)." >&2
+        return 0
+    fi
+    if ! command -v npm >/dev/null 2>&1; then
+        echo "" >&2
+        echo "gitflow: the integration preflight runs npm run test:preflight, and npm is not installed here." >&2
+        echo "  A gate that cannot run must not report success, so this is a failure." >&2
+        return 4
+    fi
+    echo "gitflow: integration preflight: running npm run test:preflight..." >&2
+    if ! out=$(npm run --silent test:preflight 2>&1); then
+        echo "" >&2
+        printf '%s\n' "$out" >&2
+        echo "gitflow: the integration tests' database is not ready. Fix before $action." >&2
+        return 4
+    fi
+    echo "gitflow: integration preflight: the integration tests' database is ready." >&2
+}
+
 # run_integration_gate <fold_base> <action>
 #
 # The integration tier at the commit (testing-verification.md). The coverage check
@@ -445,7 +499,9 @@ run_integration_gate() {
         echo "gitflow: integration tests failed. Fix before $action." >&2
         return 4
     fi
-    if printf '%s\n' "$out" | grep -qF 'No test files found'; then
+    # "No affected test files found" when tests exist but none reaches the change, and
+    # "No test files found" from a vitest that does not draw that distinction.
+    if printf '%s\n' "$out" | grep -qE 'No (affected )?test files found'; then
         echo "gitflow: integration: no integration test reaches the ${#files[@]} changed file(s)." >&2
     else
         echo "gitflow: integration: the tests reaching the ${#files[@]} changed file(s) pass." >&2
@@ -468,6 +524,29 @@ run_project_gate() {
     if ! bash .claude/project-gate.sh "$base"; then
         echo "" >&2
         echo "gitflow: the project gate failed (.claude/project-gate.sh). Fix before $action." >&2
+        return 4
+    fi
+}
+
+# run_fit_check_gate <action>
+#
+# Every pending component carries, on its inventory line, the fit check that approved
+# it as it stands (the design-system skill's references/fit-check.md). A component
+# added or changed without one stops the commit here, while it is still one change
+# away, not at the approval review.
+run_fit_check_gate() {
+    local action="$1" check=".claude/skills/ui-patterns/scripts/check-ui-status.mjs"
+    if [ ! -f "$check" ]; then
+        echo "gitflow: fit checks: not checked ($check does not exist)." >&2
+        return 0
+    fi
+    if ! command -v node >/dev/null 2>&1; then
+        echo "gitflow: fit checks cannot run: node is not installed. A gate that cannot run fails." >&2
+        return 4
+    fi
+    if ! node "$check" --fit-only; then
+        echo "" >&2
+        echo "gitflow: a pending component has no fit check, or changed after it. Run the fit check before $action." >&2
         return 4
     fi
 }

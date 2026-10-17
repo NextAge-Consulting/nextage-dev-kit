@@ -289,7 +289,7 @@ jobs:
       # packages, so it needs the install.
       - name: knip
         if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.knip-gate.outputs.run == 'true' }}
-        run: npx --yes knip@5.88.1 --no-progress --no-config-hints --reporter symbols --reporter github-actions
+        run: npx --yes knip@6.41.0 --no-progress --no-config-hints --reporter symbols --reporter github-actions
 
   vitest:
     name: vitest
@@ -470,8 +470,8 @@ jobs:
             echo "typecheck: mypy ., from the repository root"
             uv run mypy .
           else
-            echo "typecheck: pyright 1.1.409 (the stack manifest's pin), from the repository root"
-            PYRIGHT_PYTHON_IGNORE_WARNINGS=1 "${run[@]}" --with pyright==1.1.409 pyright --stats
+            echo "typecheck: pyright 1.1.414 (the stack manifest's pin), from the repository root"
+            PYRIGHT_PYTHON_IGNORE_WARNINGS=1 "${run[@]}" --with pyright==1.1.414 pyright --stats
           fi
 
   # Formatting across every .tf file, then each root validated on its own.

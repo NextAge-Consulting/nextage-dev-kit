@@ -6,7 +6,18 @@
 
 import type { TestProjectInlineConfiguration } from "vitest/config";
 
-/** A database beyond the main one, created on the same integration branch. */
+/** SQL Server: the development database the integration tests check before they run. */
+export type IntegrationDatabase = {
+  /** Where a developer reads how to set up and mark a development database, from the repository root. */
+  setupDoc: string;
+  /**
+   * Each migration chain: the folder drizzle-kit writes, the command that applies it, and
+   * the table its applied migrations are recorded in when not drizzle.__drizzle_migrations.
+   */
+  migrations: { folder: string; apply: string; table?: string }[];
+};
+
+/** PostgreSQL: a database beyond the main one, created on the same integration branch. */
 export type ExtraDatabase = {
   /** The variable the run sets to this database's URL on the branch, e.g. "AUDIT_DATABASE_URL". */
   envVar: string;
@@ -33,12 +44,14 @@ export type TestProject = {
   vitestProjects?: TestProjectInlineConfiguration[];
   /** .env keys the tests may read beyond the NEON_* keys and TZ, which are always allowed. */
   envKeys?: string[];
-  /** Databases beyond the main one on the integration branch. */
+  /** SQL Server: the development database's setup doc and migration chains. Required for the integration tier there. */
+  integrationDatabase?: IntegrationDatabase;
+  /** PostgreSQL: databases beyond the main one on the integration branch. */
   extraDatabases?: ExtraDatabase[];
   /**
-   * Runs once after every database on the branch is migrated, given each URL by its
-   * variable name: for what a fork of production needs before tests (keys production
-   * encrypted under a secret the tests do not have).
+   * PostgreSQL: runs once after every database on the branch is migrated, given each URL
+   * by its variable name: for what a fork of production needs before tests (keys
+   * production encrypted under a secret the tests do not have).
    */
   afterMigrate?: (urls: Record<string, string>) => Promise<void>;
   /** The roles a test user may hold, and the one mockAuthedUser gives by default. */

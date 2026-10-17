@@ -1,7 +1,8 @@
 # Browse tables
 
-Distilled from `@tanstack/react-table` v9 skills `getting-started`, `table-state`
-and `with-tanstack-query`, plus our decisions. The browse is the spine of a
+Distilled from `@tanstack/react-table` v9 skills `getting-started` (with its
+`with-tanstack-query` reference) and `table-state`, and `@tanstack/table-core`'s
+`table-features`, plus our decisions. The browse is the spine of a
 back-office app; this is how we build one.
 
 ## Table renders nothing
@@ -27,27 +28,53 @@ const table = useTable({ features, columns, data })
 v9 registers only what you name, so a plain browse stays small. Register a
 feature when the screen uses it, not preemptively.
 
-**Never `legacyCreateColumnHelper`.** It is the v8 compatibility shim and carries
-an open upstream TypeScript defect (`aggregationFn` rejects built-in string
-identifiers). New code has no reason to touch it.
+**Never `legacyCreateColumnHelper`.** It is the v8 compatibility shim: it exists
+to carry v8 column definitions across, and new code has none to carry.
 
-## Tell Table which stages it is not running
+**An app where two or more browses share features, a `getRowId` rule or cell
+components builds them on `createTableHook`.** One infrastructure module binds
+those once; every screen calls the `useAppTable` it returns, so no browse can
+drift from the others (`react-table` skill `getting-started`, reference
+`create-table-hook`).
 
-Paging, sorting and filtering are separate stages, each opt-in. When the rows
-handed to Table are already processed — by the server, or by the screen slicing
-an array it holds — Table must be told, or it will page the page:
+## Keep `data` and `columns` stable
+
+**Pass Table the same `data` and `columns` arrays across renders until their
+contents change.** Table rebuilds every row whenever `data` is a new array
+(`table-core` `createCoreRowModel.js`: `memoDeps: () => [table.options.data]`),
+and the column tree whenever `columns` is. After a rebuild it auto-resets
+page index, sorting and expansion. With one of those features registered and its
+state controlled away from its default, the reset updates the screen's state,
+the screen re-renders, and an unstable array starts the rebuild again — a render
+loop.
+
+Define `columns` at module scope, or in a `useMemo` keyed on what it is built
+from — a saved view's visible-column list included, which must itself be
+memoised rather than rebuilt with `.filter().map()` each render. Memoise a slice
+or mapping the screen derives for `data`; pass a query's `data` through as it
+is.
+
+## Rows the server paged, sorted and filtered
+
+**A browse the server pages, sorts and filters hands Table the page's rows and
+registers no row-model factory for those stages.** With no paginated, sorted or
+filtered row-model factory, Table passes the rows through untouched
+(`table-core` `coreRowModelsFeature.utils`: `table_getPaginatedRowModel` and its
+siblings return the previous stage's rows), so what renders is exactly the page
+the query returned:
 
 ```ts
-useTable({ features, columns, data: rows, rowCount, manualPagination: true })
+useTable({ features, columns, data: rows, getRowId: (row) => row.itemid })
 ```
 
-`manualPagination` means the rows you were given ARE the page. `rowCount`
-supplies the total, which Table cannot derive from rows it never received.
-`manualSorting` and `manualFiltering` are the same bargain for those stages.
+The total for the footer comes from the query's result, not from Table.
 
-The bargain does not care WHERE the work happened. A screen holding every row
-and slicing it itself is still manual paging, because the slice reached Table
-from outside.
+A feature's options exist only when the feature is registered: `TableOptions`
+is built from the registered features (`types/TableOptions.d.ts`), so
+`manualPagination` and `rowCount` belong to `rowPaginationFeature`,
+`manualSorting` to `rowSortingFeature`, `manualFiltering` to
+`columnFilteringFeature`. Register `rowSortingFeature` for the header toggle and
+its sorting state, still with no sorted row model; the server sorts.
 
 Anything upstream that the query owns must be in the **query key**, or changing
 a sort will not refetch.
@@ -62,12 +89,16 @@ Two valid designs, and mixing them is the bug:
 - **URL-owned** (our default) — page and size are search params, the footer
   drives them, and Table's pagination feature is *not* registered. One source of
   truth, and the browse stays shareable.
-- **Table-owned** — Table holds pagination state in an atom and the query reads
-  from it. Correct only for a grid embedded in a larger screen where the page
+- **Table-owned** — `rowPaginationFeature` is registered with
+  `manualPagination: true`, `rowCount` from the query, and Table holds the page
+  state. Correct only for a grid embedded in a larger screen where the page
   number genuinely should not be in the URL.
 
-Never register Table's pagination feature *and* keep page in the URL. They will
-disagree, and the symptom is a pager that skips or repeats a page.
+A browse that registers the pagination feature *and* keeps page in the URL
+controls it from the URL: `state: { pagination }` derived from the search
+params, and `onPaginationChange` navigating. Uncontrolled pagination beside a
+URL page is two sources of truth, and the symptom is a pager that skips or
+repeats a page (`react-table` skill `table-state`).
 
 ## Row identity
 
@@ -81,7 +112,16 @@ reorder or one is removed — exactly what happens when a filter changes.
   plus persistence is the "saved views" feature; the state object Table exposes
   *is* the saved view, which is most of why adopting Table pays.
 - **Row selection** — bulk actions. Selection changes what the toolbar contains,
-  so plan the toolbar for it rather than bolting it on.
+  so plan the toolbar for it rather than bolting it on. Table's selection state
+  is a map keyed by `getRowId`, and nothing resets it when `data` changes, so a
+  selection made on one page survives moving to the next while the screen stays
+  mounted. Rows on other pages have no `Row` object, so a bulk action reads
+  `table.getSelectedRowIds()` — the state's keys — never the selected row model.
+  The header checkbox (`getToggleAllPageRowsSelectedHandler`) toggles
+  `table.getRowModel().rows`, which on a server-paged browse is the page on
+  screen (`table-core` `rowSelectionFeature.utils.js`). Clear the selection with
+  `table.resetRowSelection()` when a filter changes, since ids from the previous
+  result set no longer match what is shown.
 - **Sorting** — Table owns the header state and the toggle cycle. It does not
   write your `ORDER BY`, and it cannot help when a sort column exists on one
   data source and not the other.
@@ -90,7 +130,8 @@ reorder or one is removed — exactly what happens when a filter changes.
 
 ## Loading
 
-A filter or page change rebuilds the whole grid, so the region gets a skeleton,
-not a spinner — see `loading-states.md`. Do not let the toolbar disappear while
-the rows reload; the user needs to be able to correct the filter they just
-mistyped.
+A filter, sort or page change is a navigation: the loader fetches the next page
+while the current rows stay on screen, so the grid never empties. Mark the grid
+busy while the router is loading, gated by the anti-flash hook — see
+`loading-states.md` for the signal and the indicator. The toolbar stays live
+throughout; the user needs to be able to correct the filter they just mistyped.

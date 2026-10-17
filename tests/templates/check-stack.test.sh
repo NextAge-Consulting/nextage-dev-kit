@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Regression suite for _claude-project/templates/scripts/check-stack.mjs — the
-# design-wiring check (section 5).
+# design-wiring check (section 5), CI-installed pins, lockfile copies and whenResolved.
 #
 # Lives outside every synced source directory, so it never reaches a consumer.
 # Each case builds a throwaway repo, installs the real script at scripts/ as sync
@@ -154,5 +154,33 @@ expect "a whenFile trigger reads DESIGN_UI_PACKAGE when the check runs, so a key
 
 r=$(pinrepo key-off OFF)
 expect "a whenFile trigger whose key is deliberately empty names no file, so the pin does not apply" "$r" 0 "✓"
+
+# resolvedrepo <name> <declared range or empty> <lockfile entries as JSON> — the manifest
+# requires zod v4 anywhere in the tree; packages/app declares <declared range> when given.
+resolvedrepo() {
+    local r; r=$(repo "$1" "" UNSET)
+    jq '.packages.zod = {version:"4",applies:"whenResolved",severity:"required"}' \
+        "$r/.claude/stack-manifest.json" > "$r/m.json" && mv "$r/m.json" "$r/.claude/stack-manifest.json"
+    mkdir -p "$r/packages/app"
+    if [ -n "$2" ]; then
+        jq -n --arg v "$2" '{name:"@acme/app",dependencies:{zod:$v}}' > "$r/packages/app/package.json"
+    else
+        echo '{"name":"@acme/app"}' > "$r/packages/app/package.json"
+    fi
+    jq -n --argjson p "$3" '{lockfileVersion:3,packages:$p}' > "$r/package-lock.json"
+    echo "$r"
+}
+
+r=$(resolvedrepo one-major "^4.4.3" '{"node_modules/zod":{"version":"4.5.4"},"packages/app/node_modules/zod":{"version":"4.4.3"}}')
+expect "whenResolved: every copy on the required major passes, a range included" "$r" 0 "1 of 1 blessed package(s) apply here"
+
+r=$(resolvedrepo nested-loser "" '{"node_modules/zod":{"version":"4.5.4"},"node_modules/shadcn/node_modules/zod":{"version":"3.25.76"}}')
+expect "whenResolved: a nested transitive copy on another major fails, naming it" "$r" 1 "node_modules/shadcn/node_modules/zod is 3.25.76 — the whole tree must resolve zod v4"
+
+r=$(resolvedrepo declared-wrong "^3.23.8" '{"node_modules/zod":{"version":"3.25.76"}}')
+expect "whenResolved: a declaration on another major fails" "$r" 1 "packages/app/package.json: zod is \"^3.23.8\" — the kit requires v4 across the tree"
+
+r=$(resolvedrepo absent "" '{}')
+expect "whenResolved: a package nowhere in the tree does not apply" "$r" 0 "0 of 1 blessed package(s) apply here"
 
 exit $fail

@@ -52,7 +52,7 @@ Why hard-stop: ad-hoc styling without a design system spec is how token drift st
 
 **Where the system covers the piece, use it as it is.** An improvement you would make to how it looks is a proposal to the human, never a local restyle at this one site.
 
-**Before building any new part, check that nothing fits — with a fresh agent.** Give it only a neutral description of the piece — what it looks like and does, never the screen, its data or a working name — plus the inventory and the parts' code, and ask: which existing part should carry this, and what would it gain (a variant, a slot, a prop named for meaning)? Or, if none, what generic name says what it is, and which block type? Build what it decides.
+**Run the fit check on every new or changed component before writing its inventory line** — `references/fit-check.md`. A fresh agent, given a neutral description and the built file, approves it or sends changes; make them and send it back until it approves, then write the line it returns with its Fit check. `check-ui-status.mjs` fails a pending component with no Fit check, or one whose file changed since, and `/commit`, `/ship-main` and `/deploy` refuse while it does.
 
 **Where nothing fits, build the new piece and keep going.** Research how primary-source design systems handle it — never invent from `design.md` prose alone. Build it from the existing tokens and components as a real part — a token, a component or variant, a pattern reference — and mark it pending. Never stop the work to ask about each one; the review below is where the human sees them.
 

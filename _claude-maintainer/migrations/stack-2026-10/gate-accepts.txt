@@ -1,0 +1,38 @@
+# Findings the kit gate's replay accepts while this migration ships: the manifest moves
+# these pins and adds vite, and step 3 sets every declared one to its blessed version.
+: @tanstack/react-start is "
+@tanstack/react-start resolves to
+: @tanstack/react-router is "
+@tanstack/react-router resolves to
+: @tanstack/react-router-ssr-query is "
+@tanstack/react-router-ssr-query resolves to
+: @tanstack/react-query is "
+@tanstack/react-query resolves to
+: @tanstack/react-form is "
+@tanstack/react-form resolves to
+: @tanstack/react-form-start is "
+@tanstack/react-form-start resolves to
+: @tanstack/react-table is "
+@tanstack/react-table resolves to
+: better-auth is "
+better-auth resolves to
+: @biomejs/biome is "
+@biomejs/biome resolves to
+: @commitlint/cli is "
+@commitlint/cli resolves to
+: @commitlint/config-conventional is "
+@commitlint/config-conventional resolves to
+: pyright is "
+pyright resolves to
+: knip is "
+knip resolves to
+: vitest is "
+vitest resolves to
+: vite is "
+vite resolves to
+# The consumer's synced workflows name the old tool versions until this sync lands the kit's
+# _github-project/workflows, which carry the new ones.
+installs knip without the blessed version
+installs pyright without the blessed version
+installs @commitlint/cli without the blessed version
+installs @commitlint/config-conventional without the blessed version

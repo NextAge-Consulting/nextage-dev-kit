@@ -120,11 +120,13 @@ if repo_holds_infra; then
     fi
 fi
 
-# Typecheck, biome, knip and semgrep — gates.sh holds each gate and why it is shaped
-# the way it is. Only the typecheck honours --skip-typecheck. Biome, knip and
+# The integration preflight first — it is the one that can need a decision from the
+# person shipping — then typecheck, biome, knip and semgrep. gates.sh holds each gate
+# and why it is shaped the way it is. Only the typecheck honours --skip-typecheck. Biome, knip and
 # semgrep always run: this commits straight to main, so a finding that slips
 # through does not wait on a branch for review — it lands on the default branch
 # and breaks CI for everyone.
+run_integration_preflight INTEGRATION_COMMIT_OFF "shipping to main" || exit $?
 run_typecheck_gate "$SKIP_TYPECHECK" "shipping to main (or --skip-typecheck for a true emergency)" || exit $?
 run_biome_gate "shipping to main" || exit $?
 run_knip_gate "shipping to main" || exit $?
@@ -133,6 +135,10 @@ run_terraform_gate "$FOLD_BASE" "shipping to main" || exit $?
 run_terraform_lock_gate "$FOLD_BASE" "shipping to main" || exit $?
 run_project_gate "$FOLD_BASE" "shipping to main" || exit $?
 run_integration_gate "$FOLD_BASE" "shipping to main" || exit $?
+
+# Fit checks: a pending component carries its fit check's approval of the file as it
+# stands. Cheap and local, so it runs before the headless reviews.
+run_fit_check_gate "shipping to main" || exit $?
 
 # Rule-prose review: every rule, skill, command or pattern reference changed since
 # FOLD_BASE, reviewed by a headless Claude against the rule-authoring standard.

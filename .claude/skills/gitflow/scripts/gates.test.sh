@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression suite for gates.sh — the typecheck, biome, knip, semgrep, terraform and build gates
+# Regression suite for gates.sh — the typecheck, biome, knip, semgrep, terraform, build and integration gates
 # /commit, /ship-main and /merge run.
 #
 # The contract under test: every gate passes, fails, or says why it does not
@@ -239,6 +239,19 @@ t 4 "$(gate run_project_gate "$BASE" "shipping to main")" 'a project gate that f
 has 'Fix before shipping to main' '…naming the action'
 rm -rf .claude
 
+echo "run_fit_check_gate:"
+new_repo
+t 0 "$(gate run_fit_check_gate committing)" 'no UI status check: passes'
+has "does not exist" 'no UI status check: says why it does not apply'
+mkdir -p .claude/skills/ui-patterns/scripts && : > .claude/skills/ui-patterns/scripts/check-ui-status.mjs
+t 4 "$(gate run_fit_check_gate committing)" 'node missing: fails'
+stub node 0
+t 0 "$(gate run_fit_check_gate committing)" 'fit checks in order: passes'
+t "--fit-only" "$(tail -1 "$tmp/node.args")" 'runs the check in its fit-only mode'
+stub node 1
+t 4 "$(gate run_fit_check_gate "shipping to main")" 'a missing or stale fit check: fails'
+has "Run the fit check before shipping to main" 'a failure says what to do'
+
 echo "build (real npm):"
 mono="$tmp/mono"; mkdir -p "$mono/packages/a" "$mono/packages/b"
 printf '{"name":"root","private":true,"workspaces":["packages/*"]}\n' > "$mono/package.json"
@@ -313,9 +326,43 @@ has 'integration tests failed' '…and says so'
 stub npx 0 'echo "No test files found, exiting with code 0"'
 t 0 "$(gate run_integration_gate "$BASE" committing)" 'no test reaching the change passes'
 has 'no integration test reaches the' '…and says so'
+stub npx 0 'echo "No affected test files found, exiting with code 0"'
+t 0 "$(gate run_integration_gate "$BASE" committing)" 'no test reaching the change passes on vitest 5'
+has 'no integration test reaches the' '…and says so, not that the tests pass'
 stub npx 0 'echo " ✓ |integration| test/a.integration.test.ts"'
 t 0 "$(gate run_integration_gate "$BASE" committing)" 'passing integration tests pass'
 has 'the tests reaching the' '…and says so'
+
+echo "integration preflight:"
+new_repo
+t 0 "$(gate run_integration_preflight INTEGRATION_COMMIT_OFF committing)" 'no package.json passes'
+has 'integration preflight: skipped — no root package.json' '…and says why'
+printf '{"name":"app","scripts":{"test:preflight":"check"}}\n' > package.json
+mkdir -p .claude test
+printf '{"DB_ENGINE":"None"}\n' > .claude/sync-substitutions.json
+t 0 "$(gate run_integration_preflight INTEGRATION_COMMIT_OFF committing)" 'DB_ENGINE None passes'
+has 'preflight: does not apply — DB_ENGINE is None' '…and says why'
+printf '{"DB_ENGINE":"SQLServer","INTEGRATION_COMMIT_OFF":"no database access here"}\n' > .claude/sync-substitutions.json
+t 0 "$(gate run_integration_preflight INTEGRATION_COMMIT_OFF committing)" 'the declared off key passes'
+has 'preflight: declared off (INTEGRATION_COMMIT_OFF) — no database access here' '…quoting the reason'
+printf '{"DB_ENGINE":"SQLServer","INTEGRATION_DEPLOY_OFF":"no database access at deploy"}\n' > .claude/sync-substitutions.json
+t 0 "$(gate run_integration_preflight INTEGRATION_COMMIT_OFF committing)" 'another gate'"'"'s off key does not stand it down…'
+has 'no integration tests yet' '…it goes on to look for integration tests'
+printf 'x\n' > test/a.integration.test.ts
+printf '{"name":"app"}\n' > package.json
+t 0 "$(gate run_integration_preflight INTEGRATION_COMMIT_OFF committing)" 'no test:preflight script passes'
+has 'declares none (no "test:preflight" script)' '…and says so'
+printf '{"name":"app","scripts":{"test:preflight":"check"}}\n' > package.json
+t 4 "$(gate run_integration_preflight INTEGRATION_COMMIT_OFF committing)" 'npm missing fails'
+has 'npm is not installed here' '…and says so'
+stub npm 1 'echo "the database lacks migration 0007_add_notes"'
+t 4 "$(gate run_integration_preflight INTEGRATION_COMMIT_OFF committing)" 'a failing preflight fails'
+has 'lacks migration 0007_add_notes' '…replaying why'
+has "database is not ready. Fix before committing" '…and says so'
+t "run --silent test:preflight" "$(tr '\n' ' ' < "$tmp/npm.args" | sed 's/ $//')" '…by running npm run test:preflight'
+stub npm 0
+t 0 "$(gate run_integration_preflight INTEGRATION_COMMIT_OFF committing)" 'a passing preflight passes'
+has "integration tests' database is ready" '…and says so'
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

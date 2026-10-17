@@ -1,19 +1,35 @@
 # /review-stack
 
-Maintainer-only. Answers one question: **what has changed in TanStack since we
-pinned, does it affect us, and if we take a bump — what in our skill has to
-change to match.**
+Maintainer-only. Answers one question: **what has changed in every package
+`stack-manifest.json` pins since we pinned it, does it affect us, and if we take a
+bump — what in our skills, templates and workflows has to change to match.**
 
-**This is the only way the TanStack manifest changes.** A consumer project never
+**This is the only way the manifest changes.** A consumer project never
 bumps a version to make its build pass; `scripts/check-stack.mjs` failing
 there is the system working.
 
 ## When to invoke
 
-The user types `/review-stack`, or asks what's new in TanStack since we
-pinned. Run it when there is time to act on the answer — it produces judgment
-calls, not a notification. **Never proactively**, and never from a consumer
-session to work around a failing CI job.
+When the user types `/review-stack` or asks what's new in the stack since we
+pinned — never proactively, and never from a consumer session to work around a
+failing CI job.
+
+The usual cue is an issue the kit's scheduled `stack-watch` workflow filed —
+`stack-review` monthly, `stack-advisory` when a published advisory affects a
+pinned version (kitmaintainer-handbook.md §9.13). Read that issue first.
+
+## What "our usage" means
+
+Everywhere below, **our usage** is the following, all read on this machine:
+
+- the bible's references, `_claude-project/skills/mfing-bible-of-tanstack/references/`;
+- the kit's templates, scripts and workflows, `_claude-project/` and `_github-project/`;
+- the consumer projects' code — every directory beside the kit holding a
+  `.claude/.kit-sync.json`. **Read them; never write to one.**
+
+**Verify against the source** means the published package — `npm pack <pkg>@<ver>`
+into a scratch directory — read against that code. A changelog line is a lead,
+not evidence.
 
 ## Step 1: Gather
 
@@ -21,96 +37,141 @@ session to work around a failing CI job.
 ~/.claude/scripts/review-stack.sh
 ```
 
-Emits JSON: `versions` (every manifest package, pinned vs latest, plus release
-notes from the package's own repository for everything in between),
+Emits JSON: `versions` (every manifest package, pinned vs latest, plus every
+release in between with its full notes, from the package's own repository),
 `open_issues` touching what we use, `watch` entries, and the `references` list
-with what each was distilled from. Exit 4 means the kit path or manifest is
-missing — surface it and stop.
+with what each was distilled from.
 
-Exit 6 means a lookup failed. The JSON is still printed: a failed package has
-`releases_since: null` and a `releases_note`, a failed search is listed in
-`open_issue_searches_failed`, and stderr names each. Tell the user which parts
-of the review are missing before reading the rest, and never present a `null`
-as "nothing new". A `releases_note` on a package that did not fail means its
-release list is partial — say so for that package.
+- **Exit 0** — every lookup succeeded.
+- **Exit 4** — the kit path or manifest is missing. Surface it and stop.
+- **Exit 6** — a lookup failed, and the JSON is still printed: a failed package
+  has `releases_since: null` and a `releases_note`, a failed search is listed in
+  `open_issue_searches_failed`, and stderr names each. Tell the user which parts
+  are missing, then continue the review with what was gathered. Never present a
+  `null` as "nothing new".
+
+Each package has a `status`:
+
+- **`behind`** — read it in Step 2.
+- **`current`** — nothing to read; it appears in the report's count only.
+- **`unknown`** — npm could not be read. Name it as unreviewed in the report.
+
+A `releases_note` on a package that did not fail means its release list is
+partial — say so for that package.
 
 The script decides nothing. Everything below is your reading of it.
 
 ## Step 2: Read the deltas, not the version numbers
 
-For each package marked `behind`, read `releases_since`. A jump of forty patch
-versions can be irrelevant, and a single minor can change how a loader behaves.
+For each `behind` package, read `releases_since`. A jump of forty patch versions
+can be irrelevant, and a single minor can change how a loader behaves.
 
-For each change, answer only this: **does it touch how we use TanStack?** Our
-usage is narrow and the references say what it is — route loaders with
-`loaderDeps`, `ensureQueryData` + `useSuspenseQuery`, server functions with
-handler-level auth, server-paged Table v9, TanStack Form. A change to RSC,
-offline persistence, infinite queries or migration tooling affects us not at all,
+For each change, answer: **does it touch our usage?** A change to a feature we
+do not use — RSC, offline persistence, infinite queries — affects us not at all,
 and saying so is a complete answer.
+
+Then: **is there something new we should use?** A built-in that replaces
+something we do by hand, or an upstream recommendation our references
+contradict, is a recommendation too — once verified against the source.
+
+Weigh each entry in `open_issues` against our usage the same way. One that
+reaches us goes into the recommendation, for the package it affects.
 
 Do not summarise the changelog back. The output that matters is the subset that
 reaches us.
 
 ## Step 3: Check the watch entries
 
-`watch` records things we are deliberately waiting on, each with the action to
-take. Two live ones:
+Each `watch` entry names what we are waiting on and the `action` to take. Check
+the state of every issue and PR it names (`gh issue view <url> --json state`,
+`gh pr view <url> --json state`). An entry has **fired** when the condition its
+own `action` states is met; a fired entry's action is a recommendation in Step 4.
 
-- **`@tanstack/query-intent`** — when it publishes, Query finally has an upstream
-  and `queries-and-mutations.md` should be re-distilled against it rather than
-  written from scratch. That is the single largest maintenance win available.
-- **`start-middleware`** — if #7213 and #7459 both close, the *technical*
-  objection is gone. That is not a reason to adopt it. Middleware's only real
-  capability over a call at the top of a handler is running code after the
-  handler; unless something genuinely needs wrapping, the answer stays no. Do not
-  reopen this on the strength of upstream docs using `authMiddleware` in
-  examples — that has already misled once.
+Do what the action says, no more. The `start-middleware` entry's action already
+says its issues closing is no reason to adopt middleware.
 
 ## Step 4: Recommend, do not bump
 
-Present per package: what changed, whether it reaches us, and the recommendation.
+**A `stack-advisory` hit comes first**, and is recommended now whatever the
+monthly cadence — unless the advisory does not reach our usage, which you show.
 
-**Remember what a bump costs.** Lockstep is absolute, so every project upgrades
-together — it is an N-project event, and the projects most affected may not be
-the one the user is sitting in.
+Then one recommendation covering every package: what changed, whether it
+reaches us, what we should take up, and the blast radius — which consumers'
+code the bump changes, measured by reading it. Lockstep is absolute: every
+project upgrades together.
 
-Wait for the decision. Only then edit `_claude-project/stack-manifest.json`,
-and move `blessed_at` in the same edit — a pin without a date reads as accidental
-six weeks later.
+**The user answers it once.** Steps 5–7 run only for the bumps they accept, and
+not at all when they accept none.
+
+Then edit `_claude-project/stack-manifest.json`: each accepted version, that
+package's `blessedAt` set to today, and the manifest's `blessed_at` set to
+today — the day the bump was decided.
 
 ## Step 5: Update what the bump invalidates
 
-This is the step that makes the review worth running.
-
 For each accepted bump, use `references[].distilled_from` to find which of our
-files were written against the changed upstream skills, re-read those skills at
-the new version, and update our distillation where the change reaches us.
+files were written against the changed upstream skills. Each entry reads
+`<npm package>: <skill path>`, naming
+`<npm package>/skills/<skill path>/SKILL.md` and, where listed, files under its
+`references/`. Read them at the new version — in a consumer's
+`node_modules/@tanstack/*/skills/`, or from `npm pack <pkg>@<ver>` — and update
+our distillation where the change reaches us.
 
-References with an empty `distilled_from` — Query, Form, loading states,
-debugging, dependency management — have no upstream. They go stale only against
-reality, so check them against the release notes and our own code instead.
+References whose `distilled_from` is empty have no upstream. They go stale only
+against reality, so check them against the release notes and our usage.
 
 Our references are **distilled, not copied**. Never replace one with upstream
 text, and never add a section explaining a feature we do not use.
 
-## Step 6: Propagate
+## Step 6: Write the migration
 
-Any change touches the kit source AND every consumer in ONE pass, per
-`kit-maintainer.md`:
+**A bump changes consumer code when any consumer must edit a source file, a
+config or a schema to pass its checks at the new pins.** Then the review ships
+one migration, named after it: `_claude-maintainer/migrations/stack-YYYY-MM/`.
+
+- `PROMPT.md`, in the shape of the existing migrations. `/sync-dev-kit` runs it
+  in each consumer's session, so it is the only way a consumer learns what to
+  change. Write it so a project finds its own cases: what to search for, what to
+  change, how to prove it. The kit is public — never name a project, a client or
+  a file from one.
+- `gate-accepts.txt` listing the findings the pin moves cause in consumers, one
+  literal fragment per line, so the kit's pre-ship replay reports them as
+  resolved by this migration (kitmaintainer-handbook.md §9.11).
+
+## Step 7: Propagate
+
+Edit every file the bump touched in the kit source:
 
 - `_claude-project/stack-manifest.json`
 - `_claude-project/skills/mfing-bible-of-tanstack/**`
-- each consumer's `.claude/` copies
+- every template, script or workflow under `_claude-project/` or `_github-project/`
 
-The bible is **template-only** — the kit does not dogfood it — so do not mirror
-into the kit's own `.claude/`. `diff` to prove byte-identity. Do not run
-`/sync-dev-kit` as the propagation step, and do not commit.
+Mirror each into the kit's own `.claude/` where the dogfood manifest in
+`dev-kit-workflow.md` says it is dogfooded. The bible and the manifest are
+template-only.
 
-## Step 7: Report
+When you are working inside a consumer, edit that consumer's copy in the same
+pass (`kit-maintainer.md`): `_claude-project/<path>` lands at `.claude/<path>`,
+`_github-project/<path>` at `.github/<path>`. Never another consumer's working
+tree — every other project receives the change, and runs the migration, on its
+own next `/sync-dev-kit`.
 
-Versions current vs behind, with the recommendation and its blast radius. Watch
-entries that fired. Which references were updated and why. Whether `blessed_at`
-moved.
+Prove each mirrored or consumer copy with `diff`. A file carrying `{{KEY}}`
+placeholders is compared after substitution — what `apply_substitutions` in
+`sync-dev-kit.sh` writes — not byte for byte. With no consumer and no dogfood
+copy in play there is nothing to diff.
 
-If nothing needs doing, say so in one line. A review that finds nothing is a good
-outcome, not a reason to manufacture work.
+Do not run `/sync-dev-kit` as the propagation step, and do not run git.
+
+## Step 8: Report
+
+Advisory hits first. Then versions current, behind and unknown, with the
+recommendation and its blast radius; watch entries that fired; which references
+were updated and why; the migration written; whether `blessed_at` moved.
+
+When a `stack-review` or `stack-advisory` issue started the review, name it by
+number. The commit that lands the review cites it (`kit-maintainer.md`).
+
+**When nothing is behind, no lookup failed, no watch entry fired and no advisory
+hit, the report is one line.** A review that finds nothing is a good outcome,
+not a reason to manufacture work.

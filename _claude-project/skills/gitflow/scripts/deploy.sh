@@ -68,6 +68,9 @@
 #   - Local main == origin/main (no stale local; nothing un-pushed)
 #   - HEAD's required check-runs are not 'failure' (read-only snapshot,
 #     not a wait — see /merge for pre-merge wait logic)
+#   - The integration tests' database is ready: the project's `test:preflight`
+#     passes (gates.sh, run_integration_preflight) — checked FIRST, so a database
+#     that needs a decision stops the deploy while its human is still there
 #   - Commits exist since the last v* tag (nothing to deploy otherwise)
 #   - Every `Needs <org-repo>#N` named in this release's commits is live: the org
 #     PR merged, or a merged PR closes the org issue (org-repo-cheatsheet.md)
@@ -179,7 +182,8 @@
 #      (the org PR not merged, or no merged PR closes the org issue), or GitHub
 #      could not say — checked as a state gate before any mutation
 #  26  the test suite failed, could not run, or ran without the integration tests
-#      the repository has — checked as the last state gate, before any mutation
+#      the repository has — checked as the last state gate, before any mutation —
+#      or the integration preflight failed, checked as the first
 #
 # ─── Recovery ────────────────────────────────────────────────────────────
 # The bump commit and the push to main happen together (steps 3–4). If the
@@ -204,6 +208,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/issue_helpers.sh"
 # shellcheck source=_claude-project/skills/gitflow/scripts/repo_kind.sh
 source "$SCRIPT_DIR/repo_kind.sh"
+# shellcheck source=_claude-project/skills/gitflow/scripts/gates.sh
+source "$SCRIPT_DIR/gates.sh"
 
 # Infrastructure is released by applying its PR and then merging it (deploy-org.sh,
 # org-repo-cheatsheet.md); an app is released from main below. A repo with no app
@@ -568,6 +574,11 @@ if [ -f "package.json" ] && ! command -v npm >/dev/null 2>&1; then
 fi
 
 # --- State gates --------------------------------------------------------
+
+# The integration preflight runs first: it is the one gate that can need a decision
+# from the person deploying (a migration to apply to the tests' database), so it asks
+# before anything slow runs, not at the test run that is the last gate below.
+run_integration_preflight INTEGRATION_DEPLOY_OFF "deploying" || exit 26
 
 CURRENT_BRANCH=$(git branch --show-current)
 if [ "$CURRENT_BRANCH" != "main" ]; then

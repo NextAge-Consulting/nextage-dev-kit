@@ -56,6 +56,18 @@ put scripts/build.mjs 'console.log("script")'
 put server-start.mjs 'console.log("listening")'
 put infra/authorizer/index.mjs 'console.log("lambda")'
 put packages/ui/design-system/checks/padding.mjs 'console.log("  · checked 3")'
+put src/serverfn.ts 'declare const createServerFn: any, logFailures: any, validateInput: any, schema: any, other: any
+export const a = createServerFn({ method: "GET" })
+  .validator(validateInput("a", schema))
+  .handler(logFailures("a", async () => 1))
+export const b = createServerFn({ method: "POST" })
+  .validator((raw: unknown) => schema.parse(raw))
+  .handler(async () => 2)
+export const c = other().validator(schema).handler(async () => 3)'
+put src/serverfn-suppressed.ts 'declare const createServerFn: any
+export const d = createServerFn({ method: "GET" })
+  // biome-ignore lint/plugin/server-fn-logging: fixture of a sanctioned site
+  .handler(async () => 4)'
 put src/suppressed.ts '// biome-ignore lint/plugin/no-new-function: fixture of a sanctioned site
 export const h = new Function("return 2")'
 
@@ -100,7 +112,10 @@ expect "console in scripts/ passes"                                          scr
 expect "console in the server entry passes"                                  server-start.mjs  "noConsole"           ""
 expect "console in infra/ passes"                                            infra/authorizer/index.mjs "noConsole"  ""
 expect "console in a token-checker project check passes"                     packages/ui/design-system/checks/padding.mjs "noConsole" ""
-expect "a biome-ignore with its reason suppresses a plugin"                  src/suppressed.ts "new Function"        ""
+expect "an unwrapped server function handler fails; a wrapped one, or a non-server-fn chain, passes" src/serverfn.ts "logFailures(name, fn)" "7"
+expect "an unwrapped server function validator fails; a wrapped one, or a non-server-fn chain, passes" src/serverfn.ts "validateInput(name, schema)" "6"
+expect "a biome-ignore on the line above suppresses server-fn-logging" src/serverfn-suppressed.ts "logFailures(name, fn)" ""
+expect "a biome-ignore with its reason suppresses a plugin"                 src/suppressed.ts "new Function"        ""
 
 total=$(printf '%s' "$out" | python3 -c 'import json,sys; print(len(json.load(sys.stdin).get("diagnostics",[])))' 2>/dev/null || echo "?")
 echo "checked $fixtures fixtures; Biome $VERSION reported $total diagnostic(s)"

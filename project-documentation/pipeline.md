@@ -737,5 +737,5 @@ Each dev's noise tolerance differs. This section maps every email GitHub sends o
 **Run it locally** from the repo root, after `npm install`:
 
 ```bash
-npx --yes knip@5.88.1 --no-config-hints
+npx --yes knip@6.41.0 --no-config-hints
 ```

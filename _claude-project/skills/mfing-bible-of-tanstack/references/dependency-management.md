@@ -4,7 +4,7 @@ How to handle Dependabot / `npm audit` / security alerts in a TanStack Start app
 
 ## The warning
 
-**Do NOT reflexively pin a transitive dependency via `overrides` (npm) / `resolutions` (yarn/pnpm) to silence a security alert when that transitive lives underneath the TanStack Start build/runtime chain** — i.e. under `@tanstack/react-start`, `@tanstack/start-plugin-core`, `@tanstack/start-server-core`, `@tanstack/react-router`, or the build tool itself (`vite`, and its server stack: nitro / h3 / srvx / undici / picomatch, etc.).
+**Do NOT reflexively pin a transitive dependency via `overrides` (npm) / `resolutions` (yarn/pnpm) to silence a security alert when that transitive lives underneath the TanStack Start build/runtime chain** — i.e. under `@tanstack/react-start`, `@tanstack/start-plugin-core`, `@tanstack/start-server-core`, `@tanstack/react-router`, or the build tool itself (`vite`, which Start requires at 8 or above, and its server stack: srvx / undici / picomatch, and nitro where a target uses it).
 
 It often "installs fine" and then **breaks SSR silently** — the dev server returns `Cannot GET /` / blank 404s, or you hit `createStartHandler is not a function` / `createMiddleware is not a function`, frequently only on the *second* request (after HMR) or only in `vite dev` (prod build masks it). The failure looks nothing like a dependency problem, so it eats hours.
 
@@ -13,13 +13,13 @@ It often "installs fine" and then **breaks SSR silently** — the dev server ret
 TanStack Start is not a single package — it's a tightly version-coupled chain stitched together at build time:
 
 - **Facade re-exports.** `@tanstack/react-start` re-exports its API via `export *` from `start-client-core` / `start-server-core`. The bundler must walk that chain intact. A duplicated or mismatched copy of any link makes a top-level export resolve to `undefined` → `X is not a function`.
-- **`instanceof`-based environment detection.** The dev-server plugin has historically guarded SSR-middleware registration with `instanceof` checks against Vite's `RunnableDevEnvironment`. If an override causes **two copies** of the build tool to load (a *dual-package hazard*), `instanceof` returns `false`, SSR middleware is never registered, and **every route 404s** — with no error.
+- **Singleton assumptions.** The runtime assumes one copy of each link. If an override causes **two copies** of the build tool or a Start package to load (a *dual-package hazard*), code that identifies objects across that boundary sees a stranger, and the symptom can be every route 404ing with no error. The dev-server plugin recognises Vite's environment by shape rather than `instanceof` (#6994); other links still assume one copy.
 - **Virtual modules.** `start-server-core` imports plugin-provided virtual specifiers (`#tanstack-start-entry`, `tanstack-start-manifest:v`, …) that only resolve when the import flows through the official package facade at the version the plugin expects. Force a mismatched version into that chain and resolution fails at bundle or runtime.
 - **Compounding npm bug.** npm's own override engine mishandles transitive/shared overrides in some configs (silently ignored under `install-strategy=linked`, or `npm install` exits 1 with no message when two overrides share a transitive). So even the override you *intended* may not be the tree you got.
 
 Net: pinning one transitive can desync the chain or duplicate a package the runtime assumed was a singleton. The breakage surfaces as SSR failure, not as a version error.
 
-> Evidence (TanStack/router): #6982 / #6994 (vite override → dual-package → `instanceof` fails → 404), #7285 / #7459 (`export *` chain → `createStartHandler/createMiddleware` undefined), #6821 (virtual-module resolution). npm/cli: #9197, #9109 (override engine bugs). These are the failure shapes; specific versions/issue numbers will age — the *mechanism* is the durable lesson.
+Sources: TanStack/router #6994, #7285, #7459, #6821; npm/cli #9197, #9109.
 
 ## What to do instead (preferred, in order)
 

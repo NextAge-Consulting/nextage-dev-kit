@@ -1,5 +1,5 @@
 {
-	"$schema": "https://biomejs.dev/schemas/2.5.1/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
 	"vcs": {
 		"enabled": true,
 		"clientKind": "git",
@@ -30,6 +30,20 @@
 			"preset": "recommended",
 			"suspicious": {
 				"noConsole": "error"
+			},
+			"nursery": {
+				"noExtendNative": "error",
+				"noInvalidFileInputAccept": "error",
+				"noMisplacedListElements": "error",
+				"noNegationInEqualityCheck": "error",
+				"noNonScalableViewport": "error",
+				"noObsoleteTags": "error",
+				"noReturnInFinally": "error",
+				"noSelfImport": "error",
+				"noUnmodifiedLoopCondition": "error",
+				"noXorAsExponentiation": "error",
+				"useControlLabel": "error",
+				"usePromiseRejectErrors": "error"
 			}
 		}
 	},

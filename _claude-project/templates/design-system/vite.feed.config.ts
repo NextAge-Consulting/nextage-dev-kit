@@ -14,7 +14,7 @@ export default defineConfig({
     outDir: "dist/design-system-feed",
     emptyOutDir: true,
     sourcemap: false,
-    rollupOptions: {
+    rolldownOptions: {
       input: resolve(import.meta.dirname, "feed.css"),
       // The stylesheet is feed.css; anything else it pulls in, such as a font file an
       // @font-face names, goes under assets/ so it cannot take the stylesheet's name.

@@ -10,10 +10,11 @@ import { beforeAll } from "vitest";
 import project from "./project";
 
 // The repository's .env is read into a SANDBOX, never into process.env, and only an
-// allowlist is promoted: the NEON_* keys, TZ, and the keys test/project.ts adds. A
-// production variable stays out of the test process. DATABASE_URL is deliberately never
-// promoted — globalSetup.ts points it at the run's branch — so a stray connection with
-// no branch fails loudly instead of reaching a shared database.
+// allowlist is promoted: TZ, the NEON_* keys the PostgreSQL harness reads, and the keys
+// test/project.ts adds. A production variable — and SQL Server's DB_* keys — stays out
+// of the test process. DATABASE_URL is deliberately never promoted — globalSetup.ts
+// points it at the database it created or checked — so a stray connection fails loudly
+// instead of reaching a database nobody vetted.
 function findRepoRoot(from: string): string {
   for (let dir = from; ; dir = dirname(dir)) {
     if (existsSync(resolve(dir, ".claude/sync-substitutions.json"))) return dir;

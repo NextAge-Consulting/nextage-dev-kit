@@ -33,8 +33,30 @@ inline in each app's `lib/auth/`.
 ## A dead session must not leave a screen sitting there
 
 Guards only fire on navigation, so an open screen with an expired session shows
-authed UI indefinitely while its queries fail. Handle it centrally in the
-QueryClient's cache error handlers — see `queries-and-mutations.md`.
+authed UI indefinitely while its queries fail. `requireSession()` throws a
+redirect, and the SSR Query integration navigates on it — see
+`queries-and-mutations.md`. Signing out clears the query cache
+(`data-loading.md`).
+
+## Cookies
+
+**Add a cookie with `setCookie` or `appendResponseHeader('set-cookie', …)`,
+never `setResponseHeader('set-cookie', …)`.** The last replaces every cookie on
+the outgoing response, including the session cookie better-auth set a moment
+earlier (upstream *Migrate from the Release Candidate*, § Response helpers).
+
+## Better Auth checks its schema
+
+**Better Auth compares the Drizzle schema it is given against its own model and
+rejects auth requests when they disagree** — a missing table or column, or a
+column it never writes that is `NOT NULL` with no default (`@better-auth/core`
+`db/schema-check.mjs`; the mismatch error names each column). A legacy column on
+a shared user or account table is the usual cause: every sign-up fails until the
+column is nullable or has a default. Run `npx auth check schema` before
+deploying an auth-table change or a better-auth upgrade; it reports the same
+findings and changes nothing. Turning the check off
+(`advanced.database.validateSchema: false`) is a decision recorded in a comment
+beside it, never a fix.
 
 ## Roles
 

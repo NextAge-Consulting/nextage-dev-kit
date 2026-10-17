@@ -232,7 +232,7 @@ const apiSurfaces = [
 ];
 
 export default {
-  $schema: "https://unpkg.com/knip@5/schema.json",
+  $schema: "https://unpkg.com/knip@6/schema.json",
   // Every file a workspace's `exports` map names is an entry. Without this, an
   // unused export of shared code is never reported.
   includeEntryExports: true,

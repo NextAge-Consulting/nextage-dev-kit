@@ -17,8 +17,10 @@ Their destination comes from the `SHARED_MODULE_DIR` substitution:
 | everything else | `<SHARED_MODULE_DIR>/test/<name>` |
 
 A project with `SHARED_MODULE_DIR` empty has no shared test module, and these files are
-skipped entirely. `globalSetup.ts` and `integration-helpers.ts` are the Postgres integration
-harness: they sync only when `DB_ENGINE` is `PostgreSQL`.
+skipped entirely. The integration harness is per engine. `globalSetup.ts`,
+`integration-helpers.ts` and `harness.integration.test.ts` here are PostgreSQL's and sync
+only when `DB_ENGINE` is `PostgreSQL`; `sqlserver/` holds SQL Server's, which sync only when
+it is `SQLServer` and land at `<SHARED_MODULE_DIR>/test/<name>` like the rest.
 
 **This README is kit-internal** — it is in `SKIP_LIST` and never lands in a consumer.
 
@@ -30,13 +32,19 @@ Full pattern, install steps and the integration model: testing.md §1.
 |---|---|
 | `define.ts` | The contract: `TestProject`, `ExtraDatabase`, and `defineTestProject()`. |
 | `project.ts` | The seed. The project's settings, read by every other file here. |
-| `vitest.config.ts` | Finds the repository root, then runs `unit` and — only on Postgres with Neon credentials — `integration`, plus any projects `project.ts` adds. Resolves each app's `@/` alias per importing file. |
-| `globalSetup.ts` | Integration branch lifecycle: forks the default branch once per run, migrates every database on it, runs `afterMigrate`, sets the URLs before workers spawn, deletes the branch in teardown. |
-| `integration-helpers.ts` | `dbTest(name, fn)` and `dbTestOn(envVar)` — the only database entry points. Each runs its body in an always-rolled-back drizzle transaction, so a nested `db.transaction` is a savepoint. |
+| `vitest.config.ts` | Finds the repository root, then runs `unit` and `integration` — on PostgreSQL with Neon credentials; on SQL Server always, except in CI with `INTEGRATION_CI_OFF` — plus any projects `project.ts` adds. Resolves each app's `@/` alias per importing file. |
+| `globalSetup.ts` | PostgreSQL: integration branch lifecycle — forks the default branch once per run, migrates every database on it, runs `afterMigrate`, sets the URLs before workers spawn, deletes the branch in teardown. |
+| `integration-helpers.ts` | PostgreSQL: `dbTest(name, fn)` and `dbTestOn(envVar)` — the only database entry points. Each runs its body in an always-rolled-back drizzle transaction, so a nested `db.transaction` is a savepoint. |
+| `sqlserver/globalSetup.ts` | SQL Server: reads `.env`'s `DB_*` keys into a sandbox, checks the database (`integration-target.ts`), points `DATABASE_URL` at it before workers spawn. No `DB_*` key reaches a worker. |
+| `sqlserver/integration-target.ts` | SQL Server: the checks before any test connects — the server's test-target mark, the database `ONLINE` and allowing snapshot isolation, every branch migration recorded. Each refusal says what to do. |
+| `sqlserver/integration-helpers.ts` | SQL Server: `dbTest(name, fn)` — a snapshot transaction, always rolled back, `LOCK_TIMEOUT` 10s sent as a batch, a deadlock victim retried. |
+| `sqlserver/mssql-connection.ts` | SQL Server: the connection string from `DB_*` (sqlserver-drizzle.md §II), and strings bound as `varchar`. |
+| `sqlserver/mssql-connection.test.ts` | SQL Server: proves the connection string keeps every value whole — `;`, `=`, braces, quotes, edge spaces — as the driver parses it. |
 | `auth-mocks.ts` | Typed `MockAuthedUser` plus `mockAuthedUser()` / `mockUnauthed()`, with roles from `project.ts`. |
 | `test-utils.ts` | Setup file. Loads the allowed `.env` keys, pins `TZ` to `project.timezone`, and exposes a deterministic UUID-v7-like helper. |
 | `smoke.test.ts` | Proves vitest picks up the config, runs the setup file, resolves imports, and runs in the project's timezone. |
-| `harness.integration.test.ts` | Proves `dbTest` keeps a test's writes in its rolled-back transaction when the code under test opens its own `db.transaction`. |
+| `harness.integration.test.ts` | PostgreSQL: proves `dbTest` keeps a test's writes in its rolled-back transaction when the code under test opens its own `db.transaction`. |
+| `sqlserver/harness.integration.test.ts` | SQL Server: proves one open transaction, snapshot isolation, the lock timeout, a nested `db.transaction` staying inside, and a rollback leaving no trace. `test:preflight` runs it alone. |
 
 TypeScript diagnostics on these files inside the kit repo are expected — the kit has no
 npm dependencies and no `src/db/schema`, so the imports do not resolve here. They resolve

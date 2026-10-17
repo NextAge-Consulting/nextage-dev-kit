@@ -51,12 +51,30 @@ correctly. See `data-loading.md`.
 ## Server function fails only in production
 
 Read the server log first: `logFailures` writes every failure as `server function
-failed` with the operation name, stack and cause. Then check in this order:
+failed` with the operation name, stack and cause, and `validateInput` writes a
+rejected input as `server function input rejected` with the schema's issues. Then check in this order:
 
 1. Is an env var missing? Dev loads env files the container may not.
 2. Is auth throwing rather than the query failing? A dead session surfaces as a
    generic 500 from the client's point of view.
 3. Is it a resolution failure rather than a logic failure? See CJS/ESM above.
+
+## A request the app never sees
+
+Start answers some requests before any route or handler runs:
+
+- **`406`** — the `Accept` header allows neither `text/html` nor `*/*`. A probe or
+  a `curl -H 'Accept: application/json'` against a page route gets this, not the
+  page.
+- **`400`** — the path holds malformed percent-encoding.
+
+Neither is the app's code failing; neither reaches its log.
+
+## A server function hangs only in production
+
+A middleware that calls a server function defined in another file is reported to
+hang in production builds on Vite 8 (TanStack/router#7213, open). Look for that
+shape before anything else.
 
 ## Testing server functions
 

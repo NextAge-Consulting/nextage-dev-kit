@@ -1,7 +1,9 @@
 # Forms
 
-**TanStack ships no Form skill** — verified zero `SKILL.md` files in `form-core`
-and `react-form`. This is entirely ours, drawn from the docs and our decisions.
+**TanStack Form 1.x ships no skill** — verified zero `SKILL.md` files in
+`form-core` and `react-form` 1.x. This is entirely ours, drawn from the docs and
+our decisions. Form 2 ships skills of its own; it is alpha, so the kit stays on
+1.x and re-distils this file from those skills when 2 reaches beta.
 
 The record form is the other spine of a back-office app. Everything here assumes
 `@tanstack/react-form` plus `@tanstack/react-form-start`.
@@ -30,6 +32,11 @@ Field components live in the **app**, not the shared UI package. A component
 bound to form state is not presentational, and the design system has to keep
 rendering standalone.
 
+**The app registers its field components once, with `createFormHook`.** Its
+`fieldComponents` are where the number coercion and the Radix `handleBlur` call
+below live, and every form is built with the `useAppForm` it returns, so no
+screen re-implements them.
+
 ## The form owns the draft
 
 ```tsx
@@ -48,8 +55,8 @@ submission lifecycle without hand-rolling any of it. `reset(value)` after a save
 is the step people miss — without it the form stays dirty and Save stays lit
 after a successful write.
 
-Read the whole draft with `useStore(form.store, s => s.values)` for cross-field
-conditionals. Inputs bind through `form.Field` so a keystroke repaints one field
+Read the whole draft with `useSelector(form.store, s => s.values)` for
+cross-field conditionals. Inputs bind through `form.Field` so a keystroke repaints one field
 rather than all sixty.
 
 ## Errors appear after the field is touched
@@ -85,12 +92,15 @@ These are the ERP cases. None of them are pleasant hand-rolled:
 
 - **Field arrays** — line items on an invoice, components on a BOM, operations
   on a work order. Add, remove, reorder, validate each row, keep keys stable as
-  rows shift. This is the single strongest argument for a form library.
+  rows shift. This is the single strongest argument for a form library. Bind the
+  array with `form.Field mode="array"` and its `pushValue` / `removeValue` /
+  `moveValue`.
 - **Conditional requirements** — a field that becomes required based on another,
   or a section that appears only for a given type.
 - **Async validation** — "is this part number already used" needs a debounce,
   out-of-order response handling and a per-field pending state.
 - **Multi-step** — state carried across pages with back-navigation intact.
+  `useFormGroup` gives each step its own validation inside the one form.
 
 ## Save is busy, not disabled
 

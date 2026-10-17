@@ -26,6 +26,10 @@ app's part of that type, and never hand-roll anything listed here.**
 - **Each pattern and component carries its status**, `approved` or `pending`, the
   same as the `ui-status` line in its file. Pending means built and not yet approved
   by the human.
+- **A pending component's line carries its Fit check**: the fingerprint of its file and
+  the verdict of the fit check that approved it (the `design-system` skill's
+  `references/fit-check.md`). Write the line only once the fit check approves it, and
+  run the check again when the file changes.
 - **Add a line in the same change that adds the thing**, enumerated from the
   filesystem, never from memory. Invoke the `rule-authoring` skill before editing.
 - `node .claude/skills/ui-patterns/scripts/check-ui-status.mjs` fails while this list
@@ -49,11 +53,12 @@ Read the matching reference IN FULL before composing that kind of surface.
 <!-- project:begin components -->
 ### _[`@acme/ui/components/` — the project's own display vocabulary]_
 
-| Component | Use for | Type | Status |
-|---|---|---|---|
-| _[`ModalShell`]_ | _[screen content in a popup that ends with Close]_ | _[ModalShell]_ | _[approved]_ |
-| _[`IconButton`]_ | _[**every** icon-only button; its required label feeds both `aria-label` and the tooltip]_ | _[<none>]_ | _[approved]_ |
-| _[…]_ | _[one line each: what it is for]_ | | |
+| Component | Use for | Type | Status | Fit check |
+|---|---|---|---|---|
+| _[`ModalShell`]_ | _[screen content in a popup that ends with Close]_ | _[ModalShell]_ | _[approved]_ | |
+| _[`IconButton`]_ | _[**every** icon-only button; its required label feeds both `aria-label` and the tooltip]_ | _[<none>]_ | _[approved]_ | |
+| _[`FacetChoice`]_ | _[one facet of a list's filter where exactly one option applies]_ | _[<none>]_ | _[pending]_ | _[`1a2b3c4d` new; the single-choice partner of FacetChecklist]_ |
+| _[…]_ | _[one line each: what it is for]_ | | | |
 
 ### _[`@acme/ui/components/ui/` — vendored atoms (shadcn or equivalent)]_
 
@@ -64,11 +69,11 @@ Read the matching reference IN FULL before composing that kind of surface.
 
 ### _[`@/components/` — app-level parts]_
 
-| Component | Use for | Type | Status |
-|---|---|---|---|
-| _[`form/FormActions`]_ | _[the submit control of every record form — gating, busy state and status wording in one place]_ | _[FormActions]_ | _[approved]_ |
-| _[`form/fields`]_ | _[the bound field set: label, hint and error wired to the form library]_ | _[<none>]_ | _[approved]_ |
-| _[…]_ | | | |
+| Component | Use for | Type | Status | Fit check |
+|---|---|---|---|---|
+| _[`form/FormActions`]_ | _[the submit control of every record form — gating, busy state and status wording in one place]_ | _[FormActions]_ | _[approved]_ | |
+| _[`form/fields`]_ | _[the bound field set: label, hint and error wired to the form library]_ | _[<none>]_ | _[approved]_ | |
+| _[…]_ | | | | |
 <!-- project:end components -->
 
 ## Hooks

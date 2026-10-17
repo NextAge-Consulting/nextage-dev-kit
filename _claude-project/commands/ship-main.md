@@ -61,7 +61,7 @@ committing (exit 2) when one is missing, and posts each once the board has moved
 
 The script:
 - Refuses unless on `main`/`master` — a body of work in progress is on its own branch and cannot trip it.
-- Runs `check-types`, `biome lint`, `knip` (when `KNIP_GATE` is on), `semgrep`, the integration gate, the rule review, the part review, the design review and the SQL review over the files the commit touches — the same gates `/commit` runs. **`--skip-typecheck` skips the TYPECHECK only.** Biome, knip, semgrep, the integration gate and the rule review sit outside that guard and always run; there is no flag that bypasses them.
+- Runs the integration preflight first, then `check-types`, `biome lint`, `knip` (when `KNIP_GATE` is on), `semgrep`, the integration gate, the fit checks, the rule review, the part review, the design review and the SQL review over the files the commit touches — the same gates `/commit` runs. **`--skip-typecheck` skips the TYPECHECK only.** Biome, knip, semgrep, the integration gate and the rule review sit outside that guard and always run; there is no flag that bypasses them.
 - Stages all changes, commits directly on `main` with `--no-verify` (validation already ran).
 - Pushes straight to `main`. If `origin/main` advanced, it rebases the commit onto it and re-pushes; on conflict it stops and tells you to resolve + push.
 
@@ -75,6 +75,7 @@ The script:
 - Refused (not on main): tell the user they're on `<branch>`; use `/commit` for branch work.
 - Typecheck failure — including a root `package.json` with no `check-types` script while the repository has TypeScript sources, or a `pyproject.toml` with neither pyright nor mypy installed: surface the command to run; offer `--skip-typecheck` only if the user explicitly accepts shipping unverified.
 - Biome, knip, semgrep or rule-review failure: surface the finding. `--skip-typecheck` does not apply — fix it, or ship the change through `/commit` and a PR instead. A rule-review finding the human judges wrong: they may re-run with `SKIP_RULE_REVIEW=1`.
+- Integration-preflight failure: put its message to the developer as it reads. A missing migration is an apply for them to approve (`drizzle.md` §II); then run `/ship-main` again.
 - Integration-gate failure: surface it. Write the missing test, mark the function `// integration-exempt: <reason>`, or fix the failing test.
 - SQL-review finding: put each one to the developer with the fix, and ask: fix it, or skip it. Skip: re-run with `SKIP_SQL_REVIEW=1`.
 - Design-review finding: put each one to the developer with its why and fix, and ask: fix it, or skip it. Fix: make the change and re-run. Skip: re-run with `SKIP_DESIGN_REVIEW=1`.

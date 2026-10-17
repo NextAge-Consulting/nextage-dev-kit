@@ -1,20 +1,33 @@
-// Every server function handler is wrapped in logFailures(name, fn).
+// Every server function handler is wrapped in logFailures(name, fn), and every
+// validator in validateInput(name, schema).
 //
-// TanStack Start never logs a thrown server function on the server, so an unwrapped
-// handler fails with an empty log. The wrapper and the reasoning live in the
-// mfing-bible-of-tanstack skill, references/server-functions.md.
+// TanStack Start never logs a thrown server function on the server, and it runs the
+// validator before the handler, so neither an unwrapped handler nor an unwrapped
+// validator reaches the log — and a validator's failure ships its raw issues to the
+// browser. The wrappers and the reasoning live in the mfing-bible-of-tanstack skill,
+// references/server-functions.md.
 //
-// Matches `<builder>.handler(x)` where the builder chain contains createServerFn,
-// same-line and chained-multiline alike. A handler that genuinely must not log
-// carries, on the line above:
+// Matches `<builder>.handler(x)` and `<builder>.validator(x)` where the builder chain
+// contains createServerFn, same-line and chained-multiline alike. A call that genuinely
+// must not be wrapped carries, on the line above:
 //   // biome-ignore lint/plugin/server-fn-logging: <why>
 language js
 
-`$builder.handler($handler)` where {
-  $builder <: contains `createServerFn`,
-  $handler <: not `logFailures($_, $_)`,
-  register_diagnostic(
-    span = $handler,
-    message = "Server function handler is not wrapped in logFailures(name, fn), so a throw here never reaches the server log. Wrap it: .handler(logFailures('opName', async ({ data }) => { ... }))."
-  )
+or {
+  `$builder.handler($handler)` where {
+    $builder <: contains `createServerFn`,
+    $handler <: not `logFailures($_, $_)`,
+    register_diagnostic(
+      span = $handler,
+      message = "Server function handler is not wrapped in logFailures(name, fn), so a throw here never reaches the server log. Wrap it: .handler(logFailures('opName', async ({ data }) => { ... }))."
+    )
+  },
+  `$builder.validator($validator)` where {
+    $builder <: contains `createServerFn`,
+    $validator <: not `validateInput($_, $_)`,
+    register_diagnostic(
+      span = $validator,
+      message = "Server function validator is not wrapped in validateInput(name, schema), so a rejected input is never logged and its raw issues reach the browser. Wrap it: .validator(validateInput('opName', schema))."
+    )
+  }
 }

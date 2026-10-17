@@ -709,14 +709,25 @@ dest_for_kit_path() {
             echo "${shared_dir}/vitest.config.ts"
             ;;
         _claude-project/templates/testing/globalSetup.ts|_claude-project/templates/testing/integration-helpers.ts|_claude-project/templates/testing/harness.integration.test.ts)
-            # The integration harness is Postgres on Neon: a branch per run, a
-            # rolled-back pg transaction per test. Another engine — or one not
-            # yet declared — gets the unit scaffolding only.
+            # The integration harness is per engine. These are PostgreSQL's — Neon:
+            # a branch per run, a rolled-back pg transaction per test. SQL Server's
+            # live in testing/sqlserver/ and land at the same names. Another engine
+            # — or one not yet declared — gets the unit scaffolding only.
             local shared_dir3
             shared_dir3=$(subst_value "SHARED_MODULE_DIR")
             [ -z "$shared_dir3" ] && { echo ""; return; }
             [ "$(subst_value "DB_ENGINE")" = "PostgreSQL" ] || { echo ""; return; }
             echo "${shared_dir3}/test/${kit_rel#_claude-project/templates/testing/}"
+            ;;
+        _claude-project/templates/testing/sqlserver/*)
+            # SQL Server's integration harness: the project's development database,
+            # a rolled-back snapshot transaction per test. Lands beside the rest of
+            # the scaffolding, at the names the PostgreSQL harness takes.
+            local shared_dir4
+            shared_dir4=$(subst_value "SHARED_MODULE_DIR")
+            [ -z "$shared_dir4" ] && { echo ""; return; }
+            [ "$(subst_value "DB_ENGINE")" = "SQLServer" ] || { echo ""; return; }
+            echo "${shared_dir4}/test/${kit_rel#_claude-project/templates/testing/sqlserver/}"
             ;;
         _claude-project/templates/testing/*)
             local shared_dir2
@@ -780,7 +791,7 @@ dest_key_for_kit_path() {
         return
     fi
     case "$1" in
-        _claude-project/templates/testing/globalSetup.ts|_claude-project/templates/testing/integration-helpers.ts|_claude-project/templates/testing/harness.integration.test.ts)
+        _claude-project/templates/testing/globalSetup.ts|_claude-project/templates/testing/integration-helpers.ts|_claude-project/templates/testing/harness.integration.test.ts|_claude-project/templates/testing/sqlserver/*)
             if [ -z "$(subst_value SHARED_MODULE_DIR)" ]; then echo "SHARED_MODULE_DIR"; else echo "DB_ENGINE"; fi ;;
         _claude-project/templates/testing/*)       echo "SHARED_MODULE_DIR" ;;
         _claude-project/templates/design-system/*)

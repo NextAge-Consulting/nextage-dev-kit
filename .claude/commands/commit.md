@@ -143,6 +143,7 @@ Unpushed `/checkpoint` commits are folded into this one: once every gate has pas
 
 The script will exit non-zero if:
 
+- The integration preflight fails: the project's `test:preflight` found the integration tests' database not ready — not set up for tests, unreachable, or missing a migration this branch adds. It runs before every other gate so this is asked while the developer is there. Put its message to them as it reads; a missing migration is an apply for them to approve (`drizzle.md` §II), after which run the command again
 - TypeScript or Python typecheck fails, a root `package.json` has no `check-types` script while the repository has TypeScript sources, or a root `pyproject.toml` is present with neither pyright nor mypy installed
 - Biome lint reports an error, or `biome.json` is present and `@biomejs/biome` is not installed
 - knip reports unused code or cannot run, when `KNIP_GATE` is `"true"` in `.claude/sync-substitutions.json`
@@ -150,6 +151,7 @@ The script will exit non-zero if:
 - The integration gate fails: the coverage check finds a changed exported function that queries the database with no integration test calling it, or a changed `.execute()` with no `raw-sql:` reason; an integration test reaching a changed file fails; or the repository has integration tests and no integration project runs here. Write the test, or mark the function `// integration-exempt: <reason>` (`testing-verification.md`)
 - The SQL review finds a table or column typed as text inside a changed `sql` template, or cannot run. Put each finding to the developer with the fix, and ask: fix it, or skip it. Skip: commit again with `SKIP_SQL_REVIEW=1`
 - The rule review finds history, justification or a counted list in a changed rule, skill, command or pattern reference, or cannot run. Fix the text; the human may override a wrong finding with `SKIP_RULE_REVIEW=1`
+- A pending component has no fit check on its inventory line, or its file changed after the check approved it (`check-ui-status.mjs --fit-only`). Run the fit check (`.claude/skills/design-system/references/fit-check.md`) and commit again
 - The part review suspects a new part duplicates one the UI inventory already lists, or cannot run. The human decides: the same thing folds into the existing part; different gets their reason on the new part's inventory line
 - The design review finds a change that breaks one of the design checks (`.claude/skills/design-system/references/design-checks.md`) — a screen using a role against its purpose or departing from its pattern, a pattern asking for what a part does not have, a call site repainting a part — or cannot run. Put each finding to the developer with its why and fix, and ask: fix it, or skip it. Fix: make the change and commit again. Skip: commit again with `SKIP_DESIGN_REVIEW=1`
 - Nothing is staged (empty diff)

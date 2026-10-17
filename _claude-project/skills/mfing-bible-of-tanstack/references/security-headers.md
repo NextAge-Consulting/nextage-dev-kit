@@ -56,9 +56,13 @@ const cspNonce = createIsomorphicFn()
 const router = createRouter({ routeTree, ssr: { nonce: cspNonce() } })
 ```
 
+The middleware throws nothing. An error a request middleware throws during a server-function call reaches the browser with its message (`server-functions.md`), so anything added here that can fail answers with a `Response` instead.
+
 The client needs nothing more: it reads the nonce from the `<meta property="csp-nonce">` the server renders.
 
 **3. `nosniff` on static files**, in the app's server wrapper, on every static response it serves.
+
+**The module sets no `Cache-Control`.** `no-store` comes from the `noStore` request middleware (`server-functions.md`, "Responses that depend on who is asking").
 
 **A proxy in front of the app sends none of the headers the module sets** — nosniff, the
 referrer policy, HSTS. It may add `X-Frame-Options`, as `DENY` only, matching the policy's

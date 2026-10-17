@@ -50,17 +50,65 @@ sqlserver://host:1433;database=…        ✗  "config.server property is requir
 Server=host,1433;Database=…;User Id=…   ✓
 ```
 
-So `dbCredentials.url` takes keyword form, assembled from discrete env values:
+So `dbCredentials.url` takes keyword form, assembled from discrete env values, **every
+value in braces with `}` doubled** — a password holding `;`, `=` or a brace otherwise
+splits the string and the login is refused:
 
 ```ts
-const url = `Server=${process.env.DB_SERVER},${process.env.DB_PORT ?? 1433};`
-  + `Database=${process.env.DB_DATABASE};User Id=${process.env.DB_USER};`
-  + `Password=${process.env.DB_PASSWORD};Encrypt=true;TrustServerCertificate=true`;
+const braced = (v: string) => `{${v.replaceAll('}', '}}')}}`;
+const url = `Server=${braced(`${process.env.DB_SERVER},${process.env.DB_PORT ?? 1433}`)};`
+  + `Database=${braced(process.env.DB_DATABASE)};User Id=${braced(process.env.DB_USER)};`
+  + `Password=${braced(process.env.DB_PASSWORD)};Encrypt=true;TrustServerCertificate=true`;
 ```
 
 A project here typically carries discrete `DB_*` keys rather than the single
 `DATABASE_URL` the Postgres projects use. Kit tooling that assumes one URL needs
 checking against that.
+
+**Register `sql.map.register(String, sql.VarChar)` in the module every database handle
+is built from, before any query runs.** Drizzle binds parameters untyped, the driver
+then sends a string as `nvarchar`, and an `nvarchar` value against a `varchar` column
+forces a conversion of the column on every row — an index seek becomes a scan.
+
+**Give a genuinely `nvarchar` column a custom type that sends its value as UTF-16
+bytes.** Under the `varchar` mapping, text outside the database's code page arrives as
+`?`. Bound as `varbinary` and cast on the server, it arrives whole:
+
+```ts
+const unicode = customType<{ data: string; driverData: SQL; config: { length: number } }>({
+  dataType: (c) => `nvarchar(${c?.length ?? 'max'})`,
+  toDriver: (v) => sql`CAST(${Buffer.from(v, 'utf16le')} AS nvarchar(max))`,
+});
+```
+
+A `where` comparing such a column to text casts the value the same way.
+
+**Run independent queries in parallel on a pool, in sequence on a transaction.** A
+transaction is one connection and takes one request at a time, so `Promise.all` on a
+`tx` fails with "another request in progress" — and every data function is handed a
+transaction under test. Route such calls through one helper that checks which it was
+given. `Db` is the type both a pool handle and a transaction satisfy, and the type every
+data function takes:
+
+```ts
+import { is } from 'drizzle-orm';
+import { type MsSqlDatabase, MsSqlTransaction } from 'drizzle-orm/mssql-core';
+import type { NodeMsSqlPreparedQueryHKT, NodeMsSqlQueryResultHKT } from 'drizzle-orm/node-mssql';
+
+export type Db = MsSqlDatabase<NodeMsSqlQueryResultHKT, NodeMsSqlPreparedQueryHKT, typeof schema>;
+
+export async function together<T extends readonly unknown[]>(
+  db: Db,
+  tasks: { [K in keyof T]: () => Promise<T[K]> },
+): Promise<T> {
+  if (is(db, MsSqlTransaction)) {
+    const out: unknown[] = []
+    for (const task of tasks) out.push(await task())
+    return out as unknown as T
+  }
+  return (await Promise.all(tasks.map((task) => task()))) as unknown as T
+}
+```
 
 ## III. The RC defect register — re-verify every one on every upgrade
 
@@ -80,7 +128,7 @@ last verified against.
 | **Check constraints emit a missing comma** | Generated `schema.ts` does not parse where a `check()` follows a `unique()` | One post-processing pass after every pull (below) |
 | **No relational query API** | `db.query` is `undefined` — no `findMany({ with: … })` | Explicit `select().from().leftJoin()`. Transactions do work. |
 | **No `.limit()` on the select chain** | `db.select(…).limit is not a function` on 1.0.0-rc.5 | **Page with `.orderBy(…).offset(n).fetch(m)`**, which is SQL Server's own `OFFSET n ROWS FETCH NEXT m ROWS ONLY` and is what this dialect exposes instead. Verified against a live SQL Server 2019 on 1.0.0-rc.5: two adjacent pages returned the requested row counts and no overlapping rows. **Both `.orderBy()` and `.offset()` are mandatory, `.offset(0)` included.** `.fetch()` alone emits a `FETCH NEXT` with no `OFFSET` clause, which the server rejects with *"Invalid usage of the option next in the FETCH statement"* — so taking a single row is `.orderBy(…).offset(0).fetch(1)`, never `.fetch(1)`. A `where` on a unique or primary-key column needs none of it: it matches at most one row by construction |
-| **No `uniqueidentifier` column builder** | Not in `drizzle-orm/mssql-core`'s exports on 1.0.0-rc.5 — every other SQL Server scalar type is there, this one isn't | `customType<{ data: string }>({ dataType: () => 'uniqueidentifier' })`. Drop the custom type the day this ships natively. |
+| **No `uniqueidentifier` column builder** | Not in `drizzle-orm/mssql-core`'s exports on 1.0.0-rc.5 — every other SQL Server scalar type is there, this one isn't | `customType<{ data: string; driverData: string }>({ dataType: () => 'uniqueidentifier', fromDriver: (v) => v.toLowerCase() })`. The driver reads a GUID back upper-case while `randomUUID()` writes lower-case, so without `fromDriver` the same id compares unequal in JavaScript after a round trip. Drop the custom type the day this ships natively, keeping the lower-casing. |
 
 Find duplicate index names before the first introspection — it is the difference
 between a five-minute fix and an afternoon:
@@ -132,8 +180,10 @@ and its time-ordering benefit is silently destroyed. Getting v7's real payoff
 `uniqueidentifier`'s tooling integration along the way. That is a real cost, not a
 formality, so **decide it per project** rather than inheriting the Postgres answer.
 
-**Default: native `uniqueidentifier`, `NEWID()`.** Standard type, standard
-tooling, no shoehorning. Take the CHAR(36)/BINARY(16) route only when the project
+**Default: native `uniqueidentifier`, generated by the application with
+`randomUUID()` and written on insert, with `DEFAULT NEWID()` on the column for rows
+another writer inserts.** Standard type, standard tooling, no shoehorning, and the
+application holds the new id without reading it back. Take the CHAR(36)/BINARY(16) route only when the project
 has an actual coordination-free-generation or cross-instance-replication
 requirement that the native type can't satisfy — record that requirement and the
 choice in the project's own schema rules when it's made; don't default into it.
@@ -156,15 +206,71 @@ default nor a real v7 need.
 whatever generated the value. If a query needs chronology, order by a timestamp
 column.
 
+## IV-c. Reading back a key the server assigns
+
+**On an `IDENTITY` table, read the new key with `.output({ id: table.id })` on the
+insert.** Never `SCOPE_IDENTITY()` in a separate statement: each Drizzle statement runs
+in its own scope, so it returns `NULL`.
+
+**A table with an enabled trigger refuses `OUTPUT` without `INTO`** (error 334). Read
+its key in one batch through `db.execute`, with a `raw-sql:` reason. A column object
+renders table-qualified, which the column list and `inserted.` reject, so name each
+column through `sql.identifier(column.name)` — still the schema's, so a rename follows:
+
+```ts
+const col = (c: { name: string }) => sql.identifier(c.name);
+// raw-sql: the table has an enabled trigger, which refuses OUTPUT without INTO.
+const result = await db.execute<{ id: number }>(sql`
+  DECLARE @ids TABLE (id int);
+  INSERT INTO ${legacyOrder} (${col(legacyOrder.name)}) OUTPUT inserted.${col(legacyOrder.id)} INTO @ids VALUES (${name});
+  SELECT id FROM @ids`);
+```
+
 ## V. The integration tests' database
 
-**Integration tests run against the project's non-production instance, every test
-inside a transaction the harness always rolls back.** SQL Server has no per-run
-copy, so isolation is the transaction alone: identity values are not rolled back,
-and the instance's data drifts between refreshes, so a test inserts its own rows
-and never relies on existing ones.
+**Integration tests run against the project's development database, every test inside
+a snapshot transaction the kit's harness always rolls back** — `test/integration-helpers.ts`'s
+`dbTest`, synced from the kit (testing.md §1). SQL Server has no per-run copy, so
+isolation is the transaction alone: identity values are not rolled back, and the
+database's data drifts between refreshes.
 
-**The project supplies its own `dbTest` on the `mssql` driver with that shape**, and
-registers its integration project in `test/project.ts`'s `vitestProjects` under the
-name `integration` — the name the commit gate, CI and `/deploy` run. Record in
-`rules/project/` which instance it reaches and how.
+**A test inserts its own rows, keyed so no real row can collide, and never relies on
+existing ones:**
+
+- a `uniqueidentifier` key: a fresh `randomUUID()`;
+- an `IDENTITY` key: the server assigns it and the test reads it back (§IV-c). Never
+  `IDENTITY_INSERT`: it needs `ALTER` permission on the table and holds for one table
+  per session;
+- any other numeric key: a negative value;
+- a character key: a prefix that sorts below every real value under the column's
+  collation, so a trigger reading `MAX(key)` never picks a test row. Check the prefix
+  with `SELECT v FROM (VALUES ('<prefix>1'), ('<lowest real value>')) AS x(v) ORDER BY v
+  COLLATE <the column's collation>` and record it per table in `rules/project/`. Under
+  `SQL_Latin1_General_CP1_CI_AS`, `!` sorts below digits and letters.
+
+**A function under test that opens `db.transaction()` on the test's handle gets a
+savepoint** (`save transaction`) inside the test's transaction. Its own rollback undoes
+only the savepoint's work and rethrows `TransactionRollbackError` to its caller; the
+test's transaction carries on, and is rolled back whole at the end.
+
+**Set up the development database once, and record how in the doc
+`test/project.ts`'s `integrationDatabase.setupDoc` names:**
+
+- **Mark the server as a test target**, and only a server whose data nobody needs:
+  `EXEC sys.sp_addextendedproperty @name = N'integration_test_target', @value = N'…'`
+  in its `master` database. The harness refuses an unmarked server; production never
+  carries the mark, and a restore leaves `master` alone, so it survives every refresh.
+- **Allow snapshot isolation:** `ALTER DATABASE [<db>] SET ALLOW_SNAPSHOT_ISOLATION ON`.
+  It changes no other session — never set `READ_COMMITTED_SNAPSHOT` for the tests. A
+  restore brings back the source database's setting, so the restore sets it again.
+
+**Declare `integrationDatabase` in `test/project.ts`** — the setup doc, and each
+migration folder with the command that applies it. The harness refuses a database
+missing a migration the branch adds and prints that command; applying it is the
+human's call (`drizzle.md` §II).
+
+**Declare `"test:preflight": "vitest run -c <shared module>/vitest.config.ts --project
+integration <shared module>/test/harness.integration.test.ts"` in the root
+`package.json`.** `/commit`, `/ship-main` and `/deploy` run it before anything else
+(testing.md §3), so a database that is unmarked, offline, refusing snapshot isolation
+or missing a migration is caught while the developer is there.

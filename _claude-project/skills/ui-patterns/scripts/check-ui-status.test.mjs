@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { catalogueRows, checkUiStatus, INVENTORY, isComponent, isPattern, key, NOT_APPLICABLE, patternBlockTypes } from './check-ui-status.mjs'
+import { catalogueRows, checkUiStatus, fingerprint, INVENTORY, isComponent, isPattern, key, NOT_APPLICABLE, patternBlockTypes } from './check-ui-status.mjs'
 
 const dirs = []
 after(() => {
@@ -185,4 +185,36 @@ test('screen content in a feature folder is not a part, so it needs no status an
   })
   assert.deepEqual(out.problems, [])
   assert.equal(out.counts.components, 1)
+})
+
+const FIT_INV = (row) => `# UI Inventory\n\n| Component | Use for | Type | Status | Fit check |\n|---|---|---|---|---|\n${row}\n`
+
+test('a pending component needs a Fit check naming its file as it stands', () => {
+  const text = '// ui-status: pending\nexport function IconButton() {}\n'
+  const stamped = run({ [ICON]: text, [INVENTORY]: FIT_INV(`| \`IconButton\` | x | <none> | pending | \`${fingerprint(text)}\` new; nearest Button |`) })
+  assert.deepEqual(stamped.fit, [])
+  assert.deepEqual(stamped.problems, [])
+
+  const missing = run({ [ICON]: text, [INVENTORY]: FIT_INV('| `IconButton` | x | <none> | pending | |') })
+  assert.equal(missing.fit.length, 1)
+  assert.match(missing.fit[0], /pending with no Fit check/)
+
+  const changed = run({ [ICON]: `${text}// a later change\n`, [INVENTORY]: FIT_INV(`| \`IconButton\` | x | <none> | pending | \`${fingerprint(text)}\` new |`) })
+  assert.equal(changed.fit.length, 1)
+  assert.match(changed.fit[0], /changed since its fit check approved it/)
+})
+
+test('an approved component, a vendored atom and a pattern need no Fit check', () => {
+  const out = run({
+    [ICON]: '// ui-status: approved\n',
+    [BUTTON]: '// ui-status: pending\n',
+    [BROWSE]: '---\nblock-types: [BrowseScreen]\nui-status: pending\n---\n',
+    [INVENTORY]: `${FIT_INV('| `IconButton` | x | <none> | approved | |')}\n| Atom | Status |\n|---|---|\n| \`button\` | pending |\n\n| File | Governs | Status |\n|---|---|---|\n| \`browse-layout.md\` | x | pending |\n`,
+  })
+  assert.deepEqual(out.fit, [])
+  assert.deepEqual(out.problems, [])
+})
+
+test('a fingerprint is the first eight hex digits of the SHA-256', () => {
+  assert.equal(fingerprint('abc'), 'ba7816bf')
 })

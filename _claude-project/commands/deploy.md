@@ -49,7 +49,7 @@ If the script exits non-zero, surface the message and STOP. State gates are fail
 - exit 8: required CLI missing (`gh`, or `aws` under the default `codebuild` backend)
 - exit 21: the deploy-trigger AWS key in `.env` is missing or invalid (`codebuild` backend) — it is re-provisioned per `new-project-setup.md` §7c, or the typo in `.env` fixed. Caught here, before anything mutates; hand it to the user and wait, then re-run `/deploy` from the top
 - exit 22: UI awaiting the human's approval, or out of step with the UI inventory — surface the list the check printed and walk the pending items with the user (the `design-system` skill's review). Nothing pending ships
-- exit 26: the test suite failed, could not run, or ran without the integration tests the repository has — surface the failure the script printed. Fix it on a branch and ship the fix first; nothing was bumped, built or migrated
+- exit 26: the integration preflight found the integration tests' database not ready — checked first, before any other gate — or the test suite failed, could not run, or ran without the integration tests the repository has. Surface what the script printed; nothing was bumped, built or migrated. A preflight's missing migration is an apply for the human to approve (`drizzle.md` §II), then `/deploy` again; a test failure is fixed on a branch and shipped first
 
 ### Step 2: Determine bump level from commits since last tag
 

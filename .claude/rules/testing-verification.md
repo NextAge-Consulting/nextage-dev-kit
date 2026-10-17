@@ -127,9 +127,11 @@ A project on a different stack runs whatever its own `package.json` or Makefile 
 jq -r '.DB_ENGINE // ""' .claude/sync-substitutions.json
 ```
 
-**Confirm the integration project actually ran.** It is dropped when it cannot reach its
-database — on PostgreSQL, when `NEON_API_KEY` or `NEON_PROJECT_ID` is missing from `.env` —
-and `npm test` still exits green. Read the summary for `|integration|` labels in the
+**Confirm the integration project actually ran.** On PostgreSQL it is dropped when it
+cannot reach its database — when `NEON_API_KEY` or `NEON_PROJECT_ID` is missing from `.env`
+— and `npm test` still exits green. On SQL Server it is dropped only in CI with
+`INTEGRATION_CI_OFF` declared: a missing `DB_*` key makes the harness refuse and the run
+fail, saying which keys to set. Read the summary for `|integration|` labels in the
 per-file output. A run with none means integration did not run — say so and name the
 missing credential rather than reporting a pass.
 
@@ -139,6 +141,13 @@ provisions its own throwaway Neon branch forked from production, migrates it, po
 write lands on the disposable copy; the fork is a read. The DB guard covers migration
 commands invoked from the shell, not the migrate inside the harness.
 
+**On SQL Server, run the integration suite: it refuses any server not marked as a test
+target.** Every test runs in a snapshot transaction on the development database that is
+always rolled back. When the harness refuses — unmarked, offline, snapshot isolation off, a
+migration missing — quote its message to the human; it names the fix, and applying a
+migration is theirs to approve (`sqlserver-drizzle.md` §V).
+
 **Never skip or stall a test run over doubt about which database you are on.** On
-PostgreSQL tests provision their own branch, so the question does not arise; where you need
-the answer, `node scripts/db-branch.mjs` gives it in one API call.
+PostgreSQL tests provision their own branch, and on SQL Server the harness checks the
+server's mark, so the question does not arise; on PostgreSQL, `node scripts/db-branch.mjs`
+gives the answer in one API call.

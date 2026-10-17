@@ -25,7 +25,7 @@ source package, version and vendor date. **Never hand-edit one** — the kit's
 
 **House.** Written and maintained by us, covering what upstream does not: the
 Query patterns, house auth, the Hono production server, our accumulated traps.
-TanStack ships no Query or Form skills at all, so that guidance has no upstream
+TanStack publishes no Query or Form 1.x skills, so that guidance has no upstream
 to refresh from and is entirely ours.
 
 ## Maintenance

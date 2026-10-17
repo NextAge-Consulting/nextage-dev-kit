@@ -20,7 +20,15 @@
  *   block type  a component's line — every component but a vendored atom — with no
  *               Type, or one not on the design-system skill's references/block-types.md
  *               and not `<none>`; a pattern with no `block-types:` frontmatter line, or
- *               one naming a type not on the list and not `cross-cutting`.
+ *               one naming a type not on the list and not `cross-cutting`;
+ *   fit check   a pending component whose line has no Fit check, or whose Fit check
+ *               names a fingerprint other than its file's — the file changed after the
+ *               design-system skill's fit check approved it (references/fit-check.md).
+ *
+ *   node .claude/skills/ui-patterns/scripts/check-ui-status.mjs --fit-only
+ *     fails on fit-check findings alone; /commit and /ship-main run it.
+ *   node .claude/skills/ui-patterns/scripts/check-ui-status.mjs --fingerprint <file>
+ *     prints the fingerprint a Fit check names.
  *
  * /deploy refuses while it fails; /work and /handoff run it to show what awaits
  * review. Prints what it inspected, and passes saying it does not apply when the
@@ -28,6 +36,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -39,6 +48,11 @@ const STATUS = /ui-status:\s*([A-Za-z-]+)/g
 const VALUES = new Set(['approved', 'pending'])
 
 export const NOT_APPLICABLE = 'UI status does not apply: this project has no component or pattern files'
+
+/** A component file's fingerprint, as its Fit check names it: the first eight hex digits of its SHA-256. */
+export function fingerprint(text) {
+  return createHash('sha256').update(text).digest('hex').slice(0, 8)
+}
 
 /** Every tracked or new file, gitignored ones left out. */
 function repoFiles(repo) {
@@ -100,7 +114,7 @@ function statuses(text) {
 }
 
 /** Inventory table rows: the first backticked name in the first cell, a status cell if
- * any, and the cell under a `Type` header when the table has one. */
+ * any, and the cells under `Type` and `Fit check` headers when the table has them. */
 export function catalogueRows(text) {
   const rows = []
   let header = null
@@ -118,7 +132,13 @@ export function catalogueRows(text) {
     }
     const status = cells.slice(1).map((c) => c.replace(/[*_]/g, '').trim().toLowerCase()).find((c) => VALUES.has(c))
     const at = header ? header.indexOf('Type') : -1
-    rows.push({ name, status, line: i + 1, ...(at > 0 ? { type: cells[at]?.replace(/[`*]/g, '').trim() ?? '' } : {}) })
+    const fitAt = header ? header.indexOf('Fit check') : -1
+    rows.push({
+      name,
+      status,
+      line: i + 1,
+      ...(fitAt > 0 ? { fit: cells[fitAt]?.match(/`([0-9a-f]{8})`/)?.[1] ?? null } : {}),
+      ...(at > 0 ? { type: cells[at]?.replace(/[`*]/g, '').trim() ?? '' } : {}) })
   })
   return rows
 }
@@ -130,6 +150,7 @@ export function checkUiStatus(repo, { files = repoFiles(repo) } = {}) {
 
   const pending = []
   const problems = []
+  const fit = []
   const statusOf = new Map()
   const isAtom = atomTest(repo)
   let types = null
@@ -190,6 +211,11 @@ export function checkUiStatus(repo, { files = repoFiles(repo) } = {}) {
       const actual = statusOf.get(f)
       if (!row.status) problems.push(`${INVENTORY}:${row.line}: \`${row.name}\` has no status; its file says ${actual ?? 'nothing'}`)
       else if (actual && row.status !== actual) problems.push(`${INVENTORY}:${row.line}: \`${row.name}\` is ${row.status} here, ${actual} in ${f}`)
+      if (kind === isComponent && actual === 'pending' && !isAtom(f)) {
+        const now = fingerprint(readFileSync(path.join(repo, f)))
+        if (!row.fit) fit.push(`${INVENTORY}:${row.line}: \`${row.name}\` is pending with no Fit check — run the fit check (design-system skill, references/fit-check.md) and write the line only once it approves`)
+        else if (row.fit !== now) fit.push(`${INVENTORY}:${row.line}: \`${row.name}\` changed since its fit check approved it (\`${row.fit}\`, now \`${now}\`) — run the fit check again`)
+      }
     }
   }
   if (existsSync(inventoryPath)) {
@@ -199,6 +225,7 @@ export function checkUiStatus(repo, { files = repoFiles(repo) } = {}) {
   return {
     pending,
     problems,
+    fit,
     counts: {
       components: parts.filter(isComponent).length,
       patterns: parts.filter(isPattern).length,
@@ -211,12 +238,34 @@ export function checkUiStatus(repo, { files = repoFiles(repo) } = {}) {
 function main() {
   // The repository root, from this script's own place: .claude/skills/ui-patterns/scripts/.
   const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..')
-  const { notApplicable, pending, problems, counts } = checkUiStatus(repo)
+  const args = process.argv.slice(2)
+  if (args[0] === '--fingerprint') {
+    if (!args[1]) {
+      console.error('usage: check-ui-status.mjs --fingerprint <component file>')
+      process.exit(2)
+    }
+    console.log(fingerprint(readFileSync(path.resolve(args[1]))))
+    return
+  }
+  const fitOnly = args.includes('--fit-only')
+  const { notApplicable, pending, problems, fit, counts } = checkUiStatus(repo)
   if (notApplicable) {
     console.log(`✓ ${notApplicable}`)
     return
   }
   const scanned = `scanned ${counts.components} components, ${counts.patterns} patterns, ${counts.stylesheets} stylesheets and ${counts.catalogue} catalogue lines`
+  if (fit.length) {
+    console.error(`\n✗ Fit checks missing or out of date (${fit.length}):`)
+    for (const p of fit) console.error(`    ${p}`)
+  }
+  if (fitOnly) {
+    if (fit.length) {
+      console.error(`\n  (${scanned})`)
+      process.exit(1)
+    }
+    console.log(`✓ UI fit checks: every pending component approved by its fit check as it stands; ${scanned}`)
+    return
+  }
   if (pending.length) {
     console.error(`\n✗ UI awaiting the human's approval (${pending.length}):`)
     for (const p of pending) console.error(`    ${p}`)
@@ -225,7 +274,7 @@ function main() {
     console.error(`\n✗ UI status problems (${problems.length}):`)
     for (const p of problems) console.error(`    ${p}`)
   }
-  if (pending.length || problems.length) {
+  if (pending.length || problems.length || fit.length) {
     console.error(`\n  (${scanned})`)
     process.exit(1)
   }

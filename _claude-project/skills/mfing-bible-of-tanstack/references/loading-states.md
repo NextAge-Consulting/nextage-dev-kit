@@ -27,10 +27,16 @@ slow third-party API lives above it and must not.
 
 Duration picks the tier; **shape** picks the indicator.
 
-- **A region is being rebuilt and its layout is known** — a browse reloading
-  after a filter or page change. Use a **skeleton** in the shape of the content.
-  It holds the layout so nothing jumps, and it says what is coming rather than
-  merely that something is.
+- **A region has nothing to show yet and its layout is known** — a panel whose
+  data the component fetches, deferred data streaming in. Use a **skeleton** in
+  the shape of the content. It holds the layout so nothing jumps, and it says
+  what is coming rather than merely that something is.
+- **A region is being replaced while its current content stays** — a browse
+  after a filter, sort or page change, where the loader holds the current rows
+  on screen until the next ones arrive. Keep the rows, mark the region busy
+  (`aria-busy`, the rows dimmed, a thin bar along the top of the grid), and keep
+  the toolbar live. Swapping held rows for a skeleton throws away content the
+  user can still read.
 - **A control triggered slow work** — Save, Close, Post, Approve. Use a
   **spinner on that control**, where the user just clicked. Spinners belong on
   actions, not on pages.
@@ -87,8 +93,8 @@ wrong means an indicator that never appears:
 Gate either one with the anti-flash hook.
 
 `useSuspenseQuery` has no `placeholderData`, so `keepPreviousData` is not
-available on the loader-driven path. It does not need to be: `ensureQueryData` in
-the loader means Router holds the current page rendered until the next page's
+available on the loader-driven path. It does not need to be: the loader's
+`query()` means Router holds the current page rendered until the next page's
 data has arrived. Client-driven paging that does not change the route is the only
 case for `useQuery` + `keepPreviousData`.
 

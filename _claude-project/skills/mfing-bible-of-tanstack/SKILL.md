@@ -55,10 +55,11 @@ renders it, so the route guard is navigation UX, not the boundary. We do not use
 `createMiddleware` for auth — see `server-functions.md` for the evidence, which is
 stronger than a style preference.
 
-**Every handler logs its own failure and redacts it.** Start never logs a thrown
-server function server-side, and it ships the thrown message to the browser. Wrap
-every handler in `logFailures(name, fn)`, which logs the error and throws a
-generic one in its place; only a `UserFacingError`'s message crosses the wire
+**Every server function logs its own failure and redacts it.** Start never logs
+a handler's throw or a validator's refusal server-side, and it ships the message
+to the browser. Wrap every handler in `logFailures(name, fn)` and every validator
+in `validateInput(name, schema)`; each logs the failure and throws a generic
+error in its place, and only a `UserFacingError`'s message crosses the wire
 intact. A caller shows that message or its own general statement. See
 `server-functions.md`.
 
@@ -94,8 +95,8 @@ Next.js; do not bring those assumptions.
 | Dependabot triage, `overrides` safety | `dependency-management.md` |
 
 These are **distilled** — our subset in our words, not copies of upstream. They
-cover what business applications need. Query and Form have no upstream skill at
-all, so those two are entirely ours.
+cover what business applications need. Query and Form 1.x have no published
+upstream skill, so those two are entirely ours.
 
 ## Something not covered here
 
@@ -106,6 +107,9 @@ stale between uses.
 ```bash
 ls node_modules/@tanstack/*/skills/          # what this project's versions ship
 ```
+
+A skill's detail sits in its `references/` folder — Table's per-feature guidance
+is under `table-core/skills/table-features/references/`.
 
 Read the relevant `SKILL.md` there **in the session that needs it**, then let it
 go. Do not copy it into `references/`; that is how a kit accumulates content

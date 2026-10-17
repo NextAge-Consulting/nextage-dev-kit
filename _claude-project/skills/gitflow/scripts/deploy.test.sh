@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Regression suite for deploy.sh's gates: an org repo hands over to deploy-org.sh,
 # an app release whose commits name `Needs <org-repo>#N` waits until that org PR is
-# merged, and the full test suite passes — integration tests included — before
-# anything ships. Runs --check-only under the github backend against a real origin;
+# merged, the integration preflight passes first, and the full test suite passes —
+# integration tests included — before anything ships. Runs --check-only under the github backend against a real origin;
 # gh and npm are fakes answering from FAKE_*, and deploy-org.sh is a stub.
 set -uo pipefail
 D="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,7 +12,7 @@ ok()  { echo "ok   $1"; }
 bad() { echo "FAIL $1"; fail=1; }
 
 bin="$tmp/scripts"; mkdir -p "$bin"
-cp "$D/deploy.sh" "$D/issue_helpers.sh" "$D/repo_kind.sh" "$bin/"
+cp "$D/deploy.sh" "$D/issue_helpers.sh" "$D/repo_kind.sh" "$D/gates.sh" "$bin/"
 printf '#!/bin/bash\necho "deploy-org ran: $*"\n' > "$bin/deploy-org.sh"
 chmod +x "$bin"/*.sh
 
@@ -63,6 +63,7 @@ Needs acme/acme-org#99"
 cat > "$tmp/fake/npm" <<'NPM'
 #!/bin/bash
 echo "npm $*"
+case "$*" in *test:preflight*) printf '%s\n' "${FAKE_PREFLIGHT_OUT:-}"; exit "${FAKE_PREFLIGHT_RC:-0}" ;; esac
 printf '%s\n' "${FAKE_NPM_OUT:-}"
 exit "${FAKE_NPM_RC:-0}"
 NPM
@@ -82,14 +83,23 @@ land "✅ test: integration"
     && ok "integration tests that did not run stop the release" || bad "integration skipped: $(cat "$tmp/out")"
 [ "$(FAKE_NPM_OUT=' ✓ |integration| test/a.integration.test.ts' run)" = 0 ] \
     && ok "integration tests that ran pass" || bad "integration ran: $(cat "$tmp/out")"
+printf '{"name":"app","scripts":{"test":"vitest run","test:preflight":"check"}}\n' > package.json
+land "✅ test: preflight"
+[ "$(FAKE_PREFLIGHT_RC=1 FAKE_PREFLIGHT_OUT='the database lacks migration 0007_add_notes' run)" = 26 ] \
+    && grep -q "lacks migration 0007_add_notes" "$tmp/out" && grep -q "database is not ready. Fix before deploying" "$tmp/out" \
+    && ! grep -q "running npm test" "$tmp/out" \
+    && ok "a failing preflight stops the release with 26 before the suite runs, showing why" || bad "preflight fails: $(cat "$tmp/out")"
+[ "$(FAKE_NPM_OUT=' ✓ |integration| test/a.integration.test.ts' run)" = 0 ] && grep -q "integration tests' database is ready" "$tmp/out" \
+    && ok "a passing preflight passes" || bad "preflight passes: $(cat "$tmp/out")"
 printf '{"DEPLOY_BACKEND":"github","DEPLOY_WORKFLOWS":"deploy.yml","DB_ENGINE":"None"}\n' > .claude/sync-substitutions.json
 land "🔧 chore: no database"
 [ "$(FAKE_NPM_OUT=' ✓ |unit| a.test.ts' run)" = 0 ] \
     && ok "with DB_ENGINE None, the unit suite alone passes" || bad "no database: $(cat "$tmp/out")"
 printf '{"DEPLOY_BACKEND":"github","DEPLOY_WORKFLOWS":"deploy.yml","INTEGRATION_DEPLOY_OFF":"deploys run with no database access"}\n' > .claude/sync-substitutions.json
 land "🔧 chore: deploy off"
-[ "$(FAKE_NPM_RC=1 run)" = 0 ] && grep -q "declared off at deploy (INTEGRATION_DEPLOY_OFF) — deploys run with no database access" "$tmp/out" \
-    && ok "INTEGRATION_DEPLOY_OFF skips the suite, quoting the reason" || bad "deploy off: $(cat "$tmp/out")"
+[ "$(FAKE_NPM_RC=1 FAKE_PREFLIGHT_RC=1 run)" = 0 ] && grep -q "declared off at deploy (INTEGRATION_DEPLOY_OFF) — deploys run with no database access" "$tmp/out" \
+    && grep -q "preflight: declared off (INTEGRATION_DEPLOY_OFF)" "$tmp/out" \
+    && ok "INTEGRATION_DEPLOY_OFF skips the preflight and the suite, quoting the reason" || bad "deploy off: $(cat "$tmp/out")"
 printf '{"DEPLOY_BACKEND":"github","DEPLOY_WORKFLOWS":"deploy.yml"}\n' > .claude/sync-substitutions.json
 git rm -q package.json
 land "🔧 chore: no test script"

@@ -40,6 +40,15 @@ logging the payload.
 Signature verification failure is a `401`, logged with enough detail to
 diagnose, and nothing else happens.
 
+## Every outcome is a `Response` the handler returns
+
+**A server route handler logs its own failure through the app's logger and
+returns a generic `Response`; it never lets an error escape.** A thrown error
+becomes Start's generic JSON `500` and a bare `console.error`, outside the app's
+structured log (upstream `guide/server-entry-point.md`, § Error handling). The
+server entry's catch (`deployment.md`) is the net for what slips through, not the
+plan.
+
 ## Answer fast, work afterwards
 
 Providers retry on timeout, so slow processing produces duplicate deliveries.
@@ -56,4 +65,6 @@ that assumed exactly-once.
 ## Do not put auth middleware in front of them
 
 A webhook has no session. Its authentication *is* the signature check inside the
-handler.
+handler. Its caller is a server, which sends no `Origin`, so the CSRF middleware
+would refuse it: webhooks live under `/api/webhooks/`, the path the CSRF filter
+skips (`server-functions.md`).

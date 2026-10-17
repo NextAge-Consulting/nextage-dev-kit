@@ -10,4 +10,9 @@ import { defineTestProject } from "./define";
 export default defineTestProject({
   timezone: "America/Chicago",
   schema,
+  // SQL Server only — the development database the integration tests check first:
+  // integrationDatabase: {
+  //   setupDoc: "project-documentation/dev-database.md, \"Integration tests\"",
+  //   migrations: [{ folder: "src/db/migrations", apply: "SKIP_DB_GUARD=1 npm run db:migrate" }],
+  // },
 });

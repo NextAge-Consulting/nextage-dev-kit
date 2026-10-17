@@ -13,14 +13,14 @@ How **this** repository (`NextAge-Consulting/nextage-dev-kit`) is configured on 
 
 | Setting | Value | Source |
 |---------|-------|--------|
-| Visibility | **private** | `gh repo view` |
-| GitHub Pro / org | **no** | branch protection API returns 403 — immaterial, the pipeline uses none |
+| Visibility | **public** | `gh repo view --json visibility` |
+| Owner | the `NextAge-Consulting` organization, free plan | `gh api orgs/NextAge-Consulting` |
 | Default branch | `main` | |
 | Merge methods | **squash only** (merge-commit and rebase disabled) | `gh repo view --json squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed` |
 | Delete branch on merge | ✅ enabled | |
 | Default merge method (viewer) | SQUASH | |
-| Branch protection on `main` | **none** — the pipeline uses no branch protection (`/merge` self-gates) | n/a (also unavailable on this repo: API returns 403) |
-| Installed workflows | **none** — `.github/` does not exist | `ls .github` |
+| Branch protection on `main` | **none** — the pipeline uses no branch protection (`/merge` self-gates) | protection API returns 404 "Branch not protected" |
+| Installed workflows | `stack-watch.yml` only — scheduled, files issues about the kit's own pins (kitmaintainer-handbook.md §9.13) | `ls .github/workflows` |
 | Manifests | **none** — no `package.json`, no `pyproject.toml`, no `biome.json` | docs/config-only repo |
 
 ---
@@ -36,7 +36,7 @@ The kit repo is a **degenerate case** for the gitflow subsystem — every gate s
 | Typecheck (Node) | `package.json` + `check-types` script | ❌ absent | no-op |
 | Typecheck (Python) | `pyproject.toml` or `pyrightconfig.json` (pyright, else mypy; fails when neither is installed) | ❌ absent | no-op |
 | Biome lint | `biome.json` / `biome.jsonc` + root `package.json` | ❌ absent | no-op |
-| Semgrep | `.github/workflows/ci.yml` declaring a `semgrep` job | ❌ absent | no-op |
+| Semgrep | `.github/workflows/ci.yml` declaring a `semgrep` job | ❌ absent (only `stack-watch.yml` is installed) | no-op |
 
 Net: `/commit` stages all changes and commits with the message Claude composes.
 
@@ -46,9 +46,9 @@ Pushes branch, creates PR, prepends `Closes #N` from any branch-linked issues it
 
 ### `/merge` — CI gate auto-skips
 
-`merge.sh` probes `repos/:owner/:repo/branches/main/protection/required_status_checks`. Private repo without Pro returns **403**, which the script interprets as "no gate configured" and proceeds to squash-merge. Logs: `"no required checks configured on main — CI gate skipped"`.
+`merge.sh` probes `repos/:owner/:repo/branches/main/protection/required_status_checks`. With no protection configured it finds no required checks, which the script interprets as "no gate configured" and proceeds to squash-merge. Logs: `"no required checks configured on main — CI gate skipped"`.
 
-**Consequence:** `/merge` on the kit repo is effectively "squash-merge the PR immediately" with no CI wait — and the kit repo has no CI workflows anyway. This is the same as every project: the pipeline uses no branch protection (pipeline.md §1.1, new-project-setup.md step 3), and `/merge` self-gates by reading the PR's check-runs directly. The only requirement is that `main` not require a PR — the default — so the direct-push paths work: `/deploy` pushes the version bump directly to `main`, `/ship-main` pushes infra/emergency commits, and `/sync-dev-kit` leaves its applied changes for you to land with `/ship-main` (it does no git itself). `enforce_admins` is irrelevant — nothing admin-merges. Normal `/merge` always goes through a PR.
+**Consequence:** `/merge` on the kit repo is effectively "squash-merge the PR immediately" with no CI wait — and the kit repo's one workflow is scheduled, never run on a PR. This is the same as every project: the pipeline uses no branch protection (pipeline.md §1.1, new-project-setup.md step 3), and `/merge` self-gates by reading the PR's check-runs directly. The only requirement is that `main` not require a PR — the default — so the direct-push paths work: `/deploy` pushes the version bump directly to `main`, `/ship-main` pushes infra/emergency commits, and `/sync-dev-kit` leaves its applied changes for you to land with `/ship-main` (it does no git itself). `enforce_admins` is irrelevant — nothing admin-merges. Normal `/merge` always goes through a PR.
 
 ---
 
@@ -77,7 +77,7 @@ Run through this when adding/modifying anything in the kit. If any row answers *
 | Adding a new workflow to `_github-project/workflows/` | ❌ No (ships to consumers) | Only install in kit if it's useful on a manifest-less repo (rare). |
 | Adding a `package.json` / `pyproject.toml` / `biome.json` to the kit root | ✅ **Yes** | `/commit` typecheck + biome gates now fire locally, and `ci.yml` becomes worth installing. |
 | Adding `.github/workflows/pr-title.yml` to kit | ✅ **Yes** | Needs `.commitlintrc.json` at kit root. |
-| Making kit public OR moving to a paid plan | ⚠️ Mostly no | Branch protection would become *available*, but the pipeline uses none — so there is nothing to apply. The only thing to watch: don't enable require-PR, or the direct-push paths (`/ship-main`, and `/deploy` if ever run against the kit's own repo) break. `/sync-dev-kit` does no git (you land its changes with `/ship-main`). `enforce_admins` is irrelevant — nothing admin-merges. |
+| Moving the organization to a paid plan | ❌ No | Branch protection is already available on this public repo, and the pipeline uses none — so there is nothing to apply. The only thing to watch: don't enable require-PR, or the direct-push paths (`/ship-main`, and `/deploy` if ever run against the kit's own repo) break. `/sync-dev-kit` does no git (you land its changes with `/ship-main`). `enforce_admins` is irrelevant — nothing admin-merges. |
 | Changing kit's merge method away from squash | ✅ **Yes** | `merge.sh` calls `gh pr merge --squash`. Repo must keep squash-merge enabled. |
 | Disabling delete-branch-on-merge | ⚠️ Cosmetic | `merge.sh` passes `--delete-branch` explicitly, so local merges still delete. Repo-wide hygiene only. |
 | Adding a new slash command that touches GitHub (issues, PRs, projects) | Depends | If it requires App tokens or org-scoped PATs: document secret requirements here and in the command's `.md`. |

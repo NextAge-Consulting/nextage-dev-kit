@@ -24,6 +24,8 @@ It also holds kit-custom items that never propagate: the `install-cpl` and `inst
 
 Those prove the extensibility pattern: any project can add commands in its own `.claude/commands/` that the kit knows nothing about.
 
+**The kit repo's root `.github/` is the kit's own automation and never syncs** — the pin watch (kitmaintainer-handbook.md §9.13). What consumers receive is `_github-project/`. Edit it in place.
+
 ## Propagation
 
 | Change to | Propagate to |

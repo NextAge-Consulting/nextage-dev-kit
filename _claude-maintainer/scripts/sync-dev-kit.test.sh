@@ -296,6 +296,21 @@ rm "$PROJ/gone.md"; jq 'del(.files["gone.md"])' "$L" > "$tmp/l" && mv "$tmp/l" "
 jq '.DB_ENGINE = "PostgreSQL"' "$PROJ/.claude/sync-substitutions.json" > "$tmp/s" && mv "$tmp/s" "$PROJ/.claude/sync-substitutions.json"
 [ "$(scan | jq -r '.files[] | select(.kit_path == "_claude-project/templates/testing/integration-helpers.ts") | .dest_path')" = "apps/shared/test/integration-helpers.ts" ] \
     && ok "Postgres gets the integration harness" || bad "Postgres harness dest"
+mkdir -p "$KIT/_claude-project/templates/testing/sqlserver"
+printf 'import "mssql"\n' > "$KIT/_claude-project/templates/testing/sqlserver/integration-helpers.ts"
+printf 'export {}\n' > "$KIT/_claude-project/templates/testing/sqlserver/integration-target.ts"; kit_commit "sql server harness"
+out=$(scan)
+jq -e '[.files[] | select(.kit_path | startswith("_claude-project/templates/testing/sqlserver/"))] == []' <<<"$out" >/dev/null \
+    && jq -e '[.skipped_unconfigured[] | select(.kit_path == "_claude-project/templates/testing/sqlserver/integration-target.ts") | .key] == ["DB_ENGINE"]' <<<"$out" >/dev/null \
+    && ok "Postgres skips the SQL Server harness, reported under DB_ENGINE" || bad "Postgres took the SQL Server harness: $(jq -c .skipped_unconfigured <<<"$out")"
+jq '.DB_ENGINE = "SQLServer"' "$PROJ/.claude/sync-substitutions.json" > "$tmp/s" && mv "$tmp/s" "$PROJ/.claude/sync-substitutions.json"
+out=$(scan)
+[ "$(jq -r '.files[] | select(.kit_path == "_claude-project/templates/testing/sqlserver/integration-helpers.ts") | .dest_path' <<<"$out")" = "apps/shared/test/integration-helpers.ts" ] \
+    && [ "$(jq -r '.files[] | select(.kit_path == "_claude-project/templates/testing/sqlserver/integration-target.ts") | .dest_path' <<<"$out")" = "apps/shared/test/integration-target.ts" ] \
+    && ok "SQL Server gets its harness at the scaffolding's test/ names" || bad "SQL Server harness dest: $(jq -c '[.files[] | select(.kit_path | contains("sqlserver"))]' <<<"$out")"
+jq -e '[.files[] | select(.dest_path == "apps/shared/test/integration-helpers.ts")] | length == 1' <<<"$out" >/dev/null \
+    && [ "$(jq -r '.files[] | select(.kit_path == "_claude-project/templates/testing/sqlserver/integration-helpers.ts") | .mode' <<<"$out")" = "owned" ] \
+    && ok "one engine's harness supplies each test/ name, kit-owned" || bad "harness dest collision: $(jq -c '[.files[] | select(.dest_path == "apps/shared/test/integration-helpers.ts")]' <<<"$out")"
 jq 'del(.DB_ENGINE)' "$PROJ/.claude/sync-substitutions.json" > "$tmp/s" && mv "$tmp/s" "$PROJ/.claude/sync-substitutions.json"
 jq '.SHARED_MODULE_DIR = ""' "$PROJ/.claude/sync-substitutions.json" > "$tmp/s" && mv "$tmp/s" "$PROJ/.claude/sync-substitutions.json"
 

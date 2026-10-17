@@ -17,6 +17,7 @@ The kit is just another project — it has its own `.claude/` with project-custo
 | `_gemini-project/` | consumer `<project>/.gemini/` via `/sync-dev-kit` | Gemini Code Assist config + styleguide (PR-time AI reviewer) |
 | `_claude-maintainer/` | `~/.claude/`, copied by hand (§0.1) | The MAINTAINER surface — only the person who syncs the kit into projects: `scripts/sync-dev-kit.sh`, `commands/sync-dev-kit.md`, `scripts/review-stack.sh`, `commands/review-stack.md`, `kit-maintainer.md`. A consumer machine never receives the sync machinery, so it cannot run a sync. `migrations/` is not copied: each holds a `PROMPT.md`, and sometimes a codemod it reaches through `devKitPath`, that `/sync-dev-kit` runs in the consumer's session (§9.4). |
 | `_statusline/statusline.sh` | `~/.claude/statusline.sh` via `/install-statusline` (one-time) | The kit's custom statusline asset; referenced by `install-statusline.md`. |
+| `.github/` | Nowhere — this repo's own GitHub automation | The `stack-watch` workflow and its script (§9.13). Consumer workflows live in `_github-project/`, never here. |
 | `tests/` | Nowhere — sync reads only the `_*-project/` folders | Tests for kit-shipped files that must not ship with them, e.g. `tests/templates/check-workspace-tiers.test.sh`. Each case copies the real script into a throwaway repo where sync would put it. |
 | `.claude/` | This kit repo's own active config | Mirror of `_claude-project/` PLUS kit-custom commands and scripts that only make sense in this repo: `install-cpl`, `install-statusline` (commands + their helper scripts). These never propagate anywhere. |
 
@@ -277,7 +278,7 @@ Any of:
 6. The command calls `skills/gitflow/scripts/commit.sh` with the message
 7. Script picks the branch: on `main` it cuts `<type>/<slug>` from the message; on a branch whose PR is assigned to someone else (`pr_handed_off`) it cuts one stacked on it, records the parent, and carries only the issue links added since the hand-off; anywhere else it commits in place. Then it stages all changes, commits with `--no-verify`, and pushes.
 8. `git-guard.sh` never fires on that commit — the script's `git commit` is a subprocess, not a top-level tool call (§3.1). No token is involved.
-9. Before staging, the script runs the gates that MIRROR CI so a failure costs a second here rather than a round trip after the PR is open: typecheck, Biome lint, and Semgrep over the files this commit touches (gated on CI declaring a `semgrep` job, and scoped to changed files so it stays seconds — CI still scans everything). Then the rule review (`rule-review.sh`): every rule-prose file changed since the fold base — the set `hooks/rule-prose.sh` defines — goes to a headless `claude -p` with no tools, no settings and no CLAUDE.md, which reports history, justification and counted lists in added lines only. Then the part review (`part-review.sh`): every part added since the fold base — a `.tsx` under `components/` outside `features/` and the vendored atoms, new rather than moved — goes to a headless `claude -p` with the UI inventory and the block-type list, which reports a part that duplicates one the inventory already lists; the human decides, and a "different" answer is recorded on the new part's inventory line. Then the design review (`design-review.sh`): the lines added since the fold base in the UI source, the token stylesheets and `design.md` go to a headless `claude -p` with the role list, the inventory and the block-type list, which reports the design judgements the token checker leaves to it (§12a.8); the developer fixes each finding or commits with `SKIP_DESIGN_REVIEW=1`. All three run on the developer's Claude subscription; a missing CLI or a failed call fails the gate. Each exits 4. commitlint is the one gate that remains CI-only, because it validates the PR title, which does not exist yet at commit time. Last, the project gate: when `.claude/project-gate.sh` exists it runs with the fold base, and a failure exits 4 — the kit's own is §9.11.
+9. Before staging, the script runs the gates that MIRROR CI so a failure costs a second here rather than a round trip after the PR is open: typecheck, Biome lint, and Semgrep over the files this commit touches (gated on CI declaring a `semgrep` job, and scoped to changed files so it stays seconds — CI still scans everything). Then the fit checks (`check-ui-status.mjs --fit-only`, local, no Claude call): a pending component whose inventory line has no Fit check, or names a fingerprint other than its file's, exits 4 — the component was added or changed without the fit check approving it as it stands (the design-system skill's `references/fit-check.md`). Then the rule review (`rule-review.sh`): every rule-prose file changed since the fold base — the set `hooks/rule-prose.sh` defines — goes to a headless `claude -p` with no tools, no settings and no CLAUDE.md, which reports history, justification and counted lists in added lines only. Then the part review (`part-review.sh`): every part added since the fold base — a `.tsx` under `components/` outside `features/` and the vendored atoms, new rather than moved — goes to a headless `claude -p` with the UI inventory and the block-type list, which reports a part that duplicates one the inventory already lists; the human decides, and a "different" answer is recorded on the new part's inventory line. Then the design review (`design-review.sh`): the lines added since the fold base in the UI source, the token stylesheets and `design.md` go to a headless `claude -p` with the role list, the inventory and the block-type list, which reports the design judgements the token checker leaves to it (§12a.8); the developer fixes each finding or commits with `SKIP_DESIGN_REVIEW=1`. All three run on the developer's Claude subscription; a missing CLI or a failed call fails the gate. Each exits 4. commitlint is the one gate that remains CI-only, because it validates the PR title, which does not exist yet at commit time. Last, the project gate: when `.claude/project-gate.sh` exists it runs with the fold base, and a failure exits 4 — the kit's own is §9.11.
 
 ### 4.3. What the script does NOT do
 
@@ -719,10 +720,10 @@ Current kit-referenced placeholders (authoritative list is in `_claude-project/s
 | `AWS_REGION` | `_claude-project/rules/cli-utilities.md` (runtime-read via `jq`) | Default AWS region for this project's resources, e.g. `us-east-1`. Passed as an explicit `--region` on every AWS CLI command; never the shell default, which is per-machine and routinely points elsewhere. Empty → project has no AWS. See "Runtime-read placeholders" below |
 | `AWS_PROFILE` | `_claude-project/rules/cli-utilities.md` (runtime-read via `jq`) | Named AWS CLI profile for this project's account, e.g. `acme-prod`. Passed as an explicit `--profile` on every AWS CLI command. Empty → default profile / no AWS. See "Runtime-read placeholders" below |
 | `ORG_REPO` | `skills/terraform/SKILL.md`, `deploy.sh` (runtime-read via `jq`) | `owner/name` of the organization's org repo — all of the account's Terraform, the org map at `project-documentation/org-map.md`, the infrastructure docs. A project files its infrastructure needs as issues there. In the org repo it names itself. Empty and listed in `_intentionally_empty` → no AWS. `infrastructure-terraform.md` |
-| `DB_ENGINE` | `_claude-project/rules/postgres-drizzle.md`, `rules/sqlserver-drizzle.md`, `skills/postgres-neon-drizzle/SKILL.md`, `rules/testing-verification.md` (runtime-read via `jq`); sync's destination mapping for the Postgres test harness; `templates/testing/vitest.config.ts` (read at test time) | Which engine the project runs on, and the single gate deciding which engine-specific guidance applies. Five exact, case-sensitive values: `PostgreSQL`, `SQLServer`, `Other` (has a DB, neither of those — the project supplies its own rule under `rules/project/`), `None` (no database at all), and empty (**not yet declared** — re-surfaced every sync; engine rules must not assume an engine). Empty NEVER means "no database"; that is `None`. Gating on the presence of a `drizzle.config.ts` is the bug this key replaces — a config file proves Drizzle, not the dialect. See "Runtime-read placeholders" below |
+| `DB_ENGINE` | `_claude-project/rules/postgres-drizzle.md`, `rules/sqlserver-drizzle.md`, `skills/postgres-neon-drizzle/SKILL.md`, `rules/testing-verification.md` (runtime-read via `jq`); sync's destination mapping for each engine's test harness; `templates/testing/vitest.config.ts` (read at test time) | Which engine the project runs on, and the single gate deciding which engine-specific guidance applies. Five exact, case-sensitive values: `PostgreSQL`, `SQLServer`, `Other` (has a DB, neither of those — the project supplies its own rule under `rules/project/`), `None` (no database at all), and empty (**not yet declared** — re-surfaced every sync; engine rules must not assume an engine). Empty NEVER means "no database"; that is `None`. Gating on the presence of a `drizzle.config.ts` is the bug this key replaces — a config file proves Drizzle, not the dialect. See "Runtime-read placeholders" below |
 | `DEPLOY_BACKEND`, `DEPLOY_WORKFLOWS`, `MIGRATE_WORKFLOW`, `MIGRATE_PATHS`, `CODEBUILD_PROJECT_PREFIX`, `CODEBUILD_MIGRATE_PROJECT`, `CODEBUILD_PROMOTE_PREFIX` | `deploy.sh` (runtime-read) | The release path `/deploy` dispatches to, its services, its gated migration phase, and — for a project with a separate Prod — the promote projects `/deploy promote` starts — DevOps reference, `pipeline.md` §2.1 |
 | `FORM_LIB_EXEMPT_APPS` | `scripts/check-stack.mjs` (runtime-read) | Front-end apps that deliberately use no form library. An app neither declaring the library nor listed here fails the check until someone answers the question |
-| `SHARED_MODULE_DIR` | sync's destination mapping for `templates/testing/*` | The workspace holding the shared module and its test scaffolding, e.g. `apps/shared`. Empty → the testing templates are skipped (`skipped_unconfigured`). `globalSetup.ts` and `integration-helpers.ts`, the Postgres integration harness, also need `DB_ENGINE` = `PostgreSQL`; any other engine gets them reported under `DB_ENGINE` instead. `testing.md` §1 |
+| `SHARED_MODULE_DIR` | sync's destination mapping for `templates/testing/*` | The workspace holding the shared module and its test scaffolding, e.g. `apps/shared`. Empty → the testing templates are skipped (`skipped_unconfigured`). The integration harness also needs `DB_ENGINE`: `globalSetup.ts`, `integration-helpers.ts` and `harness.integration.test.ts` land from the PostgreSQL files on `PostgreSQL` and from `testing/sqlserver/` on `SQLServer`; any other engine gets them reported under `DB_ENGINE` instead. `testing.md` §1 |
 | `DESIGN_UI_PACKAGE` | sync's destination mapping for `templates/design-system/*`; the `claude-design` engine, `check-design-tokens.mjs` and `check-stack.mjs`, which also expands the manifest's `$DESIGN_UI_PACKAGE` trigger (runtime-read) | The UI package holding the design system, from the repository root, e.g. `packages/ui`. Its config sits at `<DESIGN_UI_PACKAGE>/design-system/design-system.config.mjs`. Empty → the project publishes no design system: the templates are skipped and the engine refuses to run. The UI source the token checker, the design review and `/design-audit` read is found from it, never listed: this package and every workspace whose `package.json` depends on it by name (`ui-sources.mjs`) |
 | `DESIGN_FEED_BARREL` | `templates/design-system/tsconfig.types.json` (substituted); the engine (runtime-read) | The module exporting every component a design may mount, relative to the UI package. Required whenever `DESIGN_UI_PACKAGE` is set |
 | `DESIGN_TOKEN_FILES` | the engine and the token checker (runtime-read) | Stylesheets declaring the tokens in light and dark blocks, relative to the UI package. Required whenever `DESIGN_UI_PACKAGE` is set |
@@ -844,7 +845,7 @@ The orchestration is in the `/sync-dev-kit` slash command (`_claude-maintainer/c
 
 **A mode is chosen in this order, stopping at the first that fits:** `owned`, with placeholders for values that differ; `merge`, for text a project adds beside the kit's; `owned` with a project extension file it imports, for project logic; and `template` last. A `template` file is a seed — the project's own content from the start — and it receives no kit change after it lands.
 
-**The test scaffolding is `owned`, with one seed.** Every file in `templates/testing/` is the kit's except `project.ts`, which lands at `<SHARED_MODULE_DIR>/test/project.ts` and holds what differs between projects: the timezone, the schema, extra databases and their migrate configs, extra vitest projects and include globs, extra `.env` keys, an after-migrate hook, and the test user's roles. `define.ts` is the contract. A project's own helpers live in files of their own beside it. A dual-database project declares its second database in `project.ts`; the kit's `globalSetup.ts` migrates it and `integration-helpers.ts`'s `dbTestOn` gives it a test function — so every harness fix still reaches every project.
+**The test scaffolding is `owned`, with one seed.** Every file in `templates/testing/` is the kit's except `project.ts`, which lands at `<SHARED_MODULE_DIR>/test/project.ts` and holds what differs between projects: the timezone, the schema, extra databases and their migrate configs (PostgreSQL), the development database's setup doc and migration chains (SQL Server), extra vitest projects and include globs, extra `.env` keys, an after-migrate hook, and the test user's roles. `define.ts` is the contract. A project's own helpers live in files of their own beside it. A dual-database project declares its second database in `project.ts`; the kit's `globalSetup.ts` migrates it and `integration-helpers.ts`'s `dbTestOn` gives it a test function — so every harness fix still reaches every project.
 
 **The other seed is `biome.json`**: one `extends` of the kit-owned `biome.base.json`, which carries every rule, plus the project's own additions. Biome reads it as strict JSON, so it cannot carry merge-region markers.
 
@@ -909,6 +910,38 @@ Biome seed. The kit's own `.claude/` is the proof that the core works without th
 **A new kit item gets an org-repo decision alongside its dogfood decision** (`dev-kit-workflow.md`):
 an item that only makes sense with application code is added to `is_app_only()` in the same
 change.
+
+### 9.13. Watching the pins
+
+**The kit has no `package.json`, so Dependabot never sees the versions in
+`stack-manifest.json`.** A consumer's Dependabot PR for a pinned package fails its stack
+check until the kit moves the pin, and an advisory against a pin reaches the kit only if
+someone notices it in a consumer. The kit repo's own `stack-watch` workflow
+(`.github/workflows/stack-watch.yml`, running `.github/scripts/stack-watch.sh`) closes that gap.
+
+| Run | When | Files |
+|---|---|---|
+| `pins` | the 26th of each month, a few days before consumers' monthly Dependabot run on the 1st | one `stack-review` issue: every pin behind latest, with the release count in between |
+| `advisories` | every Monday | one `stack-advisory` issue: every pinned version a published advisory affects — from the GitHub Advisory Database and from each package's own repository advisories, which some projects publish without reaching the database |
+
+Each keeps one open issue per label and rewrites it on the next run. Neither decides
+anything: the issue is the cue to run `/review-stack`, which reads it, recommends, and,
+once you approve, moves the pins. The review's report names the issue, and the commit that
+lands the review cites it by number. An advisory with no fix upstream stays in the issue until the review
+decides it does not reach how we use the package.
+
+Run either by hand from the Actions tab (`workflow_dispatch`), or locally with
+`--dry-run` to print the issue instead of filing it:
+
+```bash
+bash .github/scripts/stack-watch.sh advisories --dry-run
+bash .github/scripts/stack-watch.sh pins --dry-run
+```
+
+**The workflow's own token cannot write the organization's project board.** A new issue
+lands on the board through the board's auto-add, unless the repository secret
+`STACK_WATCH_PROJECT_TOKEN` holds a token with `project` scope — then the script adds it
+directly, and a failed add fails the run.
 
 ## 10. Environment variables
 
@@ -1404,7 +1437,8 @@ judges a drawn box. These screen rules judge only lines changed since the base �
 `DESIGN_TOKENS_BASE` (CI passes the PR's base branch), or where the work left
 `origin/main` — and a moved file is judged by its edits, so a screen nobody touches is
 left alone and copied drawing fails where it is written. `--all` judges every line. A
-commit that adds a part runs the part review (§4). Screen content lives in the app's `src/features/<feature>/` — `apps/<app>/src/features/<feature>/` in a monorepo.
+component's inventory line is written only once the fit check approves it, and a commit
+refuses one whose file changed since; a commit that adds a part also runs the part review (§4). Screen content lives in the app's `src/features/<feature>/` — `apps/<app>/src/features/<feature>/` in a monorepo.
 
 **A type joins the list when it appears in two consumer apps or two primary-source design
 systems** (Fiori, Salesforce Lightning, PatternFly, Carbon, Primer, Pajamas, Polaris,
