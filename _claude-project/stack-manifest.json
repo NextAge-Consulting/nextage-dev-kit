@@ -52,6 +52,16 @@
     "invalidates. Never bump this file to make a build pass."
   ],
   "blessed_at": "2026-10-16",
+  "_node_notes": [
+    "The one Node major every project runs: its .nvmrc names it, its root engines.node",
+    "allows nothing older, and every Dockerfile node: image and CI node-version names it.",
+    "The kit moves it to the next Active LTS major — Active LTS when lts <= today <= maintenance in",
+    "https://raw.githubusercontent.com/nodejs/Release/main/schedule.json — with a",
+    "migration that moves every project at once."
+  ],
+  "node": {
+    "major": 24
+  },
   "packages": {
     "@tanstack/react-router": {
       "version": "1.170.44",

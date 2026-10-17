@@ -79,6 +79,40 @@ expect "lint:tokens pointing at another script fails" "$r" 1 "\"lint:tokens\" is
 r=$(repo no-design "" UNSET)
 expect "no design.md: the design check does not apply" "$r" 0 "no design.md"
 
+# node <repo> <nvmrc-or-empty> <engines-or-empty> — pins Node 24 in the manifest, with a
+# Dockerfile and a workflow already on it.
+node_repo() {
+    local r; r=$(repo "$1" "" UNSET)
+    jq '.node = {major: 24}' "$r/.claude/stack-manifest.json" > "$r/m.json" && mv "$r/m.json" "$r/.claude/stack-manifest.json"
+    [ -n "$2" ] && echo "$2" > "$r/.nvmrc"
+    [ -n "$3" ] && jq --arg e "$3" '.engines = {node: $e}' "$r/package.json" > "$r/p.json" && mv "$r/p.json" "$r/package.json"
+    printf 'FROM public.ecr.aws/docker/library/node:24-bookworm-slim AS base\n' > "$r/Dockerfile"
+    mkdir -p "$r/.github/workflows"
+    printf "jobs:\n  a:\n    steps:\n      - uses: actions/setup-node@v4\n        with:\n          node-version: '24'\n" > "$r/.github/workflows/ci.yml"
+    echo "$r"
+}
+
+r=$(node_repo node-ok 24.18.0 ">=24.18.0 <25")
+expect "Node pinned and everything on its major passes" "$r" 0 "Node 24 in .nvmrc, engines, 1 Dockerfile(s) and 1 workflow(s)"
+
+r=$(node_repo node-nvmrc 22.22.1 ">=24")
+expect "an .nvmrc on another major fails" "$r" 1 '.nvmrc: "22.22.1"'
+
+r=$(node_repo node-no-nvmrc "" ">=24")
+expect "no .nvmrc fails" "$r" 1 ".nvmrc: missing"
+
+r=$(node_repo node-engines 24.18.0 ">=22.12")
+expect "an engines floor below the major fails" "$r" 1 'engines.node is ">=22.12"'
+
+r=$(node_repo node-no-engines 24.18.0 "")
+expect "no engines.node fails" "$r" 1 "no engines.node"
+
+r=$(node_repo node-docker 24.18.0 ">=24"); mkdir -p "$r/apps/web"; printf 'FROM node:22-alpine\n' > "$r/apps/web/Dockerfile.web"
+expect "a Dockerfile on another major fails, found below the root" "$r" 1 "apps/web/Dockerfile.web: FROM node:22-alpine"
+
+r=$(node_repo node-ci 24.18.0 ">=24"); printf "      - with:\n          node-version: 22\n" >> "$r/.github/workflows/ci.yml"
+expect "a workflow on another major fails" "$r" 1 ".github/workflows/ci.yml: node-version 22"
+
 r=$(repo ui-right "$TOKENS" "packages/ui"); ui "$r" "$BUILD"
 expect "UI package with the kit build:design-system passes" "$r" 0 "4 design script(s) checked"
 

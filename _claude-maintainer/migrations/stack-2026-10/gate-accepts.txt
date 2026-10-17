@@ -36,3 +36,6 @@ installs knip without the blessed version
 installs pyright without the blessed version
 installs @commitlint/cli without the blessed version
 installs @commitlint/config-conventional without the blessed version
+# The Node section moves every Node version to the manifest's node.major.
+the kit's Node major is
+its floor must be Node

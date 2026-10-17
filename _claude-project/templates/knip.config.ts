@@ -113,7 +113,16 @@ const harness = "test/{define,globalSetup,integration-helpers,test-utils,auth-mo
 const ignoreDependencies = ["pino-pretty", ...(uiPackage ? ["esbuild"] : [])];
 // pr-title.yml installs commitlint at run time (stack-manifest.json, installedBy ci).
 // psql is the PostgreSQL client the machine provides, which no package.json can declare.
-const ignoreBinaries = ["commitlint", "psql"];
+// So is every program a root script launches itself: knip's binary check is for a
+// package script calling an npm tool the project never installed, and a program run
+// through child_process is the machine's, whatever its name.
+const launched = /\b(?:execFileSync|execFile|spawnSync|spawn)\(\s*["'`]([\w.-]+)["'`]/g;
+const scriptPrograms = existsSync(resolve(root, "scripts"))
+  ? readdirSync(resolve(root, "scripts"), { recursive: true, encoding: "utf8" })
+      .filter((f) => /\.(mjs|js|ts)$/.test(f) && !f.includes("node_modules"))
+      .flatMap((f) => [...readFileSync(resolve(root, "scripts", f), "utf8").matchAll(launched)].map((m) => m[1]))
+  : [];
+const ignoreBinaries = [...new Set(["commitlint", "psql", ...scriptPrograms])];
 
 type Workspace = { entry: string[]; ignoreDependencies: string[]; ignoreBinaries: string[] };
 const workspace = (entry: string[]): Workspace => ({ entry, ignoreDependencies: [...ignoreDependencies], ignoreBinaries });

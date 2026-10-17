@@ -25,7 +25,7 @@ Run `npm run check-types`, `npx biome lint`, `npm test`, and each app's `build` 
 
 ## Node
 
-Set every Node version that names or allows a version below 22.12 — `.nvmrc`, CI's `node-version`, Dockerfile base images, deploy config — to 24, and every `engines.node` range to `>=22.12`. Run the remaining sections on Node 24.
+Set every Node version — `.nvmrc`, CI's `node-version`, Dockerfile `node:` images, deploy config — to the manifest's `node.major`, and the root `engines.node` to `>=<that major>`. Run the remaining sections on that Node.
 
 ## Versions
 

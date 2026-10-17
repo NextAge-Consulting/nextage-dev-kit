@@ -25,12 +25,12 @@ Other package managers follow the same principle — install from the committed 
 
 Every `package.json` project pins its node version, so every machine and CI runner resolves the same dependency tree. Version drift is what makes a bare install churn the lockfile in the first place. Add either file when it is missing rather than only reporting its absence.
 
-- **`.nvmrc`** at the project root naming the version (e.g. `22.11.0`), which `nvm use` reads.
+- **`.nvmrc`** at the project root naming the version (e.g. `24.18.0`), which `nvm use` reads.
 - **`engines.node`** in `package.json` as the machine-readable floor, so a wrong-version install warns — or fails, under `engine-strict`.
 
 Keep the two in agreement and bump them together.
 
-**Pick the version from Node's release schedule, not from what a package manager hands you.** Homebrew's unversioned `node` formula tracks the latest release, which is a pre-LTS "Current" for six months after each April cut. Pin to the Active LTS major and take that line explicitly — `brew install node@<major>`, never bare `brew install node`. Read the major from `https://raw.githubusercontent.com/nodejs/Release/main/schedule.json`, which is the authority: a major is Active LTS when `lts <= today <= maintenance`.
+**The major is the kit's: `node.major` in `.claude/stack-manifest.json`.** `scripts/check-stack.mjs` fails when `.nvmrc`, the floor of `engines.node`, a Dockerfile's `node:` image or a workflow's `node-version` names another. Choose the exact version within that major, and install that line explicitly — `brew install node@<major>`, never bare `brew install node`, which tracks the newest release whatever its major.
 
 ## III. Install scripts are a decision to surface
 

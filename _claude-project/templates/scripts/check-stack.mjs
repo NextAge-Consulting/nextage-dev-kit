@@ -42,6 +42,10 @@
  * run the kit's engine. A script that points anywhere else is a check CI thinks
  * it ran.
  *
+ * NODE: the manifest's `node.major` is the one Node major every project runs. Its
+ * .nvmrc names that major, its root engines.node allows nothing older, and every
+ * Dockerfile `node:` image and CI `node-version` names it.
+ *
  * HERMETIC: reads package.json files, the lockfile, the manifest, CI workflow
  * text and sync-substitutions.json. Never the network, so it is safe in CI and
  * fast enough for pre-commit.
@@ -447,6 +451,49 @@ if (existsSync(resolve(repoRoot, "design.md"))) {
   designWiring = `${want.length} design script(s) checked${uiOff ? " (no UI package: DESIGN_UI_PACKAGE is intentionally empty)" : ""}`;
 }
 
+// --- 6. the Node major ------------------------------------------------------
+// One major across the fleet, so every machine, image and runner resolves the
+// same dependency tree (dependencies.md §II).
+let nodePin = "no Node major pinned";
+const nodeMajor = manifest.node?.major;
+if (nodeMajor !== undefined) {
+  const majorOf = (text) => Number(String(text).match(/(\d+)/)?.[1]);
+  const nvmrcPath = resolve(repoRoot, ".nvmrc");
+  if (!existsSync(nvmrcPath)) failures.push(`.nvmrc: missing — it names the Node version, of major ${nodeMajor}`);
+  else {
+    const nvmrc = readFileSync(nvmrcPath, "utf8").trim();
+    if (majorOf(nvmrc) !== nodeMajor) failures.push(`.nvmrc: "${nvmrc}" — the kit's Node major is ${nodeMajor}`);
+  }
+  const engines = rootPkg.engines?.node;
+  if (!engines) failures.push(`package.json: no engines.node — set it to ">=${nodeMajor}" or a ${nodeMajor}.x floor`);
+  else if (majorOf(engines) !== nodeMajor || !/^\s*>=/.test(engines))
+    failures.push(`package.json: engines.node is "${engines}" — its floor must be Node ${nodeMajor}, as ">=${nodeMajor}" or a ${nodeMajor}.x version`);
+  // Every Dockerfile in the repository, never descending into installed or built trees.
+  const images = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(resolve(repoRoot, dir), { withFileTypes: true })) {
+      const rel = dir ? `${dir}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (!["node_modules", ".git", "dist", ".output", "build"].includes(entry.name)) walk(rel);
+      } else if (/^Dockerfile/.test(entry.name)) images.push(rel);
+    }
+  };
+  walk("");
+  for (const f of images) {
+    for (const m of readFileSync(resolve(repoRoot, f), "utf8").matchAll(/^\s*FROM\s+\S*?\bnode:(\S+)/gim)) {
+      if (majorOf(m[1]) !== nodeMajor) failures.push(`${f}: FROM node:${m[1]} — the kit's Node major is ${nodeMajor}`);
+    }
+  }
+  const workflowDir = resolve(repoRoot, ".github/workflows");
+  const workflows = existsSync(workflowDir) ? readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f)) : [];
+  for (const f of workflows) {
+    for (const m of readFileSync(resolve(workflowDir, f), "utf8").matchAll(/node-version:\s*['"]?([\w.]+)/g)) {
+      if (majorOf(m[1]) !== nodeMajor) failures.push(`.github/workflows/${f}: node-version ${m[1]} — the kit's Node major is ${nodeMajor}`);
+    }
+  }
+  nodePin = `Node ${nodeMajor} in .nvmrc, engines, ${images.length} Dockerfile(s) and ${workflows.length} workflow(s)`;
+}
+
 // --- report ----------------------------------------------------------------
 // Advisories print whether or not anything failed. They name real problems the
 // fleet has not adopted a fix for, and a problem that only prints on a green
@@ -461,7 +508,7 @@ if (failures.length) {
 
 console.log(
   `✓ stack: ${evaluated} of ${Object.keys(blessed).length} blessed package(s) apply here and are checked; ${Object.keys(banned).length} banned dep(s) absent; ` +
-    `form question answered; ${(manifest.references ?? []).length} reference doc(s) present; ${designWiring}` +
+    `form question answered; ${(manifest.references ?? []).length} reference doc(s) present; ${designWiring}; ${nodePin}` +
     (advisories.length ? `; ${advisories.length} advisory(ies) above` : "") +
     ` (blessed ${manifest.blessed_at}).`,
 );

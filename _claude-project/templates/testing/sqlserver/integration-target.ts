@@ -13,7 +13,7 @@ import type { IntegrationDatabase } from "./define";
 import { connectionStringFromEnv } from "./mssql-connection";
 
 /** The extended property on a server's `master` database that marks it as a test target. */
-export const TEST_TARGET_MARK = "integration_test_target";
+const TEST_TARGET_MARK = "integration_test_target";
 
 /** Where drizzle-kit records the migrations it applied, when a chain names no other table. */
 const DEFAULT_MIGRATIONS_TABLE = "drizzle.__drizzle_migrations";
