@@ -2,6 +2,20 @@
 
 `/sync-dev-kit` runs everything below the line in the consumer project's session, once it has landed the kit version that removes `families.skip`. It applies to a project with `<UI package>/design-system/design-system.config.mjs`; any other project has nothing to do.
 
+## Estimate
+
+Kind: mechanical
+Your time: none — runs unattended.
+
+Blast radius:
+
+```bash
+KIT=$(jq -r .devKitPath ~/.claude/dev-kit-config.json)
+node "$KIT/_claude-maintainer/migrations/publish-off/codemod.mjs" . --dry-run
+```
+
+It names, per token file, the declarations it wraps, and any one-line block left for hand wrapping. No design-system config, or no `families.skip` in it: it does not apply. Reach is the token stylesheets and the design-system config.
+
 ---
 
 Move this project's Claude Design skip list into the token CSS. Work through every step to the end. Make no git commits — leave everything uncommitted for me to review.

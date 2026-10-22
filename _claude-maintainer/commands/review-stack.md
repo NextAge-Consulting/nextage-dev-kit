@@ -129,7 +129,7 @@ text, and never add a section explaining a feature we do not use.
 config or a schema to pass its checks at the new pins.** Then the review ships
 one migration, named after it: `_claude-maintainer/migrations/stack-YYYY-MM/`.
 
-- `PROMPT.md`, in the shape of the existing migrations. `/sync-dev-kit` runs it
+- `PROMPT.md`, written to `.claude/rules/project/migrations.md`, Estimate included. `/sync-dev-kit` runs it
   in each consumer's session, so it is the only way a consumer learns what to
   change. Write it so a project finds its own cases: what to search for, what to
   change, how to prove it. The kit is public — never name a project, a client or

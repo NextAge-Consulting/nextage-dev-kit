@@ -192,7 +192,7 @@ To ship the accumulated commits to production, run `/deploy`:
 Load these only when needed for the task:
 
 - **`references/commit-types.md`** — Emoji/type mapping for commit message construction.
-- **`references/changelog-rules.md`** — Changelog entry rules (applied by Claude during `/open-pr` to generate the entry).
+- **`references/changelog-rules.md`** — Changelog entry rules (applied by Claude during `/deploy` to write the release entry).
 
 ## Scripts
 

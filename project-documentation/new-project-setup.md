@@ -17,7 +17,7 @@ The single walkthrough for taking a brand-new project from nothing to "kit insta
 ### One-time per machine (skip anything already done)
 
 - [ ] **P0** — Machine prerequisites installed: `git`, `gh` (authenticated, `repo`+`project` scopes), `jq`, `node`/`npm` (or `python3`), `shasum`, plus optional `shellcheck` / `agent-browser` `[you]`
-- [ ] **P1** — (maintainer only) Maintainer surface installed: `kitmaintainer-handbook.md` §0.1 `[you]`
+- [ ] **P1** — (kit syncer only) A kit clone on this machine, named by `~/.claude/dev-kit-config.json` `[claude+you]`
 - [ ] **P2** — (optional) Custom statusline: `/install-statusline` `[claude]`
 - [ ] **P3** — (optional) Claude Project Launcher: `/install-cpl` `[claude]`
 
@@ -28,7 +28,7 @@ The single walkthrough for taking a brand-new project from nothing to "kit insta
 - [ ] **1** — Project exists as a local git repo `[claude+you]`
 - [ ] **2** — GitHub repo created and `main` pushed `[claude+you]`
 - [ ] **3** — Confirm `main` requires no PR `[claude]`
-- [ ] **4** — `/sync-dev-kit` run; substitutions walkthrough completed `[claude+you]`
+- [ ] **4** — Kit sync set up in the project and `/sync-dev-kit` run; settings walkthrough completed `[claude+you]`
 - [ ] **5** — Gemini Code Review installed + repo linked — or explicitly marked not-installed `[you]` then `[claude]`
 - [ ] **6** — Secrets & env: `.env`, GitHub Actions secrets, MCP API keys `[claude+you]`
 - [ ] **6b** — (optional) Security headers: a Content-Security-Policy and friends, for a project that will face a security audit `[claude]`
@@ -86,19 +86,16 @@ agent-browser --version                              # only for /e2e flows
 
 Both `repo` and `project` scopes are required. If either is missing: `gh auth refresh -s repo,project`.
 
-### P1 — Maintainer surface (maintainer only) `[you]`
+### P1 — A kit clone, for whoever syncs this project `[claude+you]`
 
-**A regular dev does nothing here.** Consumers receive nothing globally — every kit command, `/work` included, arrives per-project when the maintainer syncs the project. Skip to P2.
+**Only the project's kit syncer needs this.** Everyone else receives every kit command, `/work` and `/sync-dev-kit` included, inside the project. Skip to P2.
 
-The kit maintainer copies `_claude-maintainer/` into `~/.claude/` and writes `~/.claude/dev-kit-config.json`, by hand, following `kitmaintainer-handbook.md` §0.1. There is no installer: it happens twice in the kit's life, and a command run that rarely cannot be trusted to deliver a change.
+The syncer needs a clone of the kit on their machine and `~/.claude/dev-kit-config.json` naming it. Step 4's setup prompt makes both. The kit maintainer's machine also carries the maintainer surface (`kitmaintainer-handbook.md` §0.1).
 
 **Verify:**
 
 ```bash
-test -x ~/.claude/scripts/sync-dev-kit.sh && echo "sync script installed + executable"
-ls ~/.claude/commands/sync-dev-kit.md ~/.claude/kit-maintainer.md
-grep -q '@kit-maintainer.md' ~/.claude/CLAUDE.md && echo "maintainer rule imported"
-ls ~/.claude/kitmaster                              # marker: makes block-kit-edit.sh inert
+git -C "$(jq -r .devKitPath ~/.claude/dev-kit-config.json)" branch --show-current   # main
 ```
 
 ### P2 — Custom statusline (optional) `[claude]`
@@ -249,12 +246,13 @@ The one hard requirement: **`main` must not require a PR.** A fresh repo has req
 
 **Verify:** `main` does not require a PR (the default on a new repo). If a protection rule was ever added, confirm require-PR is off.
 
-### 4 — Run `/sync-dev-kit` `[claude+you]`
+### 4 — Set up kit sync, then run `/sync-dev-kit` `[claude+you]`
 
-From the **project root** (not inside the kit), run `/sync-dev-kit`. First-run flow:
+From the **project root** (not inside the kit), paste the "Set up" prompt from `kit-sync-cheatsheet.md` into Claude Code. It finds or clones the kit, writes `~/.claude/dev-kit-config.json`, and copies `/sync-dev-kit` and its launcher into the project. Then run `/sync-dev-kit`. First-run flow:
 
-1. **Scan** — compares kit templates against the (empty) project; bootstraps `.claude/sync-substitutions.json`.
-2. **Substitutions walkthrough (Step 1.5)** — Claude walks you through each empty placeholder, one at a time. The ones you'll almost always set:
+1. **Prepare and scan** — the kit clone is brought to its latest release, and the scan compares it against the (empty) project, writing nothing.
+2. **Briefing** — what the sync will do and ask: on a first sync, every setting once, and every kit file as one mechanical pass. Say go.
+3. **Settings walkthrough (Step 1.5)** — `.claude/sync-substitutions.json` is created, and Claude walks you through each empty placeholder, one at a time. The ones you'll almost always set:
    - `GEMINI_NOT_INSTALLED` — leave empty for now if you're installing Gemini in step 5; set to `"true"` if this repo will not have Gemini.
    - `GITFLOW_PROJECT_ID` + the four `GITFLOW_STATUS_*` IDs (field, In Progress, Staged, the deploy status) — only if you use a GitHub Project board (Claude can run the `gh api graphql` discovery for you). With a board, all five are required. Leave all five empty / `_intentionally_empty` to skip board integration. Either way, pick how issues close — `github-project-board-setup.md` §3.
    - `DEPLOY_BACKEND` + `DEPLOY_WORKFLOWS` + `CODEBUILD_PROJECT_PREFIX` — the deploy pipeline; see step 7. A repo that deploys by its own procedure sets `DEPLOY_BACKEND=custom` and leaves the other two empty; a repo that does not deploy at all sets `none`.
@@ -264,8 +262,8 @@ From the **project root** (not inside the kit), run `/sync-dev-kit`. First-run f
    - The `DESIGN_*` keys — the UI package and its stylesheets, set when the project publishes a design system (the `claude-design` skill's "Setting a project up"). A project with none leaves all ten empty and lists them in `_intentionally_empty`.
 
    > Three states per key (kitmaintainer-handbook.md §9.7): **missing** = undecided, marker survives, re-nags every sync; **empty string** = intentionally disabled; **populated** = normal value. `_intentionally_empty` distinguishes "informed disable" from "deferred."
-3. **Per-file review (Steps 2–5)** — accept the kit files (`.claude/`, `.github/workflows/`, `.gemini/`, `.mcp.json`, `.commitlintrc.json`, `biome.base.json`, `biome.json`, `biome-plugins/`, `.gitattributes`, `.semgrepignore`) and the `.gitignore` additions. `biome.base.json` and `biome-plugins/` are the kit's; `biome.json` is a seed extending the base, and the project adds its own plugins and settings there. `.gitattributes` keeps every working tree on LF line endings; its `project-attributes` region holds the project's own lines.
-4. **Finalize (Step 6)** — stamps the lockfile. Sync does **not** commit or push; the synced files are left uncommitted in the working tree. Land them with `/ship-main` (commits + pushes straight to `main`).
+4. **The mechanical pass (Steps 2–5)** — the kit files land (`.claude/`, `.github/workflows/`, `.gemini/`, `.mcp.json`, `.commitlintrc.json`, `biome.base.json`, `biome.json`, `biome-plugins/`, `.gitattributes`, `.semgrepignore`), then the `.gitignore` additions. `biome.base.json` and `biome-plugins/` are the kit's; `biome.json` is a seed extending the base, and the project adds its own plugins and settings there. `.gitattributes` keeps every working tree on LF line endings; its `project-attributes` region holds the project's own lines.
+5. **Finalize (Step 6)** — stamps the lockfile. Sync does **not** commit or push; the synced files are left uncommitted in the working tree. Land them with `/ship-main` (commits + pushes straight to `main`).
 
 **Verify:**
 

@@ -23,9 +23,12 @@ app's part of that type, and never hand-roll anything listed here.**
 - **Each part carries its block type** from the `design-system` skill's
   `references/block-types.md`, or `<none>` when no type fits; a vendored atom carries
   none. A second part of one type carries, on its line, the human's reason it is not the first.
-- **Each pattern and component carries its status**, `approved` or `pending`, the
-  same as the `ui-status` line in its file. Pending means built and not yet approved
-  by the human.
+- **Each pattern and component carries its status**, `approved`, `pending` or
+  `unresolved`, the same as the `ui-status` line in its file. Pending means built and
+  not yet approved by the human. Unresolved means the human chose not to decide yet:
+  its status cell reads `` unresolved `<fingerprint>` <their reason> ``, it blocks
+  nothing, the check reports how many there are (`--unresolved` lists them), and once
+  the file changes it counts as pending again.
 - **A pending component's line carries its Fit check**: the fingerprint of its file and
   the verdict of the fit check that approved it (the `design-system` skill's
   `references/fit-check.md`). Write the line only once the fit check approves it, and

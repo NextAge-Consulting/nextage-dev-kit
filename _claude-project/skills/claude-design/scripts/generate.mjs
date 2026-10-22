@@ -21,7 +21,6 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
 import { loadConfig } from './config.mjs'
 import { buildModel, promisedClasses, SPACING_UTILITIES } from './model.mjs'
 
@@ -113,7 +112,7 @@ export function writeGenerated(ctx, model) {
   return changed
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+if (import.meta.main) {
   const ctx = await loadConfig(process.argv[2], { tool: 'generate.mjs' })
   const model = buildModel(ctx)
   if (model.problems.length) {

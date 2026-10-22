@@ -2,6 +2,22 @@
 
 `/sync-dev-kit` runs everything below the line in the consumer project's session, once it has landed the kit version that ships `knip.config.ts`. It works for any kit project, whatever its layout, including one that never used cross-workspace aliases.
 
+## Estimate
+
+Kind: mechanical
+Your time: none — runs unattended, and reports any knip finding that is a gap in the kit's configuration.
+
+Blast radius:
+
+```bash
+KIT=$(jq -r .devKitPath ~/.claude/dev-kit-config.json)
+node "$KIT/_claude-maintainer/migrations/package-name-imports/codemod.mjs" . --dry-run
+CFG=knip.config.ts; [ -f "$CFG" ] || CFG="$KIT/_claude-project/templates/knip.config.ts"
+npx --yes knip@$(jq -r .packages.knip.version "$KIT/_claude-project/stack-manifest.json") --config "$CFG" --no-progress --no-config-hints
+```
+
+The codemod's counts are the files whose imports are rewritten; nothing to rewrite and no hand-review items means the import half is already done. Every knip finding is a deletion or a dependency move. Reach is those files against `git ls-files '*.ts' '*.tsx' | wc -l`, plus each imported workspace's `package.json` and tsconfig.
+
 ---
 
 Migrate this project to the kit's workspace-import standard, then bring it to zero knip findings and turn the knip gate on. Work through every step below to the end. Make no git commits — leave everything uncommitted for me to review.

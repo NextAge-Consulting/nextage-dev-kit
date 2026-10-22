@@ -4,9 +4,9 @@
 *.pem
 .auth_token
 
-# Maintainer-private planning notes. Single-maintainer repo; this holds
-# unsanitized working detail (account ids, client context) and the kit is public.
-project-documentation/temporary/kit-rollout-plan.md
+# The maintainer's working notes — plans, handoffs, rollout detail. The kit is public;
+# what is settled lives in the docs and rules.
+project-documentation/temporary/
 
 # OS files
 .DS_Store
@@ -44,4 +44,3 @@ vite.config.ts.*
 # CPL compiled binaries (built by sync-cpl.sh)
 _cpl/bin/cpl-picker
 _cpl/bin/cpl-close-zed
-project-documentation/temporary/design-system-map.md

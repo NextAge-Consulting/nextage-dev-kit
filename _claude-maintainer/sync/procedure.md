@@ -1,31 +1,23 @@
-# /sync-dev-kit
+# The /sync-dev-kit procedure
 
-Interactive three-way sync of kit templates into this consumer project. Nothing is ever full-replaced — every difference is shown as a diff, you recommend a resolution, the user decides per file. Resumable via the `.claude/.kit-sync.json` lockfile.
+A three-way sync of the kit into this project. Before anything changes, the user is told what this sync will ask of them and of the project, and says go or not. The kit-owned files then land in one mechanical pass, and only what needs a person is put to them, one item at a time. Nothing is ever full-replaced, and the `.claude/.kit-sync.json` lockfile makes it resumable.
 
-$ARGUMENTS
-
-## When to invoke
-
-User says "sync dev kit", "sync the kit", "pull latest kit updates", or types `/sync-dev-kit` explicitly.
-
-**Never invoke proactively.** User must explicitly request the sync.
+The project's `/sync-dev-kit` has already run `.claude/scripts/sync-dev-kit.sh --prepare`, which brought this kit clone to the kit's latest main — or, on a maintainer's machine, left the working tree as it stands — and named this file. Every engine call below goes through `.claude/scripts/sync-dev-kit.sh`.
 
 ## Procedure
 
 ### Step 1: Scan
 
-Run the scan mode of the sync script:
+Run the scan. It writes nothing, so the go-ahead in Step 1.2 is decided on a project nothing has touched:
 
 ```bash
-~/.claude/scripts/sync-dev-kit.sh --scan
+.claude/scripts/sync-dev-kit.sh --scan
 ```
 
-(If the project has not been synced before, the script is read from the kit location — confirm the config file at `~/.claude/dev-kit-config.json` exists, else point the user at `kitmaintainer-handbook.md` §0.1.)
+Parse the JSON output. A syncer's clone is always clean and current here, because `--prepare` refuses otherwise; `kit_clean`, `kit_behind_remote` and `migrations_uncommitted` matter on a maintainer's machine. Top-level fields:
 
-Parse the JSON output. Top-level fields:
-
-- `kit_clean` — `false` means the kit repo has uncommitted changes. Warn the user; suggest they commit kit work before syncing (otherwise the baseline they establish now will drift).
-- `migrations_uncommitted` — migrations in the kit's working tree that the kit has never committed. Sync runs only committed migrations, so these never run in this sync. When it is non-empty, stop before Step 1.5: name each one, say it will not run, and tell the user to commit the kit and sync again. Continue only on their explicit word.
+- `kit_clean` — `false` means the kit repo has uncommitted changes. Warn the user; suggest they commit kit work before syncing.
+- `migrations_uncommitted` — migrations in the kit's working tree that the kit has never committed. Sync runs only committed migrations, so these never run in this sync. When it is non-empty, stop before Step 1.2: name each one, say it will not run, and tell the user to commit the kit and sync again. Continue only on their explicit word.
 - `kit_behind_remote` — `true` means the kit repo is behind its remote. Warn the user to `git pull` the kit before syncing.
 - `kit_commit` — the kit HEAD SHA at scan time. This becomes the new lockfile baseline after `--finalize`.
 - `files` — array of per-file state entries.
@@ -35,12 +27,47 @@ Parse the JSON output. Top-level fields:
 - `repo_kind` and `skipped_by_repo_kind` — the project's `REPO_KIND` and how many application-tooling files it skipped as an `org` repo. Say the count once; never list the files.
 - `stale_patches` — patch register entries that sanction nothing, each with the file's `current_state` (Step 2.2).
 - `migrations_pending` — `{name, prompt}` for each migration the kit added since this project last synced, oldest first, after any an earlier sync carried forward (Step 5.5).
+- `substitutions_bootstrap` — `true` on the project's first sync: `.claude/sync-substitutions.json` does not exist yet, and the scan read the kit template's values in its place.
+- `substitutions_new_keys` — kit keys the project's file lacks. Step 1.5 writes them in.
+- `substitutions_undecided` — the keys the Step 1.5 walkthrough will ask about.
 
-The scan also bootstraps `.claude/sync-substitutions.json` from the kit template if it doesn't exist. Look for `sync-dev-kit.sh: bootstrapped .claude/sync-substitutions.json` on stderr — that's the signal that this is a first-time sync and Step 1.5 is going to have work to do.
+### Step 1.2: Brief the user, then ask for the go-ahead
+
+Before anything is written, tell the user what this sync asks of them and of the project. Assume they know little about the kit's files: give them decisions and consequences, never a tour of the files.
+
+1. **What changes mechanically.** One line: how many kit-owned files it updates or adds (`kit-only` and `new-kit`, merge files included, whose project regions are always kept), and that none of them needs a decision. Name a file only when it would break something in this project (Step 2.04).
+2. **Files that need a person** — every `patched`, `unsanctioned`, `conflict`, `conflict-first`, `merge-unmarked`, `merge-invalid`, `removed-kit` and `project-deleted` file, and each of `stale_patches`. One line each: what the choice is, and what you will recommend.
+3. **Settings to decide** — each of `substitutions_undecided`, in plain words from the kit catalog (`<kit_path>/_claude-project/sync-substitutions.json`, `_placeholders_referenced_by_kit`), and whether a sensible default exists. With `substitutions_bootstrap` true, say this is the project's first sync, so every setting is asked once.
+4. **Each migration** in `migrations_pending`, in order: its estimate (below).
+5. **The total.** The user's interactive time across all of it, and the verdict: nothing needing a person means the sync runs straight through; anything else, say how long they will sit with it.
+
+Then ask once whether to go ahead. On no, stop: nothing in the project has changed, and the next sync briefs again.
+
+#### Estimating a migration
+
+A migration is a prompt that adjusts the project to kit changes this sync has not applied yet, so it cannot be dry-run. Its estimate is not a rundown of its steps; it is the blast radius, measured against this project.
+
+- **A migration with an `## Estimate` section** above its `---`: run each command its `Blast radius` line gives — they are read-only, and read new kit content from the clone — and read the counts through its `Kind` and `Your time` lines.
+- **One without:** read its opening paragraph and every step, decide from them what it touches and where it stops for the user, and measure that with read-only commands of your own — count the files, components or call sites the steps would change. Call the result a cold estimate.
+- Run nothing a step runs to make its change: no codemod outside `--dry-run`, no install, no write, no commit. A count that exists only once an earlier migration has run is reported as that, never guessed.
+- **Across a backlog,** measure every migration against the project as it stands. One migration changing what the next one counts does not change the order of magnitude, and order of magnitude is what the estimate is for. A migration whose opening paragraph says it does not apply here gets one line saying why.
+
+Report each migration as:
+
+- **Kind** — mechanical, or asks for decisions, naming them;
+- **Your time** — minutes the user spends in this session deciding: the number of decision points times a realistic time for each. A mechanical migration is "none — runs unattended", however much code it changes. Never estimate how long Claude's unattended work takes, and never in days or weeks;
+- **Reach** — how much of the project it changes, as a share of the whole: "about 40 of 260 source files, all in the component folder", or "two config files";
+- **What it proves at the end** — the checks, tests and builds its steps run.
 
 ### Step 1.5: Substitutions walkthrough
 
-**Purpose:** populate `.claude/sync-substitutions.json` BEFORE the file-diff loop. Kit `{{KEY}}` placeholders get resolved against this file during scan, so populating values now eliminates false-positive diffs on every file that gates on a key.
+**Purpose:** populate `.claude/sync-substitutions.json` BEFORE the mechanical pass. Kit `{{KEY}}` placeholders get resolved against this file during scan, so populating values now eliminates false-positive diffs on every file that gates on a key.
+
+**First, write the file:** bootstrap it on a first sync, or merge in the kit's new keys and comment blocks:
+
+```bash
+.claude/scripts/sync-dev-kit.sh --apply-substitutions
+```
 
 **Read these:**
 
@@ -66,7 +93,7 @@ jq -r 'to_entries[] | select(.key | startswith("_") | not) | select(.value == ""
 
 Filter out any key that's in `_intentionally_empty` — the user already decided to leave those off. The remainder is the walkthrough list.
 
-If the list is empty, skip Step 1.5 entirely and proceed to Step 2.
+If the list is empty, skip the rest of Step 1.5 and proceed to Step 2.
 
 **Ask `REPO_KIND` first when it is in the list.** It decides which other keys matter. For an `org` repo, offer to settle the application keys in one step: `DB_ENGINE` = `None`, `GEMINI_NOT_INSTALLED` = `true` (an org repo is reviewed through its plans, not Gemini), `ORG_REPO` = this repository, and `SHARED_MODULE_DIR`, `DESIGN_UI_PACKAGE`, `KNIP_GATE`, `FORM_LIB_EXEMPT_APPS`, `DEPLOY_BACKEND`, `DEPLOY_WORKFLOWS`, `MIGRATE_WORKFLOW`, `MIGRATE_PATHS`, `CODEBUILD_PROJECT_PREFIX`, `CODEBUILD_MIGRATE_PROJECT` and `CODEBUILD_PROMOTE_PREFIX` added to `_intentionally_empty`. A `combo` repo — a project that is its own org repo — keeps its application settings and sets `ORG_REPO` to itself. Then re-run `--scan`, because the kind changes which files are scanned.
 
@@ -87,7 +114,7 @@ If the list is empty, skip Step 1.5 entirely and proceed to Step 2.
 
 **After the walkthrough:**
 
-- Re-run `--scan` if any values were populated. Kit `{{KEY}}` SHAs now substitute against the new values, so files that were going to surface as `kit-only` (because their kit template had `{{KEY}}` and the project file had the literal `{{KEY}}` from a prior pre-bootstrap sync) may now reconcile to `clean` or `clean-converged`. Without re-scan, the file loop runs against stale state.
+- Re-run `--scan` if any values were populated. Kit `{{KEY}}` SHAs now substitute against the new values, so files that were going to surface as `kit-only` (because their kit template had `{{KEY}}` and the project file had the literal `{{KEY}}` from a prior pre-bootstrap sync) may now reconcile to `clean` or `clean-converged`. Without re-scan, the mechanical pass runs against stale state.
 - If the user populated nothing (all empty/disable/defer), no re-scan needed.
 
 **Edge cases:**
@@ -105,12 +132,12 @@ For each file entry, the `state` field is one of:
 | `clean` | Kit and project both match baseline | Silent skip — do not list |
 | `clean-first` | First-ever sync; project and kit already match | Silent skip — establish baseline only |
 | `clean-converged` | Both changed from baseline to the same content | Silent skip — establish new baseline |
-| `kit-only` | Kit changed, project did not | Recommend apply |
+| `kit-only` | Kit changed, project did not | Mechanical pass (Step 3) |
 | `patched` | `owned` or `merge` file: the project changed kit-owned text, and `.claude/.kit-patches.json` sanctions it | Report every sync with both issues and the `patch.recommendation` (Step 2.2) |
 | `unsanctioned` | `owned` or `merge` file: the project changed kit-owned text with no register entry | Report loudly every sync. Recommend reverting to the kit (`--apply-file`) or registering it as a patch (Step 2.2) |
 | `conflict` | `owned` file, no register entry: both changed to different content from baseline | Three-way diff; compare `kit_sha`, `project_sha`, `baseline_sha`; recommend taking the kit's version. A project change that must stay is a patch: register it, then ACK (Step 2.2) |
 | `conflict-first` | First-ever sync; project and kit differ | Show both, ask user which direction |
-| `new-kit` | Kit has a new file not in project | Recommend apply — whether or not this repo uses it (Step 2.04). If the user does not want it, **decline it** (below) — never leave it unanswered |
+| `new-kit` | Kit has a new file not in project | Mechanical pass, whether or not this repo uses it (Step 2.04). One the briefing named as breaking something goes to the user instead: take it or **decline it** (Step 3.5) — never leave it unanswered |
 | `declined` | The project refused this file at its current content | Silent skip — do not list |
 | `removed-kit` | Kit deleted a file that still exists in project | Ask: delete from project or keep as project-owned? |
 | `project-deleted` | Baseline + kit still have file, but project deleted it | Ask: re-add from kit, or accept deletion? |
@@ -145,6 +172,8 @@ The lockfile tolerates both schemas: a legacy bare-string value means `owned`. E
 
 The helpers live in `sync-dev-kit.sh` (`canonicalize_settings` + `sha256_settings_kit` + `sha256_settings_proj`). Every field — hooks, permissions, env — flows through normal 3-way state; the kit owns them all. The lockfile baseline SHA tracks the canonicalized content, matching subsequent scans.
 
+**The project's own hooks live in `.claude/settings.project.json`**, which the project owns and sync never writes. The kit's `settings.json` is written with them composed in, each event's entries after the kit's, so a changed sidecar shows `settings.json` as `kit-only` and the mechanical pass applies it. A project that edited `settings.json` itself to add a hook is `unsanctioned`: move the hook into the sidecar, then apply the kit's file.
+
 You (Claude) don't need to invoke anything special — the script handles it. See kitmaintainer-handbook.md §9.6.
 
 ### Step 2.2: patches — `patched`, `unsanctioned`, stale entries
@@ -165,7 +194,7 @@ Present every `unsanctioned` file loudly, every sync, with its diff against the 
 For each `stale_patches` entry, and after a `take-kit` apply:
 
 ```bash
-~/.claude/scripts/sync-dev-kit.sh --remove-patch <dest_path>
+.claude/scripts/sync-dev-kit.sh --remove-patch <dest_path>
 gh issue close <projectIssue number> --comment "Kit fix landed via /sync-dev-kit; the temporary patch is removed."
 ```
 
@@ -179,53 +208,38 @@ A `merge` file marks each project region in its own comment syntax: `<!-- projec
 
 **`merge-invalid`** — read `detail`: an unclosed or nested region, a duplicate name, or a region the kit does not have. Fix it by hand and re-scan.
 
-### Step 3: Present each non-clean file
+### Step 3: The mechanical pass, then each file that needs a person
 
-For each file whose state is not `clean*`, show:
+**Apply every `kit-only` and `new-kit` file with `--apply-file` (Step 4), without asking file by file** — the go-ahead covered them. The exception is a `new-kit` the briefing named as breaking something here (Step 3.5).
 
-- The destination path (`dest_path`)
-- The state and one-line recommendation
-- The diff — obtain with `git diff --no-index <baseline-or-project> <kit>` OR `diff -u` for clarity
-- For conflicts, show BOTH diffs: `baseline → kit` and `baseline → project`
+Then put each file that needs a person to the user, one at a time — the states the briefing listed under item 2. For each, show:
 
-Example presentation:
+- the destination path (`dest_path`) and what the file is for, in a sentence;
+- what happened, in plain words — "the kit changed this file, and so did this project" — and what you recommend;
+- the diff when it is short, or on request; for a conflict, BOTH diffs: `baseline → kit` and `baseline → project`.
 
-```
-.claude/hooks/git-guard.sh (kit-only)
-
-Kit changed this file since your last sync; you haven't touched it.
-Recommendation: apply kit changes.
-
---- baseline
-+++ kit
-@@ -12,3 +12,5 @@
- # ... diff content ...
-
-Apply? [y/n/skip/quit]
-```
-
-Process files in batches of 5-10 at a time to avoid overwhelming the user. Let them stop anytime; lockfile preserves state per-file so they resume later.
+The user can stop at any point; the lockfile keeps every file already applied, and the next sync picks up the rest.
 
 ### Step 3.5: A `new-kit` the user does not want
 
 ```bash
-~/.claude/scripts/sync-dev-kit.sh --decline-file <kit_path>
+.claude/scripts/sync-dev-kit.sh --decline-file <kit_path>
 ```
 
 Records the kit's current content as a refusal WITHOUT creating the project file, so the entry reports `declined` and stops being listed.
 
-**"Skip" is not an answer here.** A skipped `new-kit` has no lockfile entry at all, so it is offered again on the next sync, and every sync after that — the user ends up declining the same two files forever and learns to scroll past the list. Offer: **take it** (`--apply-file`), **decline it** (`--decline-file`), or **decide later** (genuinely skip, and say it will be asked again).
+**"Skip" is not an answer here.** A skipped `new-kit` has no lockfile entry, so it is offered again on every sync. Offer: **take it** (`--apply-file`), **decline it** (`--decline-file`), or **decide later** (genuinely skip, and say it will be asked again).
 
 **Do NOT use `--ack-file` for this.** Ack records a baseline for a file that does not exist locally, so the next scan reports `project-deleted` — one recurring nag traded for another. The script refuses `--decline-file` on a file the project HAS, for the mirror-image reason; that case is `--ack-file`.
 
-Declining is per kit VERSION. When the kit changes that file it is offered again, because refusing one version is not refusing everything the file might later become. Undo is just `--apply-file` — applying overwrites the entry and the refusal disappears with it.
+Declining is per kit VERSION. When the kit changes that file it is offered again. Undo is just `--apply-file` — applying overwrites the entry and the refusal disappears with it.
 
-### Step 4: Apply accepted changes
+### Step 4: How a file is applied
 
-For each `y` response, invoke the script:
+For each file the mechanical pass takes, and each the user accepts:
 
 ```bash
-~/.claude/scripts/sync-dev-kit.sh --apply-file <kit_path>
+.claude/scripts/sync-dev-kit.sh --apply-file <kit_path>
 ```
 
 The `kit_path` field comes from the file entry (e.g., `_claude-project/hooks/git-guard.sh`). The script copies the file to the correct destination and updates the lockfile's per-file SHA entry.
@@ -235,7 +249,7 @@ On a `merge` file the script writes the kit's text around the project's region b
 For `removed-kit` state accepted, pass the entry's **`dest_path`** instead. The kit file is gone, so `kit_path` is empty in the report and there is nothing else to name it by:
 
 ```bash
-~/.claude/scripts/sync-dev-kit.sh --apply-file <dest_path>
+.claude/scripts/sync-dev-kit.sh --apply-file <dest_path>
 ```
 
 The script confirms nothing in the kit still maps to that destination, then deletes the file from the project and drops its lockfile entry. If the kit DOES still supply it, the call fails and names the kit path to use — which means the entry was not `removed-kit` and you misread the report.
@@ -248,15 +262,15 @@ If `gitignore_additions_missing` is non-empty:
 
 - List missing entries and recommend adding them all (Step 2.04).
 - Ask: "Add these to `.gitignore`?"
-- On accept: `~/.claude/scripts/sync-dev-kit.sh --apply-gitignore`
+- On accept: `.claude/scripts/sync-dev-kit.sh --apply-gitignore`
 
 ### Step 5.5: Run the migrations
 
 Every migration in `migrations_pending` runs in this session, in order, once the files are applied. For each:
 
-1. Read its `prompt` file in full. Tell the user, in a sentence, what it changes.
-2. Carry out everything below its `---` line as the user's instruction.
-3. When it is done, record it: `~/.claude/scripts/sync-dev-kit.sh --migration-done <name>`.
+1. Read its `prompt` file in full. Tell the user, in a sentence, what it changes, and remind them of its estimate from the briefing.
+2. Carry out everything below its `---` line as the user's instruction. Its Estimate section was for the briefing; skip it here.
+3. When it is done, record it: `.claude/scripts/sync-dev-kit.sh --migration-done <name>`.
 
 A migration the user chooses to leave is not recorded. `--finalize` carries it to the next sync, which lists it first.
 
@@ -265,7 +279,7 @@ A migration the user chooses to leave is not recorded. `--finalize` carries it t
 After all decisions processed, ALWAYS run:
 
 ```bash
-~/.claude/scripts/sync-dev-kit.sh --finalize
+.claude/scripts/sync-dev-kit.sh --finalize
 ```
 
 `--finalize` **stamps the lockfile** — sets `lastSyncedCommit` and `lastSyncedAt` (the per-file SHAs are already current because `--apply-file` updated them incrementally) — and records in `pendingMigrations` any migration this sync listed and did not run.
@@ -283,20 +297,20 @@ Finalize ONLY when:
 ### Step 7: Report
 
 Summarize:
-- Files applied (count + list)
+- Files the mechanical pass applied (count + list)
+- Each file put to the user, and what they decided
 - Files skipped with state
 - .gitignore entries added
 - Migrations run, and any carried to the next sync
-- Lockfile kit commit SHA (before vs after)
+- The kit release synced to (`release` from `--prepare`) and the lockfile kit commit SHA (before vs after)
 - That the synced files are **uncommitted in the working tree** — and that `/ship-main` will land them (sync does not commit)
 
 ## Edge cases
 
-- **Kit repo not clean**: report warn, proceed if user insists
-- **Kit behind remote**: refuse to proceed; user must `git pull` in kit first (their baseline would diverge otherwise)
+- **Kit repo not clean** (maintainer's machine): warn, and proceed if the user insists
+- **Kit behind remote** (maintainer's machine): refuse to proceed until the kit clone is pulled
 - **Running from inside the kit repo**: script refuses with exit code 4; surface message
 - **Mid-feature sync**: expected and supported. Sync runs on whatever branch you are on, so a rule fixed mid-session is live in context for the rest of it. The applied changes ride the same commit as the rest of the body of work, which is the house model (rules/git.md), not something to avoid.
-- **Script missing (`~/.claude/dev-kit-config.json` not found)**: point at `kitmaintainer-handbook.md` §0.1
 
 ## What this command does NOT do
 
@@ -307,4 +321,4 @@ Summarize:
   §XII. The sync's body of work ends at `--finalize`.
 - Does not push the kit itself — user handles kit repo separately.
 - Does not edit files in the kit — purely a pull-from-kit operation. Kit-shared changes are made in the kit source and arrive here on the next sync.
-- **Does not commit or push anything.** Sync applies kit updates to the working tree and stamps the lockfile; the user lands the result with `/ship-main` (or `/commit`). This keeps committing as gitflow's job and avoids the bootstrap problem of sync modifying the very commands that would commit it — sync now runs zero git operations.
+- **Does not commit or push anything.** Sync applies kit updates to the working tree and stamps the lockfile; the user lands the result with `/ship-main` (or `/commit`). Sync runs no git operations in the project.

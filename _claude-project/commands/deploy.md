@@ -119,7 +119,7 @@ Then run:
 
 If the invocation named a service subset (e.g. `/deploy worker`, or `/deploy worker rest`), forward those bare service names as trailing positional args (`… --changelog-file <file> worker rest`); the script maps each to `deploy-<service>.yml` and validates it before the bump. Adjust the plan's last line to name the targeted workflow(s) instead of the full `DEPLOY_WORKFLOWS`. A raw `--workflow <file>` from the invocation forwards unchanged. With no service named, omit both — the full fleet ships.
 
-The script bumps, commits bump + changelog on `main` as `🚀 release: v<NEW>`, pushes `main` directly to origin (rebasing onto `origin/main` if it advanced), tags `v<NEW>` at the bump SHA, pushes the tag, then — **if `MIGRATE_WORKFLOW` is set — runs the migration workflow first and watches it to completion, aborting the whole deploy (exit 18/19) if it fails before any app deploy fires** — and finally triggers each workflow listed in `DEPLOY_WORKFLOWS` (resolved from `.claude/sync-substitutions.json`; falls back to `deploy.yml` if unset AND no `MIGRATE_WORKFLOW`), watching each run sequentially. A migrate-only repo (`MIGRATE_WORKFLOW` set, `DEPLOY_WORKFLOWS` empty) stops after the migration — see pipeline.md §2.1 "Migration phase."
+The script bumps, commits bump + changelog on `main` as `🚀 release: v<NEW>`, pushes `main` directly to origin, tags `v<NEW>` at the bump SHA, pushes the tag, then — **if `MIGRATE_WORKFLOW` is set — runs the migration workflow first and watches it to completion, aborting the whole deploy (exit 18/19) if it fails before any app deploy fires** — and finally triggers each workflow listed in `DEPLOY_WORKFLOWS` (resolved from `.claude/sync-substitutions.json`; falls back to `deploy.yml` if unset AND no `MIGRATE_WORKFLOW`), watching each run sequentially. A migrate-only repo (`MIGRATE_WORKFLOW` set, `DEPLOY_WORKFLOWS` empty) stops after the migration — see pipeline.md §2.1 "Migration phase."
 
 The direct push to `main` requires require-PR to be OFF on the consumer repo's `main` (the default — see pipeline.md §1.1). With require-PR set, GitHub rejects the push. `/deploy` no longer admin-merges or needs `enforce_admins: false`.
 
@@ -128,7 +128,7 @@ The direct push to `main` requires require-PR to be OFF on the consumer repo's `
 | Outcome | Action |
 |---|---|
 | Success | Report `v<NEW>` deployed; link to the build (CodeBuild console, or the workflow run under `github`) |
-| Push to main rejected | Usually require-PR is still ON on `main` — turn it off (pipeline.md §1.1) then retry. Other cause: `origin/main` advanced and the rebase hit a conflict; resolve and re-push. |
+| Exit 11 (push to main rejected) | Nothing reached origin and nothing is tagged; the release commit sits one ahead of `origin/main` locally. Cause: require-PR is still ON on `main` (turn it off, pipeline.md §1.1), or `origin/main` advanced since the state gate. Undo the local release commit — the human's call — then re-run `/deploy` from Step 1. |
 | Exit 21 (deploy-trigger key missing or invalid) | Caught as a state gate before any mutation — nothing bumped, committed, or tagged. The user re-provisions the key per `new-project-setup.md` §7c or fixes the typo in `.env`; then re-run `/deploy` from Step 1. |
 | Exit 17 (tag push failed) | Tag-protection rules may be present; check `gh api repos/{owner}/{repo}/tags/protection` |
 | Exit 18 (migration trigger failed) | The migration dispatch failed — under `codebuild`, check the project named by `CODEBUILD_MIGRATE_PROJECT` (or the prefix-derived name) exists and the role can start it; under `github`, check the workflow exists, has `workflow_dispatch:`, and is on main. Tag is already pushed; re-run the migrate + deploys manually (see Recovery) or fix and re-invoke. |
@@ -203,7 +203,7 @@ All come from deploy.sh state gates. See exit codes in the script header.
 Additional cases specific to the direct-push flow:
 
 - Push to `main` rejected: require-PR is still ON on `main`. Turn it off (pipeline.md §1.1) and retry. With require-PR set, GitHub rejects every direct push to main.
-- `origin/main` advanced between the state-gate check and the push: the script rebases the bump commit onto the new main and re-pushes. On rebase conflict it stops; resolve and `git push origin main`.
+- `origin/main` advanced between the state-gate check and the push: the push is rejected and the script stops with exit 11 before tagging. The release commit stays local; undo it and re-run `/deploy`.
 
 ## Repo and account requirements
 

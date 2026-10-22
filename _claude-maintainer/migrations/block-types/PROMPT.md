@@ -2,6 +2,21 @@
 
 `/sync-dev-kit` runs everything below the line in the consumer project's session, once it has applied the kit's files. A project whose `DESIGN_UI_PACKAGE` is intentionally empty and that has no component or pattern files needs none of it: both checks pass saying they do not apply.
 
+## Estimate
+
+Kind: asks for decisions — whether two parts of one block type are the same thing, and each new part, which waits for your approval
+Your time: about 2 minutes for each pair of same-type parts and each new part; moving a screen's own component into its feature folder needs nothing from you.
+
+Blast radius:
+
+```bash
+git ls-files '*components/*.tsx'
+grep -L '^block-types:' .claude/skills/ui-patterns/references/*.md
+jq -r '.DESIGN_VENDORED_DIR // ""' .claude/sync-substitutions.json
+```
+
+Every component listed, less those in the vendored folder the last line names, is sorted into a part or one screen's content; read their names to judge how many are content, which only moves. Every pattern reference listed gets typed. Reach is the component folders, the feature folders and the UI inventory.
+
 ---
 
 Bring this project's UI onto the kit's block types. Work through every step below to the end. Make no git commits — leave everything uncommitted for me to review.

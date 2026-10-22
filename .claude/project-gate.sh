@@ -9,6 +9,9 @@
 # Exits 0 when every step passes, 1 otherwise. A step with nothing to check says so.
 # SKIP_KIT_REPLAY=1 skips the replay, on the human's word only ("ignore the gate"): for a
 # change whose new findings in consumers are expected and theirs to fix on sync.
+#
+# It refuses on main. /commit cuts its branch before the gate runs, so on main this is
+# /ship-main — and the kit's main is reached only through /shipkit, which releases it.
 
 set -u
 
@@ -48,6 +51,16 @@ suites_for() {
     esac
 }
 
+# Whether a gated commit may land on <branch>. Prints why not, and fails, on main.
+release_path_check() {
+    case "$1" in
+        main | master)
+            echo "project gate: the kit's $1 is reached only through /shipkit, which commits, opens the PR, merges and releases. /ship-main does not ship the kit." >&2
+            return 1
+            ;;
+    esac
+}
+
 run_suite() {
     case "$1" in
         *.test.mjs) node --test "$1" ;;
@@ -61,6 +74,7 @@ main() {
         echo "project gate: usage: project-gate.sh <base>" >&2
         return 1
     fi
+    release_path_check "$(git branch --show-current)" || return 1
     list=$(mktemp)
     if ! { git diff --name-only --diff-filter=d "$base" && git ls-files --others --exclude-standard; } >"$list"; then
         echo "project gate: cannot list the files changed since $base." >&2

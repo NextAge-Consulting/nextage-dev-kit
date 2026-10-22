@@ -17,7 +17,7 @@ A second developer works on projects that use the `nextage-dev-kit`. The develop
 3. Optionally install the maintainer's statusline script (cosmetic; doesn't affect workflow)
 4. Optionally install CPL (the maintainer's launcher tool; optional)
 
-The developer does NOT install the dev kit and does NOT run `/sync-dev-kit` — that is a maintainer-only tool. Nothing is installed into `~/.claude/` for a developer at all; every kit command arrives inside the project when the maintainer syncs it.
+The developer does NOT install the dev kit. Nothing is installed into `~/.claude/` for a developer at all; every kit command arrives inside the project. Syncing the kit is the job of the project's one kit syncer (`kit-sync-cheatsheet.md`), not of every developer.
 
 ---
 
@@ -191,10 +191,10 @@ When the developer clones a project that uses the dev kit:
 1. `git clone <repo-url>`
 2. Change into the project directory
 3. Verify the project has the expected structure:
-   - `.claude/settings.json` (if missing — project was never synced with the new dev kit; the maintainer needs to run `/sync-dev-kit` in the project first)
+   - `.claude/settings.json` (if missing — the project has never been synced with the dev kit; its kit syncer sets it up first, `kit-sync-cheatsheet.md`)
    - `.claude/hooks/` with `git-guard.sh`, `block-db-commands.sh`, etc.
    - `.claude/skills/gitflow/` with `SKILL.md` + scripts
-   - `.claude/commands/` with `commit.md`, `checkpoint.md`, `open-pr.md`, `merge.md` (the per-project gitflow commands; `/work` and `/sync-dev-kit` are global, installed in `~/.claude`, not in the project repo)
+   - `.claude/commands/` with `commit.md`, `checkpoint.md`, `open-pr.md`, `merge.md` (the per-project gitflow commands, `/work` and `/sync-dev-kit` among them)
    - `.mcp.json` at repo root
 4. Start Claude Code in the project directory — the developer's setup should "just work"
 

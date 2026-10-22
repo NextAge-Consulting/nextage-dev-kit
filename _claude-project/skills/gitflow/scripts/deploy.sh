@@ -706,7 +706,10 @@ if [ -n "$TESTS_DEPLOY_OFF" ]; then
     echo "gitflow: test precheck: declared off at deploy (INTEGRATION_DEPLOY_OFF) — $TESTS_DEPLOY_OFF" >&2
 elif [ -f "package.json" ] && jq -e '.scripts.test | strings' package.json >/dev/null 2>&1; then
     echo "gitflow: test precheck: running npm test..." >&2
-    if ! TEST_OUT=$(npm test 2>&1); then
+    # NO_COLOR keeps vitest's project labels plain. Without it vitest prints each as a
+    # coloured badge with no `|` around it — captured output included, whatever FORCE_COLOR
+    # says — and the `|integration|` check below would miss a run that happened.
+    if ! TEST_OUT=$(NO_COLOR=1 npm test 2>&1); then
         printf '%s\n' "$TEST_OUT" | tail -60 >&2
         echo "deploy.sh: the test suite failed. Refusing to deploy — nothing was bumped, built or migrated." >&2
         exit 26

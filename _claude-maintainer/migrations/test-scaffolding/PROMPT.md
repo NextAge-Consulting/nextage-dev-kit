@@ -2,6 +2,25 @@
 
 `/sync-dev-kit` runs everything below the line in the consumer project's session, once it has scanned the kit version that ships `templates/testing/define.ts`. A project with `SHARED_MODULE_DIR` empty has no test scaffolding and needs none of it.
 
+## Estimate
+
+Kind: asks for decisions — a test setting that fits none of the migration's homes, or a fix the harness itself needs
+Your time: about 5 minutes for each such difference; usually none.
+
+Blast radius:
+
+```bash
+KIT=$(jq -r .devKitPath ~/.claude/dev-kit-config.json)
+T="$KIT/_claude-project/templates/testing"
+S=$(jq -r '.SHARED_MODULE_DIR // ""' .claude/sync-substitutions.json)
+[ -n "$S" ] || echo "SHARED_MODULE_DIR is empty: does not apply"
+diff -q "$T/vitest.config.ts" "$S/vitest.config.ts"
+for f in globalSetup.ts integration-helpers.ts test-utils.ts auth-mocks.ts smoke.test.ts; do [ -e "$S/test/$f" ] && diff -q "$T/$f" "$S/test/$f"; done
+git ls-files '*vitest.config.*' '*vitest.workspace.*'
+```
+
+A file reported as differing is one the project adapted when the scan calls it `conflict`, `conflict-first` or `unsanctioned`; those differences move into `test/project.ts` or a helper file of the project's. One the scan calls `kit-only` only lags the kit, and the sync's mechanical pass takes it. Every vitest config listed other than `$S/vitest.config.ts` is deleted. Reach is the shared module's `test/` folder and the root `test` scripts.
+
 ---
 
 Bring this project's tests onto the kit's test scaffolding. The shared module's `vitest.config.ts` and every file in its `test/` that the kit ships are now the kit's; what differs about this project goes in `test/project.ts`, and the project's own helpers go in files of their own. Work through every step below to the end. Make no git commits — leave everything uncommitted for me to review.
@@ -48,7 +67,7 @@ A difference that fits no row goes to me, never back into a kit file.
 
 ```bash
 for f in vitest.config.ts define.ts project.ts test-utils.ts auth-mocks.ts smoke.test.ts; do
-  bash ~/.claude/scripts/sync-dev-kit.sh --apply-file "_claude-project/templates/testing/$f"
+  bash .claude/scripts/sync-dev-kit.sh --apply-file "_claude-project/templates/testing/$f"
 done
 ```
 

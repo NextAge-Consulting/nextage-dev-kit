@@ -968,5 +968,5 @@ async function main() {
   process.exit(1)
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] || '').href) await main()
+if (import.meta.main) await main()
 

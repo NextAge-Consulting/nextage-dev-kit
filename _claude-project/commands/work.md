@@ -169,7 +169,7 @@ Verify what you are about to act on or raise, not the whole file. A claim you ar
 
 Ask them **after** the orientation, not instead of it, and do not block on the answers — note them and get on with the work the human came for.
 
-**Raise the UI awaiting approval in the same place**, each pending component, pattern and token with the screens that use it, and offer to walk them now (the `design-system` skill's review). `/deploy` refuses while any is pending. A status problem the check reports is work, not a question: fix it.
+**Raise the UI awaiting approval in the same place**, each pending component, pattern and token with the screens that use it, and offer to walk them now (the `design-system` skill's review). Parts the human set aside get one line — their count, and an offer to list them. `/deploy` refuses while any is pending. A status problem the check reports is work, not a question: fix it.
 
 The handoff never displaces what the human pointed at, and it never silently disappears into it.
 

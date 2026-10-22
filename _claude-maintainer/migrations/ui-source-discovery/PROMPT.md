@@ -2,6 +2,21 @@
 
 `/sync-dev-kit` runs everything below the line in the consumer project's session, once it has landed the kit version that ships `.claude/skills/design-system/scripts/ui-sources.mjs`. A project whose `DESIGN_UI_PACKAGE` is intentionally empty needs none of it.
 
+## Estimate
+
+Kind: asks for decisions — each new part built for a newly checked app, which waits for your approval
+Your time: about 2 minutes for each new part; none when the newly checked folders already pass the token check.
+
+Blast radius:
+
+```bash
+KIT=$(jq -r .devKitPath ~/.claude/dev-kit-config.json)
+jq -r '.DESIGN_SOURCE_DIRS // "(not set)"' .claude/sync-substitutions.json
+node "$KIT/_claude-project/skills/design-system/scripts/ui-sources.mjs" --repo .
+```
+
+Each folder the second command prints that the first does not hold is newly checked. Its findings, and the parts they need, are known only once the new checks run; the size of each new folder is the order of magnitude. `DESIGN_UI_PACKAGE` intentionally empty: it does not apply.
+
 ---
 
 The token check, the commit design review and `/design-audit` read the UI package and every workspace whose `package.json` depends on it by name. Bring this project onto that. Work through every step to the end. Make no git commits — leave everything uncommitted for me to review.

@@ -2,6 +2,24 @@
 
 `/sync-dev-kit` runs everything below the line in the consumer project's session, once it has landed the stack manifest blessed 2026-10-16 and the TanStack bible that goes with it. A section whose package or pattern the project does not have is skipped, and named as skipped in the report; a section that partly applies is done for the part that does.
 
+## Estimate
+
+Kind: asks for decisions — applying each database migration it generates, and three checks in the running app at the end
+Your time: about 15 minutes in the running app — sign-in after an expired session, a sign-up and a sign-in, one browse — plus about 5 minutes for each generated database migration; none when the project runs no TanStack Start app.
+
+Blast radius:
+
+```bash
+KIT=$(jq -r .devKitPath ~/.claude/dev-kit-config.json)
+M="$KIT/_claude-project/stack-manifest.json"
+git ls-files '*package.json' | while IFS= read -r f; do jq -r --arg f "$f" --slurpfile m "$M" '[(.dependencies // {}), (.devDependencies // {})] | add | to_entries[] | select($m[0].packages[.key] != null and $m[0].packages[.key].version != .value) | "\($f) \(.key) \(.value) -> \($m[0].packages[.key].version)"' "$f"; done
+git grep -l '@tanstack/react-start' -- '*package.json'
+git grep -c -E 'inputValidator\(|ensureQueryData\(|prefetchQuery\(|fetchQuery\(|rollupOptions|nitro-v2-vite-plugin|useStore\(form\.store|handleRedirects|transferResponseBodyOwnership' -- '*.ts' '*.tsx'
+git grep -l -E 'loaderDeps|useAppTable\(|useTable\(' -- '*.ts' '*.tsx'
+```
+
+The first list is every version it moves. The second names the apps it changes; none means only the version sections apply. The per-file counts are the call sites of APIs it replaces; none means that part is already done. The last list is the routes and browses it checks against the TanStack bible's shape and changes only where they differ. Reach is those files against `git ls-files '*.ts' '*.tsx' | wc -l`.
+
 ---
 
 Move this project onto the kit's October stack and the patterns its TanStack bible teaches. Work through every section to the end. Make no git commits — leave everything uncommitted for me to review. Never apply a database migration: generate it and list it in the report.

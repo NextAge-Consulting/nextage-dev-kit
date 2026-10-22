@@ -66,7 +66,7 @@ Put the ids into the project's `.claude/sync-substitutions.json`, then re-apply 
 
 With `GITFLOW_PROJECT_ID` set, all four other keys are required: an empty one fails the command that needs it, loudly — it never skips. Empty `GITFLOW_PROJECT_ID` means no board; issue links, the code-complete decision and the `Closes #N` lines all still work.
 ```bash
-~/.claude/scripts/sync-dev-kit.sh --apply-file _claude-project/gitflow-project.conf
+.claude/scripts/sync-dev-kit.sh --apply-file _claude-project/gitflow-project.conf
 ```
 Verify: `jq -r '.GITFLOW_PROJECT_ID, .GITFLOW_STATUS_FIELD_ID, .GITFLOW_STATUS_IN_PROGRESS_ID, .GITFLOW_STATUS_STAGED_ID, .GITFLOW_STATUS_DEPLOYED_ID' .claude/sync-substitutions.json` returns all five IDs, and `.claude/gitflow-project.conf` carries the same values.
 

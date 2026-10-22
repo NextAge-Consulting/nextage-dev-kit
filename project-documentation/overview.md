@@ -39,6 +39,7 @@ blocked.
 | Write the code | `developer-handbook.md` |
 | Work out what screens look like | `designer-handbook.md` |
 | Own the pipeline, the servers and the release | `devops-handbook.md` |
+| Keep the project on the kit's releases | `kit-sync-cheatsheet.md` |
 
 Most people wear more than one of these hats. Each guide is short so that wearing one
 never means wearing the others.

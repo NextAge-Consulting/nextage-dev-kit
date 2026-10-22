@@ -66,6 +66,12 @@ Flag any new linter suppression (`// biome-ignore`, `// @ts-ignore`, `// @ts-exp
   The pinned versions are the authority here, not the more common older API. If a
   bump is ever taken, `/review-stack` updates this entry with it.
 
+- **Browse state in the URL, including lists filtered in the browser.** Search
+  terms, filters, page and size are search params on every browse, whether a
+  loader reads them or the list is filtered client-side — so a refresh, the back
+  button and a pasted link keep them (`mfing-bible-of-tanstack`, search-params.md).
+  Do not suggest moving them into component state.
+
 The full rule set is in `.claude/rules/`.
 
 ## Project rules

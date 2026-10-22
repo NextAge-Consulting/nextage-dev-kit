@@ -21,7 +21,6 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
 
 const DARK = /\[data-theme=["']?dark["']?\]|\.dark\b/g
 const COLOUR = /^(#[0-9a-f]{3,8}|(?:rgba?|hsla?|oklch|oklab|lab|lch|color|color-mix)\(|transparent$)/i
@@ -132,4 +131,4 @@ function main() {
   process.exit(problems.length ? 1 : 0)
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] || '').href) main()
+if (import.meta.main) main()

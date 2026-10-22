@@ -6,17 +6,23 @@
  *
  * Every component (a .tsx under a `components/` folder outside `features/`) and every
  * pattern reference (.claude/skills/ui-patterns/references/*.md) carries exactly one line
- * `ui-status: approved` or `ui-status: pending`. A token awaiting approval carries
- * `ui-status: pending` in its comment. The UI inventory
+ * `ui-status: approved`, `ui-status: pending` or `ui-status: unresolved`. A token awaiting
+ * approval carries `ui-status: pending` in its comment. The UI inventory
  * (.claude/rules/project/ui-inventory.md) lists every component and pattern with the
  * same status its file carries.
  *
+ * Unresolved is the human's answer "not decided yet — don't hold the release": it blocks
+ * nothing and is listed apart. Its inventory line carries the file's fingerprint when the
+ * human set it aside, and their reason. Once the file changes, it is pending again.
+ *
  * Fails, naming each, on:
- *   pending     a component, pattern or token still awaiting the human's approval;
+ *   pending     a component, pattern or token still awaiting the human's approval, and an
+ *               unresolved one whose file changed since it was set aside;
  *   unmarked    a component or pattern with no status line, more than one, or an
  *               unknown value;
  *   catalogue   a component or pattern the inventory does not list, a line whose
- *               status differs from its file's, or a status line naming no file;
+ *               status differs from its file's, a status line naming no file, or an
+ *               unresolved line with no fingerprint;
  *   block type  a component's line — every component but a vendored atom — with no
  *               Type, or one not on the design-system skill's references/block-types.md
  *               and not `<none>`; a pattern with no `block-types:` frontmatter line, or
@@ -29,6 +35,8 @@
  *     fails on fit-check findings alone; /commit and /ship-main run it.
  *   node .claude/skills/ui-patterns/scripts/check-ui-status.mjs --fingerprint <file>
  *     prints the fingerprint a Fit check names.
+ *   node .claude/skills/ui-patterns/scripts/check-ui-status.mjs --unresolved
+ *     lists the parts the human set aside; a plain run prints only their count.
  *
  * /deploy refuses while it fails; /work and /handoff run it to show what awaits
  * review. Prints what it inspected, and passes saying it does not apply when the
@@ -39,13 +47,13 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import { CROSS_CUTTING, NO_TYPE, readBlockTypes } from '../../design-system/scripts/block-types.mjs'
 
 export const INVENTORY = '.claude/rules/project/ui-inventory.md'
 const REFERENCES = '.claude/skills/ui-patterns/references/'
 const STATUS = /ui-status:\s*([A-Za-z-]+)/g
-const VALUES = new Set(['approved', 'pending'])
+const VALUES = new Set(['approved', 'pending', 'unresolved'])
 
 export const NOT_APPLICABLE = 'UI status does not apply: this project has no component or pattern files'
 
@@ -130,13 +138,21 @@ export function catalogueRows(text) {
       header ??= cells.map((c) => c.replace(/[*_]/g, '').trim())
       return
     }
-    const status = cells.slice(1).map((c) => c.replace(/[*_]/g, '').trim().toLowerCase()).find((c) => VALUES.has(c))
+    // A Status cell holds the value alone, or the value, the file's fingerprint and a
+    // reason — the shape an unresolved line takes: unresolved `1a2b3c4d` <reason>.
+    const cell = cells
+      .slice(1)
+      .map((c) => c.replace(/[*_]/g, '').trim().match(/^(\w+)(?:\s+`([0-9a-f]{8})`.*)?$/))
+      .find((m) => m && VALUES.has(m[1].toLowerCase()))
+    const status = cell?.[1].toLowerCase()
+    const mark = status === 'unresolved' ? cell[2] ?? null : undefined
     const at = header ? header.indexOf('Type') : -1
     const fitAt = header ? header.indexOf('Fit check') : -1
     rows.push({
       name,
       status,
       line: i + 1,
+      ...(mark !== undefined ? { mark } : {}),
       ...(fitAt > 0 ? { fit: cells[fitAt]?.match(/`([0-9a-f]{8})`/)?.[1] ?? null } : {}),
       ...(at > 0 ? { type: cells[at]?.replace(/[`*]/g, '').trim() ?? '' } : {}) })
   })
@@ -149,6 +165,7 @@ export function checkUiStatus(repo, { files = repoFiles(repo) } = {}) {
   if (parts.length === 0) return { notApplicable: NOT_APPLICABLE }
 
   const pending = []
+  const unresolved = []
   const problems = []
   const fit = []
   const statusOf = new Map()
@@ -164,7 +181,7 @@ export function checkUiStatus(repo, { files = repoFiles(repo) } = {}) {
     const found = statuses(readFileSync(path.join(repo, f), 'utf8'))
     if (found.length === 0) problems.push(`${f}: no ui-status line`)
     else if (found.length > 1) problems.push(`${f}: ${found.length} ui-status lines (lines ${found.map((s) => s.line).join(', ')}); a file carries one`)
-    else if (!VALUES.has(found[0].value)) problems.push(`${f}:${found[0].line}: ui-status "${found[0].value}" is neither approved nor pending`)
+    else if (!VALUES.has(found[0].value)) problems.push(`${f}:${found[0].line}: ui-status "${found[0].value}" is not approved, pending or unresolved`)
     else {
       statusOf.set(f, found[0].value)
       if (found[0].value === 'pending') pending.push(`${f} (${isPattern(f) ? 'pattern' : 'component'})`)
@@ -211,6 +228,13 @@ export function checkUiStatus(repo, { files = repoFiles(repo) } = {}) {
       const actual = statusOf.get(f)
       if (!row.status) problems.push(`${INVENTORY}:${row.line}: \`${row.name}\` has no status; its file says ${actual ?? 'nothing'}`)
       else if (actual && row.status !== actual) problems.push(`${INVENTORY}:${row.line}: \`${row.name}\` is ${row.status} here, ${actual} in ${f}`)
+      if (actual === 'unresolved' && row.status === 'unresolved') {
+        const what = `${f} (${isPattern(f) ? 'pattern' : 'component'})`
+        const now = fingerprint(readFileSync(path.join(repo, f)))
+        if (!row.mark) problems.push(`${INVENTORY}:${row.line}: \`${row.name}\` is unresolved with no fingerprint — record the file's fingerprint and the human's reason on its line`)
+        else if (row.mark !== now) pending.push(`${what}, changed since it was set aside (\`${row.mark}\`, now \`${now}\`) — put it to the human again`)
+        else unresolved.push(`${what} — ${INVENTORY}:${row.line}`)
+      }
       if (kind === isComponent && actual === 'pending' && !isAtom(f)) {
         const now = fingerprint(readFileSync(path.join(repo, f)))
         if (!row.fit) fit.push(`${INVENTORY}:${row.line}: \`${row.name}\` is pending with no Fit check — run the fit check (design-system skill, references/fit-check.md) and write the line only once it approves`)
@@ -224,6 +248,7 @@ export function checkUiStatus(repo, { files = repoFiles(repo) } = {}) {
 
   return {
     pending,
+    unresolved,
     problems,
     fit,
     counts: {
@@ -248,9 +273,14 @@ function main() {
     return
   }
   const fitOnly = args.includes('--fit-only')
-  const { notApplicable, pending, problems, fit, counts } = checkUiStatus(repo)
+  const { notApplicable, pending, unresolved, problems, fit, counts } = checkUiStatus(repo)
   if (notApplicable) {
     console.log(`✓ ${notApplicable}`)
+    return
+  }
+  if (args.includes('--unresolved')) {
+    console.log(`Set aside by the human, not blocking (${unresolved.length}):`)
+    for (const p of unresolved) console.log(`    ${p}`)
     return
   }
   const scanned = `scanned ${counts.components} components, ${counts.patterns} patterns, ${counts.stylesheets} stylesheets and ${counts.catalogue} catalogue lines`
@@ -274,11 +304,13 @@ function main() {
     console.error(`\n✗ UI status problems (${problems.length}):`)
     for (const p of problems) console.error(`    ${p}`)
   }
+  if (unresolved.length) console.log(`\n· ${unresolved.length} UI set aside, not blocking — ask for the list`)
   if (pending.length || problems.length || fit.length) {
     console.error(`\n  (${scanned})`)
     process.exit(1)
   }
-  console.log(`✓ UI status: everything approved and catalogued; ${scanned}`)
+  const aside = unresolved.length ? `, ${unresolved.length} set aside` : ''
+  console.log(`✓ UI status: nothing awaiting approval and everything catalogued${aside}; ${scanned}`)
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] || '').href) main()
+if (import.meta.main) main()

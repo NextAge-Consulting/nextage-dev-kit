@@ -15,7 +15,7 @@ The kit is just another project — it has its own `.claude/` with project-custo
 | `_claude-project/` | consumer `<project>/.claude/` via `/sync-dev-kit` | Project-level config that should exist in every project: rules, hooks, skills, the gitflow commands (`/work` included), agents, `settings.json`, `templates/` |
 | `_github-project/` | consumer `<project>/.github/` via `/sync-dev-kit` | GitHub Actions workflows + dependabot config |
 | `_gemini-project/` | consumer `<project>/.gemini/` via `/sync-dev-kit` | Gemini Code Assist config + styleguide (PR-time AI reviewer) |
-| `_claude-maintainer/` | `~/.claude/`, copied by hand (§0.1) | The MAINTAINER surface — only the person who syncs the kit into projects: `scripts/sync-dev-kit.sh`, `commands/sync-dev-kit.md`, `scripts/review-stack.sh`, `commands/review-stack.md`, `kit-maintainer.md`. A consumer machine never receives the sync machinery, so it cannot run a sync. `migrations/` is not copied: each holds a `PROMPT.md`, and sometimes a codemod it reaches through `devKitPath`, that `/sync-dev-kit` runs in the consumer's session (§9.4). |
+| `_claude-maintainer/` | Never a project. `kit-maintainer.md`, `commands/` and `scripts/` are copied to `~/.claude/` by hand (§0.1); `sync/` and `migrations/` stay in the kit | `sync/` is the sync engine, its suite and the procedure every project's `/sync-dev-kit` runs from the kit clone (§9.4). `migrations/` holds each `PROMPT.md`, and sometimes a codemod it reaches through `devKitPath`, that `/sync-dev-kit` runs in a project's session. The rest is the maintainer's own surface: `kit-maintainer.md` and `/review-stack`. |
 | `_statusline/statusline.sh` | `~/.claude/statusline.sh` via `/install-statusline` (one-time) | The kit's custom statusline asset; referenced by `install-statusline.md`. |
 | `.github/` | Nowhere — this repo's own GitHub automation | The `stack-watch` workflow and its script (§9.13). Consumer workflows live in `_github-project/`, never here. |
 | `tests/` | Nowhere — sync reads only the `_*-project/` folders | Tests for kit-shipped files that must not ship with them, e.g. `tests/templates/check-workspace-tiers.test.sh`. Each case copies the real script into a throwaway repo where sync would put it. |
@@ -29,7 +29,9 @@ The kit is just another project — it has its own `.claude/` with project-custo
 
 The one-way door that left behind is handled at the only reliable point — `work.sh` refuses to run, with removal instructions, when it finds a `~/.claude/commands/work.md`. It is the one thing that executes on every `/work`, whichever doc won, so it is the only place the stale file can be caught. Neither a sync nor an installer can be relied on to run.
 
-`/sync-dev-kit` remains global by necessity — it must run from any project directory — but it is installed only on a maintainer machine, by hand. The maintainer syncs projects ahead of the other devs; a consumer machine that could sync would clobber that work. Withholding the script is stronger than guarding it: there is nothing to bypass.
+`/sync-dev-kit` ships per project the same way. The command and its launcher script, `.claude/scripts/sync-dev-kit.sh`, are all a project holds; the launcher finds the kit clone through `~/.claude/dev-kit-config.json` and runs the clone's engine, so every sync runs the kit's current engine and procedure. `work.sh` refuses while a retired global `sync-dev-kit.md` is installed, for the same reason as `work.md`.
+
+**Whoever holds a project's keys syncs it.** A project's team names one person as its kit syncer, who takes the kit's releases on the team's own schedule (`kit-sync-cheatsheet.md`). The maintainer syncs only the projects whose keys they hold. Only the maintainer changes the kit.
 
 ### 0.1. Setting up a maintainer machine
 
@@ -40,14 +42,14 @@ Clone the kit, then from inside it:
 ```bash
 KIT=$(pwd)
 
-# 1. The maintainer surface — commands and scripts.
+# 1. The maintainer surface — this rule and /review-stack.
 mkdir -p ~/.claude/commands ~/.claude/scripts
 cp _claude-maintainer/commands/*.md      ~/.claude/commands/
 cp _claude-maintainer/scripts/*.sh       ~/.claude/scripts/
 cp _claude-maintainer/kit-maintainer.md  ~/.claude/
 chmod +x ~/.claude/scripts/*.sh
 
-# 2. Where the kit lives. `sync-dev-kit.sh` reads this and cannot run without it.
+# 2. Where the kit lives. Every project's /sync-dev-kit reads this to find the kit.
 cat > ~/.claude/dev-kit-config.json <<EOF
 {
   "devKitPath": "$KIT",
@@ -58,15 +60,15 @@ EOF
 # 3. The two per-machine markers. Deliberately unshipped — a consumer
 #    machine must not be able to self-promote.
 echo '@kit-maintainer.md' >> ~/.claude/CLAUDE.md   # makes the maintainer rule load
-touch ~/.claude/kitmaster                          # makes block-kit-edit.sh go inert
+touch ~/.claude/kitmaster                          # block-kit-edit.sh goes inert; /sync-dev-kit syncs the working tree
 ```
 
-Both markers are required and they gate different things. The `@kit-maintainer.md` import is what makes the maintainer rules load; the `kitmaster` file is what makes `block-kit-edit.sh` stop blocking kit edits. A machine with one and not the other is misconfigured — the rule without the marker tells you that you may edit kit files while the hook refuses, and the marker without the rule yields the hook while nothing tells you the routing rules.
+Both markers are required and they gate different things. The `@kit-maintainer.md` import is what makes the maintainer rules load; the `kitmaster` file is what makes `block-kit-edit.sh` stop blocking kit edits, and makes a project's `/sync-dev-kit` sync from the kit's working tree as it stands instead of requiring a clean, current `main`. A machine with one and not the other is misconfigured — the rule without the marker tells you that you may edit kit files while the hook refuses, and the marker without the rule yields the hook while nothing tells you the routing rules.
 
 Verify:
 
 ```bash
-ls ~/.claude/scripts/sync-dev-kit.sh ~/.claude/kitmaster
+ls ~/.claude/commands/review-stack.md ~/.claude/kitmaster
 jq -r .devKitPath ~/.claude/dev-kit-config.json
 grep kit-maintainer ~/.claude/CLAUDE.md
 ```
@@ -78,7 +80,8 @@ grep kit-maintainer ~/.claude/CLAUDE.md
 - **`_claude-project/` → consumer `.claude/`** via `/sync-dev-kit` (diff/review, lockfile at `<project>/.claude/.kit-sync.json`).
 - **`_github-project/` → consumer `.github/`** via `/sync-dev-kit` (same lockfile, same flow).
 - **`_gemini-project/` → consumer `.gemini/`** via `/sync-dev-kit` (same lockfile, same flow).
-- **`_claude-maintainer/` → `~/.claude/`** by hand, in the same pass as the kit-source edit (§0.1).
+- **`_claude-maintainer/` maintainer surface → `~/.claude/`** by hand, in the same pass as the kit-source edit (§0.1). `sync/` and `migrations/` are read from the kit clone and never copied.
+- **The kit → its `main`** only through `/shipkit` (§9.14).
 - **`_statusline/statusline.sh` → `~/.claude/statusline.sh`** via `/install-statusline` (kit-local command; one-time).
 
 The kit isn't enforcing 100% compliance. It's a baseline sync — consumer projects can consciously deviate (custom rules in `<project>/.claude/rules/project/`, project-specific skills, project-specific commands that never come from the kit). Divergence is expected, not a failure.
@@ -87,7 +90,7 @@ The kit isn't enforcing 100% compliance. It's a baseline sync — consumer proje
 
 ## 1. Who this is for
 
-**The kit maintainer** — the one person who changes the kit, runs `/sync-dev-kit`, and installs the maintainer surface (§0.1).
+**The kit maintainer** — the one person who changes the kit, releases it with `/shipkit`, and installs the maintainer surface (§0.1). A project's kit syncer needs only `kit-sync-cheatsheet.md`.
 
 Everyone else works with the kit and never needs this file. Their guides are role by role: `developer-handbook.md`, `designer-handbook.md` and `devops-handbook.md`, tied together by `overview.md`. One person often wears several of those hats; each guide stays short so that wearing one never means reading the others.
 
@@ -565,17 +568,7 @@ See `skills/gitflow/references/changelog-rules.md`. Summary:
 
 ## 8. Project bootstrap
 
-Setting up a new project to use this kit:
-
-1. In the dev-kit repo, run `/sync-dev-kit <new-project-path>` — sync tool will create `.claude/` and `.mcp.json` from templates after review
-2. Add to project `.gitignore`:
-   ```
-   .claude/settings.local.json
-   ```
-3. Commit the new `.claude/` and `.mcp.json`
-4. No branch protection to apply — the pipeline uses none (`/merge` self-gates; see `pipeline.md` §1.1). Just confirm `main` does not require a PR (the default), so the direct-push paths work.
-5. Copy `pr-title.yml` and `ci.yml` templates (pipeline.md Part 3) into `.github/workflows/`. If the project deploys, stand up its CodeBuild pipeline (`new-project-setup.md` step 7, pipeline.md §2.7) — dispatched only by `/deploy` (pipeline.md §2.5).
-7. Optional, per dev: set `EXA_API_KEY` in their shell rc (research tier 3; the built-in tools need no key)
+A new project is set up by walking `new-project-setup.md` with Claude. The kit's part is its step 4: the "Set up" prompt in `kit-sync-cheatsheet.md` copies `/sync-dev-kit` and its launcher into the project, and the first `/sync-dev-kit` brings everything else — `.claude/`, `.github/`, `.gemini/`, the root configs and `.gitignore` lines — and walks the settings.
 
 ---
 
@@ -629,18 +622,15 @@ The scan also reports `unmapped_templates` (a `templates/` file with no destinat
 
 ### 9.4. Sync procedure
 
-`/sync-dev-kit` (invoked from the project root, on whatever branch you are standing on):
+`/sync-dev-kit` (invoked from the project root, on whatever branch you are standing on). The command is a launcher; the procedure it follows is `_claude-maintainer/sync/procedure.md` in the kit clone:
 
-1. Read the kit working tree at `devKitPath` (`~/.claude/dev-kit-config.json`); warn when it is dirty or behind its remote
-2. Load project lockfile (create empty if missing — first sync)
-3. Build the file inventory from the kit working tree
-4. For each file:
-   - Compute state per Section 9.3
-   - Clean → skip silently
-   - Any other state → present diff, recommend, await decision
-5. On each accepted change: write to the project, update the lockfile entry
+1. **Prepare the clone.** `.claude/scripts/sync-dev-kit.sh --prepare` finds the clone through `devKitPath` (`~/.claude/dev-kit-config.json`). On a syncer's machine it refuses unless the clone is on a clean `main`, then fast-forwards it to `origin/main` — the kit's latest release. On a maintainer's machine (`kitmaster`) it syncs the working tree as it stands, and the scan warns when that is dirty or behind its remote.
+2. **Scan, writing nothing.** `--scan` reports every file's state (§9.3), the settings the walkthrough will ask about, and the migrations pending.
+3. **Brief, then ask once for the go-ahead.** Claude tells the user what this sync asks of them: one line for the mechanical file count, each file that needs a person, each setting to decide, and each migration's estimate (§9.4.3) — the user's interactive minutes and how much of the project it touches. A no changes nothing.
+4. **Settings.** `--apply-substitutions` writes the substitutions file, and the walkthrough (§9.8) fills it.
+5. **The mechanical pass.** Every `kit-only` and `new-kit` file is applied with `--apply-file`, without asking file by file. Then each file that needs a person is put to the user, one at a time.
 6. Run each migration the scan lists (`migrations_pending`) in the same session, oldest first, recording each with `--migration-done`. The list is the migrations the kit added after the project's `lastSyncedCommit`, plus any carried forward; a first sync runs none. A migration that breaks consumers on purpose is how the pre-ship gate's accepted findings get fixed (§9.11)
-7. At end (`--finalize`): **stamp the lockfile** — set `lastSyncedCommit` to kit HEAD SHA + `lastSyncedAt` (per-file SHAs are already current from `--apply-file`), and carry any listed migration not run into `pendingMigrations`. **Sync does not commit or push** — committing is gitflow's job, not sync's. The applied `.claude/` changes plus the lockfile bump are left as a normal uncommitted change in the working tree; the user lands them with `/ship-main` (or `/commit`). Sync runs **zero git mutations** (see §9.4.1).
+7. At end (`--finalize`): **stamp the lockfile** — set `lastSyncedCommit` to kit HEAD SHA + `lastSyncedAt` (per-file SHAs are already current from `--apply-file`), and carry any listed migration not run into `pendingMigrations`. **Sync does not commit or push** — committing is gitflow's job, not sync's. The applied `.claude/` changes plus the lockfile bump are left as a normal uncommitted change in the working tree; the user lands them with `/ship-main` (or `/commit`). Sync runs **zero git mutations in the project** (see §9.4.1); its only git is `--prepare`'s fetch and fast-forward of the kit clone.
 
 ### 9.4.1. Why sync does no git (the bootstrap problem)
 
@@ -656,7 +646,7 @@ This also means:
 
 ### 9.4.2. Long, interrupted sessions
 
-The interactive review (steps 4–5) can stretch across multiple sessions:
+The interactive part (steps 4–6) can stretch across multiple sessions:
 
 - User invokes `/sync-dev-kit`, reviews + accepts 3 files, closes the session.
 - The lockfile records per-file SHAs as each is applied; pending files are still surfaced in the next `--scan`.
@@ -665,7 +655,17 @@ The interactive review (steps 4–5) can stretch across multiple sessions:
 - When the review queue is empty (or the user explicitly stops with "finalize anyway"), Claude invokes `--finalize`.
 - `--finalize` stamps the lockfile. The accumulated changes stay uncommitted until the user lands them with `/ship-main` or `/commit`.
 
-The user's UX is just `/sync-dev-kit`. Claude orchestrates the modes (`--scan` → `--apply-file` per accepted change → `--finalize`). The user never sees the internal mode flags.
+The user's UX is just `/sync-dev-kit`. Claude orchestrates the modes (`--prepare` → `--scan` → `--apply-substitutions` → `--apply-file` per file → `--finalize`). The user never sees the internal mode flags.
+
+### 9.4.3. Migration estimates
+
+**A migration is a prompt written against a project that already holds the new kit files, so the briefing cannot dry-run it.** It reports an estimate instead, from the migration's own `## Estimate` section, above its `---`:
+
+- **`Kind`** — mechanical, or asks for decisions, naming which. `/shipkit` reads it for the release title.
+- **`Your time`** — the developer's minutes in the session deciding, per decision point. A mechanical migration is "none — runs unattended" however much code it changes; the unattended work is never estimated.
+- **`Blast radius`** — read-only commands, written by the migration's author, that count what the change affects in this project. The author knows what "affected" means for their change; only the project knows how many it has. The commands read new kit content from the clone, since the project still holds the old.
+
+The briefing runs those commands and combines the counts with the other two lines: "asks for decisions, 12 blocks, about 25 minutes." A migration without an Estimate gets a cold estimate, from its opening paragraph and steps, labelled as such. Across a backlog every migration is measured against the project as it stands: an earlier migration may change what a later one counts, but not its order of magnitude, and that is what the briefing is for. `.claude/rules/project/migrations.md` is how a migration and its Estimate are written; `/shipkit` refuses to release one without it.
 
 ### 9.6. Settings.json handling
 
@@ -675,10 +675,13 @@ Every field — `hooks`, `permissions`, `env` — flows through normal 3-way sta
 
 **Implementation:**
 
-- `canonicalize_settings` in `_claude-maintainer/scripts/sync-dev-kit.sh` reads JSON on stdin and emits `jq '.'` output on stdout.
+- `canonicalize_settings` in `_claude-maintainer/sync/sync-dev-kit.sh` reads JSON on stdin and emits `jq '.'` output on stdout.
 - `sha256_settings_kit` / `sha256_settings_proj` replace the generic `sha256_substituted` / `sha256` for the `_claude-project/settings.json` path, so both sides go through the same normalization.
 - The same canonicalization applies in `--apply-file _claude-project/settings.json`, so the written file matches the SHA the scan computed.
 - The lockfile baseline SHA for settings.json tracks the canonicalized content.
+
+**A project's own hooks go in `.claude/settings.project.json`** — `{"hooks": {<event>: [<entries>]}}` in `settings.json`'s own shape, committed and owned by the project. `canonicalize_settings` composes it into the kit's file, each event's entries after the kit's, so the written `settings.json` carries both and Claude Code runs every matching entry. Sync never writes the sidecar and `block-kit-edit.sh` does not guard it. A change to it reaches `settings.json` on the next sync, as `kit-only`. A sidecar holding anything but `hooks`, or invalid JSON, stops the scan (exit 5).
+
 Cross-reference: §9.7 (placeholder substitutions, the general kit-template specialization mechanism).
 
 ### 9.7. Placeholder substitutions (`sync-substitutions.json`)
@@ -793,7 +796,7 @@ The kit ships templates with `{{KEY}}` placeholders and the consumer ships `.cla
 
 **When the walkthrough fires**
 
-After the bootstrap step inside `load_substitutions` (which copies the kit template to `.claude/sync-substitutions.json` if absent), `/sync-dev-kit` reads the consumer file, identifies every key whose value is empty string, cross-references each against `_placeholders_referenced_by_kit`, and walks the user through them one at a time. Empty-key walkthrough happens BEFORE the per-file diff loop — populating subs first means kit_shas computed during the diff loop reflect the just-populated values, eliminating false-positive diffs on files that gate on the new keys.
+After the go-ahead, `--apply-substitutions` runs `load_substitutions`, which copies the kit template to `.claude/sync-substitutions.json` if absent and merges in the kit's new keys. The scan before it does neither: it reads the template in place of a missing file, holds the merge in memory, and reports both (`substitutions_bootstrap`, `substitutions_new_keys`). `/sync-dev-kit` then reads the consumer file, identifies every key whose value is empty string, cross-references each against `_placeholders_referenced_by_kit`, and walks the user through them one at a time. Empty-key walkthrough happens BEFORE the per-file diff loop — populating subs first means kit_shas computed during the diff loop reflect the just-populated values, eliminating false-positive diffs on files that gate on the new keys.
 
 **Per-key flow**
 
@@ -839,7 +842,7 @@ This preserves the missing-vs-empty-vs-populated invariants from §9.7 while add
 
 **Where the walkthrough lives**
 
-The orchestration is in the `/sync-dev-kit` slash command (`_claude-maintainer/commands/sync-dev-kit.md`), Step 1.5. Claude reads the substitutions file, the `_placeholders_referenced_by_kit` block, and the `_intentionally_empty` list, then drives the per-key flow with the user. Discovery commands are invoked via `Bash`. Updates are written by re-serializing the JSON via `jq`.
+The orchestration is in the sync procedure (`_claude-maintainer/sync/procedure.md`), Step 1.5. Claude reads the substitutions file, the `_placeholders_referenced_by_kit` block, and the `_intentionally_empty` list, then drives the per-key flow with the user. Discovery commands are invoked via `Bash`. Updates are written by re-serializing the JSON via `jq`.
 
 ### 9.9. Template-mode seeds, ack and decline
 
@@ -942,6 +945,19 @@ bash .github/scripts/stack-watch.sh pins --dry-run
 lands on the board through the board's auto-add, unless the repository secret
 `STACK_WATCH_PROJECT_TOKEN` holds a token with `project` scope — then the script adds it
 directly, and a failed add fails the run.
+
+### 9.14. Releasing the kit — `/shipkit`
+
+**Everything reaches the kit's `main` through `/shipkit`, and every merge to `main` is a release.** A project's `/sync-dev-kit` takes the kit's latest `main`, so nothing may land there that is not ready to sync. The pre-ship gate refuses on `main` (`release_path_check`), which keeps `/ship-main` off the kit.
+
+One run, in the kit, when the maintainer types it:
+
+1. `.claude/scripts/shipkit.sh --plan`, read-only: the version, the base the release is measured from (the last release tag, or `origin/main` before the first), the migrations it adds with each one's `Kind`, the title, any new migration with no Estimate — which stops the release — and every added line naming a project that syncs this kit on this machine, which is reviewed before anything is committed, because the kit is public.
+2. Claude writes the release notes: what changed, for a project's syncer, and a Migrations section with each migration's Kind, its `Your time` and what it touches.
+3. `/commit`, `/open-pr` with the title and the notes as the body, and `/merge` — each by its own procedure, the pre-ship gate included.
+4. `shipkit.sh --release` on `main`: `VERSION`, the commit `🚀 release: <version>`, the push, the tag and the GitHub release.
+
+**Versions are UTC dates** — `2026.10.23`, and `2026.10.23.2` for a second release that day. **The title states the migration impact:** `2026.10.25 — 2 migrations, 1 asks for decisions`, or `— no migrations`. The GitHub releases are the kit's one record of what changed.
 
 ## 10. Environment variables
 
@@ -1620,10 +1636,10 @@ Fully independent — can start anytime. None of the three pieces started.
 
 ## 16. What's deliberately NOT here
 
-- **Automated kit-update PRs.** Single-user kit. No need for GitHub Actions that PR kit updates to consumer projects. The maintainer runs `/sync-dev-kit` when ready.
-- **Kit versioning / releases.** The kit repo is public, but is not distributed as a versioned artifact — there is no package, tag, or release to depend on. Syncs point at kit HEAD commit SHA, not a version.
+- **Automated kit-update PRs.** No GitHub Action opens PRs against projects: each project's syncer runs `/sync-dev-kit` when the team is ready, and the release notes say what it will ask of them.
+- **A package or pinned versions.** The kit is not published as a package, and a project cannot pin an older release: `/sync-dev-kit` takes the latest `main`, and the dated releases (§9.14) are its record.
 - **A maintainer-setup command.** Setting up a maintainer machine is prose in §0.1, not a slash command. It happens twice in the kit's life, and a command run that rarely can never be trusted to deliver a change — the temptation to use it as a propagation step is exactly the failure. `/install-statusline` and `/install-cpl` remain commands because they build or fetch something rather than copying files.
-- **Global sync.** Dropped, and consumers now receive nothing globally at all. The only global artifacts are the maintainer surface and the statusline, both installed once per machine. A global command file outranks a project's copy and cannot be reached by `/sync-dev-kit`, so anything shipped there diverges silently — see §0.
+- **A global sync.** Consumers receive nothing globally at all. The only global artifacts are the maintainer surface and the statusline, both installed once per machine. A global command file outranks a project's copy and cannot be reached by `/sync-dev-kit`, so anything shipped there diverges silently — see §0.
 
 ---
 

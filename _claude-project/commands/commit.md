@@ -134,7 +134,7 @@ Unpushed `/checkpoint` commits are folded into this one: once every gate has pas
 
 ## What this command does NOT do
 
-- Does not update `CHANGELOG.md` — per-PR draft handled by `/open-pr`; consolidated release entry handled by `/deploy`
+- Does not update `changelog.md` — `/deploy` is its only writer
 - Does not bump version — handled by `/deploy` (local, human-in-the-loop)
 - Does not create a tag — same
 - Does not open a PR — separate step via `/open-pr`

@@ -6,6 +6,8 @@ set -uo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/kit-delivered.sh"
 fail=0
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+# A throwaway HOME: the kit-clone check reads ~/.claude/dev-kit-config.json.
+export HOME="$tmp/home"; mkdir -p "$HOME/.claude"
 # shellcheck source=test-helpers.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/test-helpers.sh"
 root="$tmp/proj"; mkdir -p "$root/.claude/rules"
@@ -90,6 +92,25 @@ t no "$root/.claude/rules/gone.md" 'file does not exist'
 t no ""                     'empty path'
 t no "/elsewhere/.claude/rules/a.md" 'absolute path outside the root'
 if is_kit_delivered "" "$f"; then echo "  ✗ FAIL — empty root answered delivered"; fail=1; else echo "  ✓ empty root"; fi
+
+echo "KIT CLONE — a kit file copied in before any sync recorded it:"
+kit="$tmp/kit"; mkdir -p "$kit/_claude-project/rules" "$kit/_claude-project/commands"
+printf 'kit content\n' > "$kit/_claude-project/rules/a.md"
+printf '{"devKitPath":"%s"}\n' "$kit" > "$HOME/.claude/dev-kit-config.json"
+rm -f "$lock"
+t yes "$f"                  'identical to the kit clone, no lockfile'
+printf '{"files":{}}' > "$lock"
+t yes "$f"                  'identical to the kit clone, no lockfile entry'
+mkdir -p "$root/.claude/commands"; printf 'copied\n' > "$root/.claude/commands/c.md"; printf 'kit cmd\n' > "$kit/_claude-project/commands/c.md"
+t no "$root/.claude/commands/c.md" 'differs from the kit clone'
+t no "$root/.claude/rules/b.md" 'no such file in the project'
+printf 'project rule\n' > "$root/.claude/rules/own.md"
+t no "$root/.claude/rules/own.md" 'a project file the kit does not ship'
+mkdir -p "$kit/.claude/rules"; printf 'kit content\n' > "$kit/.claude/rules/a.md"
+if is_kit_delivered "$kit" "$kit/.claude/rules/a.md"; then echo "  ✗ FAIL — inside the kit itself, a dogfood copy counted as delivered"; fail=1
+else echo "  ✓ never inside the kit itself"; fi
+rm "$HOME/.claude/dev-kit-config.json"
+t no "$f"                   'no dev-kit-config.json'
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

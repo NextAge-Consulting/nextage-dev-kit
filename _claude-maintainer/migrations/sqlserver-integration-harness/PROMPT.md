@@ -2,6 +2,21 @@
 
 `/sync-dev-kit` runs everything below the line in the consumer project's session, after it has applied the kit version that ships `templates/testing/sqlserver/`.
 
+## Estimate
+
+Kind: asks for decisions — each database setting or migration the harness asks for, which you apply yourself
+Your time: about 5 minutes for each; none when the development database is already set up and marked.
+
+Blast radius:
+
+```bash
+jq -r '"DB_ENGINE=\(.DB_ENGINE // "") SHARED_MODULE_DIR=\(.SHARED_MODULE_DIR // "")"' .claude/sync-substitutions.json
+S=$(jq -r '.SHARED_MODULE_DIR // ""' .claude/sync-substitutions.json)
+git ls-files "$S/test"
+```
+
+Any `DB_ENGINE` but `SQLServer`, or an empty `SHARED_MODULE_DIR`: it does not apply. Otherwise each file listed that the kit's harness does not ship is the project's own, and is either kept as a helper or replaced by the kit's. Reach is the shared module's `test/` folder and the root `package.json`.
+
 ---
 
 Move this project's SQL Server integration tests onto the kit's harness. Work through every section to the end. Make no git commits — leave everything uncommitted for me to review. Never apply a database migration and never change a database's settings: put each one the harness asks for to me.
@@ -63,7 +78,7 @@ The project's own connection-string builder and `varchar` registration under `sr
 Apply every one the sync's offer left out; applying one already in place changes nothing:
 
 ```bash
-for f in $FILES; do bash ~/.claude/scripts/sync-dev-kit.sh --apply-file "_claude-project/templates/testing/sqlserver/$f"; done
+for f in $FILES; do bash .claude/scripts/sync-dev-kit.sh --apply-file "_claude-project/templates/testing/sqlserver/$f"; done
 ```
 
 Then:

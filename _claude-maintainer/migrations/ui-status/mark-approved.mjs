@@ -15,7 +15,6 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
 import { isComponent, isPattern } from '../../../_claude-project/skills/ui-patterns/scripts/check-ui-status.mjs'
 
 export function markText(file, text) {
@@ -42,7 +41,7 @@ export function markApproved(root, { dryRun = false } = {}) {
   return marked
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+if (import.meta.main) {
   const args = process.argv.slice(2)
   const dryRun = args.includes('--dry-run')
   const root = path.resolve(args.find((a) => !a.startsWith('--')) ?? '.')

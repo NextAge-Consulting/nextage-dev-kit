@@ -174,7 +174,7 @@ File: `.claude/skills/gitflow/scripts/deploy.sh`. Slash command spec: `.claude/c
    - `npm version <level> --no-git-tag-version` (Node) or `sed` rewrite of `version = "x.y.z"` (Python)
    - Insert changelog entry under today's date header in `changelog.md`
    - Commit bump + changelog ON `main` as `🚀 release: v<NEW>` (`--no-verify`; validation already ran)
-   - **Push `main` directly** to origin. If `origin/main` advanced, rebase the bump commit onto it and re-push; on conflict, stop and surface for resolution. The bump commit + tag are the release record — no release branch, no PR, no admin-merge.
+   - **Push `main` directly** to origin. A rejected push — require-PR still on, or `origin/main` advanced since the state gate — stops the script with exit 11 before anything is tagged; the release commit stays local, one ahead of `origin/main`, and is undone before `/deploy` runs again. The bump commit + tag are the release record — no release branch, no PR, no admin-merge.
    - `git tag v<NEW> <bump-sha>` and `git push origin v<NEW>` (tags aren't gated by `branches/*` protection rules; tag-protection rules are separate and only need configuration if cross-account tag pollution is a concern)
    - **Migration phase (if `MIGRATE_WORKFLOW` is set):** dispatch the migration — `aws codebuild start-build` on the migrate project under the default `codebuild` backend, `gh workflow run <migrate-wf> --ref main` under `github` — then watch it to completion **gated**: a real migration failure aborts the deploy here (exit 18 trigger / 19 run) BEFORE any app deploy is dispatched. Always watched, even under `--no-watch` (that flag only governs the app-deploy watch). Deploying app images against a failed/half-applied schema is the failure mode this gate exists to prevent. **Skipped entirely** when `MIGRATE_PATHS` is set and `git diff --name-only <last-tag>..HEAD -- <MIGRATE_PATHS>` is empty (no migration files changed since the last deploy) — no build is started. See the **Migration phase** subsection below.
    - For each service in `DEPLOY_WORKFLOWS` (resolved via the per-project `.claude/sync-substitutions.json`; falls back to `deploy.yml` if unset AND no `MIGRATE_WORKFLOW`), dispatch its deploy against post-bump HEAD — `aws codebuild start-build` on `<CODEBUILD_PROJECT_PREFIX><service>` under `codebuild`, `gh workflow run <wf> --ref main` under `github`. A migrate-only repo (`MIGRATE_WORKFLOW` set, `DEPLOY_WORKFLOWS` empty) stops after the migration phase — no `deploy.yml` fallback.
@@ -188,7 +188,7 @@ File: `.claude/skills/gitflow/scripts/deploy.sh`. Slash command spec: `.claude/c
 - Does NOT auto-bump on every feature-PR merge (the bot-PR pattern caused version-skew; see §2.6).
 - Does NOT infer the changelog from PR descriptions — uses commit subjects since last tag.
 
-**`/sync-dev-kit` does NO git.** Sync only applies the accepted kit updates to the working tree and stamps the lockfile — it does not commit or push. The synced files are left uncommitted; the user lands them with `/ship-main` (or `/commit`). Committing is gitflow's job, not sync's — see kitmaintainer-handbook.md §9.4.1.
+**`/sync-dev-kit` does NO git in the project.** Sync only applies the accepted kit updates to the working tree and stamps the lockfile — it does not commit or push. The synced files are left uncommitted; the user lands them with `/ship-main` (or `/commit`). Committing is gitflow's job, not sync's — see kitmaintainer-handbook.md §9.4.1.
 
 **Migration audit when adopting direct-push deploy:** `/sync-dev-kit` brings `deploy.sh` (direct-push, no release branch / PR / admin-merge) + `commands/deploy.md`. Consumer-side checks:
 1. Confirm `main` does not require a PR (the default — pipeline.md §1.1). With require-PR on, the direct push to main is rejected.
@@ -302,37 +302,28 @@ Rationale:
 
 There is no `--no-changelog` mode and no `--changelog-file` flag on `open-pr.sh`. Releases without user-facing entries still get a one-line `Internal Tooling` bullet — every release commits exactly one new bullet, never zero.
 
-**MANDATORY changelog format — Keep-a-Changelog:**
-
-`deploy.sh` inserts entries by anchoring on standard Keep-a-Changelog landmarks. The consumer project's changelog MUST conform on adoption:
+**The changelog format `deploy.sh` writes:**
 
 ```markdown
-# <Project> Changelog
+# Changelog
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [Unreleased]
-
-## 2026-05-06
+### October 23, 2026
 
 - **🐛 Tracking Number Whitespace** - User-facing description of the fix.
 
-## 2026-04-28
+### October 9, 2026
 
 - ...
 ```
 
-Required:
-- An `## [Unreleased]` h2 placeholder after the preamble. `open-pr.sh` anchors new dated sections after this line.
-- Date headers as **h2 with ISO-8601 dates**: `## YYYY-MM-DD` (e.g., `## 2026-05-06`). An `### Month Day, Year` (h3, long-form) format is NOT supported — `open-pr.sh`'s Python insertion falls through and appends at EOF, producing an out-of-order changelog.
-- Entries as `- **<emoji> <Title Case>** - <user-impact>` bullets.
+- Date headers are h3, long-form: `### Month Day, Year`, the machine's local date when `/deploy` runs.
+- A release on a day that already has a header goes under that header. A new day's header goes in after the file's fourth line, so the preamble keeps its first three lines — a title, a blank line, a sentence — and a fourth line, blank.
+- A project with no `changelog.md` gets one created with that preamble.
+- Entries are `- **<emoji> <Title Case>** - <user-impact>` bullets.
 
-Adoption migration for projects with non-conforming changelogs: convert all date headers to `## YYYY-MM-DD`, add `## [Unreleased]` placeholder. The renderer (if any) can preserve the prior visual style by swapping the h2/h3 component CSS.
-
-See `commands/open-pr.md`, `commands/deploy.md`, and `skills/gitflow/references/changelog-rules.md`.
+See `commands/deploy.md` and `skills/gitflow/references/changelog-rules.md`.
 
 ## 2.5 Deploy trigger contract (MANDATORY)
 

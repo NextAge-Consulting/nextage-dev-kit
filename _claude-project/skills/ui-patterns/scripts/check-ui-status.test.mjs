@@ -73,7 +73,7 @@ test('a part with no status, two, or an unknown value fails', () => {
   assert.deepEqual(out.problems, [
     `${BUTTON}: no ui-status line`,
     `${ICON}: 2 ui-status lines (lines 1, 2); a file carries one`,
-    `${BROWSE}:3: ui-status "draft" is neither approved nor pending`,
+    `${BROWSE}:3: ui-status "draft" is not approved, pending or unresolved`,
   ])
 })
 
@@ -217,4 +217,29 @@ test('an approved component, a vendored atom and a pattern need no Fit check', (
 
 test('a fingerprint is the first eight hex digits of the SHA-256', () => {
   assert.equal(fingerprint('abc'), 'ba7816bf')
+})
+
+test('an unresolved part blocks nothing and is listed apart, until its file changes', () => {
+  const iconText = '// ui-status: unresolved\nexport function IconButton() {}\n'
+  const browseText = '---\nblock-types: [BrowseScreen, Pager]\nui-status: unresolved\n---\n# Browse\n'
+  const lines = (icon, browse) =>
+    INV(`| \`IconButton\` | icon-only | unresolved \`${icon}\` set aside: reworked with the field set |\n| \`browse-layout.md\` | lists | unresolved \`${browse}\` set aside: waits for the browse redesign |`)
+  const set = run({ [ICON]: iconText, [BROWSE]: browseText, [INVENTORY]: lines(fingerprint(iconText), fingerprint(browseText)) })
+  assert.deepEqual(set.pending, [])
+  assert.deepEqual(set.problems, [])
+  assert.deepEqual(set.fit, [])
+  assert.deepEqual(set.unresolved, [`${ICON} (component) — ${INVENTORY}:5`, `${BROWSE} (pattern) — ${INVENTORY}:6`])
+
+  const changed = run({ [ICON]: `${iconText}// edited\n`, [BROWSE]: browseText, [INVENTORY]: lines(fingerprint(iconText), fingerprint(browseText)) })
+  assert.equal(changed.pending.length, 1)
+  assert.match(changed.pending[0], /icon-button\.tsx \(component\), changed since it was set aside/)
+  assert.deepEqual(changed.unresolved, [`${BROWSE} (pattern) — ${INVENTORY}:6`])
+})
+
+test('an unresolved line with no fingerprint fails', () => {
+  const out = run({
+    [ICON]: '// ui-status: unresolved\n',
+    [INVENTORY]: INV('| `IconButton` | icon-only | unresolved |'),
+  })
+  assert.deepEqual(out.problems, [`${INVENTORY}:5: \`IconButton\` is unresolved with no fingerprint — record the file's fingerprint and the human's reason on its line`])
 })
