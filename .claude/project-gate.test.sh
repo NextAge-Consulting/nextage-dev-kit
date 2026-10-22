@@ -19,4 +19,6 @@ check ".claude/templates/biome.base.json" "tests/templates/biome-plugins.test.sh
 check "_claude-project/stack-manifest.json" "tests/templates/check-stack.test.sh " "the stack manifest maps to the check-stack suite"
 check "_claude-project/templates/scripts/check-stack.mjs" "tests/templates/check-stack.test.sh _claude-project/templates/scripts/check-stack.test.mjs _claude-project/templates/scripts/check-stack.test.sh " "a template script maps to its tests/templates suite"
 check "project-documentation/x.md" "" "a doc maps to no suite"
+release_path_check main 2>/dev/null && { echo "FAIL a gated commit on main is refused"; fails=1; } || echo "ok   a gated commit on main is refused"
+release_path_check fix/some-branch 2>/dev/null && echo "ok   a gated commit on a branch passes" || { echo "FAIL a gated commit on a branch passes"; fails=1; }
 exit "$fails"

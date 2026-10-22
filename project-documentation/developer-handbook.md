@@ -10,6 +10,9 @@ Clone the project. Its `.claude/` folder is committed, so the kit's rules, skill
 commands come with it; nothing else gets installed. On a fresh Mac, `macbook-setup.md`
 first; on Windows, `windows-handbook.md` first; then hand `developer-onboarding.md` to Claude and it walks you through the rest.
 
+**The project's kit syncer** — one person per project — keeps it on the kit's releases with
+`/sync-dev-kit`. If that is you, `kit-sync-cheatsheet.md` is your page.
+
 ## The day
 
 **Start with `/work`.** On `main` it pulls the latest and stays there; on a branch it picks
@@ -115,6 +118,15 @@ touches it.
 
 A check on your source, rather than on the build, belongs in `.claude/project-gate.sh`
 instead, which runs at every commit (see "When something goes wrong").
+
+## A Claude Code hook for the whole team
+
+`.claude/settings.json` is the kit's, so a hook of the project's own goes in
+`.claude/settings.project.json` instead, in the same shape:
+`{"hooks": {"PreToolUse": [{"matcher": "…", "hooks": [{"type": "command", "command": "…"}]}]}}`.
+Commit it with the script it runs. It takes effect for everyone once the project's kit
+syncer next runs `/sync-dev-kit`, which writes it into `settings.json` beside the kit's
+own hooks.
 
 ## UI work
 

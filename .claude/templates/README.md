@@ -29,4 +29,4 @@ Sync behavior (`/sync-dev-kit`):
 - **`testing/`** — vitest scaffolding, `template` mode, destination from the `SHARED_MODULE_DIR` substitution. Skipped entirely when that value is empty. See testing.md §1.
 - **`design-system/`** — `tsconfig.types.json`, the type emit the `claude-design` engine builds the design system's types from, `owned`, with `{{DESIGN_FEED_BARREL}}` substituted. Lands at `<DESIGN_UI_PACKAGE>/design-system/<file>`; skipped, and listed under `skipped_unconfigured`, when that value is empty.
 
-Add new root-level template files here when a future need arises (e.g., `.editorconfig`, CI workflow templates). After adding, register the file name mapping in `_claude-maintainer/scripts/sync-dev-kit.sh` (`dest_for_kit_path` function).
+Add new root-level template files here when a future need arises (e.g., `.editorconfig`, CI workflow templates). After adding, register the file name mapping in `_claude-maintainer/sync/sync-dev-kit.sh` (`dest_for_kit_path` function).

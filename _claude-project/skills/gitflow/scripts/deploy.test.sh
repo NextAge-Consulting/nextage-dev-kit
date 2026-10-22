@@ -60,11 +60,17 @@ Needs acme/acme-org#99"
     && ok "an org PR GitHub cannot read stops the release" || bad "unreadable needs: $(cat "$tmp/out")"
 
 # ─── The test precheck: the full suite before anything ships ──────────────
+# Like vitest, the fake prints each project label as a coloured badge unless NO_COLOR is
+# set — a captured run is coloured too, whatever FORCE_COLOR says.
 cat > "$tmp/fake/npm" <<'NPM'
 #!/bin/bash
 echo "npm $*"
 case "$*" in *test:preflight*) printf '%s\n' "${FAKE_PREFLIGHT_OUT:-}"; exit "${FAKE_PREFLIGHT_RC:-0}" ;; esac
-printf '%s\n' "${FAKE_NPM_OUT:-}"
+if [ -n "${NO_COLOR+set}" ]; then
+    printf '%s\n' "${FAKE_NPM_OUT:-}"
+else
+    printf '%s\n' "${FAKE_NPM_OUT:-}" | sed -E $'s/\\|([a-z]+)\\|/\033[45m \\1 \033[49m/g'
+fi
 exit "${FAKE_NPM_RC:-0}"
 NPM
 chmod +x "$tmp/fake/npm"
@@ -83,6 +89,8 @@ land "✅ test: integration"
     && ok "integration tests that did not run stop the release" || bad "integration skipped: $(cat "$tmp/out")"
 [ "$(FAKE_NPM_OUT=' ✓ |integration| test/a.integration.test.ts' run)" = 0 ] \
     && ok "integration tests that ran pass" || bad "integration ran: $(cat "$tmp/out")"
+[ "$(FORCE_COLOR=3 FAKE_NPM_OUT=' ✓ |integration| test/a.integration.test.ts' run)" = 0 ] \
+    && ok "integration tests that ran pass under FORCE_COLOR, as in a Claude Code session" || bad "integration under FORCE_COLOR: $(cat "$tmp/out")"
 printf '{"name":"app","scripts":{"test":"vitest run","test:preflight":"check"}}\n' > package.json
 land "✅ test: preflight"
 [ "$(FAKE_PREFLIGHT_RC=1 FAKE_PREFLIGHT_OUT='the database lacks migration 0007_add_notes' run)" = 26 ] \

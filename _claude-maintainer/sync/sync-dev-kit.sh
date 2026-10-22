@@ -1,8 +1,14 @@
 #!/bin/bash
 # Sync Dev Kit — three-way diff/review sync from kit template to consumer project.
 #
+# Run through the project's launcher, `.claude/scripts/sync-dev-kit.sh`, which finds this
+# kit clone from ~/.claude/dev-kit-config.json and brings it to the kit's latest main first.
+#
 # Modes:
-#   --scan                  Output JSON report of state per file. Non-interactive.
+#   --scan                  Output JSON report of state per file. Non-interactive, and
+#                           writes nothing: the report is what the go-ahead is decided on.
+#   --apply-substitutions   Bootstrap .claude/sync-substitutions.json from the kit template,
+#                           or merge the kit's new keys and comment blocks into it.
 #   --apply-file <kit-rel>  Apply one kit file to project + update lockfile entry.
 #   --decline-file <kit-rel> Record that this project does NOT want the file. It stops
 #                           being offered until the KIT changes it again.
@@ -26,10 +32,14 @@ set -e
 
 MODE=""
 APPLY_FILE=""
+READ_ONLY=false
+SUBS_BOOTSTRAP=false
+SUBS_NEW_KEYS=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --scan)             MODE="scan"; shift 1 ;;
+        --scan)             MODE="scan"; READ_ONLY=true; shift 1 ;;
+        --apply-substitutions) MODE="apply-substitutions"; shift 1 ;;
         --apply-file)       MODE="apply"; APPLY_FILE="$2"; shift 2 ;;
         --ack-file)         MODE="ack"; APPLY_FILE="$2"; shift 2 ;;
         --decline-file)     MODE="decline"; APPLY_FILE="$2"; shift 2 ;;
@@ -42,7 +52,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$MODE" ]; then
-    echo "sync-dev-kit.sh: mode required (--scan | --apply-file <path> | --ack-file <path> | --decline-file <path> | --remove-patch <dest> | --apply-gitignore | --migration-done <name> | --finalize)" >&2
+    echo "sync-dev-kit.sh: mode required (--scan | --apply-substitutions | --apply-file <path> | --ack-file <path> | --decline-file <path> | --remove-patch <dest> | --apply-gitignore | --migration-done <name> | --finalize)" >&2
     exit 2
 fi
 
@@ -51,7 +61,7 @@ fi
 # ---------------------------------------------------------------------------
 CONFIG_FILE="$HOME/.claude/dev-kit-config.json"
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "sync-dev-kit.sh: $CONFIG_FILE missing. See kitmaintainer-handbook.md §0.1 (maintainer machine setup)." >&2
+    echo "sync-dev-kit.sh: $CONFIG_FILE missing. Set this machine up first: 'Set up' in the kit's project-documentation/kit-sync-cheatsheet.md." >&2
     exit 3
 fi
 
@@ -86,8 +96,8 @@ if [ "$PROJECT_PATH" = "$KIT_PATH" ]; then
 fi
 
 LOCKFILE="${PROJECT_PATH}/.claude/.kit-sync.json"
-# The maintainer surface (`_claude-maintainer/` → ~/.claude/) is not scanned here;
-# it is hand-propagated. Consumers receive nothing globally at all.
+# Only the `_<name>-project/` surfaces are scanned. `_claude-maintainer/` — this engine,
+# the migrations, and the maintainer's own surface — never syncs into a project.
 # Project-owned rules under `_claude-project/rules/project/` are matched by pattern
 # below (is_skipped function), not by explicit list.
 SKIP_LIST=(
@@ -151,7 +161,16 @@ load_substitutions() {
     # encounter; subsequent runs see the file exists and skip bootstrap.
     # The template ships with empty values, which is the explicit "feature
     # disabled" state for every gated placeholder (e.g. GITFLOW_*).
+    # The scan writes nothing: it reads the kit template in place of the missing file, holds
+    # any merge below in memory, and reports both (substitutions_bootstrap,
+    # substitutions_new_keys). --apply-substitutions writes them after the go-ahead.
     if [ ! -f "$sub_file" ] && [ -f "$kit_template" ]; then
+        if [ "$READ_ONLY" = true ]; then
+            SUBSTITUTIONS_JSON=$(jq -c '. // {}' "$kit_template" 2>/dev/null) || SUBSTITUTIONS_JSON="{}"
+            SUBS_BOOTSTRAP=true
+            load_repo_kind
+            return
+        fi
         mkdir -p "$(dirname "$sub_file")"
         cp "$kit_template" "$sub_file"
         echo "sync-dev-kit.sh: bootstrapped .claude/sync-substitutions.json from kit template (populate values to override placeholders, leave empty to disable gated features)" >&2
@@ -209,9 +228,15 @@ load_substitutions() {
                     | (.[1] | keys_unsorted) as $proj
                     | ($kit - $proj) | join(", ")
                 ' "$kit_template" "$sub_file" 2>/dev/null)
+                if [ "$READ_ONLY" = true ]; then
+                    SUBSTITUTIONS_JSON=$(jq -c '. // {}' <<<"$merged")
+                    SUBS_NEW_KEYS="$added"
+                    load_repo_kind
+                    return
+                fi
                 printf '%s\n' "$merged" > "$sub_file"
                 if [ -n "$added" ]; then
-                    echo "sync-dev-kit.sh: added new kit placeholder key(s) to .claude/sync-substitutions.json: ${added} — Step 1.5 will walk you through populating them" >&2
+                    echo "sync-dev-kit.sh: added new kit placeholder key(s) to .claude/sync-substitutions.json: ${added} — the settings walkthrough asks about them" >&2
                 else
                     echo "sync-dev-kit.sh: refreshed kit comment blocks in .claude/sync-substitutions.json (values and _intentionally_empty untouched)" >&2
                 fi
@@ -228,7 +253,11 @@ load_substitutions() {
         SUBSTITUTIONS_JSON="{}"
     fi
 
-    # Read once: dest_for_kit_path consults it for every kit file.
+    load_repo_kind
+}
+
+# Read once: dest_for_kit_path consults it for every kit file.
+load_repo_kind() {
     REPO_KIND=$(subst_value "REPO_KIND")
     case "$REPO_KIND" in
         ""|app|org|combo) ;;
@@ -348,13 +377,37 @@ is_settings_json() {
     [ "$1" = "_claude-project/settings.json" ]
 }
 
-# canonicalize_settings — read JSON on stdin, emit jq-canonicalized JSON on
-# stdout. Empty input passes through untouched.
+# The project's own hooks, in `.claude/settings.project.json`: {"hooks": {<event>: [...]}}
+# in settings.json's own shape. The file is the project's, committed, and never written by
+# sync. Every sync composes it into settings.json, each event's entries after the kit's,
+# so a project hook runs for the whole team with no edit to the kit-owned file — Claude
+# Code runs every matching entry. A change to it reaches settings.json on the next sync,
+# as a `kit-only` file the mechanical pass applies.
+PROJECT_SETTINGS=".claude/settings.project.json"
+
+load_project_settings() {
+    local f="${PROJECT_PATH}/${PROJECT_SETTINGS}"
+    [ -f "$f" ] || return 0
+    if ! jq -e 'type == "object" and ((keys - ["hooks"]) | length == 0)
+                and ((.hooks // {}) | type == "object" and all(.[]; type == "array"))' "$f" >/dev/null 2>&1; then
+        echo "sync-dev-kit.sh: $PROJECT_SETTINGS is not valid — it holds only {\"hooks\": {<event>: [<entries in settings.json's shape>]}}. Fix it before syncing." >&2
+        exit 5
+    fi
+}
+
+# canonicalize_settings — read the kit's settings JSON on stdin, emit it jq-canonicalized
+# on stdout with the project's hooks composed in. Empty input passes through untouched.
 canonicalize_settings() {
-    local json
+    local json side="${PROJECT_PATH}/${PROJECT_SETTINGS}"
     json=$(cat)
     [ -z "$json" ] && return
-    printf '%s' "$json" | jq '.'
+    if [ -f "$side" ]; then
+        printf '%s' "$json" | jq --slurpfile p "$side" '
+            .hooks = reduce (($p[0].hooks // {}) | to_entries[]) as $e
+                ((.hooks // {}); .[$e.key] = ((.[$e.key] // []) + $e.value))'
+    else
+        printf '%s' "$json" | jq '.'
+    fi
 }
 
 # sha256_settings_kit — SHA of kit settings.json after substitution +
@@ -1017,6 +1070,7 @@ if [ "$MODE" = "scan" ]; then
     # Load per-project placeholder substitutions (if any). Must happen before
     # the per-file SHA loop so kit SHAs reflect substituted content.
     load_substitutions
+    load_project_settings
 
     KIT_CLEAN=true
     if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
@@ -1317,7 +1371,18 @@ if [ "$MODE" = "scan" ]; then
         done < "$GITIGNORE_ADDITIONS_FILE"
     fi
 
+    # Keys the Step 1.5 walkthrough would ask about: empty, and not deliberately so.
+    UNDECIDED=$(printf '%s' "$SUBSTITUTIONS_JSON" | jq -c '
+        (._intentionally_empty // []) as $off
+        | [to_entries[] | select(.key | startswith("_") | not)
+           | select(.value == "") | select(.key as $k | $off | index($k) | not) | .key]')
+
+    NEW_KEYS_JSON=$(jq -n -c --arg k "$SUBS_NEW_KEYS" '$k | split(", ") | map(select(. != ""))')
+
     jq -n \
+        --argjson undecided "$UNDECIDED" \
+        --argjson subs_bootstrap "$SUBS_BOOTSTRAP" \
+        --argjson subs_new_keys "$NEW_KEYS_JSON" \
         --arg kit_path "$KIT_PATH" \
         --arg kit_commit "$KIT_COMMIT" \
         --argjson kit_clean "$KIT_CLEAN" \
@@ -1331,8 +1396,18 @@ if [ "$MODE" = "scan" ]; then
         --argjson migrations_uncommitted "$UNCOMMITTED_MIGRATIONS" \
         --arg repo_kind "$REPO_KIND" \
         --argjson repo_kind_skipped "$REPO_KIND_SKIPPED" \
-        '{kit_path: $kit_path, kit_commit: $kit_commit, kit_clean: $kit_clean, kit_behind_remote: $kit_behind, repo_kind: $repo_kind, skipped_by_repo_kind: $repo_kind_skipped, files: $files, gitignore_additions_missing: $gitignore_missing, unmapped_templates: $unmapped, skipped_unconfigured: $unconfigured, stale_patches: $stale_patches, migrations_pending: $migrations, migrations_uncommitted: $migrations_uncommitted}'
+        '{kit_path: $kit_path, kit_commit: $kit_commit, kit_clean: $kit_clean, kit_behind_remote: $kit_behind, repo_kind: $repo_kind, skipped_by_repo_kind: $repo_kind_skipped, files: $files, gitignore_additions_missing: $gitignore_missing, unmapped_templates: $unmapped, skipped_unconfigured: $unconfigured, stale_patches: $stale_patches, migrations_pending: $migrations, migrations_uncommitted: $migrations_uncommitted, substitutions_bootstrap: $subs_bootstrap, substitutions_new_keys: $subs_new_keys, substitutions_undecided: $undecided}'
 
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Mode: apply-substitutions
+# ---------------------------------------------------------------------------
+
+if [ "$MODE" = "apply-substitutions" ]; then
+    load_substitutions
+    load_project_settings
     exit 0
 fi
 
@@ -1345,6 +1420,7 @@ if [ "$MODE" = "apply" ]; then
 
     # Apply mode uses substitutions when writing kit content into the project.
     load_substitutions
+    load_project_settings
 
     kit_full="${KIT_PATH}/${APPLY_FILE}"
     dest_rel=$(dest_for_kit_path "$APPLY_FILE")
@@ -1487,6 +1563,7 @@ if [ "$MODE" = "ack" ]; then
     [ -z "$APPLY_FILE" ] && { echo "sync-dev-kit.sh: --ack-file requires a kit-relative path" >&2; exit 2; }
 
     load_substitutions
+    load_project_settings
 
     kit_full="${KIT_PATH}/${APPLY_FILE}"
     dest_rel=$(dest_for_kit_path "$APPLY_FILE")
@@ -1551,6 +1628,7 @@ if [ "$MODE" = "decline" ]; then
     [ -z "$APPLY_FILE" ] && { echo "sync-dev-kit.sh: --decline-file requires a kit-relative path" >&2; exit 2; }
 
     load_substitutions
+    load_project_settings
 
     kit_full="${KIT_PATH}/${APPLY_FILE}"
     dest_rel=$(dest_for_kit_path "$APPLY_FILE")
@@ -1710,6 +1788,7 @@ if [ "$MODE" = "finalize" ]; then
     # an un-applied difference must stay un-baselined so the next scan still
     # surfaces it for review.
     load_substitutions
+    load_project_settings
 
     KIT_DIRS=()
     [ -d "${KIT_PATH}/_claude-project" ] && KIT_DIRS+=("_claude-project")

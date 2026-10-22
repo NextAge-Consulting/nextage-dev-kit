@@ -397,6 +397,52 @@ run --scan >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 5 ] && ok "migrations: a last sync the kit's history does not hold fails the scan" || bad "unknown lastSyncedCommit (rc=$rc)"
 cp "$tmp/lock.orig" "$L"
 
+# ─── The scan writes nothing; --apply-substitutions writes what it reported ─
+FRESH2="$tmp/fresh2"; mkdir -p "$FRESH2"; (cd "$FRESH2" && git init -q -b main .)
+out=$( (cd "$FRESH2" && /bin/bash "$S" --scan 2>/dev/null) )
+[ ! -e "$FRESH2/.claude/sync-substitutions.json" ] && ok "scan: a first sync's substitutions file is not bootstrapped" || bad "scan bootstrapped the substitutions file"
+jq -e '.substitutions_bootstrap == true' <<<"$out" >/dev/null && ok "scan: reports that the file would be bootstrapped" || bad "bootstrap flag: $(jq -c .substitutions_bootstrap <<<"$out")"
+jq -e '[.files[] | select(.dest_path == ".claude/rules/a.md") | .state] == ["new-kit"]' <<<"$out" >/dev/null \
+    && ok "scan: a first sync's files are read against the kit template's values" || bad "first-sync files: $(jq -c '[.files[] | {dest_path, state}]' <<<"$out")"
+jq -e '.substitutions_undecided | index("SHARED_MODULE_DIR") != null' <<<"$out" >/dev/null \
+    && ok "scan: names the substitution keys the walkthrough will ask about" || bad "undecided: $(jq -c .substitutions_undecided <<<"$out")"
+(cd "$FRESH2" && /bin/bash "$S" --apply-substitutions >/dev/null 2>&1)
+[ -f "$FRESH2/.claude/sync-substitutions.json" ] && ok "apply-substitutions: bootstraps the file" || bad "apply-substitutions did not bootstrap"
+printf '{"SHARED_MODULE_DIR":""}\n' > "$FRESH2/.claude/sync-substitutions.json"
+before=$(sha "$FRESH2/.claude/sync-substitutions.json")
+out=$( (cd "$FRESH2" && /bin/bash "$S" --scan 2>/dev/null) )
+[ "$(sha "$FRESH2/.claude/sync-substitutions.json")" = "$before" ] && ok "scan: new kit keys are not merged into the file" || bad "scan rewrote the substitutions file"
+jq -e '.substitutions_new_keys == ["DESIGN_UI_PACKAGE"] and .substitutions_bootstrap == false' <<<"$out" >/dev/null \
+    && ok "scan: reports the new kit keys a merge would add" || bad "new keys: $(jq -c '{substitutions_new_keys, substitutions_bootstrap}' <<<"$out")"
+(cd "$FRESH2" && /bin/bash "$S" --apply-substitutions >/dev/null 2>&1)
+jq -e 'has("DESIGN_UI_PACKAGE")' "$FRESH2/.claude/sync-substitutions.json" >/dev/null && ok "apply-substitutions: merges the new kit keys" || bad "apply-substitutions did not merge"
+
+# ─── The project's own hooks, composed into settings.json ─────────────────
+SCP="$tmp/sidecar"; mkdir -p "$SCP"; (cd "$SCP" && git init -q -b main .)
+srun() { (cd "$SCP" && /bin/bash "$S" "$@"); }
+sstate() { srun --scan 2>/dev/null | jq -r '.files[] | select(.dest_path == ".claude/settings.json") | .state'; }
+printf '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"kit.sh"}]}]}}\n' > "$KIT/_claude-project/settings.json"
+srun --apply-file _claude-project/settings.json >/dev/null 2>&1
+[ "$(sstate)" = "clean" ] && ok "sidecar: none, settings.json is the kit's" || bad "no sidecar: $(sstate)"
+printf '{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"proj.sh"}]}],"UserPromptSubmit":[{"hooks":[{"type":"command","command":"prompt.sh"}]}]}}\n' > "$SCP/.claude/settings.project.json"
+[ "$(sstate)" = "kit-only" ] && ok "sidecar: a project hook makes settings.json kit-only" || bad "sidecar added: $(sstate)"
+srun --apply-file _claude-project/settings.json >/dev/null 2>&1
+jq -e '[.hooks.PreToolUse[].hooks[0].command] == ["kit.sh","proj.sh"] and .hooks.UserPromptSubmit[0].hooks[0].command == "prompt.sh"' "$SCP/.claude/settings.json" >/dev/null \
+    && ok "sidecar: applied after the kit's entries, and a new event added" || bad "composed: $(jq -c .hooks "$SCP/.claude/settings.json")"
+[ "$(sstate)" = "clean" ] && ok "sidecar: clean once applied" || bad "after compose: $(sstate)"
+rm "$SCP/.claude/settings.project.json"
+[ "$(sstate)" = "kit-only" ] && ok "sidecar: removing it makes settings.json kit-only" || bad "sidecar removed: $(sstate)"
+srun --apply-file _claude-project/settings.json >/dev/null 2>&1
+jq -e '[.hooks.PreToolUse[].hooks[0].command] == ["kit.sh"] and (.hooks | has("UserPromptSubmit") | not)' "$SCP/.claude/settings.json" >/dev/null \
+    && ok "sidecar: its hooks leave with it" || bad "after removal: $(jq -c .hooks "$SCP/.claude/settings.json")"
+printf '{"hooks":{},"permissions":{"allow":["Bash(*)"]}}\n' > "$SCP/.claude/settings.project.json"
+srun --scan >/dev/null 2>"$tmp/err"; rc=$?
+[ "$rc" -eq 5 ] && grep -q "settings.project.json is not valid" "$tmp/err" && ok "sidecar: anything but hooks stops the scan" || bad "extra key (rc=$rc)"
+printf '{not json' > "$SCP/.claude/settings.project.json"
+srun --scan >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 5 ] && ok "sidecar: invalid JSON stops the scan" || bad "invalid sidecar (rc=$rc)"
+rm "$SCP/.claude/settings.project.json" "$KIT/_claude-project/settings.json"
+
 # ─── A broken register fails the scan loudly ──────────────────────────────
 printf '{not json' > "$PROJ/.claude/.kit-patches.json"
 run --scan >/dev/null 2>&1; rc=$?

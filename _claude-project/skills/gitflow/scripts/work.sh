@@ -108,13 +108,13 @@ PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
 }
 cd "$PROJECT_ROOT"
 
-# ─── Guard: a retired global /work command shadows this project's copy ─────
-# Claude Code resolves command files personal-over-project: with `work.md` in
+# ─── Guard: a retired global command shadows this project's copy ──────────
+# Claude Code resolves command files personal-over-project: with the same file in
 # BOTH `~/.claude/commands/` and `<project>/.claude/commands/`, the personal one
-# wins and the project's copy never loads. The kit used to ship `work.md`
-# globally and no longer does — so a machine that installed it once keeps
-# running the retired doc forever, silently, while the kit's current copy sits
-# there inert.
+# wins and the project's copy never loads. The kit once installed `work.md` and
+# `sync-dev-kit.md` globally and now ships both per project — so a machine that
+# installed one keeps running the retired doc forever, silently, while the kit's
+# current copy sits there inert.
 #
 # Nothing in the kit's own maintenance path can fix that: `/sync-dev-kit` does
 # not scan `~/.claude/` by design, and there is no installer to reconcile it.
@@ -122,26 +122,41 @@ cd "$PROJECT_ROOT"
 # doc won, because both invoke it. So this is the one place the stale file can be
 # caught. Fail loud rather than warn: a warning on a session-init command is read
 # past, and the whole point is that the failure is otherwise invisible.
-GLOBAL_WORK_CMD="$HOME/.claude/commands/work.md"
-if [ -f "$GLOBAL_WORK_CMD" ]; then
+for RETIRED in work sync-dev-kit; do
+    GLOBAL_CMD="$HOME/.claude/commands/$RETIRED.md"
+    [ -f "$GLOBAL_CMD" ] || continue
+    case "$RETIRED" in
+        work)
+            WHY="it is the OLD version, which cuts a wip branch at session-init and
+  blocks /ship-main. The kit no longer ships a global /work."
+            FIX="      rm \"$GLOBAL_CMD\""
+            AFTER="Nothing else is needed. The project's copy takes over immediately."
+            ;;
+        sync-dev-kit)
+            WHY="it is the OLD maintainer-only sync, which runs a copied script instead
+  of the kit clone's own engine. The kit now ships /sync-dev-kit per project."
+            FIX="      rm \"$GLOBAL_CMD\" \"$HOME/.claude/scripts/sync-dev-kit.sh\" \"$HOME/.claude/scripts/sync-dev-kit.test.sh\""
+            AFTER="A project with no .claude/commands/sync-dev-kit.md yet gets it from 'Set up'
+  in the kit's project-documentation/kit-sync-cheatsheet.md."
+            ;;
+    esac
     cat >&2 <<EOF
-work.sh: REFUSING — a retired global /work command is shadowing this project's copy.
+work.sh: REFUSING — a retired global /$RETIRED command is shadowing this project's copy.
 
-  Found:   $GLOBAL_WORK_CMD
-  Shadows: $PROJECT_ROOT/.claude/commands/work.md
+  Found:   $GLOBAL_CMD
+  Shadows: $PROJECT_ROOT/.claude/commands/$RETIRED.md
 
-  Personal commands outrank project commands, so the file above is what /work
-  reads — and it is the OLD version, which cuts a wip branch at session-init and
-  blocks /ship-main. The kit no longer ships a global /work.
+  Personal commands outrank project commands, so the file above is what /$RETIRED
+  reads — and $WHY
 
   Fix it with one command, then re-run /work:
 
-      rm "$GLOBAL_WORK_CMD"
+$FIX
 
-  Nothing else is needed. The project's copy takes over immediately.
+  $AFTER
 EOF
     exit 8
-fi
+done
 
 # ─── Helper: is the working tree clean? ────────────────────────────────────
 # Untracked counts as dirty: an untracked file is usually the bulk of a

@@ -60,10 +60,11 @@ machine, or someone taking over a fork), and a command run that rarely cannot be
 trusted to deliver anything — the temptation to reach for it as a propagation step
 is precisely the failure it would cause.
 
-What §0.1 covers, so you know what "set up" means: copy `_claude-maintainer/`
-commands and scripts into `~/.claude/`, write `~/.claude/dev-kit-config.json` with
-`devKitPath` (`sync-dev-kit.sh` reads it and cannot run without it), and create the
-two per-machine markers below.
+What §0.1 covers, so you know what "set up" means: copy the maintainer surface —
+`_claude-maintainer/kit-maintainer.md`, `commands/` and `scripts/` — into `~/.claude/`,
+write `~/.claude/dev-kit-config.json` with `devKitPath` (every project's
+`/sync-dev-kit` reads it to find the kit), and create the per-machine markers
+below.
 
 Both markers are deliberately unshipped, and a consumer machine must not be able to
 self-promote:
@@ -73,17 +74,21 @@ echo '@kit-maintainer.md' >> ~/.claude/CLAUDE.md   # makes this rule load
 touch ~/.claude/kitmaster                          # makes block-kit-edit.sh inert
 ```
 
-**Consumers receive nothing globally at all** — every kit command, `/work`
-included, ships per-project via `_claude-project/commands/`. That is not tidiness:
-a command file in `~/.claude/commands/` outranks a project's copy of the same name,
-and `/sync-dev-kit` does not scan `~/.claude/`, so anything shipped there wins
-silently and can never be updated. The maintainer surface is the sole exception,
-and it is yours alone — a consumer machine that could sync would clobber projects
-you sync ahead of them. Defence by absence, not by a guard someone can bypass.
+**Consumers receive nothing globally at all** — every kit command, `/work` and
+`/sync-dev-kit` included, ships per-project via `_claude-project/commands/`. A command
+file in `~/.claude/commands/` outranks a project's copy of the
+same name, and `/sync-dev-kit` does not scan `~/.claude/`, so anything shipped there
+wins silently and can never be updated. The maintainer surface — this rule and
+`/review-stack` — is the sole exception, and it is yours alone.
+
+**Whoever holds a project's keys syncs it.** A team syncs its own projects through
+their `/sync-dev-kit`, on its own schedule, from the kit's latest release; you sync
+only the projects whose keys you hold, through the same command. On this machine the
+`kitmaster` marker makes it sync from the kit's working tree as it stands.
 
 **`~/.claude/` is a COPY, and you propagate to it the same way you propagate to a
-consumer project — by editing both to byte-identical.** A change to
-`_claude-maintainer/` lands in the kit source AND in `~/.claude/` in the same pass,
+consumer project — by editing both to byte-identical.** A change to the maintainer
+surface lands in the kit source AND in `~/.claude/` in the same pass,
 proven with `diff`. A setup procedure is not a propagation step, the same
 distinction as `/sync-dev-kit`, which is how consumer machines pull, never how you
 push.
@@ -196,7 +201,7 @@ time they run `/sync-dev-kit` there, which is the workflow — not a gap in it.
 The durable home for kit-shared changes is editing the kit source directly.
 
 **The maintainer surface works identically, with `~/.claude/` standing in for the
-consumer's copy.** A `_claude-maintainer/` change is edited in the kit source and in
+consumer's copy.** A maintainer-surface change is edited in the kit source and in
 `~/.claude/` in the same pass, `diff`ed to prove byte-identity. Never leave it
 half-applied and tell the human to run a setup procedure — that is the same "I'll
 update the kit separately later" failure the step above forbids, and it leaves the
@@ -205,7 +210,8 @@ machine running instructions the kit no longer holds.
 | Surface | Copies to edit in one pass |
 |---|---|
 | `_claude-project/…` | kit source · kit dogfood (if dogfooded) · **this** consumer's `.claude/…` |
-| `_claude-maintainer/…` | kit source · `~/.claude/…` |
+| `_claude-maintainer/{kit-maintainer.md,commands,scripts}` | kit source · `~/.claude/…` |
+| `_claude-maintainer/{sync,migrations}` | kit source only — every project's `/sync-dev-kit` runs them from the clone |
 
 ## Discipline
 
@@ -217,5 +223,6 @@ machine running instructions the kit no longer holds.
 - Template-file sync conflicts (e.g. `ci.yml`: kit structure + project values) →
   hand-merge directly. Never present an A/B/C menu.
 - The kit is a separate git repo. You edit its files, but you do NOT run its git
-  — no commits, no pushes, no "want me to commit the kit?" Kit git belongs to the
+  — no commits, no pushes, no "want me to commit the kit?" The one path to its `main`
+  is `/shipkit`, run in the kit when the human types it. Kit git belongs to the
   human maintainer, on their own schedule, same as every repo (see `git.md`).

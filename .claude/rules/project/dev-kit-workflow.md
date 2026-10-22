@@ -6,13 +6,19 @@ The kit is a project like any other, with its own `.claude/` of rules, hooks, sk
 
 ## The two source surfaces
 
-**`_claude-project/`** is what syncs out to consumer `<project>/.claude/` via `/sync-dev-kit`: rules, hooks, skills, the gitflow commands, agents, `settings.json`, `templates/`. Changes here reach every consumer on their next sync.
+**`_claude-project/`** is what syncs out to consumer `<project>/.claude/` via `/sync-dev-kit`: rules, hooks, skills, the gitflow commands, `/sync-dev-kit` itself and its launcher script, agents, `settings.json`, `templates/`. Changes here reach every consumer on their next sync.
 
-**`_claude-maintainer/`** holds `kit-maintainer.md`, `commands/sync-dev-kit.md`, `commands/review-stack.md` and their scripts, copied to `~/.claude/` by hand when setting up a maintainer machine (`kitmaintainer-handbook.md` §0). Its `migrations/` stay in the kit and are never copied: each is a `PROMPT.md`, and sometimes a codemod it reaches through `devKitPath`, that `/sync-dev-kit` runs in the consumer's session for every migration the kit added since that project last synced. Only the maintainer's machine gets this tier. `sync-dev-kit` must run from any project directory, so it is global by necessity — and a consumer machine that could sync would clobber projects the maintainer syncs ahead of them. Withholding the script beats guarding it: absent tooling has nothing to bypass.
+**`_claude-maintainer/`** never syncs into a project. It holds:
 
-**There is no global tier for consumers.** Every kit command ships per-project via `_claude-project/commands/`, `/work` included. A command file in `~/.claude/commands/` outranks the project's copy of the same name, so a global command cannot be updated by `/sync-dev-kit` and silently shadows the project's copy forever. `work.sh` refuses to run when it finds one, and that guard is the only reliable place to catch it: nothing else runs on every invocation.
+- `sync/` — the sync engine, its suite and the procedure `/sync-dev-kit` follows. Every project's launcher runs them from the kit clone named by `devKitPath`, so a sync always runs the kit's current engine.
+- `migrations/` — each a `PROMPT.md`, and sometimes a codemod it reaches through `devKitPath`, that `/sync-dev-kit` runs in a project's session for every migration the kit added since that project last synced. `rules/project/migrations.md` is how one is written.
+- `kit-maintainer.md`, `commands/review-stack.md` and `scripts/review-stack.sh` — the maintainer's own surface, copied to `~/.claude/` by hand when setting up a maintainer machine (`kitmaintainer-handbook.md` §0.1).
 
-`kit-maintainer.md` is inert unless `~/.claude/CLAUDE.md` imports it (`@kit-maintainer.md`), and the separate `~/.claude/kitmaster` marker is what makes `block-kit-edit.sh` inert. Both are per-machine and deliberately unshipped; `--maintainer` warns when either is missing and never creates them.
+**Whoever holds a project's keys syncs it, with the project's own `/sync-dev-kit`.** A team's syncer takes the kit's latest release on their own schedule; the maintainer syncs only the projects whose keys they hold. Only the maintainer changes the kit.
+
+**There is no global tier for consumers.** Every kit command ships per-project via `_claude-project/commands/`, `/work` and `/sync-dev-kit` included. A command file in `~/.claude/commands/` outranks the project's copy of the same name, so a global command cannot be updated by `/sync-dev-kit` and silently shadows the project's copy forever. `work.sh` refuses to run when it finds a global `work.md` or `sync-dev-kit.md`, and that guard is the only reliable place to catch one: nothing else runs on every invocation.
+
+`kit-maintainer.md` is inert unless `~/.claude/CLAUDE.md` imports it (`@kit-maintainer.md`), and the separate `~/.claude/kitmaster` marker is what makes `block-kit-edit.sh` inert and lets the launcher sync from the kit's working tree. Both are per-machine and deliberately unshipped.
 
 `_statusline/statusline.sh` installs to `~/.claude/statusline.sh` via `/install-statusline`, one time. It is an asset, not a command.
 
@@ -20,7 +26,7 @@ The kit is a project like any other, with its own `.claude/` of rules, hooks, sk
 
 The kit repo's project-level config, loaded when working in the kit. It holds the part of `_claude-project/` the kit actually uses — gitflow commands, the shared rules, hooks and skills — which is everything the manifest below does not mark template-only. The manifest governs; a large slice is deliberately absent.
 
-It also holds kit-custom items that never propagate: the `install-cpl` and `install-statusline` commands, the kit-specific rules `dev-kit-workflow.md`, `sync-design-pre-read.md` and `hook-testing.md`, and the pre-ship gate — `project-gate.sh` and `kit-gate/` (kitmaintainer-handbook.md §9.11). Edit those in place — they have no other home, and the "kit's own rule tweak" row below does not apply to them.
+It also holds kit-custom items that never propagate: the `install-cpl`, `install-statusline` and `shipkit` commands, `scripts/shipkit.sh`, the kit-specific rules `dev-kit-workflow.md`, `sync-design-pre-read.md`, `hook-testing.md` and `migrations.md`, and the pre-ship gate — `project-gate.sh` and `kit-gate/` (kitmaintainer-handbook.md §9.11). Edit those in place — they have no other home, and the "kit's own rule tweak" row below does not apply to them.
 
 Those prove the extensibility pattern: any project can add commands in its own `.claude/commands/` that the kit knows nothing about.
 
@@ -31,12 +37,15 @@ Those prove the extensibility pattern: any project can add commands in its own `
 | Change to | Propagate to |
 |-----------|--------------|
 | `_claude-project/*` | Mirror into the kit's `.claude/` so the kit itself uses it — **unless the item is template-only** per the manifest below. Commit both surfaces when mirrored. |
-| `_claude-maintainer/*` | Edit the kit source AND `~/.claude/` in the SAME pass; `diff` to prove byte-identical. |
+| `_claude-maintainer/{kit-maintainer.md,commands,scripts}` | Edit the kit source AND `~/.claude/` in the SAME pass; `diff` to prove byte-identical. |
+| `_claude-maintainer/{sync,migrations}` | Lives only in the kit — every launcher runs it from the clone. Edit in place. |
 | `_statusline/statusline.sh` | Edit the kit source AND `~/.claude/statusline.sh` in the SAME pass; `diff` to prove byte-identical. `/install-statusline` is bootstrap, not propagation. |
 | Kit-custom command or rule in `.claude/` | Lives only there — edit in place. Do not move to `_claude-project/`, do not install globally. |
 | Kit's own tweak to a SHARED rule | Copy to `_claude-project/rules/` if it applies to every project; leave it in `.claude/rules/` if it is about the kit's own machinery. |
 
 "Commit both surfaces" means one commit containing both, so the kit is never at a state where source and dogfood disagree.
+
+**Everything reaches the kit's `main` through `/shipkit`,** which commits, opens the PR with the release notes, merges, and publishes the dated release the projects sync. `/ship-main` does not ship the kit: the pre-ship gate refuses on `main`.
 
 **Setting up a maintainer machine is a one-time manual copy, documented as prose in `kitmaintainer-handbook.md` §0 — never a command.** It happens twice in the kit's life (a new machine, or someone taking over a fork), and a dedicated command for that is a maintenance surface earning nothing. Propagation is editing both copies in the same pass, as the table above says; a setup procedure is not propagation, and reaching for one to deliver an edit leaves the change half-applied.
 
@@ -73,6 +82,7 @@ The kit dogfoods only what it actually uses. Everything below ships to consumers
 | `templates/knip.config.ts` | The kit's unused-code configuration. It reads a root `package.json` and the workspaces it declares; the kit has neither, and no JavaScript to analyse. |
 | `templates/scripts/**` | Seeds for a consumer's `scripts/` — `check-dep-alignment.mjs`, `check-workspace-tiers.mjs`, `check-stack.mjs`, `db-branch.mjs`, `check-integration-coverage.mjs`. The dependency, tier and stack checks read a `package.json` / workspace graph the kit does not have; the branch resolver and the coverage check need a database, and the kit has none. |
 | `rules/project/README.md` | Consumer scaffolding placeholder; the kit has its own `rules/project/` content. |
+| `commands/sync-dev-kit.md`, `scripts/sync-dev-kit.sh` and its suite | The launcher syncs a project from the kit clone; the engine refuses to run inside the kit itself. |
 
 Anything in `_claude-project/` not listed above IS dogfooded. Kit-custom items (listed under "The kit's own `.claude/`") live only in the kit's `.claude/` and are governed by the propagation table, not this one.
 
@@ -94,7 +104,7 @@ When any new command, skill, hook or rule is added to `_claude-project/`, make a
 |---|---|
 | `overview.md` | Everyone — the build-and-ship loop and which guide is yours |
 | `developer-handbook.md`, `designer-handbook.md`, `devops-handbook.md` | One role each; short, the why and the loop, pointing to reference |
-| `*-cheatsheet.md` | One role's commands, one page |
+| `*-cheatsheet.md` | One role's commands, one page; `kit-sync-cheatsheet.md` is for a project's kit syncer |
 | `windows-handbook.md` | A developer on Windows — the machine setup the kit's hooks need |
 | Setup and pattern references (`new-project-setup.md`, `infrastructure.md`, …) | Handed to an AI to walk a human through; a rule may cite one |
 | `kitmaintainer-handbook.md`, `kit-repo-github-config.md`, `hook-patterns.md` | The kit maintainer |

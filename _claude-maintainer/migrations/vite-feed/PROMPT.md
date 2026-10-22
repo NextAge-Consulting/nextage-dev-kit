@@ -2,6 +2,21 @@
 
 `/sync-dev-kit` runs everything below the line in the consumer project's session, once it has landed `<UI package>/design-system/vite.feed.config.ts`. It applies to a project whose design-system config's `css.build` runs the Tailwind CLI; any other project has nothing to do.
 
+## Estimate
+
+Kind: mechanical
+Your time: none — runs unattended.
+
+Blast radius:
+
+```bash
+UI=$(jq -r '.DESIGN_UI_PACKAGE // ""' .claude/sync-substitutions.json)
+grep -n 'build:' "$UI/design-system/design-system.config.mjs"
+git grep -l '@tailwindcss/cli' -- '*package.json'
+```
+
+A `css.build` that runs the Tailwind CLI means it applies; anything else, or no config, means it does not. Reach is the design-system config, the UI package's `package.json`, one new `feed.css`, and each `package.json` listed.
+
 ---
 
 Switch this project's design-system feed stylesheet from the Tailwind CLI to Vite, and remove `@tailwindcss/cli`. Work through every step to the end. Make no git commits — leave everything uncommitted for me to review.

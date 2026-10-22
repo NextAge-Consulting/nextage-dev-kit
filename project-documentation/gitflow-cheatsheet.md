@@ -274,7 +274,7 @@ Settings that change how gitflow behaves for you alone go in the `env` block of
 
 - Raw `git commit`, `git push`, `git merge`, `git checkout <file>`, `git reset`, `git revert`, `git clean`, `git restore` — **blocked by `git-guard.sh`**. If you genuinely need one, prefix with `SKIP_GIT_GUARD=1` and state the reason.
 - Cherry-pick specific files into a commit — gitflow always commits ALL changes. If you need to split, ask.
-- Run `/sync-dev-kit` if you're a consumer developer — that's maintainer-only.
+- Run `/sync-dev-kit` unless you are the project's kit syncer — one person per project syncs it (`kit-sync-cheatsheet.md`).
 - Run database migrations from Claude — always human-driven.
 
 ---

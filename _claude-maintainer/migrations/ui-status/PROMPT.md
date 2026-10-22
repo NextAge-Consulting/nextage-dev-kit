@@ -2,6 +2,23 @@
 
 `/sync-dev-kit` runs everything below the line in the consumer project's session, once it has landed the kit version that ships `.claude/skills/ui-patterns/scripts/check-ui-status.mjs`. A project with no component or pattern files needs none of it: the check passes saying it does not apply.
 
+## Estimate
+
+Kind: asks for decisions — each role whose values change what a user sees, which you approve or have adjusted
+Your time: about 2 minutes for each such role. The number is known only once the roles are built; most roles name values already in use and need nothing.
+
+Blast radius:
+
+```bash
+KIT=$(jq -r .devKitPath ~/.claude/dev-kit-config.json)
+node "$KIT/_claude-maintainer/migrations/ui-status/mark-approved.mjs" . --dry-run
+grep -c 'project:begin list-patterns' .claude/rules/project/ui-inventory.md
+jq -r '"DESIGN_UI_PACKAGE=\(.DESIGN_UI_PACKAGE // "")"' .claude/sync-substitutions.json
+jq -r '"lint:tokens: \(.scripts["lint:tokens"] // "none")"' package.json
+```
+
+Every file the first command lists is marked approved, mechanically. A `list-patterns` count above zero means that region's content moves by hand. An empty `DESIGN_UI_PACKAGE` or no `lint:tokens` script means the roles are built from scratch — the large part, touching every component and the token stylesheets; with both set, that part is already in place.
+
 ---
 
 Bring this project's UI onto the kit's approval model. Work through every step below to the end. Make no git commits — leave everything uncommitted for me to review.
@@ -19,7 +36,7 @@ When the sync reported `.claude/rules/project/ui-inventory.md` as unable to merg
 
 - each list pattern becomes a row in the `pattern-references` region;
 - the rules it carried — which pattern to use when, the boundary between them, "never a third" — move into the reference file of the pattern they govern;
-- then delete the region and its markers, and apply the kit's version: `bash ~/.claude/scripts/sync-dev-kit.sh --apply-file _claude-project/templates/ui-inventory.md`.
+- then delete the region and its markers, and apply the kit's version: `bash .claude/scripts/sync-dev-kit.sh --apply-file _claude-project/templates/ui-inventory.md`.
 
 ## 2. Mark everything that exists as approved
 

@@ -2,6 +2,21 @@
 
 `/sync-dev-kit` runs everything below the line in the consumer project's session, once it has landed the kit version whose `stack-manifest.json` blesses `pg`. A project that declares no `pg` dependency needs nothing.
 
+## Estimate
+
+Kind: mechanical
+Your time: none — runs unattended.
+
+Blast radius:
+
+```bash
+KIT=$(jq -r .devKitPath ~/.claude/dev-kit-config.json)
+jq -r .packages.pg.version "$KIT/_claude-project/stack-manifest.json"
+git ls-files '*package.json' | xargs grep -H '"pg":'
+```
+
+Each `package.json` listed declares `pg`; one whose version differs from the first line is changed, along with the lockfile. None listed: it does not apply.
+
 ---
 
 Pin this project's `pg` to the version the kit blesses. Make no git commits — leave everything uncommitted for me to review.

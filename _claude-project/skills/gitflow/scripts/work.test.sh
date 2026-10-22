@@ -38,6 +38,15 @@ git add -A; git commit -qm base; git push -q origin main
 
 run() { out=$("$W" "$@" 2>"$tmp/err"); rc=$?; err=$(cat "$tmp/err"); }
 
+# A retired global command shadowing the project's copy refuses before anything runs.
+for c in work sync-dev-kit; do
+    mkdir -p "$HOME/.claude/commands"; printf 'old\n' > "$HOME/.claude/commands/$c.md"
+    run
+    { [ "$rc" -eq 8 ] && grep -q "retired global /$c command" <<<"$err"; } \
+        && ok "a global $c.md refuses /work" || bad "global $c.md (rc=$rc): $err"
+    rm "$HOME/.claude/commands/$c.md"
+done
+
 run --discussion session-timeout
 [ "$rc" -eq 0 ] && ok "slug resolves" || bad "slug resolves (rc=$rc): $err"
 grep -q 'D1 — Which option?' <<<"$out" && ok "pointer printed" || bad "pointer printed: $out"

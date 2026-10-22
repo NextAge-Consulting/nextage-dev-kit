@@ -306,14 +306,19 @@ stage_app() {
   # We use `printf` (not a `# comment` line) because zsh interactive shells
   # default INTERACTIVE_COMMENTS off — `# foo (:3010)` would parse as a
   # command and zsh's globbing would choke on `(:)`.
+  #
+  # One line, joined by `&&`: when the `cd` does not take effect — the text can
+  # reach a tab whose shell is still starting — nothing runs in the folder the
+  # tab opened in, and the tab shows the `cd` error instead of npm's misleading
+  # "Missing script". The title escape stays after the `cd`, so the shell's
+  # directory-change hook does not overwrite it.
   local applescript
   applescript=$(cat <<APPLESCRIPT
 tell application "iTerm2"
   tell current window
     create tab with profile "DevServer"
     tell current session
-      write text "cd '$target_dir'"
-      write text "printf '\\\\e]0;$title\\\\a'; $cmd"
+      write text "cd '$target_dir' && printf '\\\\e]0;$title\\\\a' && $cmd"
     end tell
   end tell
 end tell

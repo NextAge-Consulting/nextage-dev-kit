@@ -131,9 +131,10 @@ jq -r '.DB_ENGINE // ""' .claude/sync-substitutions.json
 cannot reach its database — when `NEON_API_KEY` or `NEON_PROJECT_ID` is missing from `.env`
 — and `npm test` still exits green. On SQL Server it is dropped only in CI with
 `INTEGRATION_CI_OFF` declared: a missing `DB_*` key makes the harness refuse and the run
-fail, saying which keys to set. Read the summary for `|integration|` labels in the
-per-file output. A run with none means integration did not run — say so and name the
-missing credential rather than reporting a pass.
+fail, saying which keys to set. Run it as `NO_COLOR=1 npm test` and read the per-file
+output for `|integration|` labels — with colour on, vitest prints each label as a badge
+with no `|` around it. A run with none means integration did not run — say so and name
+the missing credential rather than reporting a pass.
 
 **On PostgreSQL, run the integration suite: it cannot touch production.** Each run
 provisions its own throwaway Neon branch forked from production, migrates it, points

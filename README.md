@@ -36,29 +36,20 @@ git clone https://github.com/NextAge-Consulting/nextage-dev-kit.git
 cd nextage-dev-kit
 ```
 
-**If you are a developer, designer or DevOps engineer, you are done** — nothing is installed into `~/.claude/`. Every kit command arrives inside your project when the maintainer syncs it. Start with `project-documentation/overview.md`, which points you to your role's guide.
+**If you are a developer, designer or DevOps engineer, you are done** — nothing is installed into `~/.claude/`. Every kit command arrives inside your project. Start with `project-documentation/overview.md`, which points you to your role's guide.
 
-**If you are the kit maintainer**, follow `project-documentation/kitmaintainer-handbook.md` §0.1 to copy the maintainer surface into `~/.claude/`, which is what makes `/sync-dev-kit` available from any project.
+**If you are your project's kit syncer**, `project-documentation/kit-sync-cheatsheet.md` is your page: one prompt sets the project up, and `/sync-dev-kit` takes each release.
+
+**If you are the kit maintainer**, follow `project-documentation/kitmaintainer-handbook.md` §0.1 to copy the maintainer surface into `~/.claude/`.
 
 ### For New/Existing Projects
 
-From any project directory in Claude Code:
+Once the project is set up (`kit-sync-cheatsheet.md`, "Set up"), its kit syncer runs, in the project:
 ```
 /sync-dev-kit
 ```
 
-This command interactively syncs:
-- `.claude/settings.json` — hooks, permissions, environment variables
-- `.claude/hooks/` — enforcement hook scripts
-- `.claude/rules/` — constitution, guidelines, integration rules
-- `.claude/skills/` — gitpro, shadcn, agent-browser, etc.
-- `.claude/commands/` — shared commands
-- `.claude/scripts/` — shared scripts
-- MCP dependencies — checks Ref, Exa are installed
-- CLAUDE.md — legacy import warnings
-- Creates `.claude/rules/project/` for project-specific rules
-
-It also self-updates the bootstrap commands in `~/.claude/` and warns if the kit repo has remote updates.
+It brings this machine's kit clone to the kit's latest release, briefs the syncer on what the release will ask of them and of the project, and on their go brings in every kit-owned file — `.claude/` (settings, hooks, rules, skills, commands, scripts), `.github/`, `.gemini/` and the root configs — then walks each setting and decision it listed, and runs the release's migrations. It commits nothing.
 
 ### Optional Utilities
 
@@ -122,17 +113,13 @@ not survive a clone, so enforcement lives entirely in the Claude Code hooks unde
 
 ### Global `~/.claude/` (minimal)
 
-The kit installs only bootstrap commands globally. Everything else is project-level.
+The kit installs no commands globally. A kit syncer's machine holds one pointer to its kit clone; everything else is project-level.
 
 ```
 ~/.claude/
 ├── settings.json              # Your UI prefs (unmanaged by kit)
 ├── statusline.sh              # Optional (install via /install-statusline)
-├── dev-kit-config.json    # Pointer to kit repo
-├── commands/
-│   └── sync-dev-kit.md    # Bootstrap (self-updating)
-└── scripts/
-    └── sync-dev-kit.sh    # Bootstrap (self-updating)
+└── dev-kit-config.json        # devKitPath: where this machine's kit clone is
 ```
 
 ## Project-Specific Rules
@@ -144,7 +131,7 @@ Each project can have custom rules that won't be overwritten by sync:
 └── my-custom-rules.md    # Never synced, never touched
 ```
 
-The `project/` subfolder is created automatically by `/sync-dev-kit` if it doesn't exist.
+`/sync-dev-kit` never compares or overwrites anything there; the one file it writes there is the UI inventory, and only inside the inventory's own project regions.
 
 ## Key Components
 
@@ -211,7 +198,8 @@ The `project/` subfolder is created automatically by `/sync-dev-kit` if it doesn
 
 | Command | Available | Purpose |
 |---------|-----------|---------|
-| `/sync-dev-kit` | All projects + global | Sync project with kit |
+| `/sync-dev-kit` | Every project | Bring the project up to the kit's latest release |
+| `/shipkit` | Kit only | Release the kit |
 | `/install-cpl` | Kit only | Install Claude Project Launcher |
 | `/install-statusline` | Kit only | Install custom statusline |
 
@@ -227,7 +215,7 @@ If your project uses the old AGENTS.md/AIRules pattern:
 1. Run `/sync-dev-kit` — it warns about legacy files
 2. Move custom rules to `.claude/rules/project/`
 3. Delete `AGENTS.md` and `AIRules/` if present
-4. Delete `~/.claude/commands/work.md` if present — a global `/work` outranks the project's copy and silently shadows it. `work.sh` refuses to run until it is gone.
+4. Delete `~/.claude/commands/work.md` and `~/.claude/commands/sync-dev-kit.md` if present — a global command outranks the project's copy and silently shadows it. `work.sh` refuses to run until they are gone.
 
 ## For AI Agents
 
