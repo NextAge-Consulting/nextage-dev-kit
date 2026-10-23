@@ -34,6 +34,18 @@ It carries no git state and no machine state.
 
 The test for both: **if the next session can get the answer by running one command, it does not go in the document.** Say what needs doing and what it needs in order to run; never what the machine happened to be doing when the last session stopped.
 
+## In a worktree
+
+**Inside a worktree (`git rev-parse --git-dir` differs from `git rev-parse --git-common-dir`), the handoff is the worktree's own, at `.claude/worktree-handoff.md` in the worktree root.** It is gitignored, so it never rides into the PR, and it goes when the worktree is removed. `/work --worktree <label>` reads it on re-entry.
+
+It opens with this line, before the header from Step 4, and the TLDR says the same:
+
+```
+Worktree handoff — <label> (branch <branch>). This is not your main handoff; it is deleted with this worktree.
+```
+
+`<label>` is the worktree folder's name. Steps 1, 3 and 4 run against this file, which is otherwise written exactly like the main one. **Skip Step 2**: the temporary folder here is the worktree's checked-out copy, and a sweep would land in the PR. Never touch `handoff-<login>.md` from a worktree.
+
 ## Procedure
 
 ### Step 1: Read the outgoing handoff

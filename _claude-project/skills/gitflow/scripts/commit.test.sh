@@ -59,4 +59,23 @@ FAKE_FAIL=1 commit "fix: offline"; rc=$?
 { [ "$rc" -eq 0 ] && [ "$(git branch --show-current)" = feat/next-design ] && grep -q "could not ask GitHub" "$tmp/out"; } \
     && ok "GitHub unreachable: commits here, and says it could not check" || bad "offline (rc=$rc): $(cat "$tmp/out")"
 
+# ─── A worktree's wip/ branch is renamed by its first commit, never after a push ──
+git fetch -q origin main
+git checkout -q --no-track -b wip/alice-spike origin/main
+git config branch.wip/alice-spike.gitflow-issues 42
+printf 'wip work\n' > g.txt
+commit "feat(auth): Sign in with a passkey"; rc=$?
+{ [ "$rc" -eq 0 ] && [ "$(git branch --show-current)" = feat/sign-in-with-a-passkey ] \
+  && ! git show-ref --verify --quiet refs/heads/wip/alice-spike \
+  && git ls-remote --exit-code origin feat/sign-in-with-a-passkey >/dev/null \
+  && [ "$(git config branch.feat/sign-in-with-a-passkey.gitflow-issues)" = 42 ]; } \
+    && ok "an unpushed wip/ branch takes the message's <type>/<slug>, issue links and all" || bad "wip rename (rc=$rc): $(cat "$tmp/out")"
+
+git checkout -q --no-track -b wip/alice-pushed origin/main
+printf 'pushed\n' > h.txt; git add -A; git commit -qm "feat: early"; git push -q -u origin wip/alice-pushed 2>/dev/null
+printf 'more\n' > i.txt
+commit "feat: later work"; rc=$?
+{ [ "$rc" -eq 0 ] && [ "$(git branch --show-current)" = wip/alice-pushed ]; } \
+    && ok "a wip/ branch already on origin keeps its name" || bad "pushed wip (rc=$rc): $(cat "$tmp/out")"
+
 exit "$fail"

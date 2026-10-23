@@ -154,7 +154,7 @@ File: `.claude/skills/gitflow/scripts/deploy.sh`. Slash command spec: `.claude/c
 **Procedure:**
 
 1. **State gates** (refuse to run if any fail):
-   - On `main`
+   - On `main`, or detached exactly at `origin/main` — a worktree `/merge` kept to deploy from, which `/deploy` removes once the release ships
    - Working tree clean
    - Local `main` == `origin/main` (no stale local; nothing un-pushed)
    - HEAD's required check-runs are not `failure` / `timed_out` / `cancelled`

@@ -7,6 +7,7 @@
 #   work.sh <PR#>                        # pick up a pull request: switch to its branch
 #   work.sh --retrieve <branch>          # fetch a teammate's branch and switch to it
 #   work.sh --discussion <slug|url>      # default mode, then print a finished discussion's folder
+#   work.sh --worktree [<name>|<issue#>] # create or re-enter an isolated worktree (opt-in)
 #
 # Responsibilities:
 #   - On main: refresh main from origin and STAY THERE. No branch is cut.
@@ -22,9 +23,26 @@
 #     slug or by the artifact URL recorded in its pointer), run the default mode,
 #     then print the pointer and the folder's files. Reading the published page and
 #     its comments needs Claude's own tools, so the pull-back itself is work.md's.
+#   - For --worktree: create <primary>/.claude/worktrees/<label> on a new wip/
+#     branch, link the per-machine files, install dependencies — or re-enter it.
+#     Entering it is work.md's (EnterWorktree), since only Claude can move the session.
+#   - In the primary checkout, every mode but --worktree names each open worktree
+#     and asks whether to work in it or here.
 #
-# One checkout, one branch at a time. Parallel bodies of work are not a thing
-# this shop does; `git switch` is how you move between them when it is.
+# By default: one checkout, one branch at a time, and `git switch` moves between
+# bodies of work. Worktree mode is the opt-in for two sessions at once. They
+# cannot share a checkout: they would share one branch and one index, and /commit
+# commits everything, so one session's commit would sweep up the other's
+# half-done work.
+#
+# WHY --worktree CUTS A BRANCH AT ONCE
+# ------------------------------------
+# The one exception to "the branch is cut at the first commit" (below). Two
+# worktrees cannot both have `main` checked out, so the worktree gets its own
+# branch the moment it exists, cut from origin/main under a placeholder name,
+# wip/<login>-<label>. /commit renames it from the first commit's message while
+# it is still unpushed, so the branch ends up named as it would have been
+# anyway.
 #
 # WHY BARE `work.sh` DOES NOT CUT A BRANCH
 # ----------------------------------------
@@ -64,8 +82,8 @@ source "$SCRIPT_DIR/issue_helpers.sh"
 
 # ─── Arg parsing ───────────────────────────────────────────────────────────
 
-MODE=""        # "", "issue", "retrieve", "discussion"
-ARG=""         # the value for the mode (issue#, branch, discussion slug or URL)
+MODE=""        # "", "issue", "retrieve", "discussion", "worktree"
+ARG=""         # the value for the mode (issue#, branch, discussion slug or URL, worktree name)
 
 # A value flag given last with no value leaves one argument to shift, not two;
 # `shift 2` would then fail and end the script before the mode could say what
@@ -81,6 +99,11 @@ while [[ $# -gt 0 ]]; do
         --discussion)
             [ -n "$MODE" ] && { echo "work.sh: --discussion conflicts with --$MODE" >&2; exit 2; }
             MODE="discussion"; ARG="${2:-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
+        --worktree)
+            # The value is optional: a bare --worktree takes a generated label.
+            [ -n "$MODE" ] && { echo "work.sh: --worktree conflicts with --$MODE" >&2; exit 2; }
+            MODE="worktree"
+            if [ $# -gt 1 ] && [ "${2#--}" = "$2" ]; then ARG="$2"; shift 2; else shift 1; fi ;;
         *)
             # Bare positional issue token(s) → shorthand for --issue. Accepts
             # every shape --issue does ("27", "27,28", "#27,#28", "27, 28"), so
@@ -457,7 +480,174 @@ sync_local_branch() {
     fi
 }
 
+# ─── Mode: --worktree [<name>|<issue#>] ────────────────────────────────────
+# Opt-in isolation: a worktree at <primary>/.claude/worktrees/<label> on a wip/
+# branch of its own (the header says why the branch is cut now). The label is the
+# name given; for an issue, <N>-<slug of its title>; with neither,
+# <login>-<YYYYMMDD-HHMM> in UTC. An existing label is re-entered, never recreated.
+#
+# stdout carries `WORKTREE: <path>` for work.md's EnterWorktree, and
+# `WORKTREE-HANDOFF: <file>` when the worktree's own handoff exists.
+WORKTREE_HANDOFF=".claude/worktree-handoff.md"
+
+# The login a label or branch is named for. gh's when it answers, else the OS user —
+# a label is a name, not an identity check, so being offline never blocks one.
+worktree_login() {
+    local login
+    if login=$(gh_login); then printf '%s\n' "$login"; return 0; fi
+    login=$(id -un)
+    echo "work.sh: gh could not say who you are — naming the worktree for '$login'." >&2
+    printf '%s\n' "$login"
+}
+
+# Symlink the per-machine files a worktree needs from the primary checkout: every
+# gitignored .env / .env.* and .claude/settings.local.json. Absolute targets, so a
+# change in the primary is a change everywhere. Idempotent: an existing file or link
+# is left alone, so re-entry heals only what is missing. node_modules is never
+# linked — bundlers resolve a symlinked node_modules to the primary's path and load
+# a second copy of every package; the worktree installs its own.
+link_worktree_files() {
+    local primary="$1" wt="$2" rel listing
+    if ! listing=$(git -C "$primary" ls-files --others --ignored --exclude-standard --directory); then
+        echo "work.sh: could not list the primary checkout's ignored files — nothing linked." >&2
+        return 1
+    fi
+    while IFS= read -r rel; do
+        case "${rel##*/}" in
+            .env.example) continue ;;
+            .env|.env.*) ;;
+            *) [ "$rel" = ".claude/settings.local.json" ] || continue ;;
+        esac
+        if [ -e "$wt/$rel" ] || [ -L "$wt/$rel" ]; then continue; fi
+        mkdir -p "$(dirname "$wt/$rel")"
+        ln -s "$primary/$rel" "$wt/$rel"
+        echo "work.sh: linked $rel from the primary checkout." >&2
+    done <<< "$listing"
+}
+
+# Install from the committed lockfile (rules/dependencies.md): never a bare install,
+# which may rewrite the lockfile. Returns non-zero when the install failed.
+install_worktree_dependencies() {
+    local wt="$1" cmd
+    if   [ -f "$wt/package-lock.json" ]; then cmd="npm ci --no-audit --no-fund"
+    elif [ -f "$wt/pnpm-lock.yaml" ];    then cmd="pnpm install --frozen-lockfile"
+    elif [ -f "$wt/yarn.lock" ] && [ -f "$wt/.yarnrc.yml" ]; then cmd="yarn install --immutable"
+    elif [ -f "$wt/yarn.lock" ];         then cmd="yarn install --frozen-lockfile"
+    elif [ -f "$wt/bun.lock" ] || [ -f "$wt/bun.lockb" ]; then cmd="bun install --frozen-lockfile"
+    elif [ -f "$wt/uv.lock" ];           then cmd="uv sync --frozen"
+    else
+        echo "work.sh: no lockfile in the worktree — no dependencies to install." >&2
+        return 0
+    fi
+    echo "work.sh: installing dependencies in the worktree ($cmd)…" >&2
+    # shellcheck disable=SC2086 # $cmd is one of the fixed commands above, split on purpose
+    ( cd "$wt" && $cmd ) >&2
+}
+
+mode_worktree() {
+    local primary label="" issue="" title login="" path branch existing
+    if ! primary=$(primary_checkout_root); then
+        echo "work.sh: could not find the primary checkout ('git worktree list' failed)." >&2
+        exit 3
+    fi
+
+    if [[ "$ARG" =~ ^#?[0-9]+$ ]]; then
+        issue="${ARG#\#}"
+        # An issue's worktree is found by its number, so a retitled issue still re-enters.
+        while IFS=$'\t' read -r existing _; do
+            case "$existing" in "$issue"-*) label="$existing"; break ;; esac
+        done < <(list_open_worktrees "$primary")
+        if [ -z "$label" ]; then
+            if ! title=$(validate_issue "$issue"); then
+                echo "work.sh: issue #$issue inaccessible; no worktree created." >&2
+                exit 4
+            fi
+            label="$issue-$(slugify "$title")"
+            label="${label%-}"
+        fi
+    elif [ -n "$ARG" ]; then
+        if ! [[ "$ARG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            echo "work.sh: worktree name '$ARG' — use letters, digits, '.', '_' and '-'." >&2
+            exit 2
+        fi
+        label="$ARG"
+    else
+        login=$(worktree_login)
+        label="$login-$(date -u +%Y%m%d-%H%M)"
+    fi
+    path="$primary/$WORKTREES_SUBDIR/$label"
+
+    if [ -e "$path" ]; then
+        local registered
+        if ! registered=$(git -C "$primary" worktree list --porcelain); then
+            echo "work.sh: 'git worktree list' failed — cannot tell whether $path is a worktree." >&2
+            exit 3
+        fi
+        if ! grep -qxF "worktree $path" <<< "$registered"; then
+            echo "work.sh: $path exists but is not a worktree of this repository — move it aside." >&2
+            exit 4
+        fi
+        branch=$(git -C "$path" branch --show-current)
+        echo "work.sh: re-entering worktree '$label' (${branch:-detached})." >&2
+        link_worktree_files "$primary" "$path" || true
+        echo "WORKTREE: $path"
+        [ -f "$path/$WORKTREE_HANDOFF" ] && echo "WORKTREE-HANDOFF: $path/$WORKTREE_HANDOFF"
+        return 0
+    fi
+
+    local fetch_out
+    if ! fetch_out=$(git -C "$primary" fetch origin main 2>&1); then
+        printf '%s\n' "$fetch_out" >&2
+        echo "work.sh: could not fetch origin/main — no worktree created. Check network and 'gh auth status'." >&2
+        exit 6
+    fi
+    [ -n "$login" ] || login=$(worktree_login)
+    branch=$(resolve_collision "wip/$login-$label")
+    mkdir -p "$primary/$WORKTREES_SUBDIR"
+    # --no-track: a branch cut from origin/main must not take origin/main as its upstream.
+    if ! git -C "$primary" worktree add --no-track -b "$branch" "$path" origin/main >&2; then
+        echo "work.sh: 'git worktree add' failed (git's reason above) — no worktree created." >&2
+        exit 9
+    fi
+    echo "work.sh: created worktree '$label' on $branch, from origin/main." >&2
+    link_worktree_files "$primary" "$path" || true
+    cd "$path"
+
+    if [ -n "$issue" ]; then
+        link_issue_to_branch "$issue" "$branch"
+        move_issue_to_in_progress "$issue"
+        assign_issue_to_current_user "$issue"
+    fi
+
+    local install_rc=0
+    install_worktree_dependencies "$path" || install_rc=$?
+
+    echo "WORKTREE: $path"
+    [ -n "$issue" ] && dump_issue_context "$issue"
+    if [ "$install_rc" -ne 0 ]; then
+        echo "work.sh: the worktree is ready, but installing its dependencies FAILED (above)." >&2
+        echo "  Fix the cause and run the install inside $path before building or testing." >&2
+        exit 11
+    fi
+}
+
+# In the primary checkout, each open worktree is named with the one question the
+# session asks about it. Nothing more: what is in it is that worktree's business.
+report_open_worktrees() {
+    in_linked_worktree && return 0
+    local primary label branch
+    primary=$(primary_checkout_root) || return 0
+    while IFS=$'\t' read -r label branch; do
+        [ -n "$label" ] || continue
+        echo "You have an open worktree $label (branch $branch). Work in it, or here?"
+    done < <(list_open_worktrees "$primary")
+}
+
 # ─── Dispatch ──────────────────────────────────────────────────────────────
+case "$MODE" in
+    "worktree") mode_worktree; exit 0 ;;
+esac
+report_open_worktrees
 case "$MODE" in
     "")         mode_default ;;
     "issue")

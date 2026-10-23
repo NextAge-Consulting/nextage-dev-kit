@@ -69,6 +69,21 @@ has 'neither pyright nor mypy' "$out" 'pyrightconfig.json alone without pyright 
 printf '#!/bin/sh\nexit 0\n' > "$tmp/fakepy/pyright"; chmod +x "$tmp/fakepy/pyright"
 [ "$(run "$tmp/pyconf" "$tmp/fakepy:$(path_without pyright mypy)")" = SILENT ] && ok 'pyrightconfig.json with pyright on PATH' || bad 'warned with pyright present'
 
+echo "WORKTREE — the session's checkout is the payload's cwd, not CLAUDE_PROJECT_DIR:"
+# gitflow's worktree mode puts each worktree at <primary>/.claude/worktrees/<label>, and
+# Claude Code keeps CLAUDE_PROJECT_DIR at the primary in a worktree session.
+wp="$tmp/wtp"; mkdir -p "$wp/src"
+printf '{"scripts":{"check-types":"tsc --noEmit"}}' > "$wp/package.json"; : > "$wp/src/a.ts"
+git -C "$wp" init -q; git -C "$wp" config user.email t@example.com; git -C "$wp" config user.name t
+git -C "$wp" add -A; git -C "$wp" commit -qm init
+git -C "$wp" worktree add -q "$wp/.claude/worktrees/x" -b wt-x 2>/dev/null
+ww="$wp/.claude/worktrees/x"
+printf '{"scripts":{"build":"vite build"}}' > "$ww/package.json"   # the worktree's branch drops the script
+in_cwd(){ printf '{"hook_event_name":"SessionStart","cwd":"%s"}' "$1" | CLAUDE_PROJECT_DIR="$wp" "$H" 2>/dev/null; }
+case "$(in_cwd "$ww")" in *'no \"check-types\" script'*) ok 'a session in the worktree checks the worktree' ;;
+                          *) bad 'a session in the worktree checked the primary' ;; esac
+[ -z "$(in_cwd "$wp")" ] && ok 'a session in the primary checks the primary' || bad 'a session in the primary warned'
+
 echo "MARKERS — each session's guards re-check the tools:"
 : > "$TMPDIR/kit-toolchain-ok-${UID:-0}-123"
 run "$tmp/empty" "$PATH" >/dev/null

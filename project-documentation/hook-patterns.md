@@ -205,7 +205,7 @@ For even stronger security:
 ## Part 3: The kit's guard library
 
 Every kit guard sources `hooks/guard-lib.sh`, plain bash with no `jq` or `python3`, and
-builds on three of its pieces.
+builds on four of its pieces.
 
 **A guard that cannot run refuses.** A guard allows by printing nothing, so a guard whose
 `jq` is missing reads an empty tool name and allows everything — silently. `require_tools
@@ -218,6 +218,14 @@ platform's install line, then exits the hook. Call it before parsing the payload
 drive-letter forms `C:/`, `c:\`, `/c/` and `/cygdrive/c/`, `.` and `..`, and symlinks as
 the same file. A guard comparing a payload's path against the project or a pattern uses
 them; a raw string comparison misses every Windows spelling.
+
+**The project is the checkout holding the file.** In a worktree session Claude Code keeps
+`CLAUDE_PROJECT_DIR` at the primary checkout while the files being edited live in the
+worktree, so a guard that takes its root from `CLAUDE_PROJECT_DIR` finds every worktree
+file outside the project and goes quiet. `project_root_for <path>` returns the top of the
+checkout holding the path — the worktree's own root inside one — and falls back to
+`CLAUDE_PROJECT_DIR` outside git. A guard with no file to judge passes the payload's cwd,
+read without `jq` by `hook_cwd_of`.
 
 **Replayed shell edits.** Edit/Write guards never see a file a shell command changed.
 `bash-edit-guard.sh` (PostToolUse on Bash) replays each changed file through every Edit

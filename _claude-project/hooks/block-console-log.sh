@@ -28,7 +28,8 @@ if ! printf '%s' "$FILE_PATH" | grep -qE '\.(ts|tsx|js|jsx)$'; then
     exit 0
 fi
 
-PROJECT_DIR=$(normalize_path "${CLAUDE_PROJECT_DIR:-$PWD}")
+# The checkout holding the file: in a worktree, the worktree's own manifests.
+PROJECT_DIR=$(project_root_for "$FILE_PATH")
 REL=$(path_rel_to "$PROJECT_DIR" "$FILE_PATH") || REL=""
 if ! python3 -c '
 import glob, json, os, re, sys

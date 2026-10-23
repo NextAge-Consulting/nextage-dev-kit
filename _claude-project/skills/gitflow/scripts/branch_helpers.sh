@@ -111,16 +111,76 @@ derive_branch_from_message() {
         [ -n "$extracted" ] && type="$extracted"
     fi
 
-    # Slugify description: lowercase, non-alnum → '-', collapse, trim, truncate to 40 chars.
     local slug
-    slug=$(printf '%s' "$description" \
-        | tr '[:upper:]' '[:lower:]' \
-        | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' \
-        | cut -c1-40 \
-        | sed -E 's/-+$//')
+    slug=$(slugify "$description")
     [ -z "$slug" ] && slug="changes"
 
     echo "${type}/${slug}"
+}
+
+# slugify <text> — lowercase, every run of non-alphanumerics → '-', trimmed, cut to
+# 40 characters. Empty when the text has no letters or digits.
+slugify() {
+    printf '%s' "$1" \
+        | tr '[:upper:]' '[:lower:]' \
+        | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' \
+        | cut -c1-40 \
+        | sed -E 's/-+$//'
+}
+
+# ─── Worktrees ──────────────────────────────────────────────────────────────
+# Worktree mode is opt-in (`/work --worktree`). A worktree lives at
+# <primary>/.claude/worktrees/<label> on a wip/ branch of its own, so two sessions
+# never share a branch or an index. Detection is git's own: a linked worktree's
+# git dir differs from the repository's common dir. No config key records it.
+WORKTREES_SUBDIR=".claude/worktrees"
+
+# in_linked_worktree — returns 0 inside a linked worktree, 1 in the primary checkout.
+in_linked_worktree() {
+    local gd common
+    gd=$(git rev-parse --git-dir 2>/dev/null) || return 1
+    common=$(git rev-parse --git-common-dir 2>/dev/null) || return 1
+    gd=$(cd "$gd" && pwd -P) || return 1
+    common=$(cd "$common" && pwd -P) || return 1
+    [ "$gd" != "$common" ]
+}
+
+# primary_checkout_root — the primary checkout's path: the first entry `git worktree
+# list` prints, wherever this is run from.
+primary_checkout_root() {
+    local line
+    line=$(git worktree list --porcelain 2>/dev/null | head -1) || return 1
+    [ "${line#worktree }" != "$line" ] || return 1
+    printf '%s\n' "${line#worktree }"
+}
+
+# list_open_worktrees <primary_root> — one "<label>\t<branch>" line per worktree
+# under <primary_root>/.claude/worktrees/. A detached one reports "(detached)".
+list_open_worktrees() {
+    local root="$1" dir="" branch="" line
+    while IFS= read -r line; do
+        case "$line" in
+            "worktree "*) dir="${line#worktree }"; branch="(detached)" ;;
+            "branch refs/heads/"*) branch="${line#branch refs/heads/}" ;;
+            "")
+                case "$dir" in "$root/$WORKTREES_SUBDIR/"*) printf '%s\t%s\n' "${dir##*/}" "$branch" ;; esac
+                dir="" ;;
+        esac
+    done < <(git worktree list --porcelain 2>/dev/null; echo)
+}
+
+# is_wip_branch <name> — a branch `/work --worktree` cut, still carrying its
+# placeholder name. /commit renames it from the first commit's message.
+is_wip_branch() {
+    [ "${1#wip/}" != "$1" ]
+}
+
+# wip_branch_unpushed <name> — returns 0 when <name> has no upstream and no copy on
+# origin, so renaming it rewrites nothing anyone else can see.
+wip_branch_unpushed() {
+    git rev-parse --abbrev-ref --symbolic-full-name "$1@{u}" >/dev/null 2>&1 && return 1
+    git show-ref --verify --quiet "refs/remotes/origin/$1" && return 1
+    return 0
 }
 
 # branch_exists <name> — returns 0 if branch exists locally or on origin.

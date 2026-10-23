@@ -63,7 +63,8 @@
 #     after the tag is already pushed. This is a dedicated, narrowly-scoped
 #     credential (new-project-setup.md §7c) — separate from AWS_PROFILE and the
 #     personal admin hub-and-role chain (cli-utilities.md); the two never mix.
-#   - On main branch
+#   - On main branch, or detached exactly at origin/main (a worktree /merge kept
+#     to deploy from)
 #   - Working tree clean
 #   - Local main == origin/main (no stale local; nothing un-pushed)
 #   - HEAD's required check-runs are not 'failure' (read-only snapshot,
@@ -215,7 +216,13 @@ source "$SCRIPT_DIR/gates.sh"
 # org-repo-cheatsheet.md); an app is released from main below. A repo with no app
 # (org) always takes the first; one with both (combo) takes it from a PR branch and
 # releases the app from main.
+#
+# A worktree kept by `/merge --deploy-from-worktree` releases from a detached HEAD at
+# origin/main, which counts as main here and in the state gates below.
 DEPLOY_BRANCH=$(git branch --show-current 2>/dev/null || true)
+if [ -z "$DEPLOY_BRANCH" ] && [ "$(git rev-parse HEAD 2>/dev/null)" = "$(git rev-parse origin/main 2>/dev/null)" ]; then
+    DEPLOY_BRANCH="main"
+fi
 if repo_holds_infra && { ! repo_holds_app || { [ "$DEPLOY_BRANCH" != "main" ] && [ "$DEPLOY_BRANCH" != "master" ]; }; }; then
     exec "$SCRIPT_DIR/deploy-org.sh" "$@"
 fi
@@ -581,7 +588,14 @@ fi
 run_integration_preflight INTEGRATION_DEPLOY_OFF "deploying" || exit 26
 
 CURRENT_BRANCH=$(git branch --show-current)
-if [ "$CURRENT_BRANCH" != "main" ]; then
+git fetch origin main --quiet
+if [ -z "$CURRENT_BRANCH" ]; then
+    # Detached is accepted only exactly at origin/main: a finished worktree.
+    if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+        echo "deploy.sh: detached HEAD that is not origin/main — deploy from main, or from a worktree /merge left at origin/main." >&2
+        exit 3
+    fi
+elif [ "$CURRENT_BRANCH" != "main" ]; then
     echo "deploy.sh: must be on main (currently on '$CURRENT_BRANCH')" >&2
     exit 3
 fi
@@ -592,7 +606,6 @@ if [ -n "$(git status --porcelain)" ]; then
     exit 4
 fi
 
-git fetch origin main --quiet
 LOCAL_SHA=$(git rev-parse HEAD)
 REMOTE_SHA=$(git rev-parse origin/main)
 if [ "$LOCAL_SHA" != "$REMOTE_SHA" ]; then
@@ -881,7 +894,8 @@ fi
 git add "$CHANGELOG_PATH"
 git commit --no-verify -m "🚀 release: v${NEW}" >&2
 
-if ! git push origin main; then
+# HEAD:main, so a detached worktree release pushes the same commit main would.
+if ! git push origin HEAD:main; then
     echo "deploy.sh: push of the release commit to main failed." >&2
     echo "  Likely origin/main advanced since the state gate, OR main still requires a PR." >&2
     echo "  Fix: git pull --ff-only origin main (then re-run /deploy), or turn require-PR off (pipeline.md §1.1)." >&2

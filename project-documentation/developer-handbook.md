@@ -40,6 +40,10 @@ you back on an up-to-date `main`. Merging does not deploy; `/deploy` and `/deplo
 **Stay current with `/catchup`.** It brings `main` into your branch when others have
 shipped, and fast-forwards `main` when you're on it.
 
+**Two sessions on one project?** Give the second one `/work --worktree`. It gets a folder
+and branch of its own, so neither session's commit sweeps up the other's work, and `/merge`
+removes it when the work lands. The gitflow cheatsheet has the details.
+
 **Small infra fix straight to `main`?** `/ship-main` commits and pushes directly: no
 branch, no PR. You have to ask for it by name; a plain "commit" on `main` always branches.
 

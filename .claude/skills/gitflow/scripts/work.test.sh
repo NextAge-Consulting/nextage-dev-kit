@@ -125,4 +125,78 @@ runpr 42 76
 runpr 42
 ! grep -q "pull request\|picked up" <<<"$err" && ok "an issue number still takes the issue path" || bad "issue path: $err"
 
+
+# ─── --worktree: opt-in isolation ─────────────────────────────────────────
+git -C "$tmp/up" checkout -q main
+printf '.env\n.env.*\n!.env.example\n.claude/settings.local.json\n.claude/worktrees/\nnode_modules/\n' > "$tmp/up/.gitignore"
+printf '{"lockfileVersion":3}\n' > "$tmp/up/package-lock.json"
+git -C "$tmp/up" add -A; git -C "$tmp/up" commit -qm "chore: ignore"; git -C "$tmp/up" push -q origin main
+git clone -q "$tmp/origin.git" "$tmp/prim" 2>/dev/null
+cd "$tmp/prim" || exit 1
+git config user.email t@example.com; git config user.name t
+printf 'SECRET=1\n' > .env; mkdir -p .claude apps/web; printf '{}\n' > .claude/settings.local.json; printf 'K=1\n' > apps/web/.env.local
+cat > "$tmp/fakegh/gh" <<'EOF'
+#!/bin/bash
+case "$*" in
+  "api user --jq .login") echo alice ;;
+  "issue view 42 --json title --jq .title") echo "Fix: the login page!" ;;
+  "api repos/{owner}/{repo}/issues/"*) echo false ;;
+  "issue view 42 --json number"*) echo "ISSUE 42 BODY" ;;
+  *) exit 0 ;;
+esac
+EOF
+cat > "$tmp/fakegh/npm" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$*" >> "$NPM_LOG"
+EOF
+chmod +x "$tmp/fakegh/npm"
+export NPM_LOG="$tmp/npm.log"
+runwt(){ : > "$NPM_LOG"; out=$(PATH="$tmp/fakegh:$PATH" "$W" "$@" 2>"$tmp/err"); rc=$?; err=$(cat "$tmp/err"); }
+P=$(git worktree list --porcelain | sed -n '1s/^worktree //p')
+
+runwt --worktree spike
+wt="$P/.claude/worktrees/spike"
+{ [ "$rc" -eq 0 ] && grep -qx "WORKTREE: $wt" <<<"$out" && [ "$(git -C "$wt" branch --show-current)" = wip/alice-spike ] \
+  && [ "$(git -C "$wt" rev-parse HEAD)" = "$(git rev-parse origin/main)" ]; } \
+    && ok "--worktree <name> creates .claude/worktrees/<name> on wip/<login>-<name>, from origin/main" || bad "create (rc=$rc): $err"
+! git -C "$wt" rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1 \
+    && ok "the worktree's branch has no upstream" || bad "upstream: $(git -C "$wt" rev-parse --abbrev-ref '@{u}')"
+{ [ "$(readlink "$wt/.env")" = "$P/.env" ] && [ "$(readlink "$wt/.claude/settings.local.json")" = "$P/.claude/settings.local.json" ] \
+  && [ "$(readlink "$wt/apps/web/.env.local")" = "$P/apps/web/.env.local" ] && [ ! -e "$wt/node_modules" ]; } \
+    && ok "per-machine files are linked from the primary with absolute targets; node_modules is not" || bad "links: $(ls -la "$wt" "$wt/apps/web")"
+grep -qx "ci --no-audit --no-fund" "$NPM_LOG" && ok "dependencies install from the lockfile (npm ci)" || bad "install: $(cat "$NPM_LOG")"
+[ -z "$(git status --porcelain)" ] && ok "the primary checkout shows nothing new (the worktree is ignored)" || bad "primary dirty: $(git status --porcelain)"
+
+rm "$wt/.env"
+runwt --worktree spike
+{ [ "$rc" -eq 0 ] && grep -q "re-entering worktree 'spike'" <<<"$err" && [ -L "$wt/.env" ] && [ ! -s "$NPM_LOG" ]; } \
+    && ok "re-running re-enters, heals a missing link, installs nothing" || bad "re-enter (rc=$rc): $err"
+printf 'Worktree handoff\n' > "$wt/.claude/worktree-handoff.md"
+runwt --worktree spike
+grep -qx "WORKTREE-HANDOFF: $wt/.claude/worktree-handoff.md" <<<"$out" && ok "re-entry points at the worktree's own handoff" || bad "handoff: $out"
+
+runwt --worktree 42
+wt42="$P/.claude/worktrees/42-fix-the-login-page"
+{ [ "$rc" -eq 0 ] && [ -d "$wt42" ] && [ "$(git -C "$wt42" branch --show-current)" = wip/alice-42-fix-the-login-page ] \
+  && [ "$(git config --get branch.wip/alice-42-fix-the-login-page.gitflow-issues)" = 42 ] && grep -q "ISSUE 42 BODY" <<<"$out"; } \
+    && ok "--worktree <issue#> labels it <N>-<title slug>, links the issue, dumps its context" || bad "issue worktree (rc=$rc): $err"
+runwt --worktree '#42'
+{ [ "$rc" -eq 0 ] && grep -q "re-entering worktree '42-fix-the-login-page'" <<<"$err"; } \
+    && ok "the same issue re-enters its worktree by number" || bad "issue re-enter (rc=$rc): $err"
+
+runwt --worktree
+lbl=$(grep '^WORKTREE: ' <<<"$out" | sed 's#.*/##')
+[[ "$lbl" =~ ^alice-[0-9]{8}-[0-9]{4}$ ]] && ok "a bare --worktree is labelled <login>-<YYYYMMDD-HHMM>" || bad "default label: '$lbl' ($err)"
+
+runwt --worktree 'bad name'
+[ "$rc" -eq 2 ] && ok "a name with a space is refused" || bad "bad name (rc=$rc)"
+
+runwt
+{ grep -qx "You have an open worktree spike (branch wip/alice-spike). Work in it, or here?" <<<"$out" \
+  && grep -q "open worktree 42-fix-the-login-page" <<<"$out"; } \
+    && ok "/work in the primary names each open worktree and asks" || bad "primary prompt: $out"
+( cd "$wt" && PATH="$tmp/fakegh:$PATH" "$W" >"$tmp/o" 2>"$tmp/err" )
+! grep -q "open worktree" "$tmp/o" && grep -q "resuming body of work on 'wip/alice-spike'" "$tmp/err" \
+    && ok "/work inside a worktree resumes it and asks nothing" || bad "inside: $(cat "$tmp/o" "$tmp/err")"
+
 exit "$fail"

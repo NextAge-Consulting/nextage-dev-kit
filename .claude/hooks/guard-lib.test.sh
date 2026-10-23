@@ -63,6 +63,38 @@ eq 'PostCompact' "$(hook_event_of '{"hook_event_name": "PostCompact","session_id
 eq 'PreToolUse'  "$(hook_event_of '{"tool_name":"Edit","hook_event_name":"PreToolUse"}')" 'later key'
 eq ''            "$(hook_event_of 'not json')" 'absent'
 
+echo "CWD without jq:"
+eq '/a/b c'      "$(hook_cwd_of '{"session_id":"x","cwd": "/a/b c","tool_name":"Bash"}')" 'spaced JSON'
+eq 'C:\proj\x'   "$(hook_cwd_of '{"cwd":"C:\\proj\\x"}')"                                 'a Windows path, its backslashes unescaped'
+eq '/a/"q"'      "$(hook_cwd_of '{"cwd":"/a/\"q\""}')"                                    'an escaped quote'
+eq ''            "$(hook_cwd_of '{"tool_input":{"command":"echo \"cwd\":\"/x\""}}')"      'a "cwd" inside a string is not the key'
+eq ''            "$(hook_cwd_of '{"cwd":"/caf\u00e9"}')"                                  'a \u escape is not guessed at'
+eq ''            "$(hook_cwd_of 'not json')"                                              'absent'
+
+echo "PROJECT ROOT — the checkout holding the path, a worktree's own root inside one:"
+# A real repository with a worktree under .claude/worktrees, as gitflow's worktree mode
+# lays it out. Claude Code keeps CLAUDE_PROJECT_DIR at the primary in a worktree session.
+pr="$tmp/pr/primary"; mkdir -p "$pr/src"; : > "$pr/src/a.ts"
+git -C "$pr" init -q; git -C "$pr" config user.email t@example.com; git -C "$pr" config user.name t
+git -C "$pr" add -A; git -C "$pr" commit -qm init
+git -C "$pr" worktree add -q "$pr/.claude/worktrees/x" -b wt-x 2>/dev/null
+wt="$pr/.claude/worktrees/x"
+root(){ CLAUDE_PROJECT_DIR="$1" project_root_for "$2"; }
+eq "$wt" "$(root "$pr" "$wt/src/a.ts")"          'a file in the worktree → the worktree root'
+eq "$wt" "$(root "$pr" "$wt/new/deep/b.ts")"     'a file not yet created in the worktree → the worktree root'
+eq "$wt" "$(root "$pr" "$wt")"                   'the worktree root itself (a cwd)'
+eq "$pr" "$(root "$pr" "$pr/src/a.ts")"          'a file in the primary → the primary'
+eq "$pr" "$(root "$pr" "src/a.ts")"              'a relative path is taken from the project dir'
+eq "$pr" "$(root "$pr" "")"                      'no path → the project dir'
+eq "$pr" "$(root "$wt" "$pr/src/a.ts")"          'project dir is the worktree, file in the primary → the primary'
+mkdir -p "$tmp/pr/plain"
+eq "$tmp/pr/plain" "$(root "$tmp/pr/plain" "/etc/hosts")" 'a path in no checkout → the project dir'
+ln -s "$pr" "$tmp/pr/link"
+eq "$tmp/pr/link/.claude/worktrees/x" "$(root "$tmp/pr/link" "$wt/src/a.ts")" 'kept in the project dir'"'"'s own spelling through a symlink'
+mkdir -p "$tmp/pr/outer/proj"; git -C "$tmp/pr/outer" init -q
+eq "$tmp/pr/outer/proj" "$(root "$tmp/pr/outer/proj" "$tmp/pr/outer/proj/a.ts")" 'an enclosing repository the project is not a checkout of → the project dir'
+eq "$tmp/pr/outer" "$(root "$pr" "$tmp/pr/outer/b.ts")" 'a file in another repository → that repository'
+
 echo "REQUIRE_TOOLS — present tools pass silently and are remembered:"
 out=$(require_tools PreToolUse jq python3; echo "returned")
 eq 'returned' "$out" 'jq and python3 present: returns, prints nothing'

@@ -18,6 +18,7 @@ Invoke this skill when the user asks for any of:
 | "start work on #N", "work issue N" | `/work <N>` |
 | "retrieve branch", "pull a teammate's branch", "check out their branch" | `/work --retrieve <branch>` |
 | "the discussion is done", "pull the discussion in", "pull back <slug or artifact URL>" | `/work --discussion <slug or URL>` |
+| "work in a worktree", "start a worktree", "isolated session", "back to the worktree <name>" | `/work --worktree [<name> or <issue#>]` |
 | "commit", "commit this", "commit the changes" | `/commit` |
 | "ship to main", "commit straight to main", "commit this directly to main", "infra commit", "emergency commit to main", "quick commit to main" | `/ship-main` |
 | "checkpoint", "save progress", "wip commit", "quick save" | `/checkpoint` |
@@ -125,13 +126,14 @@ Work happens on a branch in the project checkout. On `main`, `/work` refreshes f
 - `/work <issue#[,issue#…]>` — link one or more issues to the branch you are on, transition each to In Progress, assign, and dump their context. Cuts no branch either. Every issue is validated before any is linked, so a typo aborts the call instead of half-applying it.
 - `/work --retrieve <branch>` — fetch a teammate's branch and switch to it (refuses on a dirty tree).
 - `/work --discussion <slug or artifact URL>` — pull a finished discussion back into an action plan (`commands/work.md` Step 3b).
+- `/work --worktree [<name> | <issue#>]` — opt-in: create or re-enter the worktree `.claude/worktrees/<label>` on its own `wip/` branch, and move the session into it (`commands/work.md` Step 2a). For two sessions on one project at once.
 
 **Procedure:**
 - Parse `$ARGUMENTS` to determine mode (default / issue / retrieve).
 - Invoke `.claude/skills/gitflow/scripts/work.sh` with appropriate flags.
 - For `--issue` mode: read the dumped issue body + comments and respond with understanding + plan before touching code.
 
-See `.claude/commands/work.md` (synced per-project from `_claude-project/commands/work.md`; `work.sh` refuses to run while a `/work` command exists in `~/.claude/commands/`). The script (project-local at `.claude/skills/gitflow/scripts/work.sh`) refreshes `main`, resumes an existing branch, and handles issue linking. `/work` never cuts a branch, with or without an issue — `/commit` and `/checkpoint` do that. It does not commit or push.
+See `.claude/commands/work.md` (synced per-project from `_claude-project/commands/work.md`; `work.sh` refuses to run while a `/work` command exists in `~/.claude/commands/`). The script (project-local at `.claude/skills/gitflow/scripts/work.sh`) refreshes `main`, resumes an existing branch, and handles issue linking. `/work` never cuts a branch, with or without an issue — `/commit` and `/checkpoint` do that — except `--worktree`, whose worktree needs a branch of its own from the start. It does not commit or push.
 
 ### /open-pr
 

@@ -19,8 +19,13 @@
 #
 # KIT_MANAGED_SETTINGS_DIR overrides the managed-settings directory (the suite uses it).
 
+# shellcheck source=guard-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/guard-lib.sh"
+
 INPUT=$(cat)
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(printf '%s' "$INPUT" | jq -r '.cwd // ""' 2>/dev/null)}"
+# The checkout the session runs in: a worktree session's cwd is the worktree, while
+# CLAUDE_PROJECT_DIR still names the primary checkout.
+PROJECT_DIR=$(project_root_for "$(hook_cwd_of "$INPUT")")
 
 if [ -n "${KIT_MANAGED_SETTINGS_DIR:-}" ]; then
     MANAGED_DIR="$KIT_MANAGED_SETTINGS_DIR"
@@ -64,13 +69,13 @@ if resolve():
 
 print(json.dumps({
     "systemMessage":
-        "⚠️ Shell edits are not being checked by this project’s guards. Add "
+        "⚠️ Shell edits are not being checked by this project\u2019s guards. Add "
         "\"bashEditDiffEnabled\": true to ~/.claude/settings.json and restart Claude Code.",
     "hookSpecificOutput": {
         "hookEventName": "SessionStart",
         "additionalContext":
             "Claude Code is not reporting which files shell commands change in this session, "
-            "so the project’s file guards cannot see edits made through Bash. Make every "
+            "so the project\u2019s file guards cannot see edits made through Bash. Make every "
             "file change in this session with the Edit and Write tools."}}))
 '
 exit 0

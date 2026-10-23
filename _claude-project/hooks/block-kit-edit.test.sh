@@ -170,6 +170,54 @@ printf '%s' "${md/Project rule A./Shell-edited project rule.}" > "$rp/docs/style
 printf '%s' "${md/Kit footer./Shell-edited footer.}" > "$rp/docs/style.md"
 [ "$(replay)" = block ] && echo "  ✓ shell edit outside the regions is flagged" || { echo "  ✗ FAIL — out-of-region shell edit passed"; fail=1; }
 
+echo "WORKTREE — a file in a worktree is guarded exactly as the same file in the primary:"
+# gitflow's worktree mode puts each worktree at <primary>/.claude/worktrees/<label>, and
+# Claude Code keeps CLAUDE_PROJECT_DIR at the primary in a worktree session. A root taken
+# from it found every worktree file outside the project and let it through.
+wp="$tmp/wtp"; mkdir -p "$wp/.claude/rules/project" "$wp/docs"
+cat > "$wp/.claude/.kit-sync.json" <<'JSON'
+{"kitRepo":"example-org/example-kit","files":{
+  ".claude/rules/constitution.md":         {"mode":"owned"},
+  ".claude/rules/project/ui-inventory.md": {"mode":"template"},
+  "docs/style.md":                         {"mode":"merge"}
+}}
+JSON
+printf 'kit text\n' > "$wp/.claude/rules/constitution.md"
+printf 'project text\n' > "$wp/.claude/rules/project/ui-inventory.md"
+printf '%s' "$md" > "$wp/docs/style.md"
+git -C "$wp" init -q; git -C "$wp" config user.email t@example.com; git -C "$wp" config user.name t
+git -C "$wp" add -A; git -C "$wp" commit -qm init
+git -C "$wp" worktree add -q "$wp/.claude/worktrees/x" -b wt-x 2>/dev/null
+ww="$wp/.claude/worktrees/x"
+# wt <want> <desc> <python dict literal for tool_name + tool_input; FILE is the target> <file>
+wt(){ local d
+  d=$(python3 -c 'import json, sys; FILE = sys.argv[1]; print(json.dumps(eval(sys.argv[2])))' "$4" "$3" \
+      | HOME="$tmp/consumer-home" CLAUDE_PROJECT_DIR="$wp" "$H" 2>/dev/null | python3 -c '
+import json,sys
+raw=sys.stdin.read().strip()
+if not raw: print("allow"); raise SystemExit
+try: print((json.loads(raw).get("hookSpecificOutput") or {}).get("permissionDecision") or "allow")
+except Exception: print("malformed")
+')
+  if [ "$d" = "$1" ]; then echo "  ✓ $2"; else echo "  ✗ FAIL ($d, want $1) — $2"; fail=1; fi; }
+edit='{"tool_name":"Edit","tool_input":{"file_path":FILE,"old_string":"x","new_string":"y"}}'
+for side in primary worktree; do
+  if [ "$side" = primary ]; then r="$wp"; else r="$ww"; fi
+  wt deny  "$side: owned file, Edit"      "$edit" "$r/.claude/rules/constitution.md"
+  wt deny  "$side: owned file, MultiEdit" '{"tool_name":"MultiEdit","tool_input":{"file_path":FILE,"edits":[]}}' "$r/.claude/rules/constitution.md"
+  wt deny  "$side: owned file, Write"     '{"tool_name":"Write","tool_input":{"file_path":FILE,"content":"x"}}' "$r/.claude/rules/constitution.md"
+  wt allow "$side: template file"         "$edit" "$r/.claude/rules/project/ui-inventory.md"
+  wt allow "$side: merge file, inside its region" \
+     '{"tool_name":"Edit","tool_input":{"file_path":FILE,"old_string":"Project rule A.","new_string":"Revised."}}' "$r/docs/style.md"
+  wt deny  "$side: merge file, outside its regions" \
+     '{"tool_name":"Edit","tool_input":{"file_path":FILE,"old_string":"Kit footer.","new_string":"Changed."}}' "$r/docs/style.md"
+  wt allow "$side: a file the kit does not manage" "$edit" "$r/src/new.ts"
+done
+printf '{"patches":[{"path":".claude/rules/constitution.md","kitIssue":"example-org/example-kit#1","projectIssue":"#2","reason":"x"}]}' \
+  > "$ww/.claude/.kit-patches.json"
+wt allow 'worktree: its own patch register sanctions the patch there' "$edit" "$ww/.claude/rules/constitution.md"
+wt deny  'primary: a register in the worktree does not reach it'      "$edit" "$wp/.claude/rules/constitution.md"
+
 echo "CONSUMER MACHINE — mode:template is the PROJECT'S, must be allowed:"
 t allow "$tmp/proj/.claude/rules/project/ui-inventory.md" x 'template: ui-inventory'
 t allow "$tmp/proj/.github/workflows/ci.yml"              x 'template: ci.yml'

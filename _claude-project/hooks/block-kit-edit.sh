@@ -63,7 +63,9 @@ esac
 FILE_PATH=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // ""' 2>/dev/null)
 [ -z "$FILE_PATH" ] && exit 0
 
-PROJECT_DIR=$(normalize_path "${CLAUDE_PROJECT_DIR:-$PWD}")
+# The checkout holding the file, so a worktree's files are judged by the worktree's own
+# manifest rather than found outside a project dir that names the primary checkout.
+PROJECT_DIR=$(project_root_for "$FILE_PATH")
 MANIFEST="$PROJECT_DIR/.claude/.kit-sync.json"
 [ -f "$MANIFEST" ] || exit 0     # not a kit-managed project → nothing to guard
 

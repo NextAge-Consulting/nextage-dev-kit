@@ -12,13 +12,22 @@ $ARGUMENTS
 
 If `$ARGUMENTS` contains a PR number (e.g., `/merge 42`), use that. Otherwise let the script auto-detect from the current branch.
 
+**In a worktree** (`git rev-parse --git-dir` differs from `git rev-parse --git-common-dir`), ask once, before the script runs, what happens to the worktree after the merge:
+
+- **Remove it** (recommended) — the worktree and its local branch go as the last step of this `/merge`. Costs nothing; the next body of work starts with `/work`.
+- **Keep it to deploy from** — it is left detached at the merged `main`, and `/deploy` run inside it removes it once the release ships. Buys deploying without switching sessions; the worktree stays on disk until that `/deploy` runs.
+
+Keeping it adds `--deploy-from-worktree` to the script.
+
 ### Step 2: Invoke the script
 
 ```bash
-.claude/skills/gitflow/scripts/merge.sh [--pr <number>]
+.claude/skills/gitflow/scripts/merge.sh [--pr <number>] [--carry-uncommitted] [--deploy-from-worktree]
 ```
 
 The script:
+- Refuses on uncommitted changes FIRST (exit 26), before any build and before anything
+  reaches GitHub — Step 2a.
 - Finds the open PR for the current branch (or uses --pr)
 - Checks the PR against its base FIRST (exit 23): when `origin/main` has moved, a trial
   merge (`git merge-tree`) decides — a conflict refuses before any build or wait, and drift
@@ -36,9 +45,53 @@ The script:
 - Deletes the now-merged local branch
 - Reinstalls dependencies if landing on the new `main` changed a package manifest
 
+In a worktree the landing steps are skipped — nothing local changes — and the script prints
+`WORKTREE-REMOVE: <path>` and `WORKTREE-BRANCH: <branch>` (Step 2b). With
+`--deploy-from-worktree` it detaches the worktree at the merged `origin/main`, deletes the
+merged local branch, and prints `WORKTREE-DEPLOY: <path>`.
+
+### Step 2a: Uncommitted changes (exit 26)
+
+Nothing was merged. The script listed each changed file, marked `(this PR changes it too)`
+where it is, and printed `CARRY: offered` or `CARRY: not offered — <why>`. Ask what to do
+with them, the way `/triage` asks before its commit:
+
+- **Commit them with a review** — `/commit --review`, then `/merge`. The merge waits for CI
+  and a fresh Gemini review of the new head. Costs the review wait; buys a reviewed change.
+- **Commit them without a review** — `/commit --no-review`, then `/merge`. Waits for CI only.
+  Quicker; the new commit lands unreviewed.
+- **Merge without them** — only when the script printed `CARRY: offered`. Re-run with
+  `--carry-uncommitted`; the PR merges and the edits carry onto `main`, uncommitted. Say so
+  plainly: they are now edits on `main`, outside any PR.
+
+Recommend committing when any file is marked as in the PR — merging without them is not
+offered then. Never offer discarding them.
+
+### Step 2b: Leave the worktree, then remove it
+
+When the script printed `WORKTREE-REMOVE`, in this order:
+
+1. **`ExitWorktree` with action `keep`** — first, always. Removing the folder a session
+   stands in breaks every shell it starts afterwards.
+2. From the primary checkout, where `ExitWorktree` returned the session:
+   ```bash
+   .claude/skills/gitflow/scripts/worktree-remove.sh <WORKTREE-REMOVE path> --branch <WORKTREE-BRANCH>
+   ```
+   It removes the worktree and its local branch only when the PR is merged and nothing
+   uncommitted is in it, and says what it removed.
+
+**A failed removal is not a failed merge.** Report the merge as done, then name the worktree
+left behind and the script's reason. `/work` in the primary checkout raises it again.
+
+When the script printed `WORKTREE-DEPLOY`, stay in the worktree: it is ready for `/deploy`,
+which the human runs.
+
 ### Step 3: Report
 
 - Merge succeeded: report the PR number and the commit SHA on main
+- Uncommitted changes (exit 26): Step 2a
+- Carried edits conflicted with the new `main` (exit 19): the merge landed; the edits are in
+  the stash, and the files git named need resolving
 - Multiple PRs on branch: script lists them and exits; ask user which one (then re-invoke with `--pr <number>`)
 - Conflicts with its base (exit 23): the conflicting files are listed and nothing merged —
   run `/catchup`, resolve, then `/merge` again
@@ -50,7 +103,7 @@ The script:
 
 ### Step 4: Note post-merge state
 
-After `/merge` completes, the squash commit is on main and this checkout is standing on it — the next `/work` cuts a fresh branch from here. **No deploy fires automatically.** To ship to production, run `/deploy` (which bumps version, writes changelog, pushes, triggers the deploy workflow). Multiple merges can accumulate on main between deploys — `/deploy` ships all commits since the last release tag in one bump.
+After `/merge` completes, the squash commit is on main and this checkout is standing on it — the next `/work` cuts a fresh branch from here. After a worktree's `/merge`, the session is back in the primary checkout, whose `main` the next `/work` refreshes. **No deploy fires automatically.** To ship to production, run `/deploy` (which bumps version, writes changelog, pushes, triggers the deploy workflow). Multiple merges can accumulate on main between deploys — `/deploy` ships all commits since the last release tag in one bump.
 
 ## What this command does NOT do
 
@@ -63,6 +116,8 @@ After `/merge` completes, the squash commit is on main and this checkout is stan
 ## Blocking conditions
 
 - Current branch is already `main`: nothing to merge
+- Uncommitted changes: exit 26, nothing merged — Step 2a
+- `--deploy-from-worktree` outside a worktree: exit 2, nothing merged
 - No open PR for current branch: run `/open-pr` first
 - CI has failing required checks: fix and push before merging
 - `gh` CLI not available: squash-merge-via-API is not implemented in `merge.sh`; install gh or run the merge manually via GitHub web UI
