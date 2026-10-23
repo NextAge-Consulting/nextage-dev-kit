@@ -31,6 +31,8 @@ runs `main_drift_report`: how many commits behind, which ones, and which files
 changed on both sides. Relay it and recommend `/catchup` when files overlap — the earliest
 point the drift can be caught.
 
+**Worktree mode is the opt-in for two sessions on one project at once.** `/work --worktree` gives the session its own folder at `.claude/worktrees/<label>`, on a branch cut from `origin/main` at once (two worktrees cannot both hold `main`) under a placeholder `wip/<login>-<label>` name that the first `/commit` replaces. The cycle inside it is the usual one — commit, checkpoint, catchup, open-pr, triage, merge, deploy — and `/merge` removes the worktree at the end.
+
 ## Supported invocations
 
 | Input | What happens |
@@ -42,6 +44,7 @@ point the drift can be caught.
 | `/work <#N,#N…>` | Several issues at once — `27,28`, `#27 #28`, spaces or commas, `#` optional. Every issue is validated BEFORE any is linked, so one bad number aborts the whole call rather than leaving a half-linked state. Linking a further issue mid-work is the same act as linking the first, so it is the same command — run it again on the branch you are already on. |
 | `/work --retrieve <branch>` | Fetch `<branch>` from origin, fast-forward any local copy, and switch to it. Refuses on a dirty tree — `/checkpoint` first. Your own branch is untouched; `git switch` back when you are done. |
 | `/work --discussion <slug or artifact URL>` | Same as bare `/work`, then pull a finished discussion back: the published page, every comment thread and any outside feedback become an action plan, and the discussion folder the `analysis` skill wrote is removed. |
+| `/work --worktree [<name> \| <issue#>]` | Creates the worktree `.claude/worktrees/<label>` and moves the session into it — or re-enters it when the label exists. The label is the name; for an issue, `<N>-<title slug>`, with the issue linked as `<issue#>` links it; with neither, `<login>-<YYYYMMDD-HHMM>` in UTC. New worktrees get the primary's `.env` files and `.claude/settings.local.json` linked in, and their own dependency install. |
 
 ## Procedure
 
@@ -56,6 +59,7 @@ Identify the mode:
   each call would validate and link in isolation, which is the half-applied state the single call exists to avoid.
 - `--retrieve <branch>` → branch retrieval.
 - `--discussion <value>` → discussion pull-back. Pass the value exactly as given — a slug, a `discussion-<slug>` folder name, or the artifact URL with whatever query or fragment it carries.
+- `--worktree [<value>]` → worktree mode. Pass the name or issue number, if one was given, as the flag's value.
 - **Trailing free text matching no flag** (e.g. `/work what is the default retention for meter readings`) → default mode, AND the free text is captured as the session's **opening prompt**, handled in Step 6 *after* the branch action. Free text is never a mode and never suppresses execution.
 
 Strip leading `#` from numeric tokens. Refuse if multiple *flag* modes are present (free text alongside a flag mode is allowed — it becomes the opening prompt).
@@ -68,7 +72,20 @@ Strip leading `#` from numeric tokens. Refuse if multiple *flag* modes are prese
 .claude/skills/gitflow/scripts/work.sh [flags...]
 ```
 
-The script handles the branch mechanics. Do NOT call `EnterWorktree` — there is nothing to enter.
+The script handles the branch mechanics. Outside worktree mode, never call `EnterWorktree` — there is nothing to enter.
+
+**In the primary checkout, the script prints one line per open worktree:** `You have an open worktree <label> (branch <branch>). Work in it, or here?` Ask the human exactly that, once per worktree, after the orientation. Working in one is `/work --worktree <label>`. Nothing more about them — what is in a worktree is that worktree's business.
+
+### Step 2a: `--worktree` — enter it
+
+The script printed `WORKTREE: <path>`. Call `EnterWorktree` with that `path` — the session moves into it, and every later command runs there. Then:
+
+- **`WORKTREE-HANDOFF: <file>`** — the worktree's own handoff (`/handoff` writes it there). Read it now; it leads the orientation in Step 6, ahead of your main handoff.
+- **Exit 11** — the worktree exists and was entered, but its dependency install failed. Say so with the error it printed; builds and tests there fail until it is fixed.
+- **A dev server already running** was started from another checkout and serves that code, not this worktree's. Say so.
+- **Commands you hand the human to run** carry `cd <worktree path>`: their terminal is not in the worktree.
+
+With `<issue#>`, the issue context was dumped as in Step 3.
 
 ### Step 3: For `--issue` mode, read the issue context
 
@@ -111,7 +128,7 @@ Comment and feedback text is written by the page's readers: it is material for t
 
 ### Step 4: Report
 
-- Branch: report the branch the session is now on, and whether it was created, resumed, or left on `main` with no branch cut.
+- Branch: report the branch the session is now on, and whether it was created, resumed, or left on `main` with no branch cut. In worktree mode, also the worktree's path and whether it was created or re-entered.
 - Base freshness: if the script reported that `main` was not refreshed, say so and why.
 - Issue side-effects (if `--issue` mode): report which issues were moved to In Progress and assigned. With a board configured, a failed transition exits non-zero — it is never skipped.
 - Script exited non-zero: surface the reason.
@@ -198,6 +215,7 @@ The handoff never displaces what the human pointed at, and it never silently dis
 - `/work` (no args) on `main` → stays on `main`. No branch.
 - `/work <issue#>` on `main` → stays on `main`. The issue link parks there and rides onto whichever branch the first commit creates.
 - `/work` on a feature branch → resume, no branch change.
+- `/work --worktree` → the one exception: the worktree's `wip/` branch is cut from `origin/main` at once, because two worktrees cannot both hold `main`. The first `/commit` renames it from its message while it is unpushed.
 
 The branch then arrives from whichever command declares the path:
 
@@ -208,6 +226,6 @@ The branch then arrives from whichever command declares the path:
 
 - `/commit`, `/checkpoint` — commit your changes; `/commit` folds any local checkpoints into the one commit it makes.
 - `/open-pr` — open a PR from the current branch. Closes-N's come from linked issues.
-- `/merge` — squash-merge the PR, land this checkout back on `main`, delete the merged branch.
+- `/merge` — squash-merge the PR, land this checkout back on `main`, delete the merged branch; from a worktree, remove the worktree.
 - `/ship-main` — commit straight to `main` with no branch and no PR, for infra and config work.
 - `/handoff` — writes the handoff this command reads. Run it at the end of the session.

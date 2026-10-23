@@ -30,6 +30,23 @@
 #       compared as written first, then resolved through symlinks, so a project opened
 #       through a link and a file named through its target still match.
 #
+#   hook_cwd_of <payload>
+#       The payload's cwd, read without jq. Empty when absent, or when it carries a
+#       \u escape this reader does not decode; callers then fall back to their own.
+#
+#   project_root_for [<path>]
+#       The root of the project <path> belongs to: the top of the git checkout that holds
+#       it, the nearest folder above it with a `.git`. In a worktree that is the
+#       worktree's own root — Claude Code keeps CLAUDE_PROJECT_DIR at the primary checkout
+#       in a worktree session, so a root taken from it puts every worktree file outside
+#       the project, and a guard keyed on it goes quiet. <path> may be a file, a directory, or not yet created (its nearest
+#       existing ancestor decides); a relative one is taken from the project dir; empty
+#       means the project dir itself. The project dir is CLAUDE_PROJECT_DIR, else $PWD,
+#       and it is the answer when <path> is in no git checkout, or when the checkout
+#       holding it encloses a project dir that is not a checkout of its own (a project
+#       inside a home directory under version control). A root that is the project dir
+#       or lies inside it is printed in the project dir's spelling, any other in <path>'s.
+#
 #   sha256_file <file>      sha256_stdin
 #       The hex digest, from sha256sum or shasum, whichever this machine has.
 #
@@ -156,6 +173,67 @@ hook_event_of() {
     local re='"hook_event_name"[[:space:]]*:[[:space:]]*"([A-Za-z]+)"'
     if [[ $1 =~ $re ]]; then
         printf '%s' "${BASH_REMATCH[1]}"
+    fi
+}
+
+hook_cwd_of() {
+    local re='"cwd"[[:space:]]*:[[:space:]]*"(([^"\\]|\\.)*)"' v out="" c
+    [[ $1 =~ $re ]] || return 0
+    v=${BASH_REMATCH[1]}
+    case "$v" in *'\u'*) return 0 ;; esac
+    while [ -n "$v" ]; do
+        c=${v:0:1}
+        if [ "$c" = "\\" ]; then
+            c=${v:1:1}
+            case "$c" in n) c=$'\n' ;; t) c=$'\t' ;; r) c=$'\r' ;; esac
+            v=${v:2}
+        else
+            v=${v:1}
+        fi
+        out="$out$c"
+    done
+    printf '%s' "$out"
+}
+
+project_root_for() {
+    local raw base p dir top top_sp rel
+    raw=$(path_spelling "${CLAUDE_PROJECT_DIR:-$PWD}")
+    base=$(_kit_physical_path "$raw")
+    p=$(path_spelling "${1:-$raw}")
+    case "$p" in /*) ;; *) p="${raw%/}/$p" ;; esac
+    dir="$p"
+    while [ ! -d "$dir" ]; do
+        dir=${dir%/*}
+        [ -n "$dir" ] || dir=/
+    done
+    # The checkout's top is the nearest folder holding `.git` — a directory in a
+    # repository, a file in a worktree. Found in plain bash rather than by asking git,
+    # because a process start costs a fraction of a second on Windows, on every call.
+    top="$dir"
+    while [ ! -e "$top/.git" ]; do
+        case "$top" in
+            /|'') top=""; break ;;
+        esac
+        top=${top%/*}
+        [ -n "$top" ] || top=/
+    done
+    if [ -z "$top" ]; then
+        printf '%s' "$raw"
+        return 0
+    fi
+    # Compared physically, printed as spelled: inside the project dir in the project
+    # dir's spelling, elsewhere in the path's, so a caller comparing the root with paths
+    # spelled the same way still matches.
+    top_sp="$top"
+    top=$(normalize_path "$top")
+    if [ "$top" = "$base" ]; then
+        printf '%s' "$raw"
+    elif rel=$(_kit_under "$base" "$top"); then
+        printf '%s/%s' "${raw%/}" "$rel"
+    elif [ ! -e "$base/.git" ] && _kit_under "$top" "$base" >/dev/null; then
+        printf '%s' "$raw"
+    else
+        printf '%s' "$top_sp"
     fi
 }
 

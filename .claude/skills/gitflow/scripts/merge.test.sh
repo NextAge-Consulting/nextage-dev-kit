@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Regression suite for merge.sh's PR-ownership behaviour: a stacked PR whose parent
 # has not merged is refused, and merging someone else's PR records an approval first.
+# Also the uncommitted-changes gate and the worktree tail.
 # Runs with --force-unchecked (no CI wait, no build) against a real origin; gh is a
 # fake that answers from FAKE_* and records every call.
 set -uo pipefail
@@ -90,5 +91,59 @@ printf 'resource "x" "y" {}\n' >> infra/terraform/shared/main.tf; git add -A; gi
 FAKE_ME=alice FAKE_AUTHOR=alice FAKE_BASE=main merge; rc=$?
 { [ "$rc" -eq 25 ] && grep -q "this PR changes Terraform (shared" "$tmp/out" && ! grep -q "pr merge" "$FAKE_LOG"; } \
     && ok "combo: a PR that changes Terraform is refused, pointing to /deploy" || bad "combo infra merge (rc=$rc): $(cat "$tmp/out")"
+
+# ─── Uncommitted changes: refused before anything reaches GitHub ──────────
+git checkout -q main
+printf '{}\n' > .claude/sync-substitutions.json; printf '.claude/worktrees/\n' > .gitignore
+git add -A; git commit -qm "chore: app"; git push -q origin main
+merge_with(){ : > "$FAKE_LOG"; FAKE_ME=alice FAKE_AUTHOR=alice FAKE_BASE=main PATH="$tmp/bin:$PATH" "$M" --force-unchecked "$@" >"$tmp/out" 2>&1; }
+
+branch feat/dirty-other
+printf 'scratch\n' > notes.txt
+merge_with; rc=$?
+{ [ "$rc" -eq 26 ] && grep -q "^  notes.txt$" "$tmp/out" && grep -qx "CARRY: offered" "$tmp/out" && [ ! -s "$FAKE_LOG" ]; } \
+    && ok "an untracked file outside the PR: exit 26, listed, carry offered, nothing sent to GitHub" || bad "dirty other (rc=$rc): $(cat "$tmp/out"; cat "$FAKE_LOG")"
+
+printf 'edited\n' > f-feat-dirty-other.txt
+merge_with --carry-uncommitted; rc=$?
+{ [ "$rc" -eq 26 ] && grep -q "f-feat-dirty-other.txt   (this PR changes it too)" "$tmp/out" \
+  && grep -qx "CARRY: not offered — this PR changes some of them too" "$tmp/out" && ! grep -q "pr merge" "$FAKE_LOG"; } \
+    && ok "an edit to a file the PR changes: marked, carry refused even when asked, nothing merged" || bad "dirty overlap (rc=$rc): $(cat "$tmp/out")"
+git checkout -q -- f-feat-dirty-other.txt
+
+merge_with --carry-uncommitted; rc=$?
+{ [ "$rc" -eq 0 ] && grep -q "pr merge" "$FAKE_LOG" && [ "$(git branch --show-current)" = main ] \
+  && [ "$(cat notes.txt)" = scratch ] && [ -z "$(git stash list)" ]; } \
+    && ok "--carry-uncommitted merges and the edits land on main" || bad "carry (rc=$rc): $(cat "$tmp/out")"
+rm notes.txt
+
+# ─── A worktree: merged on GitHub only, then handed to cleanup ────────────
+P=$(git worktree list --porcelain | sed -n '1s/^worktree //p')
+git checkout -q main
+git worktree add -q -b feat/in-wt "$P/.claude/worktrees/wt1" origin/main
+( cd "$P/.claude/worktrees/wt1" && printf 'wt\n' > wt.txt && git add -A && git commit -qm "feat: wt" && git push -q -u origin feat/in-wt 2>/dev/null )
+( cd "$P/.claude/worktrees/wt1" && merge_with ); rc=$?
+{ [ "$rc" -eq 0 ] && grep -q "pr merge" "$FAKE_LOG" && grep -qx "WORKTREE-REMOVE: $P/.claude/worktrees/wt1" "$tmp/out" \
+  && grep -qx "WORKTREE-BRANCH: feat/in-wt" "$tmp/out" && [ "$(git -C "$P/.claude/worktrees/wt1" branch --show-current)" = feat/in-wt ] \
+  && [ "$(git branch --show-current)" = main ] && git show-ref --verify --quiet refs/heads/feat/in-wt; } \
+    && ok "in a worktree: merges on GitHub, changes nothing local, names the worktree for cleanup" || bad "worktree tail (rc=$rc): $(cat "$tmp/out")"
+
+printf 'loose\n' > "$P/.claude/worktrees/wt1/loose.txt"
+( cd "$P/.claude/worktrees/wt1" && merge_with --carry-uncommitted ); rc=$?
+{ [ "$rc" -eq 26 ] && grep -q "CARRY: not offered — this is a worktree" "$tmp/out"; } \
+    && ok "in a worktree, carrying uncommitted edits is never offered" || bad "worktree carry (rc=$rc): $(cat "$tmp/out")"
+rm "$P/.claude/worktrees/wt1/loose.txt"
+
+( cd "$P/.claude/worktrees/wt1" && merge_with --deploy-from-worktree ); rc=$?
+{ [ "$rc" -eq 0 ] && grep -qx "WORKTREE-DEPLOY: $P/.claude/worktrees/wt1" "$tmp/out" \
+  && [ -z "$(git -C "$P/.claude/worktrees/wt1" branch --show-current)" ] \
+  && [ "$(git -C "$P/.claude/worktrees/wt1" rev-parse HEAD)" = "$(git rev-parse origin/main)" ] \
+  && ! git show-ref --verify --quiet refs/heads/feat/in-wt; } \
+    && ok "--deploy-from-worktree detaches it at origin/main and drops the merged branch" || bad "deploy from worktree (rc=$rc): $(cat "$tmp/out")"
+
+branch feat/primary-deploy
+merge_with --deploy-from-worktree; rc=$?
+{ [ "$rc" -eq 2 ] && [ ! -s "$FAKE_LOG" ]; } \
+    && ok "--deploy-from-worktree outside a worktree is refused" || bad "primary deploy flag (rc=$rc): $(cat "$tmp/out")"
 
 exit "$fail"

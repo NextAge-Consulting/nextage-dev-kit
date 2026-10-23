@@ -75,7 +75,13 @@ if kit_is_windows && command -v cygpath >/dev/null 2>&1; then
     KIT_LIB=$(cygpath -m "$KIT_LIB")
 fi
 
-printf '%s' "$INPUT" | PROJECT_DIR="${CLAUDE_PROJECT_DIR:-}" KIT_LIB="$KIT_LIB" GUARD_BASH="$GUARD_BASH" python3 -c '
+# The checkout the command ran in. In a worktree session the payload's cwd is the
+# worktree while CLAUDE_PROJECT_DIR names the primary checkout, so the project is
+# resolved from the cwd: its settings, its repository and the root every replayed guard
+# is handed as CLAUDE_PROJECT_DIR.
+PROJECT_DIR=$(project_root_for "$(hook_cwd_of "$INPUT")")
+
+printf '%s' "$INPUT" | PROJECT_DIR="$PROJECT_DIR" KIT_LIB="$KIT_LIB" GUARD_BASH="$GUARD_BASH" python3 -c '
 import atexit, json, os, re, shutil, signal, subprocess, sys, tempfile, time
 from concurrent.futures import ThreadPoolExecutor
 

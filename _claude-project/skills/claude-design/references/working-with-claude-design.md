@@ -98,7 +98,7 @@ behind.
   preview whose canvas render differs from its plain render by a single pixel — a
   component whose look leans on its neighbours or its position, which a design's
   wrappers take away. Animations are frozen for the comparison. A popup trigger a preview
-  shows closed is clicked open with a real pointer, and fails when nothing opens.
+  shows closed, visible at the check's viewport, is clicked open with a real pointer, and fails when nothing opens.
 - **Provenance.** Each publish is numbered — the system's README, its cover and its index
   show "Release 12 · built 2026-10-01 from 3f2a1c9", dated in the config's `timeZone`,
   the commit flagged when the working tree was uncommitted — and each design's README

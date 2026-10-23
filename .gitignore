@@ -16,6 +16,8 @@ Thumbs.db
 .claude/settings.local.json
 .claude/.kit-sync.json
 .claude/scheduled_tasks.lock
+.claude/worktrees/
+.claude/worktree-handoff.md
 
 # Build artifacts
 /dist/

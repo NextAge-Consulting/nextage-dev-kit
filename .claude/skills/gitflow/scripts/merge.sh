@@ -1,6 +1,7 @@
 #!/bin/bash
 # gitflow merge: squash-merge current branch's PR after CI passes, then land on main.
-# Usage: merge.sh [--pr <number>] [--base main] [--force-unchecked]
+# Usage: merge.sh [--pr <number>] [--base main] [--force-unchecked] [--carry-uncommitted]
+#                 [--deploy-from-worktree]
 #
 # If --pr is not provided, the script uses the PR associated with the current branch.
 # If multiple open PRs exist for the current branch, the script lists them and exits —
@@ -21,10 +22,28 @@
 # commit, every /open-pr and every triage fix with a full build. Once per merge is the
 # right frequency.
 #
+# Uncommitted changes gate (exit 26): checked first, before the build and before
+# anything reaches GitHub. Each changed file is listed, marked when the PR changes it
+# too. The build gate builds this folder, not the PR, so an uncommitted fix would hide
+# a break the PR contains; and after the merge, edits to files the PR changed stop
+# the switch to the base. --carry-uncommitted merges anyway and carries the edits onto
+# the base — refused when the PR changes any of them, or in a worktree, where they
+# would go when it is removed. The line `CARRY: offered` or `CARRY: not offered — <why>`
+# tells merge.md which choices to give.
+#
 # Post-merge cleanup:
 #   - Switch this checkout to the base branch and fast-forward it to the merged tip.
 #   - Delete the now-merged local branch (the remote one is deleted server-side).
 #   - Reinstall dependencies if landing on the new base changed a manifest.
+#
+# In a worktree (`/work --worktree`), the merge happens on GitHub and nothing local
+# changes: git refuses to check out the base while the primary checkout holds it, and
+# the worktree is removed whole. The script prints `WORKTREE-REMOVE: <path>` and
+# `WORKTREE-BRANCH: <branch>`; merge.md leaves the worktree, then runs
+# worktree-remove.sh from the primary. A failed removal never makes the merge a
+# failure. With --deploy-from-worktree the worktree is kept to /deploy from instead:
+# it is detached at the merged origin/<base> and the merged local branch deleted, and
+# /deploy removes the worktree once it has shipped (`WORKTREE-DEPLOY: <path>`).
 #
 # The body of work ends here. The next `/work` starts a fresh branch off the
 # base you are now standing on.
@@ -43,12 +62,16 @@ source "$SCRIPT_DIR/repo_kind.sh"
 PR_NUMBER=""
 BASE="main"
 FORCE_UNCHECKED=0
+CARRY_UNCOMMITTED=0
+DEPLOY_FROM_WORKTREE=0
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --pr)                PR_NUMBER="$2"; shift 2 ;;
         --base)              BASE="$2"; shift 2 ;;
         --force-unchecked)   FORCE_UNCHECKED=1; shift 1 ;;
+        --carry-uncommitted) CARRY_UNCOMMITTED=1; shift 1 ;;
+        --deploy-from-worktree) DEPLOY_FROM_WORKTREE=1; shift 1 ;;
         *) echo "merge.sh: unknown option: $1" >&2; exit 2 ;;
     esac
 done
@@ -110,6 +133,58 @@ fi
 if ! PRE_MERGE_SHA=$(git rev-parse HEAD); then
     echo "merge.sh: 'git rev-parse HEAD' failed — cannot record the pre-merge commit." >&2
     exit 16
+fi
+
+IN_WORKTREE=0
+in_linked_worktree && IN_WORKTREE=1
+if [ "$DEPLOY_FROM_WORKTREE" -eq 1 ] && [ "$IN_WORKTREE" -eq 0 ]; then
+    echo "merge.sh: --deploy-from-worktree is for a worktree; this is the primary checkout. Nothing was merged." >&2
+    exit 2
+fi
+
+# ─── Uncommitted changes gate (exit 26) ────────────────────────────────────
+# The header says why this runs first. Untracked files count: a new file is usually
+# the bulk of a change.
+if ! DIRTY=$(git status --porcelain --untracked-files=all); then
+    echo "merge.sh: 'git status' failed — cannot tell whether the tree is clean. Nothing was merged." >&2
+    exit 16
+fi
+CARRYING=0
+if [ -n "$DIRTY" ]; then
+    PR_FILES=""
+    if MB=$(git merge-base HEAD "origin/$BASE" 2>/dev/null); then
+        PR_FILES=$(git diff --name-only "$MB" HEAD)
+    fi
+    OVERLAP=0
+    echo "merge.sh: uncommitted changes in this checkout:" >&2
+    while IFS= read -r line; do
+        f="${line:3}"
+        f="${f##* -> }"
+        if [ -n "$PR_FILES" ] && grep -qxF "$f" <<< "$PR_FILES"; then
+            echo "  $f   (this PR changes it too)" >&2
+            OVERLAP=1
+        else
+            echo "  $f" >&2
+        fi
+    done <<< "$DIRTY"
+    WHY_NOT=""
+    if [ "$OVERLAP" -eq 1 ]; then
+        WHY_NOT="this PR changes some of them too"
+    elif [ "$IN_WORKTREE" -eq 1 ]; then
+        WHY_NOT="this is a worktree, and they would go with it when it is removed"
+    fi
+    if [ "$CARRY_UNCOMMITTED" -eq 1 ] && [ -z "$WHY_NOT" ]; then
+        echo "gitflow: merging without them; they carry onto $BASE afterwards (--carry-uncommitted)." >&2
+        CARRYING=1
+    else
+        if [ -n "$WHY_NOT" ]; then
+            echo "CARRY: not offered — $WHY_NOT"
+        else
+            echo "CARRY: offered"
+        fi
+        echo "merge.sh: nothing was merged. Commit them first — or, when none is in this PR, merge with --carry-uncommitted." >&2
+        exit 26
+    fi
 fi
 
 # Resolve PR number if not provided
@@ -308,26 +383,69 @@ elif ! printf '%s' "$REF_CHECK" | grep -q "HTTP 404"; then
     echo "gitflow: could not confirm '$CURRENT_BRANCH' is gone from origin — check on GitHub." >&2
 fi
 
+# ─── A worktree: nothing local changes; it is removed whole ────────────────
+# The header says why. Only the outcome is decided here: removed by merge.md from the
+# primary, or detached at the merged base to /deploy from.
+cd "$REPO_ROOT"
+if [ "$IN_WORKTREE" -eq 1 ]; then
+    if [ "$DEPLOY_FROM_WORKTREE" -eq 1 ]; then
+        if ! git fetch origin "$BASE" || ! git switch --detach "origin/$BASE"; then
+            echo "merge.sh: the merge LANDED, but the worktree could not be detached at origin/$BASE (git's reason above)." >&2
+            echo "WORKTREE-REMOVE: $REPO_ROOT"
+            echo "WORKTREE-BRANCH: $CURRENT_BRANCH"
+            exit 18
+        fi
+        # Detached, the merged branch is checked out nowhere, and its PR is merged.
+        git branch -D "$CURRENT_BRANCH" >/dev/null 2>&1 \
+            || echo "gitflow: could not delete the local branch '$CURRENT_BRANCH' — remove it with: git branch -D $CURRENT_BRANCH" >&2
+        echo "gitflow: merge complete. The worktree is detached at the merged origin/$BASE to /deploy from." >&2
+        echo "WORKTREE-DEPLOY: $REPO_ROOT"
+        exit 0
+    fi
+    echo "gitflow: merge complete. The worktree is kept for cleanup: it is removed from the primary checkout." >&2
+    echo "WORKTREE-REMOVE: $REPO_ROOT"
+    echo "WORKTREE-BRANCH: $CURRENT_BRANCH"
+    exit 0
+fi
+
 # ─── Land on the base branch ───────────────────────────────────────────────
 # The merge is in. Move this checkout onto the base and fast-forward it to the
 # merged tip, so the session ends where the next body of work starts.
 #
-# The tree is clean at this point by construction: /open-pr and /merge both
-# operate on a pushed branch, so anything uncommitted would have blocked the
-# PR long before here. If a checkout somehow IS dirty, `git checkout` refuses
-# rather than clobbering — which is the outcome we want, loudly.
-cd "$REPO_ROOT"
+# The tree is clean here unless --carry-uncommitted was given: the gate at the top
+# refused every other dirty tree. Carried edits are stashed across the switch and
+# restored on the new base, so a file the base changed since cannot block it.
+STASHED=0
+if [ "$CARRYING" -eq 1 ]; then
+    if ! git stash push --include-untracked -m "gitflow merge: carried onto $BASE" >/dev/null; then
+        echo "merge.sh: the merge LANDED, but your uncommitted changes could not be set aside to switch to $BASE." >&2
+        echo "  This checkout is still on '$CURRENT_BRANCH' with them in place. Then: git checkout $BASE && git pull --ff-only" >&2
+        exit 18
+    fi
+    STASHED=1
+fi
 echo "gitflow: switching to $BASE and fast-forwarding..." >&2
 git fetch origin "$BASE"
 if ! git checkout "$BASE"; then
     echo "merge.sh: could not switch to $BASE — the merge LANDED but this checkout is still on '$CURRENT_BRANCH'." >&2
     echo "  Resolve what git reported above, then: git checkout $BASE && git pull --ff-only" >&2
+    [ "$STASHED" -eq 1 ] && echo "  Your uncommitted changes are in the stash (top of 'git stash list'): git stash pop" >&2
     exit 18
 fi
 if ! git pull --ff-only; then
     echo "merge.sh: could not fast-forward $BASE — the merge LANDED but local $BASE is behind." >&2
     echo "  Resolve what git reported above, then: git pull --ff-only" >&2
+    [ "$STASHED" -eq 1 ] && echo "  Your uncommitted changes are in the stash (top of 'git stash list'): git stash pop" >&2
     exit 18
+fi
+if [ "$STASHED" -eq 1 ]; then
+    if git stash pop >/dev/null; then
+        echo "gitflow: your uncommitted changes are back in place on $BASE." >&2
+    else
+        echo "merge.sh: the merge LANDED and $BASE is current, but your carried changes conflict with it." >&2
+        echo "  They are kept in the stash (top of 'git stash list'); resolve the files git named, then 'git stash drop'." >&2
+        exit 19
+    fi
 fi
 
 # ─── Delete the merged local branch ────────────────────────────────────────

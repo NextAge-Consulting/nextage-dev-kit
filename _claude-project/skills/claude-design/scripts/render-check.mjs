@@ -12,9 +12,9 @@
  * wrappers without any error: a divider, a row line, a rounded corner quietly goes. A
  * design would then show something the app does not, so it fails here, before any
  * design sees it. Animations and transitions are frozen, so a frame caught mid-spin
- * is never a difference. A preview showing a popup trigger closed is clicked open
- * with a real pointer in the canvas render, and fails when nothing opens or the
- * popup opens away from its trigger. Fails, too, when the config lists no
+ * is never a difference. A preview showing a popup trigger closed — the first one visible
+ * at the viewport — is clicked open with a real pointer in the canvas render, and fails
+ * when nothing opens or the popup opens away from its trigger. Fails, too, when the config lists no
  * component. Run after build.mjs:
  *
  *   node .claude/skills/claude-design/scripts/render-check.mjs <path/to/design-system.config.mjs>
@@ -133,13 +133,20 @@ const ORIGIN = `http://127.0.0.1:${server.address().port}`
 
 const evalB64 = (session, js) => browser(session, ['eval', '-b', Buffer.from(js).toString('base64')])
 
-// The first closed popup trigger in a preview, marked so the check can click it with a
-// real pointer: a Radix menu opens on pointerdown, which a scripted .click() never sends.
+// The first closed popup trigger in a preview that has a box at the check's viewport,
+// marked so the check can click it with a real pointer: a Radix menu opens on
+// pointerdown, which a scripted .click() never sends. A trigger hidden at this width — a
+// phone-only menu button — is skipped, since nobody could click it here.
 const MARK_TRIGGER = `(function () {
-  var t = document.querySelector('button[aria-haspopup]:not([aria-expanded=true])');
-  if (!t) return 'none';
-  t.setAttribute('data-rc-trigger', '');
-  return 'marked';
+  var all = document.querySelectorAll('button[aria-haspopup]:not([aria-expanded=true])');
+  for (var i = 0; i < all.length; i++) {
+    var r = all[i].getBoundingClientRect();
+    if (all[i].getClientRects().length && r.width && r.height) {
+      all[i].setAttribute('data-rc-trigger', '');
+      return 'marked';
+    }
+  }
+  return 'none';
 })()`
 
 // A screenshot's pixels, for comparing two renders. Chromium writes 8-bit RGB or RGBA,

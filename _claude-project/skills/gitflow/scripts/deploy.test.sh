@@ -131,4 +131,24 @@ land "✨ feat: combo app"
 [ "$(run)" = 0 ] && ! grep -q "deploy-org ran" "$tmp/out" && grep -q "state gates OK" "$tmp/out" \
     && ok "combo on main: /deploy releases the app, through the app's own gates" || bad "combo main: $(cat "$tmp/out")"
 
+# ─── A worktree kept to deploy from: detached exactly at origin/main ──────
+git checkout -q --detach origin/main
+[ "$(run)" = 0 ] && ! grep -q "deploy-org ran" "$tmp/out" && grep -q "state gates OK" "$tmp/out" \
+    && ok "detached at origin/main passes the gates as main (combo: the app half)" || bad "detached at origin/main: $(cat "$tmp/out")"
+git checkout -q main
+printf '{"DEPLOY_BACKEND":"github","DEPLOY_WORKFLOWS":"deploy.yml"}\n' > .claude/sync-substitutions.json
+printf '{"name":"app","version":"3.0.0"}\n' > package.json
+land "🔧 chore: app only"
+land "✨ feat: one more"
+git checkout -q --detach HEAD~1
+[ "$(run)" = 3 ] && grep -q "detached HEAD that is not origin/main" "$tmp/out" \
+    && ok "detached anywhere but origin/main stops at the branch gate (3)" || bad "detached elsewhere: $(cat "$tmp/out")"
+git checkout -q --detach origin/main
+printf '### Added\n- a thing\n' > "$tmp/notes.md"
+PATH="$tmp/fake:$PATH" bash "$bin/deploy.sh" --level patch --changelog-file "$tmp/notes.md" --no-watch >"$tmp/out" 2>&1; rc=$?
+rel=$(git log -1 --format=%s origin/main)
+{ [ "$rc" -eq 0 ] && [ "$(git rev-parse origin/main)" = "$(git rev-parse HEAD)" ] && [ "${rel#🚀 release: v}" != "$rel" ] \
+  && git ls-remote --exit-code --tags origin "${rel#🚀 release: }" >/dev/null; } \
+    && ok "a release from detached origin/main pushes the bump to main, and its tag" || bad "detached release (rc=$rc): $(cat "$tmp/out")"
+
 exit "$fail"

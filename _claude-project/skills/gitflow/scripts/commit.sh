@@ -28,6 +28,9 @@
 #   - On main/master: derive <type>/<slug> from message, create branch, commit on it.
 #     Checkpoint commits on main move to the new branch; local main is reset to
 #     the commit they sat on, so main never keeps a checkpoint.
+#   - On a wip/ branch `/work --worktree` cut, still unpushed: rename it to the
+#     <type>/<slug> derived from the message, then commit on it. Once pushed, the
+#     name stays.
 #   - On any other branch: commit in place.
 #
 # Not responsibilities:
@@ -182,6 +185,13 @@ if is_protected_branch "$CURRENT_BRANCH" || [ -n "$HANDED_TO" ]; then
         # branch created HERE is the one the issue belongs to.
         migrate_branch_linked_issues "$PREVIOUS_BRANCH" "$CURRENT_BRANCH"
     fi
+elif is_wip_branch "$CURRENT_BRANCH" && wip_branch_unpushed "$CURRENT_BRANCH"; then
+    # A worktree's placeholder branch takes the name /commit would have cut from main.
+    # `git branch -m` carries the branch's config section — its issue links — along.
+    TARGET_NAME=$(resolve_collision "$(derive_branch_from_message "$MESSAGE")")
+    echo "gitflow: renaming $CURRENT_BRANCH to $TARGET_NAME from the commit message." >&2
+    git branch -m "$CURRENT_BRANCH" "$TARGET_NAME"
+    CURRENT_BRANCH="$TARGET_NAME"
 fi
 
 # The integration preflight, then typecheck, biome, knip, semgrep, terraform fmt and the integration tier — gates.sh

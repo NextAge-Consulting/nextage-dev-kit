@@ -14,6 +14,7 @@ Every coding session starts with `/work`. It puts you on the branch your work be
 /work 76                           # 76 is a PR: switch to its branch, wait for CI and its review, then triage or merge
 /work --retrieve feat/teammate-fix # fetch a teammate's branch and switch to it (refuses if your tree is dirty)
 /work --discussion session-timeout # pull a finished discussion (slug or artifact URL) into an action plan
+/work --worktree [name | 23]       # opt-in: a worktree of your own, for a second session at once (below)
 ```
 
 **`/work` never cuts a branch.** At session-init nobody knows yet whether this is a feature, an infra change, or a question answered from the handoff — and because `/ship-main` runs only on `main`, cutting a branch here would block the infra path before the session began. The branch arrives from the command that actually declares the path: `/commit` names it from your commit message.
@@ -30,7 +31,26 @@ What happens automatically (issue mode, anywhere):
 What happens automatically (no issue, already on a feature branch):
 - Resume it. Same body of work continues, nothing refreshed — use `/catchup` when you want the latest main.
 
-**Edits already in the tree come along.** If you started editing before typing `/work`, those changes stay exactly where they are and follow you onto whichever branch the first `/commit` creates. The one consequence is that `main` is not refreshed in that case (a fast-forward on a dirty tree would either fail or strand the edits) — `/work` says so, and `/catchup` closes the gap.
+**Edits already in the tree come along.** If you started editing before typing `/work`, `main` is still refreshed and your changes are carried across the fast-forward, then follow you onto whichever branch the first `/commit` creates. When they clash with what came in, `/work` names the files to resolve.
+
+### Two sessions at once — worktrees
+
+Two sessions in one checkout share one branch and one index, and `/commit` commits everything — so one session's commit sweeps up the other's half-done work. When you want a second session on the same project, give it a worktree:
+
+```
+/work --worktree            # .claude/worktrees/<login>-<YYYYMMDD-HHMM>
+/work --worktree spike      # .claude/worktrees/spike
+/work --worktree 23         # .claude/worktrees/23-<issue title>, issue #23 linked
+```
+
+- The session moves into the worktree. It is on its own `wip/<login>-<label>` branch, cut from `origin/main` straight away; your first `/commit` renames it from the message.
+- Your `.env` files and `.claude/settings.local.json` are linked in from the main checkout; dependencies are installed fresh.
+- Everything else is the usual cycle: `/commit`, `/checkpoint`, `/catchup`, `/open-pr`, `/triage`, `/merge`.
+- **`/merge` removes the worktree.** It asks first whether to remove it or keep it to `/deploy` from; either way it is gone once its work is merged (or deployed).
+- `/handoff` inside a worktree writes the worktree's own handoff, which goes with it — your main handoff is untouched.
+- `/work` in the main checkout names each open worktree and asks whether to work in it or there. `/work --worktree <label>` goes back in.
+
+Without `--worktree`, nothing changes: one checkout, one branch, `/ship-main` and `/sync-dev-kit` as usual.
 
 **Distinguishing concurrent sessions in the Agents view.** The branch name does NOT surface as the session title in the Agents view or the Claude desktop/web view — those views show the session summary, not the branch. To label a session so concurrent work across projects is easy to tell apart, use the built-in `/rename <name>` slash command. The rename is reflected in both the Agents view and the Claude views.
 
@@ -88,6 +108,9 @@ No new branch, no stash. Just link and keep working.
 /e2e          # behavioral E2E via agent-browser (asks a scope question — see next section)
 /merge        # local prod build gate, verify CI green, squash-merge, land back on main,
                 # delete the merged branch
+                # refuses on uncommitted changes, before anything is built or merged: commit them
+                #   first, or — when none is in the PR — merge without them and keep them on main
+                # in a worktree: merges on GitHub, then removes the worktree
                 # the squash commit is the PR's own title + body, so the `Closes #N`
                 #   line reaches main whatever the repo's squash setting
                 # does NOT transition the project board (Staged stays until /deploy)

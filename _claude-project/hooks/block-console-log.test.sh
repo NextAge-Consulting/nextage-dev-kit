@@ -2,9 +2,10 @@
 # Regression suite for block-console-log.sh.
 #
 # The guard is CONDITIONAL: it only engages in a project that actually depends on
-# pino, and it resolves package.json from the project dir (CLAUDE_PROJECT_DIR, else its
-# working directory). So each case points both at a purpose-built temp project — a suite
-# that ran from the repo root would silently test only whichever world that root is.
+# pino, and it resolves package.json from the checkout holding the edited file, else the
+# project dir (CLAUDE_PROJECT_DIR, else its working directory). So each case points both
+# at a purpose-built temp project — a suite that ran from the repo root would silently
+# test only whichever world that root is.
 set -uo pipefail
 H="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/block-console-log.sh"
 fail=0
@@ -73,6 +74,40 @@ t allow "$tmp/nested" 'src/a.ts' 'console.log("hi")'          'a sibling outside
 echo "WINDOWS-STYLE PATH — the separators do not hide the extension or the workspace:"
 winp=$(cd "$tmp/nested" && pwd -P); winp="${winp//\//\\}\\tools\\cli\\src\\a.ts"
 t deny  "$tmp/nested" "$winp" 'console.log("hi")'            'backslash path into the pino workspace'
+
+echo "WORKTREE — a file in a worktree is judged by the worktree's manifests, as in the primary:"
+# gitflow's worktree mode puts each worktree at <primary>/.claude/worktrees/<label>, and
+# Claude Code keeps CLAUDE_PROJECT_DIR at the primary in a worktree session. The
+# workspace globs are read from the root, so a root at the primary read the primary's
+# globs and missed a workspace the worktree's branch declares.
+wp="$tmp/wtp"; mkdir -p "$wp/tools/cli"
+printf '{"name":"root"}'                     > "$wp/package.json"
+printf '{"dependencies":{"pino":"^9.0.0"}}' > "$wp/tools/cli/package.json"
+git -C "$wp" init -q; git -C "$wp" config user.email t@example.com; git -C "$wp" config user.name t
+git -C "$wp" add -A; git -C "$wp" commit -qm init
+git -C "$wp" worktree add -q "$wp/.claude/worktrees/x" -b wt-x 2>/dev/null
+ww="$wp/.claude/worktrees/x"
+wt(){ d=$(printf '%s' 'console.log("hi")' | python3 -c '
+import json, sys
+print(json.dumps({"tool_name": "Write", "tool_input": {"file_path": sys.argv[1], "content": sys.stdin.read()}}))
+' "$2" | (cd "$wp" && CLAUDE_PROJECT_DIR="$wp" "$H" 2>/dev/null) | python3 -c '
+import json,sys
+raw=sys.stdin.read().strip()
+if not raw: print("allow"); raise SystemExit
+try: print((json.loads(raw).get("hookSpecificOutput") or {}).get("permissionDecision") or "allow")
+except Exception: print("malformed")
+')
+  if [ "$d" = "$1" ]; then echo "  ✓ $3"; else echo "  ✗ FAIL ($d, want $1) — $3"; fail=1; fi; }
+wt deny  "$wp/tools/cli/src/a.ts" 'primary: the pino workspace is blocked'
+wt deny  "$ww/tools/cli/src/a.ts" 'worktree: the pino workspace is blocked'
+wt allow "$wp/src/a.ts"           'primary: a sibling outside it stays free'
+wt allow "$ww/src/a.ts"           'worktree: a sibling outside it stays free'
+# The worktree's branch adds a workspace that depends on pino; the primary's does not.
+mkdir -p "$ww/libs/log"
+printf '{"name":"root","workspaces":["libs/*"]}' > "$ww/package.json"
+printf '{"dependencies":{"pino":"^9.0.0"}}'     > "$ww/libs/log/package.json"
+wt deny  "$ww/src/a.ts"           'worktree: a workspace only its branch declares engages the guard there'
+wt allow "$wp/src/a.ts"           'primary: …and not in the primary, whose branch has no such workspace'
 
 echo "BIOME'S noConsole EXEMPTIONS — the hook exempts exactly what biome.base.json does:"
 mkdir -p "$tmp/biome"

@@ -122,9 +122,11 @@ refresh_line_endings() {
 }
 
 main() {
-    local root user="" claude="" tools typecheck eol
-    cat >/dev/null   # the SessionStart payload carries nothing this check needs
-    root=$(normalize_path "${CLAUDE_PROJECT_DIR:-$PWD}")
+    local root user="" claude="" tools typecheck eol input
+    input=$(cat)
+    # The checkout the session runs in: a worktree session's cwd is the worktree, while
+    # CLAUDE_PROJECT_DIR still names the primary checkout.
+    root=$(project_root_for "$(hook_cwd_of "$input")")
     kit_clear_tool_markers
 
     tools=$(check_tools)

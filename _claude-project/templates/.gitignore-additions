@@ -1,6 +1,9 @@
 # Claude Code per-developer state
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
+# /work --worktree: each worktree, and a worktree's own handoff
+.claude/worktrees/
+.claude/worktree-handoff.md
 
 # Local tool state — per-machine, never tracked
 .venv

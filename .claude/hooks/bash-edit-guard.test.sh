@@ -303,6 +303,31 @@ case "$got" in *"src/cap41.ts"*"at most 40 changed files"*) echo "  ✓ the 41st
                *) echo "  ✗ FAIL — cap not reported by name: $got"; fail=1 ;; esac
 rm -f "$repo"/src/cap*.ts
 
+echo "WORKTREE — the project is the checkout the command ran in, not CLAUDE_PROJECT_DIR:"
+# gitflow's worktree mode puts each worktree at <primary>/.claude/worktrees/<label>, and
+# Claude Code keeps CLAUDE_PROJECT_DIR at the primary in a worktree session while the
+# payload's cwd is the worktree. The worktree's own settings, lockfile and repository
+# decide, exactly as the primary's do for a command run there.
+git -C "$repo" worktree add -q "$repo/.claude/worktrees/x" -b wt-x 2>/dev/null
+ww="$repo/.claude/worktrees/x"
+wev(){ python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","session_id":"s","cwd":sys.argv[1],"tool_response":{"bashEditDiff":{"changedFiles":sys.argv[2:]}}}))' "$ww" "$@"; }
+printf 'BAD(9)\n' > "$ww/src/wt-added.ts"
+got=$(reason_of "$(wev "$ww/src/wt-added.ts")")
+case "$got" in *"── src/wt-added.ts"*"added BAD("*) echo "  ✓ a bad line added in the worktree is caught, named from the worktree root" ;;
+               *) echo "  ✗ FAIL — worktree edit not judged as the worktree's: $got"; fail=1 ;; esac
+printf 'kit content\n' > "$ww/src/forbidden-kit.md"
+sha=$(shasum -a 256 "$ww/src/forbidden-kit.md" | cut -d' ' -f1)
+printf '{"files":{"src/forbidden-kit.md":{"sha":"%s","mode":"owned"}}}' "$sha" > "$ww/.claude/.kit-sync.json"
+t allow "$(wev "$ww/src/forbidden-kit.md")" "a file as the worktree's lockfile records it is not replayed"
+rm -f "$ww/.claude/.kit-sync.json"
+t block "$(wev "$ww/src/forbidden-kit.md")" '…and is replayed once that lockfile is gone'
+wmany=()
+for i in 1 2 3 4 5 6 7 8 9 10; do printf 'ok %s\n' "$i" >> "$ww/src/many$i.ts"; wmany+=("$ww/src/many$i.ts"); done
+counted "$(wev "${wmany[@]}")"
+g=$(grep -c "^git$" "$log")
+if [ "$g" = 2 ]; then echo "  ✓ 10 worktree files: one git ls-files and one git diff, as in the primary"
+else echo "  ✗ FAIL — 10 worktree files: $g git runs"; fail=1; fi
+
 echo "TOOL MISSING — python3 that does not run is reported, never a silent pass:"
 # shellcheck source=test-helpers.sh
 source "$(dirname "$H")/test-helpers.sh"
@@ -315,7 +340,9 @@ for p in '' 'not json' 'null' '[]' '{"tool_response":null}' '{"tool_response":{"
   if [ "$rc" -eq 0 ] && [ -z "$out" ]; then echo "  ✓ exits clean: ${p:-<empty>}"
   else echo "  ✗ FAIL (rc=$rc out=$out) — ${p:-<empty>}"; fail=1; fi
 done
-out=$(printf '%s' "$(event "$repo/src/forbidden.ts")" | CLAUDE_PROJECT_DIR="$tmp/nowhere" "$H" 2>/dev/null); rc=$?
+mkdir -p "$tmp/nowhere"; printf 'x\n' > "$tmp/nowhere/forbidden.ts"
+nw=$(python3 -c 'import json,sys; print(json.dumps({"tool_name":"Bash","cwd":sys.argv[1],"tool_response":{"bashEditDiff":{"changedFiles":[sys.argv[1]+"/forbidden.ts"]}}}))' "$tmp/nowhere")
+out=$(printf '%s' "$nw" | CLAUDE_PROJECT_DIR="$tmp/nowhere" "$H" 2>/dev/null); rc=$?
 if [ "$rc" -eq 0 ] && [ -z "$out" ]; then echo "  ✓ exits clean with no settings.json"; else echo "  ✗ FAIL — missing settings.json"; fail=1; fi
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"

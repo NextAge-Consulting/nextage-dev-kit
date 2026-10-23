@@ -41,7 +41,7 @@ Run deploy.sh in check-only mode. This runs every state gate WITHOUT mutating an
 ```
 
 If the script exits non-zero, surface the message and STOP. State gates are fail-loud and not overridable here. Common cases:
-- exit 3: not on main → tell user to checkout main
+- exit 3: not on main → tell user to checkout main. A worktree `/merge` kept to deploy from is detached at `origin/main` and passes; detached anywhere else is refused
 - exit 4: dirty tree → tell user to /commit first (gitflow auto-branches)
 - exit 5: out of sync → tell user to `git pull` or push pending work
 - exit 6: HEAD has failed CI checks → surface which checks failed
@@ -124,6 +124,8 @@ The script bumps, commits bump + changelog on `main` as `🚀 release: v<NEW>`, 
 The direct push to `main` requires require-PR to be OFF on the consumer repo's `main` (the default — see pipeline.md §1.1). With require-PR set, GitHub rejects the push. `/deploy` no longer admin-merges or needs `enforce_admins: false`.
 
 ### Step 5: Report
+
+**Deployed from a worktree** (`git rev-parse --git-dir` differs from `git rev-parse --git-common-dir`): once the script succeeded, leave and remove it, in this order — `ExitWorktree` with action `keep` first, then from the primary checkout `.claude/skills/gitflow/scripts/worktree-remove.sh <worktree path>`. A failed removal is reported with the script's reason, never as a failed deploy.
 
 | Outcome | Action |
 |---|---|

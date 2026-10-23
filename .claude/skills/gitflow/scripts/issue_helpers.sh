@@ -115,30 +115,6 @@ dump_issue_context() {
 '
 }
 
-# ─── Slug from issue title (for branch name) ───────────────────────────────
-# slug_from_issue <number> [type] — echoes "<type>/<slug>" where type defaults
-# to "feat" and slug is derived from the issue title (lowercased, non-alnum
-# to -, truncated to 40 chars). Issue # is NOT prefixed: a branch may close
-# multiple issues and embedding one number is misleading. Issue↔branch link
-# lives in git config; collisions resolved by work.sh (resolve_collision).
-slug_from_issue() {
-    local num="$1"
-    local type="${2:-feat}"
-    local title
-    title=$(gh issue view "$num" --json title --jq .title 2>/dev/null)
-    [ -z "$title" ] && title="issue-$num"
-
-    local slug
-    slug=$(printf '%s' "$title" \
-        | tr '[:upper:]' '[:lower:]' \
-        | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' \
-        | cut -c1-40 \
-        | sed -E 's/-+$//')
-    [ -z "$slug" ] && slug="changes"
-
-    echo "${type}/${slug}"
-}
-
 # ─── Branch ↔ issue link storage (git config) ──────────────────────────────
 # link_issue_to_branch <issue_num> [branch_name]
 # Stores in git config: branch.<name>.gitflow-issues = "23 25 26" (space-sep).
