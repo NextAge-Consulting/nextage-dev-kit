@@ -4,7 +4,7 @@
 
 import sql from "mssql";
 import { describe, expect, it } from "vitest";
-import { connectionStringFromEnv } from "./mssql-connection";
+import { connectionStringFromEnv, testPoolConfig } from "./mssql-connection";
 
 const base = { DB_SERVER: "db.example.com", DB_DATABASE: "appdb", DB_USER: "app_user", DB_PASSWORD: "secret" };
 
@@ -23,5 +23,15 @@ describe("connectionStringFromEnv", () => {
 
   it("refuses when a required key is missing", () => {
     expect(() => connectionStringFromEnv({ ...base, DB_PASSWORD: undefined })).toThrow(/DB_PASSWORD/);
+  });
+});
+
+describe("testPoolConfig", () => {
+  it("builds a pool that lends connections without a SELECT 1 first", () => {
+    const connection = connectionStringFromEnv(base);
+    // Constructing a pool connects nothing; the settings it resolved are on `config`.
+    const pool = new sql.ConnectionPool(testPoolConfig(connection));
+    const resolved = (pool as unknown as { config: Record<string, unknown> }).config;
+    expect(resolved).toMatchObject({ server: "db.example.com", database: "appdb", user: "app_user", validateConnection: false });
   });
 });

@@ -3,7 +3,8 @@
 #
 # Ready = ALL CI checks pass AND
 #         (no /gemini review trigger posted for current HEAD
-#          OR Gemini Code Assist has posted a review on current HEAD).
+#          OR Gemini Code Assist has posted a review on current HEAD)
+#         AND, under TEST_RUNNER=aws, the full-suite status is present.
 #
 # ─── Trigger-aware Gemini gating ───────────────────────────────────────
 # Gemini Code Assist's auto-review on PR open is disabled in the kit's
@@ -87,6 +88,23 @@ fi
 
 SUBS_FILE="${PROJECT_ROOT}/.claude/sync-substitutions.json"
 
+# Under TEST_RUNNER=aws the full suite reports from CodeBuild as a commit status, which
+# can appear after GitHub's own checks have finished. Until it exists the PR is not ready,
+# or a merge could land before the suite ran. The project's value only: the PR's CI shape
+# is the project's, not the developer's.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REQUIRED_STATUS=""
+if ! TEST_RUNNER=$(bash "$SCRIPT_DIR/settings.sh" TEST_RUNNER --no-env); then
+    echo "wait-for-pr-ready: TEST_RUNNER is not valid (above) — cannot tell which checks the PR needs." >&2
+    exit 4
+fi
+if [ "$TEST_RUNNER" = "aws" ]; then
+    if ! REQUIRED_STATUS=$(node "$SCRIPT_DIR/code-fingerprint.mjs" --status-context); then
+        echo "wait-for-pr-ready: could not read the full-suite status name (code-fingerprint.mjs)." >&2
+        exit 4
+    fi
+fi
+
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || echo "")
 if [ -z "$REPO" ]; then
     echo "wait-for-pr-ready: could not resolve repo via gh — run 'gh auth login'." >&2
@@ -164,6 +182,9 @@ ci_state() {
     local count
     count=$(echo "$rollup" | jq 'length')
     if [ "$count" = "0" ]; then
+        if [ -n "$REQUIRED_STATUS" ]; then
+            echo "pending"; return
+        fi
         if ! repo_has_unfiltered_pr_ci; then
             echo "pass"; return
         fi
@@ -189,6 +210,10 @@ ci_state() {
     case " $states " in
         *" PENDING "*|*" IN_PROGRESS "*|*" QUEUED "*|*" WAITING "*) echo "pending"; return ;;
     esac
+    if [ -n "$REQUIRED_STATUS" ] && ! echo "$rollup" | jq -e --arg c "$REQUIRED_STATUS" \
+            'any(.[]; (.context // .name // "") == $c)' >/dev/null; then
+        echo "pending"; return
+    fi
     echo "pass"
 }
 

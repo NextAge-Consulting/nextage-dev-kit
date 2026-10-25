@@ -1,0 +1,30 @@
+# The full test suite in CodeBuild, for a project whose TEST_RUNNER is aws
+# (pipeline.md §1.6; the CodeBuild project itself: infrastructure.md, "The full suite in
+# CodeBuild"). Kit-owned and the same in every project: what differs between projects —
+# the database credentials, the network — is the CodeBuild project's own configuration,
+# never this file.
+#
+# The repository's pull-request webhook starts it, and so does /deploy, on main's HEAD,
+# when that exact code has no pass. The CodeBuild project reports the result to the PR as
+# the `full-suite` check (its buildStatusConfig context). The work is
+# .claude/skills/gitflow/scripts/codebuild-suite.sh: fingerprint the code, carry an earlier
+# pass on the same fingerprint forward or run `npm test`, and require the integration
+# tests to have run. The fingerprint is exported as FULL_SUITE_FP, which /deploy reads.
+version: 0.2
+
+env:
+  shell: bash
+  exported-variables:
+    - FULL_SUITE_FP
+    - FULL_SUITE_FROM
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 24
+    commands:
+      - npm ci
+  build:
+    commands:
+      - bash .claude/skills/gitflow/scripts/codebuild-suite.sh --out /tmp/full-suite.env
+      - . /tmp/full-suite.env

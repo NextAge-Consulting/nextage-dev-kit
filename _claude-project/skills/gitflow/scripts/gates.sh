@@ -24,6 +24,81 @@ has_typescript_sources() {
     [ -n "$own" ]
 }
 
+# ─── Skipping a gate whose code has not changed ────────────────────────────────
+#
+# A gate that passed records the code fingerprint it passed on (code-fingerprint.mjs:
+# one hash of the tree, comments and whitespace left out of TypeScript and JavaScript,
+# every other file byte for byte). The next run on the same fingerprint skips the gate,
+# saying so: nothing a check can see has changed since it passed. Only a pass is
+# recorded, so a failure runs again every time. The record is the last pass of each
+# gate, kept under the worktree's git dir (gitflow-pass/typecheck, …/integration,
+# …/production-build), never in the tree.
+#
+# Everything a gate's answer depends on is in the tree — its configuration, the kit's
+# own scripts, the lockfile — so it is in the fingerprint too. Without node, or when the
+# fingerprint cannot be computed, the gate runs, saying why.
+
+# gate_fingerprint <dir> <gate> — prints the fingerprint of the working tree at <dir>,
+# or says why there is none and fails.
+gate_fingerprint() {
+    local dir="$1" gate="$2" script err fp note
+    script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/code-fingerprint.mjs"
+    if ! command -v node >/dev/null 2>&1; then
+        echo "gitflow: $gate: no code fingerprint (node is not installed) — it runs every time." >&2
+        return 1
+    fi
+    if [ ! -f "$script" ]; then
+        echo "gitflow: $gate: no code fingerprint ($script is missing) — it runs every time." >&2
+        return 1
+    fi
+    if ! err=$(mktemp); then
+        echo "gitflow: $gate: no code fingerprint (no temporary file) — it runs every time." >&2
+        return 1
+    fi
+    if ! fp=$(node "$script" -C "$dir" 2>"$err"); then
+        echo "gitflow: $gate: no code fingerprint — it runs every time:" >&2
+        sed 's/^/  /' "$err" >&2
+        rm -f "$err"
+        return 1
+    fi
+    note=$(cat "$err")
+    rm -f "$err"
+    if ! printf '%s' "$fp" | grep -qxE '[0-9a-f]{32}'; then
+        echo "gitflow: $gate: no code fingerprint (code-fingerprint.mjs printed none) — it runs every time." >&2
+        return 1
+    fi
+    case "$note" in *"could not be loaded"*) printf 'gitflow: %s: %s\n' "$gate" "${note#code-fingerprint: }" >&2 ;; esac
+    printf '%s\n' "$fp"
+}
+
+# gate_pass_path <dir> <gate> — prints the record's absolute path.
+gate_pass_path() {
+    (cd "$1" && git rev-parse --path-format=absolute --git-path "gitflow-pass/${2// /-}")
+}
+
+# gate_unchanged <dir> <gate> <key> — succeeds, saying so, when the last pass of <gate>
+# had <key>.
+gate_unchanged() {
+    local path
+    [ -n "$3" ] || return 1
+    path=$(gate_pass_path "$1" "$2" 2>/dev/null) || return 1
+    [ -f "$path" ] && [ "$(cat "$path" 2>/dev/null)" = "$3" ] || return 1
+    echo "gitflow: $2: code unchanged since the last pass (comments and whitespace only) — $2 skipped." >&2
+}
+
+# gate_record_pass <dir> <gate> <key> — records a pass. A record that cannot be written
+# costs only the next run's skip, so it warns and the gate still passes.
+gate_record_pass() {
+    local path
+    [ -n "$3" ] || return 0
+    if path=$(gate_pass_path "$1" "$2" 2>/dev/null) \
+        && mkdir -p "$(dirname "$path")" 2>/dev/null && printf '%s\n' "$3" >"$path" 2>/dev/null; then
+        return 0
+    fi
+    echo "gitflow: $2 passed, but the pass could not be recorded under the git dir — the next run checks again." >&2
+    return 0
+}
+
 # pyright_pin — the pyright version the stack manifest pins, or nothing.
 pyright_pin() {
     [ -f .claude/stack-manifest.json ] || return 0
@@ -47,10 +122,15 @@ pyright_pin() {
 # pyright other than the stack manifest's pin warns, naming both: CI runs the pin,
 # so the two can disagree about the same code.
 run_typecheck_gate() {
-    local skip="$1" action="$2" ran=0 check_types pin installed
+    local skip="$1" action="$2" ran=0 check_types pin installed fp=""
     if [ "$skip" -eq 1 ]; then
         echo "gitflow: typecheck: skipped — --skip-typecheck was passed." >&2
         return 0
+    fi
+    if [ -f "package.json" ] || [ -f "pyproject.toml" ] || [ -f "pyrightconfig.json" ]; then
+        if fp=$(gate_fingerprint . typecheck) && gate_unchanged . typecheck "$fp"; then
+            return 0
+        fi
     fi
 
     if [ -f "package.json" ]; then
@@ -115,8 +195,9 @@ run_typecheck_gate() {
 
     if [ "$ran" -eq 0 ]; then
         echo "gitflow: typecheck: skipped — no package.json, pyproject.toml or pyrightconfig.json at the repository root." >&2
+        return 0
     fi
-    return 0
+    gate_record_pass . typecheck "$fp"
 }
 
 # run_biome_gate <action>
@@ -351,10 +432,11 @@ run_terraform_lock_gate() {
 
 # run_integration_preflight <off_key> <action>
 #
-# Whether the integration tests' database is ready, asked FIRST, while the person who
-# ran the command is still there. A database that needs a migration applied, or is not
-# set up for tests at all, then stops the command at its first step instead of after the
-# build, or halfway through a deploy left running unattended. It runs the root
+# Whether the integration tests' database is ready, asked FIRST by /deploy, while the
+# person who ran it is still there. A database that needs a migration applied, or is not
+# set up for tests at all, then stops the release at its first step instead of halfway
+# through a deploy left running unattended. /commit and /ship-main do not call it: their
+# integration gate's own vitest run reports the same refusal. It runs the root
 # package.json's `test:preflight` script; what that checks belongs to the project's
 # integration harness (the engine rule says what). It applies where the integration tests
 # will run: a root package.json, DB_ENGINE not None, <off_key> not declared, and
@@ -411,9 +493,12 @@ run_integration_preflight() {
 # `vitest related`. It applies to a repository with a root package.json; DB_ENGINE
 # "None" and a declared INTEGRATION_COMMIT_OFF stand it down, saying why. A repository
 # with integration tests whose integration project does not run here fails: the tests
-# exist, so a pass would be one they never earned.
+# exist, so a pass would be one they never earned. A database the tests cannot use is
+# reported by this run: the harness's globalSetup refuses before any test connects,
+# naming the fix, and the gate prints that output whole. When no integration test
+# reaches the change, vitest starts no globalSetup and nothing touches the database.
 run_integration_gate() {
-    local base="$1" action="$2" engine="" off="" shared="" out rc=0 list err f tests
+    local base="$1" action="$2" engine="" off="" shared="" out rc=0 list err f tests fp key=""
     if [ ! -f "package.json" ]; then
         echo "gitflow: integration: skipped — no root package.json." >&2
         return 0
@@ -443,6 +528,12 @@ run_integration_gate() {
         echo "  A gate that cannot run must not report success, so this is a failure." >&2
         return 4
     fi
+    # The coverage check and the tests both measure from <fold_base>, so a pass holds for
+    # this code measured from this base.
+    if fp=$(gate_fingerprint . integration) && key="$fp $(git rev-parse "$base" 2>/dev/null)" \
+        && gate_unchanged . integration "$key"; then
+        return 0
+    fi
     if ! out=$(node scripts/check-integration-coverage.mjs --base "$base" 2>&1); then
         echo "" >&2
         printf '%s\n' "$out" >&2
@@ -454,6 +545,7 @@ run_integration_gate() {
     tests=$(git ls-files --cached --others --exclude-standard -- '*.integration.test.ts' '*.integration.test.tsx' '*.integration.test.mts' 2>/dev/null | { grep -vE '(^|/)node_modules/' || true; })
     if [ -z "$tests" ]; then
         echo "gitflow: integration: the repository has no integration tests yet — none to run." >&2
+        gate_record_pass . integration "$key"
         return 0
     fi
 
@@ -476,6 +568,7 @@ run_integration_gate() {
     rm -f "$list" "$err"
     if [ "${#files[@]}" -eq 0 ]; then
         echo "gitflow: integration: no TypeScript changed — no integration test to run." >&2
+        gate_record_pass . integration "$key"
         return 0
     fi
 
@@ -484,7 +577,9 @@ run_integration_gate() {
         config=(-c "${shared%/}/vitest.config.ts")
     fi
     echo "gitflow: running the integration tests that reach ${#files[@]} changed file(s)..." >&2
-    out=$(npx --no-install vitest related --run --project integration ${config[@]+"${config[@]}"} "${files[@]}" 2>&1) || rc=$?
+    # INTEGRATION_DEV_TESTS=1 brings the development tests (*.dev.integration.test.ts) into
+    # this run, the one place they run outside a developer naming them (vitest.config.ts).
+    out=$(INTEGRATION_DEV_TESTS=1 npx --no-install vitest related --run --project integration ${config[@]+"${config[@]}"} "${files[@]}" 2>&1) || rc=$?
     if printf '%s\n' "$out" | grep -qF 'No projects matched the filter "integration"'; then
         echo "" >&2
         echo "gitflow: the repository has integration tests, but no integration project runs here, so they cannot." >&2
@@ -496,7 +591,7 @@ run_integration_gate() {
     if [ "$rc" -ne 0 ]; then
         echo "" >&2
         printf '%s\n' "$out" >&2
-        echo "gitflow: integration tests failed. Fix before $action." >&2
+        echo "gitflow: the integration tests failed, or their database is not ready — the output above says which. Fix before $action." >&2
         return 4
     fi
     # "No affected test files found" when tests exist but none reaches the change, and
@@ -506,6 +601,7 @@ run_integration_gate() {
     else
         echo "gitflow: integration: the tests reaching the ${#files[@]} changed file(s) pass." >&2
     fi
+    gate_record_pass . integration "$key"
 }
 
 # run_project_gate <fold_base> <action>
@@ -547,6 +643,45 @@ run_fit_check_gate() {
     if ! node "$check" --fit-only; then
         echo "" >&2
         echo "gitflow: a pending component has no fit check, or changed after it. Run the fit check before $action." >&2
+        return 4
+    fi
+}
+
+# run_headless_reviews <fold_base> <action>
+#
+# The five headless reviews — rule prose (rule-review.sh), new parts (part-review.sh), the
+# design system (design-review.sh), hand-written SQL (sql-review.sh) and the tests of
+# changed TypeScript (test-review.sh) — each measured from <fold_base>. Each makes one
+# `claude -p` call only when its kind of file changed, and reuses its own earlier pass
+# when its input is unchanged (review-cache.sh), so they run side by side: the gate takes
+# as long as the slowest, not the sum.
+#
+# Each review's output is captured on its own and printed whole, in this fixed order,
+# once all five have finished. Any review that fails fails the gate, and every review's
+# output is still shown, so one run reports every finding. Each review's SKIP_*_REVIEW
+# override reaches it through the environment.
+run_headless_reviews() {
+    local base="$1" action="$2" dir work name rc i=0 failed=""
+    local names=(rule-review part-review design-review sql-review test-review) pids=()
+    dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if ! work=$(mktemp -d); then
+        echo "gitflow: the headless reviews cannot run: no temporary directory. Fix before $action." >&2
+        return 4
+    fi
+    echo "gitflow: running the rule, part, design, SQL and test reviews side by side..." >&2
+    for name in "${names[@]}"; do
+        "$dir/$name.sh" "$base" >"$work/$name.out" 2>&1 &
+        pids+=("$!")
+    done
+    for name in "${names[@]}"; do
+        if wait "${pids[$i]}"; then rc=0; else rc=$?; fi
+        i=$((i + 1))
+        cat "$work/$name.out" >&2
+        [ "$rc" -eq 0 ] || failed="$failed $name"
+    done
+    rm -rf "$work"
+    if [ -n "$failed" ]; then
+        echo "gitflow: headless review failed:$failed (output above). Fix before $action." >&2
         return 4
     fi
 }
@@ -657,7 +792,7 @@ run_semgrep_gate() {
 # question (top-level key, present or not) and handles both the array and object
 # forms.
 run_build_gate() {
-    local root="$1" builds count scope
+    local root="$1" builds count scope fp=""
     if jq -e 'has("workspaces")' "$root/package.json" >/dev/null 2>&1; then
         scope="workspace"
         # `npm pkg get` answers per workspace, {} where there is none. npm 11 and earlier
@@ -684,6 +819,10 @@ run_build_gate() {
         return 0
     fi
 
+    # Fingerprinted before the build, which may write files of its own.
+    if fp=$(gate_fingerprint "$root" "production build") && gate_unchanged "$root" "production build" "$fp"; then
+        return 0
+    fi
     echo "gitflow: running production build — $count $scope(s) declare a build script (npm run build $*)..." >&2
     if ! (cd "$root" && npm run build "$@"); then
         echo "merge.sh: production build FAILED — nothing merged." >&2
@@ -692,4 +831,5 @@ run_build_gate() {
         return 15
     fi
     echo "gitflow: production build OK — $count $scope(s) built." >&2
+    gate_record_pass "$root" "production build" "$fp"
 }

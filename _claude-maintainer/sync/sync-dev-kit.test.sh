@@ -250,6 +250,19 @@ jq -e '[.files[] | select(.kit_path == "_claude-project/templates/design-system/
 jq -e '[.skipped_unconfigured[] | .key] | sort == ["DESIGN_FEED_BARREL","SHARED_MODULE_DIR"]' <<<"$out" >/dev/null && ok "the skip is reported under the feed barrel key" || bad "feed barrel skip: $(jq -c .skipped_unconfigured <<<"$out")"
 jq 'del(.DESIGN_FEED_BARREL) | ._intentionally_empty -= ["DESIGN_FEED_BARREL"]' "$PROJ/.claude/sync-substitutions.json" > "$tmp/s" && mv "$tmp/s" "$PROJ/.claude/sync-substitutions.json"
 
+# ─── The test buildspec: only for a project whose TEST_RUNNER is aws ──────
+mkdir -p "$KIT/_claude-project/templates/codebuild"
+printf 'version: 0.2\n' > "$KIT/_claude-project/templates/codebuild/buildspec-test.yml"; kit_commit "test buildspec"
+out=$(scan)
+jq -e '[.skipped_unconfigured[] | select(.kit_path == "_claude-project/templates/codebuild/buildspec-test.yml") | .key] == ["TEST_RUNNER"]' <<<"$out" >/dev/null \
+    && jq -e '[.files[] | select(.kit_path == "_claude-project/templates/codebuild/buildspec-test.yml")] == []' <<<"$out" >/dev/null \
+    && ok "test buildspec: skipped under the default runner, reported under TEST_RUNNER" || bad "buildspec skip: $(jq -c .skipped_unconfigured <<<"$out")"
+jq '.TEST_RUNNER = "aws"' "$PROJ/.claude/sync-substitutions.json" > "$tmp/s" && mv "$tmp/s" "$PROJ/.claude/sync-substitutions.json"
+d=$(scan | jq -r '.files[] | select(.kit_path == "_claude-project/templates/codebuild/buildspec-test.yml") | .dest_path + " " + .mode')
+[ "$d" = "infra/codebuild/buildspec-test.yml owned" ] && ok "test buildspec: TEST_RUNNER aws maps it to infra/codebuild/, owned" || bad "buildspec dest: $d"
+jq 'del(.TEST_RUNNER)' "$PROJ/.claude/sync-substitutions.json" > "$tmp/s" && mv "$tmp/s" "$PROJ/.claude/sync-substitutions.json"
+rm -r "$KIT/_claude-project/templates/codebuild"; kit_commit "drop test buildspec fixture"
+
 # ─── A template is a seed: offered once, never again ─────────────────────
 run --apply-file _claude-project/templates/biome.json >/dev/null 2>&1
 printf '{ "extends": ["./biome.base.json"], "plugins": ["./mine.grit"] }\n' > "$PROJ/biome.json"
@@ -387,7 +400,7 @@ run --migration-done m-two >/dev/null 2>&1; run --migration-done m-three >/dev/n
 mkdir -p "$KIT/_claude-maintainer/migrations/m-draft"; printf '# m-draft\n' > "$KIT/_claude-maintainer/migrations/m-draft/PROMPT.md"
 out=$(scan)
 jq -e '.migrations_uncommitted == ["m-draft"] and .migrations_pending == []' <<<"$out" >/dev/null \
-    && ok "migrations: an uncommitted one is named, and not listed to run" || bad "uncommitted: $(jq -c '{migrations_uncommitted, migrations_pending}' <<<"$out")"
+    && ok "migrations: off a maintainer machine an uncommitted one is named, and not listed to run" || bad "uncommitted: $(jq -c '{migrations_uncommitted, migrations_pending}' <<<"$out")"
 rm -rf "$KIT/_claude-maintainer/migrations/m-draft"
 scan | jq -e '.migrations_uncommitted == []' >/dev/null && ok "migrations: none uncommitted, none named" || bad "uncommitted after removal"
 run --migration-done no-such >/dev/null 2>&1; rc=$?
@@ -396,6 +409,53 @@ cp "$L" "$tmp/lock.orig"; jq '.lastSyncedCommit = "00000000000000000000000000000
 run --scan >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 5 ] && ok "migrations: a last sync the kit's history does not hold fails the scan" || bad "unknown lastSyncedCommit (rc=$rc)"
 cp "$tmp/lock.orig" "$L"
+
+# ─── Migrations on a maintainer machine: uncommitted ones run ahead ───────
+MARK="$HOME/.claude/kitmaster"
+draft() { mkdir -p "$KIT/_claude-maintainer/migrations/$1"; printf '# %s\n\n---\n\nDo %s.\n' "$1" "$1" > "$KIT/_claude-maintainer/migrations/$1/PROMPT.md"; }
+ahead() { jq -c '.migrationsRunAhead // "absent"' "$L"; }
+touch "$MARK"
+add_migration m-four
+draft m-z-draft; draft m-a-draft; touch -t 202001010000 "$KIT/_claude-maintainer/migrations/m-z-draft/PROMPT.md"
+out=$(scan)
+jq -e '[.migrations_pending[].name] == ["m-four","m-a-draft","m-z-draft"]' <<<"$out" >/dev/null \
+    && ok "maintainer: uncommitted migrations are pending after the committed ones, by name" || bad "maintainer pending: $(jq -c '[.migrations_pending[].name]' <<<"$out")"
+jq -e '.migrations_uncommitted == ["m-a-draft","m-z-draft"]' <<<"$out" >/dev/null \
+    && ok "maintainer: they are still named as uncommitted" || bad "maintainer uncommitted: $(jq -c .migrations_uncommitted <<<"$out")"
+[ "$(jq -r '.migrations_pending[] | select(.name == "m-a-draft") | .prompt' <<<"$out")" = "$KIT/_claude-maintainer/migrations/m-a-draft/PROMPT.md" ] \
+    && ok "maintainer: an uncommitted migration's prompt is the working-tree file" || bad "draft prompt path"
+rm "$MARK"
+[ "$(pending)" = '["m-four"]' ] && ok "consumer: the same kit state lists only the committed one" || bad "consumer pending: $(pending)"
+touch "$MARK"
+(cd "$FRESH" && /bin/bash "$S" --scan 2>/dev/null) | jq -e '.migrations_pending == []' >/dev/null \
+    && ok "maintainer: a first sync runs none, uncommitted ones included" || bad "first sync lists drafts"
+run --migration-done m-four >/dev/null 2>&1; run --migration-done m-a-draft >/dev/null 2>&1; run --finalize >/dev/null 2>&1
+[ "$(ahead)" = '["m-a-draft"]' ] && ok "maintainer: finalize records the uncommitted one run" || bad "run-ahead record: $(ahead)"
+jq -e '(has("pendingMigrations") | not) and (has("migrationsDone") | not)' "$L" >/dev/null \
+    && ok "maintainer: an uncommitted one not run is not carried" || bad "carried: $(jq -c '{pendingMigrations, migrationsDone}' "$L")"
+[ "$(pending)" = '["m-z-draft"]' ] && ok "maintainer: the next sync of the same kit state does not offer it again" || bad "re-offered: $(pending)"
+run --migration-done m-z-draft >/dev/null 2>&1; run --finalize >/dev/null 2>&1
+[ "$(ahead)" = '["m-a-draft","m-z-draft"]' ] && ok "maintainer: the record keeps earlier entries" || bad "record grows: $(ahead)"
+rm -rf "$KIT/_claude-maintainer/migrations/m-z-draft"
+run --finalize >/dev/null 2>&1
+[ "$(ahead)" = '["m-a-draft"]' ] && ok "maintainer: a recorded draft deleted before commit is pruned" || bad "deleted draft kept: $(ahead)"
+kit_commit "ship m-a-draft"
+[ "$(pending)" = "[]" ] && ok "maintainer: once the kit commits it, the project is not offered it" || bad "committed draft offered: $(pending)"
+rm "$MARK"
+[ "$(pending)" = "[]" ] && ok "consumer: the record keeps a committed run-ahead migration from running" || bad "consumer re-runs: $(pending)"
+jq '.migrationsRunAhead += ["m-unshipped"]' "$L" > "$tmp/l" && mv "$tmp/l" "$L"
+run --finalize >/dev/null 2>&1
+[ "$(ahead)" = '["m-unshipped"]' ] && ok "consumer: finalize drops the committed record, keeps one its clone has not received" || bad "consumer prune: $(ahead)"
+touch "$MARK"
+run --finalize >/dev/null 2>&1
+[ "$(ahead)" = '"absent"' ] && ok "maintainer: a record the kit holds nowhere is pruned, and the key goes with it" || bad "record left: $(ahead)"
+FRESH3="$tmp/fresh3"; mkdir -p "$FRESH3"; draft m-b-draft
+(cd "$FRESH3" && /bin/bash "$S" --finalize >/dev/null 2>&1)
+jq -e '.migrationsRunAhead == ["m-b-draft"]' "$FRESH3/.claude/.kit-sync.json" >/dev/null \
+    && ok "maintainer: a first sync records the uncommitted ones — the project starts on the working tree" || bad "first-sync record: $(jq -c .migrationsRunAhead "$FRESH3/.claude/.kit-sync.json")"
+(cd "$FRESH3" && /bin/bash "$S" --scan 2>/dev/null) | jq -e '.migrations_pending == []' >/dev/null \
+    && ok "maintainer: so its next sync does not offer them" || bad "first-sync project offered drafts"
+rm -rf "$KIT/_claude-maintainer/migrations/m-b-draft" "$MARK"
 
 # ─── The scan writes nothing; --apply-substitutions writes what it reported ─
 FRESH2="$tmp/fresh2"; mkdir -p "$FRESH2"; (cd "$FRESH2" && git init -q -b main .)

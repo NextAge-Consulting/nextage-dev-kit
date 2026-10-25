@@ -19,7 +19,7 @@ The pipeline is a layered gate between "code written" and "code in production." 
 | Layer | Catches | Where |
 |-------|---------|-------|
 | Local (gitflow pre-commit, Claude rules) | Fast feedback; bypassable | Dev machine |
-| CI on PR | Type errors, lint, SAST, unit + integration tests; **hard gate** | GitHub Actions |
+| CI on PR | Type errors, lint, SAST, unit + integration tests; **hard gate** | GitHub Actions; the full suite in the project's CodeBuild under `TEST_RUNNER` `aws` (§1.6) |
 | AI review (advisory) | Structural diff defects, caller mismatches | Gemini on PR |
 | E2E verification | "Whole app is broken" before a release | Claude-driven, manual `/e2e` |
 | Production monitoring | Runtime throws, downtime (post-deploy catch-up) | Sentry / UptimeRobot |
@@ -36,11 +36,13 @@ The pipeline does not rely on GitHub branch protection. The merge gate lives in 
 
 **`main` must not require a PR.** This is the one hard requirement on the GitHub side, and it is the default on a fresh repo — so there is nothing to configure, just don't turn it on. The direct-push paths (`/ship-main`, `/deploy`'s bump push, the changes `/sync-dev-kit` leaves for you to land) push straight to `main`, and GitHub rejects those if require-PR is on. CI, commitlint, and Gemini still RUN on every PR (they fire on `pull_request` / gitflow triggers, not on protection) — they're simply not GitHub-merge-blocking, because `/merge` is the gate. `enforce_admins` is irrelevant — nothing admin-merges.
 
+**A project at `ASSURANCE_LEVEL` `strict` adds one GitHub-side control:** a ruleset on `main` requiring the `full-suite` check, and a review if the project wants one, so the evidence that every change was tested lives in GitHub as well as in `/merge`. Its bypass list holds whoever runs `/deploy` and `/ship-main`, whose commits reach `main` by direct push. It is a setup step, not automated (`new-project-setup.md` step 3); §1.6.
+
 **Coordinated / delayed releases** use the PR as a parking lot: open it, let CI go green, don't merge until the timing is right (after-hours, sign-off, campaign launch). No release branch needed at this scale.
 
 ### `/ship-main` — the deliberate direct-to-main exception
 
-For quick infra / emergency / "get it in and back to clean" work, a full branch→PR→CI→merge cycle is theater. `/ship-main` commits a conventional message **directly on `main`** and pushes — no branch, no PR, no CI (a push to `main` triggers nothing; CI is `pull_request`-only, and deploys start only when `/deploy` dispatches them). It runs the same local typecheck + lint as `/commit` (the assist that stays). Works as long as `main` does not require a PR (§1.1) — the default.
+For quick infra / emergency / "get it in and back to clean" work, a full branch→PR→CI→merge cycle is theater. `/ship-main` commits a conventional message **directly on `main`** and pushes — no branch, no PR, no CI (a push to `main` triggers nothing; CI is `pull_request`-only, and deploys start only when `/deploy` dispatches them). It runs the same local gates as `/commit` — typecheck, lint, the integration tests reaching the change and the headless reviews (the assist that stays). Works as long as `main` does not require a PR (§1.1) — the default.
 
 **The gate is explicit invocation, never inference.** A bare `/commit` on `main` still auto-branches (the safety for accidental-on-main); `/ship-main` is the opposite, on purpose, and only when asked for by name. Its commits land on `main` and feed the next `/deploy`'s bump + changelog exactly like a merged-PR squash commit. See `.claude/commands/ship-main.md`.
 
@@ -52,10 +54,10 @@ Git operations route exclusively through gitflow — slash commands backed by sc
 |---------|------|
 | `/work [#issue]` | Start or resume the body-of-work branch; optionally link issues (status → In Progress, assign, dump context for Claude). |
 | `/checkpoint` | Local save point; folded into the next `/commit` or `/ship-main`, never pushed. |
-| `/commit` | Conventional commit (emoji + type), typecheck-gated, push. Decides which linked issues are code complete, asking only when it cannot tell (status → Staged). |
+| `/commit` | Conventional commit (emoji + type), push, behind the local gates — typecheck, lint, Semgrep, the integration tests reaching the change, and the headless reviews run side by side, a passed review reused. The typecheck and integration gate skip on code unchanged but for comments and whitespace. Decides which linked issues are code complete, asking only when it cannot tell (status → Staged). |
 | `/catchup` | Pull `main` into the feature branch. |
-| `/open-pr` | Gate: every linked issue must be code complete, or named part of this PR. Push, open PR with `Closes #N` (status → Staged) — `Part of #N` for a part, which closes nothing — trigger advisory review. |
-| `/merge` | Verify gate green, squash-merge, land on `main`. **Does not deploy.** |
+| `/open-pr` | Gate: every linked issue must be code complete, or named part of this PR. Push, open PR with `Closes #N` (status → Staged) — `Part of #N` for a part, which closes nothing — trigger advisory review. Warns when an app it touches has no current happy path (refuses under `ASSURANCE_LEVEL` `strict`). |
+| `/merge` | Refuse uncommitted changes, run the production build locally while waiting for CI and review, squash-merge, land on `main`. **Does not deploy.** |
 | `/deploy` | The release boundary — see §1.3. |
 
 Design choices baked in:
@@ -111,7 +113,7 @@ The migrate workflow body is project-owned and MUST exit 0 on a no-op and non-ze
 | Snyk | Redundant with Dependabot + surfacing + Semgrep at small-shop scale. Upgrade path is a 5-seat-minimum cliff. |
 | Socket.dev | Zero unique signal above Dependabot on a clean codebase; free tier truncates the dep tree; adds per-release triage cost. |
 
-**CI (`ci.yml`) runs every check that can tell, and fails rather than passing unlooked.** A `detect` job names the stacks present and notes the ones it skips. GitHub bills each job by the minute, rounded up, so the Node checks that finish in seconds run as steps of one `node-checks` job — `dep-alignment`, `workspace-tiers`, `stack-standard`, `check-types`, `biome`, the design checks and `knip`. Each step runs even when an earlier one failed, so one run reports every failure, and any failed step fails the job. The `check-types` step applies when `package.json` declares `check-types` or the repository has TypeScript sources (`.ts`, `.tsx`, `.mts`, `.cts` outside `node_modules`, `.claude` and `dist`; the kit's `knip.config.ts` does not count) — then a missing script fails it; otherwise it passes saying check-types does not apply, and the commit gate does the same. The design-checks step runs `lint:tokens` and `lint:design` whenever `design.md` exists at the repository root, and a missing script fails it. The `vitest` job always runs a declared `test` script; without one it fails when the root package or a workspace holds a vitest config or a `*.test.*` / `*.spec.*` file, and otherwise passes saying it does not apply — tests inside a nested directory with its own `package.json` that is no workspace belong to that package. It also fails when the repository has `*.integration.test.ts` files and the `NEON_API_KEY` or `NEON_PROJECT_ID` secret is empty, because the integration project would otherwise drop out and the run pass green; Dependabot PRs, which GitHub runs without secrets, are the exception. The `python` job typechecks from the repository root whenever a root `pyproject.toml` or `pyrightconfig.json` exists, with the commit gate's choice of checker — pyright, else mypy — and fails on any error. Pyright is the stack manifest's pin (`pyright`, `installedBy: ci`), installed over any version the project declares; the commit gate runs the pyright installed locally and warns when it differs from the pin. The `knip` step runs knip when `KNIP_GATE` is `"true"`, passes with a notice when the project has decided against the gate, passes with a warning while the key is undecided, and fails on any other value (§3.9). The `project` job holds the repository's own CI steps in its `project-steps` region, which sync carries across kit updates; `detect` skips it while the region holds only the kit's placeholder step.
+**CI (`ci.yml`) runs every check that can tell, and fails rather than passing unlooked.** A `detect` job names the stacks present and notes the ones it skips. GitHub bills each job by the minute, rounded up, so the Node checks that finish in seconds run as steps of one `node-checks` job — `dep-alignment`, `workspace-tiers`, `stack-standard`, `check-types`, `biome`, the design checks and `knip`. Each step runs even when an earlier one failed, so one run reports every failure, and any failed step fails the job. Both Node jobs cache the installed `node_modules` — the root's and each workspace's — keyed on the runner's OS and architecture, the exact Node version, `package-lock.json` and every `package.json`; an exact hit skips `npm ci` but still runs the project's own install scripts (`preinstall`, `install`, `postinstall`, `prepare`, in the root and every workspace), since what they generate can live outside `node_modules`; a miss runs `npm ci` and saves the result. The `check-types` step applies when `package.json` declares `check-types` or the repository has TypeScript sources (`.ts`, `.tsx`, `.mts`, `.cts` outside `node_modules`, `.claude` and `dist`; the kit's `knip.config.ts` does not count) — then a missing script fails it; otherwise it passes saying check-types does not apply, and the commit gate does the same. In a repository that declares workspaces, the root script is `"check-types": "node scripts/check-types.mjs"`: it runs each workspace's own `check-types` script concurrently, one per CPU at most, prints a failing workspace's output whole, says how many workspaces it checked, and fails when any failed — or when none declares the script, a declared workspace's `package.json` cannot be read, or a workspace glob matches nothing. The design-checks step runs `lint:tokens` and `lint:design` whenever `design.md` exists at the repository root, and a missing script fails it. The `vitest` job always runs a declared `test` script; without one it fails when the root package or a workspace holds a vitest config or a `*.test.*` / `*.spec.*` file, and otherwise passes saying it does not apply — tests inside a nested directory with its own `package.json` that is no workspace belong to that package. It also fails when the repository has `*.integration.test.ts` files other than development tests (`*.dev.integration.test.ts`, never in the full suite) and the `NEON_API_KEY` or `NEON_PROJECT_ID` secret is empty, because the integration project would otherwise drop out and the run pass green; Dependabot PRs, which GitHub runs without secrets, are the exception. The full suite runs once per code fingerprint (`code-fingerprint.mjs` in the gitflow skill — the tree with comments and whitespace left out of TypeScript and JavaScript, every other file byte for byte), taken of the checked-out commit: the PR merged into `main`, the code the suite tests. Every run records its result on the PR's head commit as the `full-suite` commit status, success or failure, whose description carries that fingerprint; when an earlier commit of the same PR has a `full-suite` success on the same fingerprint, the job skips `npm test` and posts a success "carried forward from <sha>". A commit that only rewords comments re-runs nothing, and a PR whose `main` moved has a new merge result, so a new fingerprint, and runs again. The job needs `statuses: write`; a Dependabot PR's read-only token records nothing, and a record that cannot be posted warns. Under `TEST_RUNNER` `aws` the job runs `npm test -- --project unit` instead, requires no Neon secrets, records nothing, and says so: the project's CodeBuild test project runs the full suite and reports `full-suite` (§1.6). The `python` job typechecks from the repository root whenever a root `pyproject.toml` or `pyrightconfig.json` exists, with the commit gate's choice of checker — pyright, else mypy — and fails on any error. Pyright is the stack manifest's pin (`pyright`, `installedBy: ci`), installed over any version the project declares; the commit gate runs the pyright installed locally and warns when it differs from the pin. The `knip` step runs knip when `KNIP_GATE` is `"true"`, passes with a notice when the project has decided against the gate, passes with a warning while the key is undecided, and fails on any other value (§3.9). The `project` job holds the repository's own CI steps in its `project-steps` region, which sync carries across kit updates; `detect` skips it while the region holds only the kit's placeholder step.
 
 **Revisit threshold for the rejected dep-security tools:** a real supply-chain incident slipping through Dependabot + cooldown + surfacing + Semgrep. The kit's cross-file caller analysis (what paid review vendors charge for) is handled in-house by constitution §XIV at edit time.
 
@@ -122,7 +124,7 @@ The migrate workflow body is project-owned and MUST exit 0 on a no-op and non-ze
 | Tier | Tooling | What | Gate |
 |------|---------|------|------|
 | Unit | Vitest | Pure functions with complex, predictable output (pricing math, packing algorithms, financial totals). Synthetic fixtures, in-memory. | CI hard gate |
-| Integration | Vitest (`integration` project) | Real server functions against a **real ephemeral Postgres branch** — one branch per run, forked copy-on-write from production, deleted after. Each test runs in an always-rolled-back transaction (`dbTest`), so tests run in parallel MVCC-isolated on the shared branch. Catches wrong queries, missing columns, constraint violations, broken joins. | CI hard gate |
+| Integration | Vitest (`integration` project) | Real server functions against a real database — on PostgreSQL an **ephemeral branch**, one per run, forked copy-on-write from production and deleted after; on SQL Server the development database. Each test runs in an always-rolled-back transaction (`dbTest`), so tests run in parallel. Three kinds, told apart by file name: happy-path and risk tests make up the full suite; development tests run only at `/commit` and `/ship-main`, while their code changes (testing.md §3). | CI hard gate (CodeBuild under `TEST_RUNNER` `aws`, §1.6) |
 | Migration-during-PR | drizzle-kit in `globalSetup.ts` | A PR's pending migration runs once against the prod-schema branch before tests — the same drizzle-kit migrate that the deploy's migration build runs against production, validated in the same CI pass. | CI hard gate |
 | E2E | Claude + `agent-browser` | Standalone `/e2e` **manual verification** — see below. | NOT a hard gate |
 
@@ -138,6 +140,36 @@ The migrate workflow body is project-owned and MUST exit 0 on a no-op and non-ze
 | Paired with production monitoring | Because E2E is a manual verification not an enforced barrier, Sentry + UptimeRobot provide post-deploy catch-up. |
 
 Structured assertions are added by **accretion** — only when a specific failure class keeps slipping through does that step get codified as a structured `agent-browser eval` check. Default is behavioral. testing.md §2.
+
+## 1.6 Where the full suite runs, and the assurance level
+
+Two project settings shape the full suite's path, both in `.claude/sync-substitutions.json` and resolved by the gitflow skill's `settings.sh`, which fails naming the key and the file on a value outside its set.
+
+**`TEST_RUNNER` — where the full suite runs.** Layered: the kit default, then the project's value, then a developer's own `TEST_RUNNER=` line in `.env`, most specific wins. CI reads the project's value only.
+
+| Value | The full suite on a PR | `/deploy` with no recorded pass on `main`'s exact code |
+|---|---|---|
+| `github` (the default) | `ci.yml`'s `vitest` job, recorded as the `full-suite` commit status carrying the code fingerprint (§1.4) | Runs it on the deploying machine |
+| `aws` | The project's CodeBuild test project, `<CODEBUILD_PROJECT_PREFIX>test`, started by the repository's PR webhook through the AWS–GitHub connection, running the kit's `infra/codebuild/buildspec-test.yml`. It reports the `full-suite` check to the PR, and records the fingerprint as the build's exported `FULL_SUITE_FP`. The `vitest` job runs the unit tests only, and says so | Starts a build of the test project on `HEAD` with the deploy-trigger key and waits for it |
+
+A project picks `aws` for fewer GitHub minutes, less dependence on GitHub, or a database on a private network that only a build inside the account can reach. It needs `CODEBUILD_PROJECT_PREFIX`, `AWS_REGION` and the deploy-trigger key whatever `DEPLOY_BACKEND` is, the key's extra grants (`new-project-setup.md` §7c), and the test project itself (`infrastructure.md`, "The full suite in CodeBuild").
+
+Under `aws`, `/deploy` finds a pass by reading the test project's newest 100 builds for a `SUCCEEDED` one whose `FULL_SUITE_FP` is `HEAD`'s fingerprint, then the GitHub statuses, so a pass CI recorded before the move still counts. A build carries a pass forward the same way: an earlier `SUCCEEDED` build on the same fingerprint, and the suite does not run again. Whichever commit a build tests, a pass is trusted only on a matching fingerprint, so what the build tests changes how often a pass is reused, never whether a wrong one is trusted.
+
+**How a PR build behaves:**
+
+- A PR webhook build tests the PR's head commit, not its merge into `main`; its pass matches `main` after the squash merge when the branch held `main`'s latest commit.
+- The CodeConnections connection the build clones through also posts its status to the PR, with no further setup.
+- The PR shows that status under the `buildStatusConfig` context exactly as configured, `full-suite`.
+
+**`ASSURANCE_LEVEL` — how much the gates refuse rather than warn.** Project only; no `.env` layer, because the level is the project's commitment.
+
+| | `assist` (the default; one- and two-person shops) | `strict` (a project that must evidence its controls, e.g. ISO 27001) |
+|---|---|---|
+| `/ship-main` | Any change, behind the local gates | Docs only — `project-documentation/` and Markdown; anything else refused (exit 16) |
+| `/deploy` | No recorded pass → the suite runs where `TEST_RUNNER` points; `INTEGRATION_DEPLOY_OFF` can excuse it | No recorded pass → a CodeBuild test build under `aws`, a refusal under `github` (exit 26); the suite never runs on the deploying machine, and `INTEGRATION_DEPLOY_OFF` excuses nothing |
+| `/open-pr` | An app with no current happy path is a warning | The same is a refusal (exit 16), and so is a check that could not run |
+| GitHub | Nothing required (§1.1) | A ruleset on `main` requiring the `full-suite` check (§1.1, `new-project-setup.md` step 3) |
 
 ---
 
@@ -159,6 +191,7 @@ File: `.claude/skills/gitflow/scripts/deploy.sh`. Slash command spec: `.claude/c
    - Local `main` == `origin/main` (no stale local; nothing un-pushed)
    - HEAD's required check-runs are not `failure` / `timed_out` / `cancelled`
    - At least one commit since the last `v*.*.*` tag
+   - The full test suite passes on the exact code on `main` — run only when that code has no passing record. `deploy.sh` takes `HEAD`'s code fingerprint and looks for a `full-suite` success carrying it: on `HEAD`, on every commit since the last tag, and on the head commit of every PR merged since then (`commits/<sha>/pulls`). Under `TEST_RUNNER` `aws` it reads the CodeBuild test project's builds first (§1.6). Found → it names the pass it trusts and runs neither the suite nor the integration preflight. Not found, or the record unreadable → it runs the suite where `TEST_RUNNER` points: on the deploying machine, or a CodeBuild test build on `HEAD` it waits for. The question is only "has this exact code passed the full suite"; how the code reached `main` — a `/ship-main` commit, a merge after `main` moved — changes the answer only by changing the code. `INTEGRATION_DEPLOY_OFF` still turns the run off, except under `ASSURANCE_LEVEL` `strict`, where no pass and no CodeBuild runner is a refusal
 
 2. **Bump-level inference** (Claude does this in `/deploy` Step 2 before invoking the script):
    - Scan SUBJECT lines of commits since last tag
@@ -184,7 +217,7 @@ File: `.claude/skills/gitflow/scripts/deploy.sh`. Slash command spec: `.claude/c
 
 **What `/deploy` does NOT do:**
 - Does NOT run a CI, lint, typecheck or build pass — those gates already fired on the merged feature PRs, and `/merge` owns the production build gate while the PR is still open. A `/ship-main` commit reaches `/deploy` with no gate by design.
-- Does NOT open a release PR or admin-merge anything — the bump commit pushes straight to `main` (require-PR off, the default). `/deploy` no longer needs `enforce_admins: false`.
+- Does NOT open a release PR or admin-merge anything — the bump commit pushes straight to `main` (require-PR off, the default).
 - Does NOT auto-bump on every feature-PR merge (the bot-PR pattern caused version-skew; see §2.6).
 - Does NOT infer the changelog from PR descriptions — uses commit subjects since last tag.
 
@@ -203,7 +236,7 @@ File: `.claude/skills/gitflow/scripts/deploy.sh`. Slash command spec: `.claude/c
 **Migration phase (`MIGRATE_WORKFLOW` substitution).** A single workflow that `/deploy` runs as **step 1** — once, before any app deploy, watched to completion and gated. Solves two problems: (a) in a split-deploy monorepo, the schema migration was duplicated inside all N app deploy workflows (no-op in the trailing N−1, but present "in case one runs alone"); pulling it to a single gated pre-step runs it exactly once; (b) a DB-only repo (no UI / no app artifact — e.g. a service that maintains a database for a legacy app) can `/deploy` to migrate with zero app deploys.
 
 - Substitution lives in `.claude/sync-substitutions.json` (runtime-read by `deploy.sh` via `jq`, NOT placeholder-substituted). A single `migrate.yml`-shaped name: under `codebuild` it maps to the migrate project by prefix (or `CODEBUILD_MIGRATE_PROJECT`), under `github` it is the workflow filename. `--migrate-workflow <file>` CLI flag overrides it.
-- Empty / missing → no migration phase (prior behavior; any migration stays inline in the app deploy workflows).
+- Empty / missing → no migration phase (any migration stays inline in the app deploy workflows).
 - Set → `deploy.sh` dispatches it and waits for it to finish. Real failure → exit 19, deploy aborts before any app deploy.
 - `MIGRATE_WORKFLOW` set + `DEPLOY_WORKFLOWS` empty → **migration-only deploy** (no `deploy.yml` fallback). This is the DB-maintenance-repo shape.
 - Migration is **never invoked on its own** — there is no `/migrate` command. It exists only as deploy's first phase (you would never migrate without deploying). The migrate project (or, under `github`, the migrate workflow's `workflow_dispatch:` trigger) is purely the mechanical hook `deploy.sh` uses to fire it.
@@ -213,7 +246,7 @@ File: `.claude/skills/gitflow/scripts/deploy.sh`. Slash command spec: `.claude/c
 - Space-separated git pathspec(s) naming where migration files live (drizzle: `apps/shared/src/db/migrations`; Prisma: `prisma/migrations`; Alembic: `alembic/versions`). **Multiple paths supported** — a repo with several databases lists every migration dir; the workflow fires if *any* changed. Runtime-read from `.claude/sync-substitutions.json`; `--migrate-paths <path>...` overrides.
 - Before firing `MIGRATE_WORKFLOW`, `deploy.sh` runs `git diff --name-only "$LAST_TAG"..HEAD -- $MIGRATE_PATHS`. **Empty → skip the workflow entirely** (nothing to apply). Non-empty → fire as normal.
 - **The reference is `LAST_TAG` — the PREVIOUS deploy's tag, captured at the state gate before this run creates its own tag.** This is load-bearing: a fresh `git describe` at the migrate step would return *this run's* just-pushed tag, making the diff empty every time → always-skip (silently broken). Never recompute it.
-- Empty / missing `MIGRATE_PATHS` → **no skip; the workflow always fires** (prior behavior). The skip is strictly opt-in per project.
+- Empty / missing `MIGRATE_PATHS` → **no skip; the workflow always fires**. The skip is strictly opt-in per project.
 - **Safe under the failed-migration recovery model.** If a prior deploy's migration failed, that deploy's tag still exists → re-running `/deploy` stops at the "no commits since tag" gate, forcing the documented manual recovery (which applies the migration); the migrate workflow stays idempotent as the backstop. The only way to skip a genuinely-pending migration is to actively ignore a failed deploy and force past its abort — operator error, not a design hole. `git diff` failure → exit 20 (fail-loud, never skip on an errored check).
 - Does **not** reorder anything: the bump/changelog/tag block stays before the deploy, exactly as it must (the app image bakes in `package.json`'s version + changelog, so the bump has to precede the build). The skip is a guard in front of the migrate trigger, nothing more.
 
@@ -355,7 +388,7 @@ A trigger on push to `main` reintroduces the pre-bump race (the deploy reads `pa
 
 Multiple merges between deploys are normal. The deploy ships everything since the last release tag in one bump.
 
-**What goes inside the deploy is consumer-specific** — build, ECR push, host rollout, verification. The kit ships no buildspec or `deploy.yml`, only this contract and the body pattern in §2.7.
+**What goes inside the deploy is consumer-specific** — build, ECR push, host rollout, verification. The kit ships no deploy buildspec or `deploy.yml`, only this contract and the body pattern in §2.7.
 
 **Audit when adopting `/deploy`:** a CodeBuild project with a webhook or an EventBridge schedule attached, or a workflow with any of these, must lose it:
 
@@ -376,7 +409,7 @@ Version bump + tag live in the local `/deploy` command (§2.1), never in a CI wo
 
 ## 2.7 Deploy buildspec body pattern (build → push → roll out)
 
-The kit ships no buildspec — deploy targets vary per project — so each consumer authors its own, dispatched only by `/deploy` (§2.5, §2.1).
+The kit ships no deploy buildspec — deploy targets vary per project — so each consumer authors its own, dispatched only by `/deploy` (§2.5, §2.1).
 
 **One deploy buildspec per project, one CodeBuild project per service.** Every service's project points at the same `infra/codebuild/buildspec.yml` and sets its own environment variables (service, image name, Dockerfile, SSM path, health port). A change to the build shape is made once; each service still fails in isolation.
 
@@ -415,7 +448,7 @@ missing repos and unauthorized ones):
    The guard, the read-only grants it needs and why it must tell a missing policy
    from a missing permission are in `new-project-setup.md` §7a.
 
-The kit ships no buildspec (§2.5), so this is adoption guidance: audit existing
+The kit ships no deploy buildspec (§2.5), so this is adoption guidance: audit existing
 consumers' push/pull policies for enumerated ARNs once, and keep the guard in every
 deploy buildspec. Checklist row: E67.
 
@@ -643,10 +676,10 @@ Current model: **trigger reality drives wait reality.** A single observable — 
 | `/open-pr` | Always posts `/gemini review` after `gh pr create`. Fail-loud if post fails. |
 | `/commit --review` | Posts `/gemini review` after push. Fail-loud if post fails. |
 | `/commit --no-review` | Does NOT post. The wait at `/merge` sees no trigger and proceeds CI-only. |
-| `/commit` (PR open, no flag) | `.claude/commands/commit.md` prompts the user via `AskUserQuestion`; result determines `--review` / `--no-review`. |
+| `/commit` (PR open, no flag) | `.claude/commands/commit.md` asks the user in prose; the answer determines `--review` / `--no-review`. |
 | `/commit` (no PR open) | Nothing to comment on; skips silently. |
 | `/checkpoint` | Never posts. Checkpoints are mid-flight saves below the review threshold; `/commit` is the signal that work is review-ready. |
-| `/deploy` | Never posts. The bump commit pushes directly to `main` — no PR exists for Gemini to review. (Under the earlier release-PR design, deploy likewise never triggered Gemini; the direct-push model removes the PR entirely.) |
+| `/deploy` | Never posts. The bump commit pushes directly to `main` — no PR exists for Gemini to review. |
 
 The wait side reads truth, not intent. `wait-for-pr-ready.sh` queries the PR's top-level comments (via `gh api repos/{owner}/{repo}/issues/{pr}/comments`), filters to `/gemini review` body (case-insensitive, exact match — not prose like "I'll run /gemini review later"), and scopes to comments created AFTER the HEAD's committer date. If such a comment exists → wait for a Gemini review on HEAD. If absent → CI-only readiness. No author filter — manual triggers from the user (or from a consumer developer, or from any maintainer) are honored identically to scripted triggers.
 

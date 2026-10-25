@@ -1,6 +1,6 @@
 # templates/
 
-Files whose destination is **not** the plain `_claude-project/` → `.claude/` mapping, and which therefore need an explicit entry in `dest_for_kit_path`. Most land at the consumer's repo root; `testing/` lands beside the shared module (from the `SHARED_MODULE_DIR` substitution); `design-system/` lands inside the UI package (from `DESIGN_UI_PACKAGE`); `ui-inventory.md` lands inside `.claude/rules/project/`, the one directory sync otherwise never writes to. A file here with no mapping is listed under `unmapped_templates` on every scan.
+Files whose destination is **not** the plain `_claude-project/` → `.claude/` mapping, and which therefore need an explicit entry in `dest_for_kit_path`. Most land at the consumer's repo root; `testing/` lands beside the shared module (from the `SHARED_MODULE_DIR` substitution); `design-system/` lands inside the UI package (from `DESIGN_UI_PACKAGE`); `codebuild/` lands in `infra/codebuild/` under `TEST_RUNNER` `aws`; `ui-inventory.md` lands inside `.claude/rules/project/`, the one directory sync otherwise never writes to. A file here with no mapping is listed under `unmapped_templates` on every scan.
 
 Files in `merge` mode carry `project:begin <name>` / `project:end <name>` markers: the kit owns every line outside them, the project owns every line between them (kitmaintainer-handbook.md §9.10).
 
@@ -25,8 +25,9 @@ Sync behavior (`/sync-dev-kit`):
 
 - **`ui-inventory.md`** — copied to consumer's `.claude/rules/project/ui-inventory.md`. Synced in **`merge` mode**: the kit owns the headings and instructions, the project owns each enumeration region. It cannot ship from `_claude-project/rules/project/`, which `is_skipped` excludes entirely. See kitmaintainer-handbook.md §11.3.
 - **`dependency-policy.md`** — copied to consumer's `project-documentation/dependency-policy.md`, `merge` mode. The `owners`, `timelines` and `project-notes` regions are the project's.
-- **`scripts/`** — `check-dep-alignment.mjs`, `check-workspace-tiers.mjs`, `check-stack.mjs`, `db-branch.mjs`, `check-integration-coverage.mjs`, copied to the consumer's `/scripts/`.
+- **`scripts/`** — `check-dep-alignment.mjs`, `check-workspace-tiers.mjs`, `check-stack.mjs`, `check-types.mjs`, `db-branch.mjs`, `check-integration-coverage.mjs`, copied to the consumer's `/scripts/`.
 - **`testing/`** — vitest scaffolding, `template` mode, destination from the `SHARED_MODULE_DIR` substitution. Skipped entirely when that value is empty. See testing.md §1.
 - **`design-system/`** — `tsconfig.types.json`, the type emit the `claude-design` engine builds the design system's types from, `owned`, with `{{DESIGN_FEED_BARREL}}` substituted. Lands at `<DESIGN_UI_PACKAGE>/design-system/<file>`; skipped, and listed under `skipped_unconfigured`, when that value is empty.
+- **`codebuild/buildspec-test.yml`** — the test buildspec, copied to the consumer's `infra/codebuild/buildspec-test.yml`, `owned`, only when the project's `TEST_RUNNER` is `aws`; otherwise skipped and listed under `skipped_unconfigured`. It runs the full suite in the project's CodeBuild test project through the gitflow skill's `codebuild-suite.sh`. See kit `pipeline.md` §1.6 and `infrastructure.md`, "The full suite in CodeBuild".
 
 Add new root-level template files here when a future need arises (e.g., `.editorconfig`, CI workflow templates). After adding, register the file name mapping in `_claude-maintainer/sync/sync-dev-kit.sh` (`dest_for_kit_path` function).

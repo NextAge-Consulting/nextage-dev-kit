@@ -16,17 +16,17 @@ Run the scan. It writes nothing, so the go-ahead in Step 1.2 is decided on a pro
 
 Parse the JSON output. A syncer's clone is always clean and current here, because `--prepare` refuses otherwise; `kit_clean`, `kit_behind_remote` and `migrations_uncommitted` matter on a maintainer's machine. Top-level fields:
 
-- `kit_clean` — `false` means the kit repo has uncommitted changes. Warn the user; suggest they commit kit work before syncing.
-- `migrations_uncommitted` — migrations in the kit's working tree that the kit has never committed. Sync runs only committed migrations, so these never run in this sync. When it is non-empty, stop before Step 1.2: name each one, say it will not run, and tell the user to commit the kit and sync again. Continue only on their explicit word.
+- `kit_clean` — `false` means the kit repo has uncommitted changes. Warn the user that this sync takes the kit's uncommitted files and migrations, as a test of them before they ship.
+- `migrations_uncommitted` — migrations in the kit's working tree that its HEAD does not hold. Only a maintainer's machine has any: there, each one this project has not run yet is in `migrations_pending`, after the committed ones, in name order, so a kit change is tested with its migration before it ships. A syncer's clone is a clean release, so the list is empty; were it not, those migrations would not run, so name each one and say so in the briefing.
 - `kit_behind_remote` — `true` means the kit repo is behind its remote. Warn the user to `git pull` the kit before syncing.
 - `kit_commit` — the kit HEAD SHA at scan time. This becomes the new lockfile baseline after `--finalize`.
 - `files` — array of per-file state entries.
 - `gitignore_additions_missing` — array of `.gitignore` lines the kit wants present in the project that are not yet.
 - `unmapped_templates` — kit files under `_claude-project/templates/` with no destination mapping. Non-empty is a kit defect: tell the user the kit is missing a `dest_for_kit_path` entry for each.
-- `skipped_unconfigured` — `{kit_path, key}` for each kit file skipped because the setting its destination depends on (`SHARED_MODULE_DIR`, `DB_ENGINE`, `DESIGN_UI_PACKAGE`, `DESIGN_FEED_BARREL`) is empty or rules it out. List them once, so the user knows what the setting costs.
+- `skipped_unconfigured` — `{kit_path, key}` for each kit file skipped because the setting its destination depends on (`SHARED_MODULE_DIR`, `DB_ENGINE`, `DESIGN_UI_PACKAGE`, `DESIGN_FEED_BARREL`, `TEST_RUNNER`) is empty or rules it out. List them once, so the user knows what the setting costs.
 - `repo_kind` and `skipped_by_repo_kind` — the project's `REPO_KIND` and how many application-tooling files it skipped as an `org` repo. Say the count once; never list the files.
 - `stale_patches` — patch register entries that sanction nothing, each with the file's `current_state` (Step 2.2).
-- `migrations_pending` — `{name, prompt}` for each migration the kit added since this project last synced, oldest first, after any an earlier sync carried forward (Step 5.5).
+- `migrations_pending` — `{name, prompt}` for each migration the kit added since this project last synced, oldest first, after any an earlier sync carried forward, and then, on a maintainer's machine, each uncommitted one not yet run here (Step 5.5). `prompt` is the file in the kit's working tree.
 - `substitutions_bootstrap` — `true` on the project's first sync: `.claude/sync-substitutions.json` does not exist yet, and the scan read the kit template's values in its place.
 - `substitutions_new_keys` — kit keys the project's file lacks. Step 1.5 writes them in.
 - `substitutions_undecided` — the keys the Step 1.5 walkthrough will ask about.
@@ -38,7 +38,7 @@ Before anything is written, tell the user what this sync asks of them and of the
 1. **What changes mechanically.** One line: how many kit-owned files it updates or adds (`kit-only` and `new-kit`, merge files included, whose project regions are always kept), and that none of them needs a decision. Name a file only when it would break something in this project (Step 2.04).
 2. **Files that need a person** — every `patched`, `unsanctioned`, `conflict`, `conflict-first`, `merge-unmarked`, `merge-invalid`, `removed-kit` and `project-deleted` file, and each of `stale_patches`. One line each: what the choice is, and what you will recommend.
 3. **Settings to decide** — each of `substitutions_undecided`, in plain words from the kit catalog (`<kit_path>/_claude-project/sync-substitutions.json`, `_placeholders_referenced_by_kit`), and whether a sensible default exists. With `substitutions_bootstrap` true, say this is the project's first sync, so every setting is asked once.
-4. **Each migration** in `migrations_pending`, in order: its estimate (below).
+4. **Each migration** in `migrations_pending`, in order: its estimate (below). Say which are uncommitted — the kit has not shipped them yet.
 5. **The total.** The user's interactive time across all of it, and the verdict: nothing needing a person means the sync runs straight through; anything else, say how long they will sit with it.
 
 Then ask once whether to go ahead. On no, stop: nothing in the project has changed, and the next sync briefs again.
@@ -95,7 +95,7 @@ Filter out any key that's in `_intentionally_empty` — the user already decided
 
 If the list is empty, skip the rest of Step 1.5 and proceed to Step 2.
 
-**Ask `REPO_KIND` first when it is in the list.** It decides which other keys matter. For an `org` repo, offer to settle the application keys in one step: `DB_ENGINE` = `None`, `GEMINI_NOT_INSTALLED` = `true` (an org repo is reviewed through its plans, not Gemini), `ORG_REPO` = this repository, and `SHARED_MODULE_DIR`, `DESIGN_UI_PACKAGE`, `KNIP_GATE`, `FORM_LIB_EXEMPT_APPS`, `DEPLOY_BACKEND`, `DEPLOY_WORKFLOWS`, `MIGRATE_WORKFLOW`, `MIGRATE_PATHS`, `CODEBUILD_PROJECT_PREFIX`, `CODEBUILD_MIGRATE_PROJECT` and `CODEBUILD_PROMOTE_PREFIX` added to `_intentionally_empty`. A `combo` repo — a project that is its own org repo — keeps its application settings and sets `ORG_REPO` to itself. Then re-run `--scan`, because the kind changes which files are scanned.
+**Ask `REPO_KIND` first when it is in the list.** It decides which other keys matter. For an `org` repo, offer to settle the application keys in one step: `DB_ENGINE` = `None`, `GEMINI_NOT_INSTALLED` = `true` (an org repo is reviewed through its plans, not Gemini), `ORG_REPO` = this repository, and `SHARED_MODULE_DIR`, `DESIGN_UI_PACKAGE`, `KNIP_GATE`, `FORM_LIB_EXEMPT_APPS`, `DEPLOY_BACKEND`, `DEPLOY_WORKFLOWS`, `MIGRATE_WORKFLOW`, `MIGRATE_PATHS`, `CODEBUILD_PROJECT_PREFIX`, `CODEBUILD_MIGRATE_PROJECT`, `CODEBUILD_PROMOTE_PREFIX` and `TEST_RUNNER` added to `_intentionally_empty`. A `combo` repo — a project that is its own org repo — keeps its application settings and sets `ORG_REPO` to itself. Then re-run `--scan`, because the kind changes which files are scanned.
 
 **Per-key flow** (one at a time, sequentially — don't batch):
 
@@ -270,9 +270,9 @@ Every migration in `migrations_pending` runs in this session, in order, once the
 
 1. Read its `prompt` file in full. Tell the user, in a sentence, what it changes, and remind them of its estimate from the briefing.
 2. Carry out everything below its `---` line as the user's instruction. Its Estimate section was for the briefing; skip it here.
-3. When it is done, record it: `.claude/scripts/sync-dev-kit.sh --migration-done <name>`.
+3. When it is done, record it: `.claude/scripts/sync-dev-kit.sh --migration-done <name>`. An uncommitted one is recorded the same way.
 
-A migration the user chooses to leave is not recorded. `--finalize` carries it to the next sync, which lists it first.
+A migration the user chooses to leave is not recorded. `--finalize` carries a committed one to the next sync, which lists it first; an uncommitted one is offered again while the kit's working tree still holds it.
 
 ### Step 6: Finalize
 
@@ -282,7 +282,7 @@ After all decisions processed, ALWAYS run:
 .claude/scripts/sync-dev-kit.sh --finalize
 ```
 
-`--finalize` **stamps the lockfile** — sets `lastSyncedCommit` and `lastSyncedAt` (the per-file SHAs are already current because `--apply-file` updated them incrementally) — and records in `pendingMigrations` any migration this sync listed and did not run.
+`--finalize` **stamps the lockfile** — sets `lastSyncedCommit` and `lastSyncedAt` (the per-file SHAs are already current because `--apply-file` updated them incrementally) — and records in `pendingMigrations` any committed migration this sync listed and did not run. Each uncommitted migration run goes into `migrationsRunAhead`, so it does not run again when the kit commits it; the entry is dropped once the kit's history holds that migration, or on a maintainer's machine once the draft is gone. A first sync records every uncommitted migration there, since the project starts on the working tree.
 
 **Sync does NOT commit or push.** It applies kit updates to the working tree and stamps the lockfile — that's all. Committing is gitflow's job, not sync's. After `--finalize`, the synced `.claude/` files plus the lockfile bump are a normal uncommitted change in the working tree.
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Regression suite for gates.sh — the typecheck, biome, knip, semgrep, terraform, build and integration gates
-# /commit, /ship-main and /merge run.
+# /commit, /ship-main and /merge run, and the skip each of three takes on unchanged code.
 #
 # The contract under test: every gate passes, fails, or says why it does not
 # apply, and a gate that cannot run fails. Each case runs in a throwaway git repo
@@ -20,7 +20,7 @@ has(){ # has <pattern> <label> — the last gate's stderr contains the pattern
 
 # The sandbox: only the tools the gates need, so a missing checker is really missing.
 SANDBOX="$tmp/sandbox"; mkdir -p "$SANDBOX"
-for tool in bash git jq sed sort mktemp rm grep tr tail head cat dirname env awk; do
+for tool in bash git jq sed sort mktemp rm grep tr tail head cat dirname env awk mkdir; do
   ln -s "$(command -v "$tool")" "$SANDBOX/$tool"
 done
 STUBS="$tmp/stubs"; mkdir -p "$STUBS"
@@ -323,6 +323,11 @@ grep -qx 'src/a.ts' "$tmp/npx.args" && echo "  ✓ …on the changed files" || {
 stub npx 1 'echo "FAIL |integration| test/a.integration.test.ts"'
 t 4 "$(gate run_integration_gate "$BASE" committing)" 'a failing integration test fails'
 has 'integration tests failed' '…and says so'
+stub npx 1 'printf "Unhandled Error\nIntegration tests%s database not ready: dev on db1 is missing migrations this branch adds:\n  - 0007_add_notes\nTo apply them:\n  npm run db:migrate\n" "'"'"'"'
+t 4 "$(gate run_integration_gate "$BASE" committing)" 'a database the harness refuses fails the gate'
+has 'missing migrations this branch adds' '…replaying the refusal'
+has 'npm run db:migrate' '…with the fix it names'
+has 'or their database is not ready' '…and says the database may be why'
 stub npx 0 'echo "No test files found, exiting with code 0"'
 t 0 "$(gate run_integration_gate "$BASE" committing)" 'no test reaching the change passes'
 has 'no integration test reaches the' '…and says so'
@@ -335,34 +340,123 @@ has 'the tests reaching the' '…and says so'
 
 echo "integration preflight:"
 new_repo
-t 0 "$(gate run_integration_preflight INTEGRATION_COMMIT_OFF committing)" 'no package.json passes'
+t 0 "$(gate run_integration_preflight INTEGRATION_DEPLOY_OFF deploying)" 'no package.json passes'
 has 'integration preflight: skipped — no root package.json' '…and says why'
 printf '{"name":"app","scripts":{"test:preflight":"check"}}\n' > package.json
 mkdir -p .claude test
 printf '{"DB_ENGINE":"None"}\n' > .claude/sync-substitutions.json
-t 0 "$(gate run_integration_preflight INTEGRATION_COMMIT_OFF committing)" 'DB_ENGINE None passes'
+t 0 "$(gate run_integration_preflight INTEGRATION_DEPLOY_OFF deploying)" 'DB_ENGINE None passes'
 has 'preflight: does not apply — DB_ENGINE is None' '…and says why'
-printf '{"DB_ENGINE":"SQLServer","INTEGRATION_COMMIT_OFF":"no database access here"}\n' > .claude/sync-substitutions.json
-t 0 "$(gate run_integration_preflight INTEGRATION_COMMIT_OFF committing)" 'the declared off key passes'
-has 'preflight: declared off (INTEGRATION_COMMIT_OFF) — no database access here' '…quoting the reason'
-printf '{"DB_ENGINE":"SQLServer","INTEGRATION_DEPLOY_OFF":"no database access at deploy"}\n' > .claude/sync-substitutions.json
-t 0 "$(gate run_integration_preflight INTEGRATION_COMMIT_OFF committing)" 'another gate'"'"'s off key does not stand it down…'
+printf '{"DB_ENGINE":"SQLServer","INTEGRATION_DEPLOY_OFF":"no database access here"}\n' > .claude/sync-substitutions.json
+t 0 "$(gate run_integration_preflight INTEGRATION_DEPLOY_OFF deploying)" 'the declared off key passes'
+has 'preflight: declared off (INTEGRATION_DEPLOY_OFF) — no database access here' '…quoting the reason'
+printf '{"DB_ENGINE":"SQLServer","INTEGRATION_COMMIT_OFF":"no database access at commit"}\n' > .claude/sync-substitutions.json
+t 0 "$(gate run_integration_preflight INTEGRATION_DEPLOY_OFF deploying)" 'another gate'"'"'s off key does not stand it down…'
 has 'no integration tests yet' '…it goes on to look for integration tests'
 printf 'x\n' > test/a.integration.test.ts
 printf '{"name":"app"}\n' > package.json
-t 0 "$(gate run_integration_preflight INTEGRATION_COMMIT_OFF committing)" 'no test:preflight script passes'
+t 0 "$(gate run_integration_preflight INTEGRATION_DEPLOY_OFF deploying)" 'no test:preflight script passes'
 has 'declares none (no "test:preflight" script)' '…and says so'
 printf '{"name":"app","scripts":{"test:preflight":"check"}}\n' > package.json
-t 4 "$(gate run_integration_preflight INTEGRATION_COMMIT_OFF committing)" 'npm missing fails'
+t 4 "$(gate run_integration_preflight INTEGRATION_DEPLOY_OFF deploying)" 'npm missing fails'
 has 'npm is not installed here' '…and says so'
 stub npm 1 'echo "the database lacks migration 0007_add_notes"'
-t 4 "$(gate run_integration_preflight INTEGRATION_COMMIT_OFF committing)" 'a failing preflight fails'
+t 4 "$(gate run_integration_preflight INTEGRATION_DEPLOY_OFF deploying)" 'a failing preflight fails'
 has 'lacks migration 0007_add_notes' '…replaying why'
-has "database is not ready. Fix before committing" '…and says so'
+has "database is not ready. Fix before deploying" '…and says so'
 t "run --silent test:preflight" "$(tr '\n' ' ' < "$tmp/npm.args" | sed 's/ $//')" '…by running npm run test:preflight'
 stub npm 0
-t 0 "$(gate run_integration_preflight INTEGRATION_COMMIT_OFF committing)" 'a passing preflight passes'
+t 0 "$(gate run_integration_preflight INTEGRATION_DEPLOY_OFF deploying)" 'a passing preflight passes'
 has "integration tests' database is ready" '…and says so'
+
+echo "unchanged code (the code fingerprint):"
+# Real node and TypeScript, so the fingerprint is the real one; npm and npx stay stubs.
+REALNODE="$tmp/realnode"; mkdir -p "$REALNODE"; ln -s "$(command -v node)" "$REALNODE/node"
+TS_DIR="$(npm root -g 2>/dev/null)/typescript"
+fgate(){ ( PATH="$STUBS:$REALNODE:$SANDBOX"; source "$D/gates.sh"; "$@" ) 2>"$tmp/err"; echo $?; }
+ran(){ # ran <stub> <label> — the stub was called by the last gate
+  if [ -f "$tmp/$1.args" ]; then echo "  ✓ $2"; else echo "  ✗ FAIL — $2; stderr was: $(cat "$tmp/err")"; fail=1; fi; rm -f "$tmp/$1.args"; }
+skipped(){ # skipped <stub> <label> — the stub was not called, and the gate said why
+  if [ ! -f "$tmp/$1.args" ] && grep -qF 'code unchanged since the last pass (comments and whitespace only)' "$tmp/err"; then
+    echo "  ✓ $2"; else echo "  ✗ FAIL — $2; stderr was: $(cat "$tmp/err")"; fail=1; fi; rm -f "$tmp/$1.args"; }
+if [ ! -d "$TS_DIR" ]; then
+  echo "  ✗ FAIL — these cases need TypeScript installed globally (npm i -g typescript)"; fail=1
+else
+  new_repo
+  printf 'node_modules/\n' > .gitignore
+  mkdir -p node_modules src; ln -s "$TS_DIR" node_modules/typescript
+  printf '{"name":"app","scripts":{"check-types":"tsc --noEmit"}}\n' > package.json
+  printf '// a note\nexport const a = 1;\n' > src/a.ts
+  stub npm 0
+  t 0 "$(fgate run_typecheck_gate 0 committing)" 'typecheck: the first pass runs'
+  ran npm '…running check-types'
+  t 0 "$(fgate run_typecheck_gate 0 committing)" 'typecheck: the same code again passes'
+  skipped npm '…without running, saying the code is unchanged'
+  printf '/* another note */\nexport   const a =\n  1;\n' > src/a.ts
+  t 0 "$(fgate run_typecheck_gate 0 committing)" 'typecheck: comments and whitespace changed'
+  skipped npm '…still skips'
+  printf 'export const a = 2;\n' > src/a.ts
+  stub npm 1
+  t 4 "$(fgate run_typecheck_gate 0 committing)" 'typecheck: changed code runs, and its failure fails'
+  ran npm '…having run'
+  stub npm 0
+  t 0 "$(fgate run_typecheck_gate 0 committing)" 'typecheck: a failure is never recorded — the same code runs again'
+  ran npm '…having run'
+  printf 'export const a = 3;\n' > src/a.ts
+  t 0 "$(fgate run_typecheck_gate 1 committing)" 'typecheck: --skip-typecheck passes'
+  t 0 "$(fgate run_typecheck_gate 0 committing)" '…and records nothing: the next run checks'
+  ran npm '…having run'
+  printf '{"name":"app","scripts":{"check-types":"tsc --noEmit -p ."}}\n' > package.json
+  t 0 "$(fgate run_typecheck_gate 0 committing)" 'typecheck: a configuration change is a code change'
+  ran npm '…and runs'
+
+  # The integration gate: a real coverage script, the vitest run a stub.
+  mkdir -p .claude scripts test
+  printf '{"DB_ENGINE":"PostgreSQL"}\n' > .claude/sync-substitutions.json
+  printf 'console.log("✓ check-integration-coverage: 1 changed exported function(s)");\n' > scripts/check-integration-coverage.mjs
+  printf 'x\n' > test/a.integration.test.ts
+  stub npx 0 'echo " ✓ |integration| test/a.integration.test.ts"'
+  t 0 "$(fgate run_integration_gate "$BASE" committing)" 'integration: the first pass runs'
+  ran npx '…running vitest related'
+  t 0 "$(fgate run_integration_gate "$BASE" committing)" 'integration: the same code again passes'
+  skipped npx '…without running'
+  printf '// reworded\nexport const a =    3;\n' > src/a.ts
+  t 0 "$(fgate run_integration_gate "$BASE" committing)" 'integration: comments and whitespace changed'
+  skipped npx '…still skips'
+  # A commit made and stepped back from: another base, the same working tree.
+  printf 'y\n' > other.txt; git add other.txt; git commit -qm other; OTHER=$(git rev-parse HEAD); git reset -q --soft HEAD~1; git rm -q --cached other.txt; rm -f other.txt
+  t 0 "$(fgate run_integration_gate "$OTHER" committing)" 'integration: the same code measured from another base runs'
+  ran npx '…having run'
+  printf 'export const a = 4;\n' > src/a.ts
+  stub npx 1 'echo "FAIL |integration| test/a.integration.test.ts"'
+  t 4 "$(fgate run_integration_gate "$BASE" committing)" 'integration: changed code runs, and its failure fails'
+  ran npx '…having run'
+  stub npx 0 'echo " ✓ |integration| test/a.integration.test.ts"'
+  t 0 "$(fgate run_integration_gate "$BASE" committing)" 'integration: a failure is never recorded — the same code runs again'
+  ran npx '…having run'
+
+  # The build gate, in a repository of its own.
+  new_repo
+  printf 'node_modules/\ndist/\n' > .gitignore
+  mkdir -p node_modules src; ln -s "$TS_DIR" node_modules/typescript
+  printf 'export const b = 1;\n' > src/b.ts
+  printf '{"name":"s","scripts":{"build":"echo built-s; mkdir -p dist; echo x > dist/out.js"}}\n' > package.json
+  fbuild(){ ( PATH="$REALNODE:$PATH"; source "$D/gates.sh"; run_build_gate "$1" ) >"$tmp/out" 2>"$tmp/err"; echo $?; }
+  t 0 "$(fbuild "$repo")" 'build: the first pass builds'
+  grep -q built-s "$tmp/out" && echo "  ✓ …and it really ran" || { echo "  ✗ FAIL — build did not run"; fail=1; }
+  t 0 "$(fbuild "$repo")" 'build: the same code again passes'
+  ! grep -q built-s "$tmp/out" && has 'production build: code unchanged since the last pass' '…without building, saying the code is unchanged' \
+    || { echo "  ✗ FAIL — built again: $(cat "$tmp/err")"; fail=1; }
+  printf '// why b is one\nexport const b = 1;\n' > src/b.ts
+  t 0 "$(fbuild "$repo")" 'build: comments changed'
+  ! grep -q built-s "$tmp/out" && echo "  ✓ …still skips" || { echo "  ✗ FAIL — built again"; fail=1; }
+  printf 'export const b = 2;\n' > src/b.ts
+  t 0 "$(fbuild "$repo")" 'build: changed code'
+  grep -q built-s "$tmp/out" && echo "  ✓ …builds" || { echo "  ✗ FAIL — build did not run"; fail=1; }
+  rec=$(git rev-parse --path-format=absolute --git-path gitflow-pass/production-build)
+  [ -f "$rec" ] && echo "  ✓ the pass is recorded under the git dir, not in the tree" || { echo "  ✗ FAIL — no record at $rec"; fail=1; }
+  [ -z "$(git status --porcelain -- . ':!src' ':!package.json' ':!.gitignore')" ] && echo "  ✓ …leaving the tree as it was" || { echo "  ✗ FAIL — tree changed"; fail=1; }
+fi
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

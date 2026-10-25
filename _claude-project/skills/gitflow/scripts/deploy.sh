@@ -37,7 +37,7 @@
 # migration workflow is SKIPPED entirely — no runner spun up (which is where the
 # ~2 min goes: runner boot + `npm ci` just to reach a drizzle-kit no-op). If
 # omitted, the script reads `MIGRATE_PATHS` from `.claude/sync-substitutions.json`;
-# if that is also empty the workflow ALWAYS fires (prior behavior). The reference
+# if that is also empty the workflow ALWAYS fires. The reference
 # is the PREVIOUS deploy's tag (LAST_TAG), so a failed-then-recovered migration is
 # unaffected — see the skip block at step 10 and pipeline.md §2.1.
 #
@@ -78,7 +78,12 @@
 #   - No UI awaiting the human's approval: the ui-patterns status check passes
 #     (rules/ui-design.md, "One app, one look and feel")
 #   - The full test suite passes, and integration tests that exist actually ran
-#     (testing.md §3) — unless INTEGRATION_DEPLOY_OFF declares why it cannot
+#     (testing.md §3) — unless INTEGRATION_DEPLOY_OFF declares why it cannot. Not run
+#     again when this exact code already has a full-suite pass recorded — on GitHub, or
+#     in the CodeBuild test project under TEST_RUNNER=aws (full_suite_pass) — which also
+#     stands the preflight down. Otherwise it runs where TEST_RUNNER points: here, or a
+#     CodeBuild test build on HEAD. Under ASSURANCE_LEVEL=strict it never runs here, and
+#     INTEGRATION_DEPLOY_OFF does not excuse it (pipeline.md §1.6)
 #
 # In a repo holding infrastructure, /deploy on a PR branch — and in an org repo,
 # always — hands over to deploy-org.sh instead (repo_kind.sh).
@@ -154,14 +159,16 @@
 #
 # ─── Exit codes ──────────────────────────────────────────────────────────
 #   2  bad args; also DEPLOY_BACKEND=custom/none (this script does not deploy
-#      this project) or an unrecognized DEPLOY_BACKEND value — all raised
-#      before any bump, commit or tag
+#      this project), an unrecognized DEPLOY_BACKEND value, an invalid TEST_RUNNER or
+#      ASSURANCE_LEVEL, or TEST_RUNNER=aws without CODEBUILD_PROJECT_PREFIX and
+#      AWS_REGION — all raised before any bump, commit or tag
 #   3  not on main
 #   4  dirty working tree
 #   5  out of sync with origin
 #   6  HEAD has failed required check-runs
 #   7  no commits since last tag (nothing to deploy)
-#   8  required CLI not available (gh; also aws under the default codebuild backend)
+#   8  required CLI not available (gh; also aws under the default codebuild backend
+#      or TEST_RUNNER=aws)
 #   9  npm/python3 not available
 #  10  bump failed
 #  11  push failed
@@ -173,8 +180,8 @@
 #      aborted before any app workflow fired
 #  20  git diff for the migration-path skip check failed
 #  21  deploy-trigger AWS credential missing from .env or invalid (codebuild
-#      backend) — checked as a state gate before any mutation, so this never
-#      fires after the bump/tag
+#      backend, or TEST_RUNNER=aws) — checked as a state gate before any mutation,
+#      so this never fires after the bump/tag
 #  22  UI awaiting the human's approval, or out of step with the UI inventory
 #      (check-ui-status.mjs) — checked as a state gate before any mutation
 #  23  promote: no such release tag on origin
@@ -183,8 +190,10 @@
 #      (the org PR not merged, or no merged PR closes the org issue), or GitHub
 #      could not say — checked as a state gate before any mutation
 #  26  the test suite failed, could not run, or ran without the integration tests
-#      the repository has — checked as the last state gate, before any mutation —
-#      or the integration preflight failed, checked as the first
+#      the repository has — here or in the CodeBuild test build — or, under
+#      ASSURANCE_LEVEL=strict, main's code has no recorded pass and no CodeBuild runner;
+#      checked as the last state gate, before any mutation — or the integration
+#      preflight failed, checked as the first
 #
 # ─── Recovery ────────────────────────────────────────────────────────────
 # The bump commit and the push to main happen together (steps 3–4). If the
@@ -211,6 +220,8 @@ source "$SCRIPT_DIR/issue_helpers.sh"
 source "$SCRIPT_DIR/repo_kind.sh"
 # shellcheck source=_claude-project/skills/gitflow/scripts/gates.sh
 source "$SCRIPT_DIR/gates.sh"
+# shellcheck source=_claude-project/skills/gitflow/scripts/settings.sh
+source "$SCRIPT_DIR/settings.sh"
 
 # Infrastructure is released by applying its PR and then merging it (deploy-org.sh,
 # org-repo-cheatsheet.md); an app is released from main below. A repo with no app
@@ -341,6 +352,50 @@ if [ "$PROMOTE" -eq 1 ]; then
         echo "deploy.sh: '$PROMOTE_VERSION' is not a release version (v<major>.<minor>.<patch>)" >&2; exit 2; }
 fi
 
+# use_deploy_key <what needs it> — exports the deploy-trigger key from .env and proves
+# it against AWS, or exits 21. The deploy (DEPLOY_BACKEND=codebuild) and the full suite in
+# CodeBuild (TEST_RUNNER=aws) both start builds with it; a promotion uses its own key.
+#
+# deploy.sh authenticates with its OWN narrowly-scoped credential — StartBuild and
+# BatchGetBuilds on the named project ARNs only (plus ListBuildsForProject on the test
+# project under TEST_RUNNER=aws), created directly in the target account
+# (new-project-setup.md §7c). It is DELIBERATELY separate from AWS_PROFILE / the admin
+# hub-and-role chain (cli-utilities.md): that chain solves a different problem (one
+# consultant, many client accounts) and has no bearing on this repo's own recurring deploy
+# trigger. A long-lived static key is the right shape here (infrastructure.md's
+# "long-lived credential" carve-out) because the IAM policy — not the key's age — is what
+# bounds the risk: it can start these named builds and read their status, nothing else.
+#
+# Read from .env, never from sync-substitutions.json (that file is committed; this is a
+# secret) — same grep|cut|xargs convention as every other .env read in this repo
+# (development-guidelines.md).
+use_deploy_key() {
+    local what="$1" key_var="DEPLOY_AWS"
+    [ "$PROMOTE" -eq 1 ] && key_var="DEPLOY_PROMOTE_AWS"
+    DEPLOY_AWS_ACCESS_KEY_ID=$(grep "^${key_var}_ACCESS_KEY_ID=" .env 2>/dev/null | cut -d'=' -f2- | cut -d'#' -f1 | xargs || true)
+    DEPLOY_AWS_SECRET_ACCESS_KEY=$(grep "^${key_var}_SECRET_ACCESS_KEY=" .env 2>/dev/null | cut -d'=' -f2- | cut -d'#' -f1 | xargs || true)
+    if [ -z "$DEPLOY_AWS_ACCESS_KEY_ID" ] || [ -z "$DEPLOY_AWS_SECRET_ACCESS_KEY" ]; then
+        echo "deploy.sh: ${key_var}_ACCESS_KEY_ID / ${key_var}_SECRET_ACCESS_KEY not set in .env ($what)" >&2
+        echo "  This is a separate, narrowly-scoped credential from your personal AWS_PROFILE —" >&2
+        echo "  provision it per new-project-setup.md §7c (\"Deploy trigger credential\")." >&2
+        exit 21
+    fi
+    export AWS_ACCESS_KEY_ID="$DEPLOY_AWS_ACCESS_KEY_ID"
+    export AWS_SECRET_ACCESS_KEY="$DEPLOY_AWS_SECRET_ACCESS_KEY"
+    CB_AWS_ARGS="--region $CB_AWS_REGION"
+    # Fail loud on a revoked/wrong key HERE — before the bump, the commit, or the tag —
+    # not when a dispatch tries to use it. Discovering this at exit 18/19 leaves the tag
+    # already pushed and the release record half-true for a fact that was knowable up
+    # front. --check-only hits this too, since it's a state gate.
+    # shellcheck disable=SC2086 # intentional word-splitting on the aws flag list
+    if ! aws $CB_AWS_ARGS sts get-caller-identity >/dev/null 2>&1; then
+        echo "deploy.sh: the deploy-trigger AWS key in .env is not valid ($what)" >&2
+        echo "  It does not expire on a schedule — a failure here means it was revoked or mistyped." >&2
+        echo "  Re-provision per new-project-setup.md §7c, or check .env for a typo." >&2
+        exit 21
+    fi
+}
+
 case "$DEPLOY_BACKEND" in
     github) ;;
     custom)
@@ -366,50 +421,33 @@ case "$DEPLOY_BACKEND" in
         # deploy that started nothing — after the tag has already been pushed.
         [ -n "$CB_AWS_REGION" ] || {
             echo "deploy.sh: DEPLOY_BACKEND=codebuild requires AWS_REGION in $SUBS_FILE" >&2; exit 2; }
-        # deploy.sh authenticates with its OWN narrowly-scoped credential —
-        # codebuild:StartBuild + codebuild:BatchGetBuilds on the named project ARNs
-        # only, created directly in the target account (new-project-setup.md §7c).
-        # It is DELIBERATELY separate from AWS_PROFILE / the admin hub-and-role
-        # chain (cli-utilities.md): that chain solves a different problem (one
-        # consultant, many client accounts) and has no bearing on this repo's own
-        # recurring deploy trigger. A long-lived static key is the right shape here
-        # (infrastructure.md's "long-lived credential" carve-out) because the IAM
-        # policy — not the key's age — is what bounds the risk: it can start these
-        # named builds and read their status, nothing else, ever.
-        #
-        # Read from .env, never from sync-substitutions.json (that file is
-        # committed; this is a secret) — same grep|cut|xargs convention as every
-        # other .env read in this repo (development-guidelines.md).
-        # A promotion uses its own key, so holding the deploy key never means
-        # being able to change Prod.
-        KEY_VAR="DEPLOY_AWS"
-        [ "$PROMOTE" -eq 1 ] && KEY_VAR="DEPLOY_PROMOTE_AWS"
-        DEPLOY_AWS_ACCESS_KEY_ID=$(grep "^${KEY_VAR}_ACCESS_KEY_ID=" .env 2>/dev/null | cut -d'=' -f2- | cut -d'#' -f1 | xargs || true)
-        DEPLOY_AWS_SECRET_ACCESS_KEY=$(grep "^${KEY_VAR}_SECRET_ACCESS_KEY=" .env 2>/dev/null | cut -d'=' -f2- | cut -d'#' -f1 | xargs || true)
-        if [ -z "$DEPLOY_AWS_ACCESS_KEY_ID" ] || [ -z "$DEPLOY_AWS_SECRET_ACCESS_KEY" ]; then
-            echo "deploy.sh: ${KEY_VAR}_ACCESS_KEY_ID / ${KEY_VAR}_SECRET_ACCESS_KEY not set in .env" >&2
-            echo "  This is a separate, narrowly-scoped credential from your personal AWS_PROFILE —" >&2
-            echo "  provision it per new-project-setup.md §7c (\"Deploy trigger credential\")." >&2
-            exit 21
-        fi
-        export AWS_ACCESS_KEY_ID="$DEPLOY_AWS_ACCESS_KEY_ID"
-        export AWS_SECRET_ACCESS_KEY="$DEPLOY_AWS_SECRET_ACCESS_KEY"
-        CB_AWS_ARGS="--region $CB_AWS_REGION"
-        # Fail loud on a revoked/wrong key HERE — before the bump, the commit, or
-        # the tag — not when the migration/deploy dispatch tries to use it.
-        # Discovering this at exit 18/19 leaves the tag already pushed and the
-        # release record half-true for a fact that was knowable up front.
-        # --check-only hits this too, since it's a state gate.
-        # shellcheck disable=SC2086 # intentional word-splitting on the aws flag list
-        if ! aws $CB_AWS_ARGS sts get-caller-identity >/dev/null 2>&1; then
-            echo "deploy.sh: the deploy-trigger AWS key in .env is not valid (DEPLOY_BACKEND=codebuild)" >&2
-            echo "  It does not expire on a schedule — a failure here means it was revoked or mistyped." >&2
-            echo "  Re-provision per new-project-setup.md §7c, or check .env for a typo." >&2
-            exit 21
-        fi
+        use_deploy_key "DEPLOY_BACKEND=codebuild"
         ;;
     *) echo "deploy.sh: DEPLOY_BACKEND must be codebuild, github, custom or none (got: '$DEPLOY_BACKEND')" >&2; exit 2 ;;
 esac
+
+# ─── Where the full suite runs, and how much is refused ──────────────────
+# TEST_RUNNER (github | aws: kit default → project → .env) and ASSURANCE_LEVEL
+# (assist | strict, project only), resolved by settings.sh. Under aws the full suite
+# runs in the CodeBuild project <CODEBUILD_PROJECT_PREFIX>test, started by the deploy
+# key whatever DEPLOY_BACKEND is; under strict, /deploy never runs the suite on this
+# machine (the test gate below). A promotion runs no suite.
+TEST_RUNNER="github"
+ASSURANCE_LEVEL="assist"
+TEST_PROJECT=""
+if [ "$PROMOTE" -eq 0 ]; then
+    TEST_RUNNER=$(kit_setting TEST_RUNNER) || exit 2
+    ASSURANCE_LEVEL=$(kit_setting ASSURANCE_LEVEL) || exit 2
+fi
+if [ "$TEST_RUNNER" = "aws" ]; then
+    command -v aws >/dev/null 2>&1 || {
+        echo "deploy.sh: TEST_RUNNER=aws but the aws CLI is not installed" >&2; exit 8; }
+    [ -n "$CODEBUILD_PROJECT_PREFIX" ] && [ -n "$CB_AWS_REGION" ] || {
+        echo "deploy.sh: TEST_RUNNER=aws requires CODEBUILD_PROJECT_PREFIX and AWS_REGION in $SUBS_FILE — the test project is <CODEBUILD_PROJECT_PREFIX>test (infrastructure.md, \"The full suite in CodeBuild\")" >&2
+        exit 2; }
+    TEST_PROJECT="${CODEBUILD_PROJECT_PREFIX}test"
+    [ "$DEPLOY_BACKEND" = "codebuild" ] || use_deploy_key "TEST_RUNNER=aws"
+fi
 
 # deploy-<service>.yml → <prefix><service>
 # Now, minus a few seconds of clock skew, as GitHub writes a run's createdAt.
@@ -441,7 +479,12 @@ cb_project_for() { _s=${1#deploy-}; _s=${_s%.yml}; printf '%s%s' "$CODEBUILD_PRO
 # a bare `id=$(cb_start ...)` under `set -e` aborts the script before any guard on
 # the following line can run.
 # shellcheck disable=SC2086 # intentional word-splitting on the aws flag list
-cb_start() { aws $CB_AWS_ARGS codebuild start-build --project-name "$1" --query 'build.id' --output text; }
+# An optional second argument is the source version to build — a commit sha.
+cb_start() {
+    local version=()
+    [ -n "${2:-}" ] && version=(--source-version "$2")
+    aws $CB_AWS_ARGS codebuild start-build --project-name "$1" "${version[@]}" --query 'build.id' --output text
+}
 
 # Poll a set of build ids until none is IN_PROGRESS, then echo "<id> <status>"
 # per line. Polling them TOGETHER is what makes a fleet release take as long as
@@ -582,10 +625,137 @@ fi
 
 # --- State gates --------------------------------------------------------
 
+DEPLOY_SUBS=".claude/sync-substitutions.json"
+deploy_sub() {
+    [ -f "$DEPLOY_SUBS" ] || return 0
+    jq -r --arg k "$1" '.[$k] // "" | strings' "$DEPLOY_SUBS" 2>/dev/null || true
+}
+TESTS_DEPLOY_OFF=$(deploy_sub INTEGRATION_DEPLOY_OFF)
+
+# --- Has this exact code passed the full suite? ---------------------------
+# The full suite's one question at deploy. A runner that passes it records the pass against
+# the code fingerprint of what it tested (code-fingerprint.mjs, FULL_SUITE), in one of two
+# places:
+#   - GitHub Actions (TEST_RUNNER=github): the `full-suite` commit status, whose
+#     description carries the fingerprint. The pass may sit on HEAD itself, on any commit
+#     since the last release, or on the head commit of a PR merged since then.
+#   - CodeBuild (TEST_RUNNER=aws): a SUCCEEDED build of the test project whose exported
+#     variable FULL_SUITE_FP is the fingerprint (infra/codebuild/buildspec-test.yml). The
+#     newest 100 builds are read. Under aws the GitHub statuses are read too, so a pass CI
+#     recorded before the project moved its suite still counts.
+# However the code reached main, the same code is the same answer. When HEAD's code has
+# such a pass, the suite is not run again. Anything else — no pass, a fingerprint that
+# differs, the record unreadable — runs the suite, below.
+#
+# full_suite_pass — sets SUITE_PASS to "<where> (fp <fp>)" for the pass that covers HEAD.
+SUITE_PASS=""
+github_suite_pass() {
+    local fp="$1" fp_script="$SCRIPT_DIR/code-fingerprint.mjs" context tag range sha shas heads head desc found
+    context=$(node "$fp_script" --status-context)
+    tag=$(git describe --tags --abbrev=0 --match='v*.*.*' 2>/dev/null || true)
+    if [ -n "$tag" ]; then range="$tag..HEAD"; else range="--max-count=50 HEAD"; fi
+    # shellcheck disable=SC2086 # $range is a revision range or a count and a revision, split on purpose
+    if ! shas=$(git rev-list $range 2>&1); then
+        echo "gitflow: full-suite record: could not list the commits since ${tag:-the start} — the suite runs." >&2
+        return 1
+    fi
+    [ -n "$shas" ] || shas=$(git rev-parse HEAD)
+    for sha in $shas; do
+        if ! heads=$(gh api "repos/{owner}/{repo}/commits/$sha/pulls" --jq '.[] | select(.merged_at != null) | .head.sha' 2>&1); then
+            echo "gitflow: full-suite record: GitHub could not list the PRs of $sha — the suite runs:" >&2
+            printf '  %s\n' "$heads" >&2
+            return 1
+        fi
+        for head in $sha $heads; do
+            if ! desc=$(gh api "repos/{owner}/{repo}/commits/$head/status" \
+                    --jq ".statuses[] | select(.context == \"$context\" and .state == \"success\") | .description" 2>&1); then
+                echo "gitflow: full-suite record: GitHub could not read the statuses of $head — the suite runs:" >&2
+                printf '  %s\n' "$desc" >&2
+                return 1
+            fi
+            [ -n "$desc" ] || continue
+            found=$(node "$fp_script" --status-fp "$desc" 2>/dev/null || true)
+            if [ "$found" = "$fp" ]; then
+                SUITE_PASS="$head (fp $fp)"
+                return 0
+            fi
+        done
+    done
+    echo "gitflow: full-suite record: no pass on this exact code on GitHub (fp $fp) since ${tag:-the start}." >&2
+    return 1
+}
+codebuild_suite_pass() {
+    local fp="$1" ids out id build_fp
+    # shellcheck disable=SC2086 # intentional word-splitting on the aws flag list
+    if ! ids=$(aws $CB_AWS_ARGS codebuild list-builds-for-project --project-name "$TEST_PROJECT" \
+            --sort-order DESCENDING --max-items 100 --query 'ids' --output text 2>&1); then
+        echo "gitflow: full-suite record: CodeBuild could not list the builds of $TEST_PROJECT:" >&2
+        printf '  %s\n' "$ids" >&2
+        return 1
+    fi
+    ids=$(printf '%s\n' "$ids" | tr '\t' '\n' | { grep -vE '^(None)?$' || true; })
+    if [ -z "$ids" ]; then
+        echo "gitflow: full-suite record: $TEST_PROJECT has no builds yet." >&2
+        return 1
+    fi
+    # shellcheck disable=SC2086 # intentional word-splitting on the aws flag list and the id list
+    if ! out=$(aws $CB_AWS_ARGS codebuild batch-get-builds --ids $ids \
+            --query 'builds[?buildStatus==`SUCCEEDED`].[id, exportedEnvironmentVariables[?name==`FULL_SUITE_FP`].value | [0]]' \
+            --output text 2>&1); then
+        echo "gitflow: full-suite record: CodeBuild could not read the builds of $TEST_PROJECT:" >&2
+        printf '  %s\n' "$out" >&2
+        return 1
+    fi
+    while IFS=$'\t' read -r id build_fp; do
+        if [ -n "$id" ] && [ "$build_fp" = "$fp" ]; then
+            SUITE_PASS="CodeBuild $id (fp $fp)"
+            return 0
+        fi
+    done <<< "$out"
+    echo "gitflow: full-suite record: no pass on this exact code in $TEST_PROJECT (fp $fp)." >&2
+    return 1
+}
+full_suite_pass() {
+    local fp_script="$SCRIPT_DIR/code-fingerprint.mjs" fp
+    if ! command -v node >/dev/null 2>&1 || [ ! -f "$fp_script" ]; then
+        echo "gitflow: full-suite record: cannot fingerprint the code here (node or code-fingerprint.mjs missing) — no pass can be found." >&2
+        return 1
+    fi
+    if ! fp=$(node "$fp_script" --commit HEAD 2>/dev/null) || [ -z "$fp" ]; then
+        echo "gitflow: full-suite record: the code fingerprint could not be computed — no pass can be found." >&2
+        return 1
+    fi
+    if [ "$TEST_RUNNER" = "aws" ] && codebuild_suite_pass "$fp"; then
+        return 0
+    fi
+    github_suite_pass "$fp"
+}
+
+# The suite this project declares: a root package.json `test` script (the one whose passes
+# are recorded), else a root pyproject.toml.
+NPM_SUITE=0
+if [ -f "package.json" ] && jq -e '.scripts.test | strings' package.json >/dev/null 2>&1; then
+    NPM_SUITE=1
+fi
+# Under strict the record is the only way through, so INTEGRATION_DEPLOY_OFF — which
+# excuses running the suite here — does not stand the lookup down.
+if [ "$NPM_SUITE" -eq 1 ] && { [ -z "$TESTS_DEPLOY_OFF" ] || [ "$ASSURANCE_LEVEL" = "strict" ]; }; then
+    full_suite_pass || true
+fi
+
 # The integration preflight runs first: it is the one gate that can need a decision
 # from the person deploying (a migration to apply to the tests' database), so it asks
-# before anything slow runs, not at the test run that is the last gate below.
-run_integration_preflight INTEGRATION_DEPLOY_OFF "deploying" || exit 26
+# before anything slow runs, not at the test run that is the last gate below. When the
+# full suite will not run on this machine, there is no database to ask about.
+if [ -n "$SUITE_PASS" ]; then
+    echo "gitflow: integration preflight: not needed — the full suite already passed on this exact code ($SUITE_PASS)." >&2
+elif [ "$TEST_RUNNER" = "aws" ]; then
+    echo "gitflow: integration preflight: not needed — the full suite runs in CodeBuild (TEST_RUNNER=aws), not against this machine's database." >&2
+elif [ "$ASSURANCE_LEVEL" = "strict" ]; then
+    echo "gitflow: integration preflight: not needed — under ASSURANCE_LEVEL=strict /deploy does not run the suite here." >&2
+else
+    run_integration_preflight INTEGRATION_DEPLOY_OFF "deploying" || exit 26
+fi
 
 CURRENT_BRANCH=$(git branch --show-current)
 git fetch origin main --quiet
@@ -702,22 +872,57 @@ fi
 
 # --- The full test suite passes, integration tests included --------------
 # The last state gate, so nothing is bumped, built or migrated before it (testing.md
-# §3). It runs the project's own suite — `npm test` for a root package.json declaring
-# one, else `uv run pytest` for a root pyproject.toml — against whatever database the
-# project's .env reaches. Integration tests that exist must actually run, unless the
-# project has no database (DB_ENGINE None). A project that
-# cannot run the suite from where it deploys declares why in INTEGRATION_DEPLOY_OFF.
-DEPLOY_SUBS=".claude/sync-substitutions.json"
-deploy_sub() {
-    [ -f "$DEPLOY_SUBS" ] || return 0
-    jq -r --arg k "$1" '.[$k] // "" | strings' "$DEPLOY_SUBS" 2>/dev/null || true
-}
-TESTS_DEPLOY_OFF=$(deploy_sub INTEGRATION_DEPLOY_OFF)
+# §3). The suite is not run again on code that already passed it (full_suite_pass,
+# above). Otherwise it runs where TEST_RUNNER points:
+#   - aws: a build of the test project on HEAD, waited for — the buildspec runs the suite
+#     and checks the integration tests ran (run_codebuild_suite).
+#   - github: on this machine — `npm test` for a root package.json declaring one, else
+#     `uv run pytest` for a root pyproject.toml — against whatever database the project's
+#     .env reaches. Integration tests that exist must actually run, unless the project has
+#     no database (DB_ENGINE None).
+# A project that cannot run the suite from where it deploys declares why in
+# INTEGRATION_DEPLOY_OFF. Under ASSURANCE_LEVEL=strict neither excuse applies: /deploy
+# goes on only with a recorded pass on this exact code, or one CodeBuild records now.
 TESTS_ENGINE=$(deploy_sub DB_ENGINE)
-INTEGRATION_FILES=$(git ls-files -- '*.integration.test.ts' '*.integration.test.tsx' '*.integration.test.mts' | { grep -vE '(^|/)node_modules/' || true; })
-if [ -n "$TESTS_DEPLOY_OFF" ]; then
+INTEGRATION_FILES=$(git ls-files -- '*.integration.test.ts' '*.integration.test.tsx' '*.integration.test.mts' ':(exclude)*.dev.integration.test.*' | { grep -vE '(^|/)node_modules/' || true; })
+
+# run_codebuild_suite — starts the test project on HEAD and waits; exits 26 unless it passes.
+run_codebuild_suite() {
+    local sha id result status
+    sha=$(git rev-parse HEAD)
+    echo "gitflow: test precheck: starting the full suite in CodeBuild ($TEST_PROJECT) on $sha..." >&2
+    if ! id=$(cb_start "$TEST_PROJECT" "$sha") || [ -z "$id" ] || [ "$id" = "None" ]; then
+        echo "deploy.sh: could not start the test project $TEST_PROJECT. Refusing to deploy — nothing was bumped, built or migrated." >&2
+        exit 26
+    fi
+    echo "gitflow: test precheck: waiting on $id..." >&2
+    if ! result=$(cb_wait "$id"); then
+        exit 26
+    fi
+    status=$(printf '%s\n' "$result" | awk '{print $2}')
+    if [ "$status" != "SUCCEEDED" ]; then
+        echo "deploy.sh: the full suite did not pass in CodeBuild ($id: $status). Refusing to deploy — nothing was bumped, built or migrated." >&2
+        echo "  Read its log in the CodeBuild console, or: aws codebuild batch-get-builds --ids $id --region $CB_AWS_REGION" >&2
+        exit 26
+    fi
+    echo "gitflow: test precheck: the suite passes in CodeBuild ($id)." >&2
+}
+
+if [ "$NPM_SUITE" -eq 1 ] && [ -n "$SUITE_PASS" ]; then
+    echo "gitflow: test precheck: the full suite already passed on this exact code — trusting $SUITE_PASS; not run again." >&2
+elif [ "$NPM_SUITE" -eq 1 ] && [ "$TEST_RUNNER" = "aws" ] && { [ -z "$TESTS_DEPLOY_OFF" ] || [ "$ASSURANCE_LEVEL" = "strict" ]; }; then
+    run_codebuild_suite
+elif [ "$ASSURANCE_LEVEL" = "strict" ] && [ "$NPM_SUITE" -eq 1 ]; then
+    echo "deploy.sh: ASSURANCE_LEVEL=strict — main's exact code has no recorded full-suite pass, and /deploy does not run the suite on this machine." >&2
+    echo "  Let a runner record one: land the change through a PR, whose CI posts \`full-suite\`, or set TEST_RUNNER=aws so /deploy runs it in CodeBuild. Nothing was bumped, built or migrated." >&2
+    exit 26
+elif [ "$ASSURANCE_LEVEL" = "strict" ] && [ -f "pyproject.toml" ]; then
+    echo "deploy.sh: ASSURANCE_LEVEL=strict needs a recorded full-suite pass, and only a package.json \`test\` suite is recorded — this project's pytest suite has no record, so strict cannot be met." >&2
+    echo "  Set ASSURANCE_LEVEL to assist in $DEPLOY_SUBS, or add the suite to package.json's \`test\` script. Nothing was bumped, built or migrated." >&2
+    exit 26
+elif [ -n "$TESTS_DEPLOY_OFF" ]; then
     echo "gitflow: test precheck: declared off at deploy (INTEGRATION_DEPLOY_OFF) — $TESTS_DEPLOY_OFF" >&2
-elif [ -f "package.json" ] && jq -e '.scripts.test | strings' package.json >/dev/null 2>&1; then
+elif [ "$NPM_SUITE" -eq 1 ]; then
     echo "gitflow: test precheck: running npm test..." >&2
     # NO_COLOR keeps vitest's project labels plain. Without it vitest prints each as a
     # coloured badge with no `|` around it — captured output included, whatever FORCE_COLOR

@@ -40,6 +40,19 @@ export type TestProject = {
   unitExclude?: string[];
   /** Integration test files, as globs from the repository root. Default: the shared module's test/**\/*.integration.test.ts. */
   integrationInclude?: string[];
+  /**
+   * How many integration test files run at once. The work waits on the database, not the
+   * CPU, so the ceiling is what the database can serve: raise it while the suite stays
+   * green, lower it when queries start timing out. Default: the CPU count, at least 8.
+   * A developer's .env overrides it with INTEGRATION_WORKERS.
+   */
+  integrationWorkers?: number;
+  /**
+   * SQL Server: how long, in milliseconds, a test waits on a lock another running test holds
+   * before it fails rather than hanging. Default: 10000. A developer's .env overrides it with
+   * INTEGRATION_LOCK_TIMEOUT_MS.
+   */
+  lockTimeoutMs?: number;
   /** Further vitest projects, run beside unit and integration: a UI package with its own environment. */
   vitestProjects?: TestProjectInlineConfiguration[];
   /** .env keys the tests may read beyond the NEON_* keys and TZ, which are always allowed. */
@@ -57,6 +70,15 @@ export type TestProject = {
   /** The roles a test user may hold, and the one mockAuthedUser gives by default. */
   roles?: { all: readonly string[]; default: string };
 };
+
+// The values vitest.config.ts resolves (settings.ts) and hands every worker, read there
+// with vitest's inject().
+declare module "vitest" {
+  export interface ProvidedContext {
+    /** SQL Server: the lock-wait limit each test's transaction sets, in milliseconds. */
+    lockTimeoutMs: number;
+  }
+}
 
 /** The project's settings, typed as written (its roles stay literal) and as the full contract. */
 export function defineTestProject<const T extends TestProject>(project: T): T & TestProject {

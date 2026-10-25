@@ -67,6 +67,7 @@ jobs:
       python: ${{ steps.d.outputs.python }}
       terraform: ${{ steps.d.outputs.terraform }}
       project: ${{ steps.d.outputs.project }}
+      modules: ${{ steps.d.outputs.modules }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
       - id: d
@@ -95,11 +96,27 @@ jobs:
           if [ -z "$region" ] || [ "$region" = "$placeholder" ]; then
             project=false
           fi
+          # Where `npm ci` puts packages, for the Node jobs' node_modules cache:
+          # the root node_modules, and a workspace's own node_modules, where npm
+          # puts a version that clashes with the hoisted one.
+          modules=""
+          if [ "$node" = true ]; then
+            modules=node_modules
+            while IFS= read -r glob; do
+              case "$glob" in '!'*) continue ;; esac
+              for dir in $glob; do
+                [ -f "$dir/package.json" ] && modules="$modules"$'\n'"${dir%/}/node_modules"
+              done
+            done < <(jq -r '(.workspaces | if type == "object" then .packages else . end) // [] | .[]' package.json)
+          fi
           {
             echo "node=$node"
             echo "python=$python"
             echo "terraform=$terraform"
             echo "project=$project"
+            echo "modules<<END_OF_MODULES"
+            printf '%s\n' "$modules"
+            echo "END_OF_MODULES"
           } >> "$GITHUB_OUTPUT"
           echo "detected: node=$node python=$python terraform=$terraform project=$project"
           skipped=""
@@ -121,6 +138,16 @@ jobs:
   # job fails when any step fails. The steps that need dependencies also need
   # the install to have succeeded — a failed `npm ci` is reported once, by its
   # own step, not again by every check behind it.
+  #
+  # The installed node_modules are cached, here and in `vitest`, under one key:
+  # the runner's OS and architecture, the exact Node version, package-lock.json
+  # and every package.json — so a package.json edited without its lockfile
+  # still reaches `npm ci`, which refuses it. On an exact hit `npm ci` does not
+  # run; a miss — or the cache service failing, which only warns — installs as
+  # before, and a successful install is saved. A hit still runs the project's
+  # own install scripts (preinstall, install, postinstall, prepare — root and
+  # every workspace), because what they generate can live outside node_modules;
+  # only the download and unpack are skipped.
   node-checks:
     name: node-checks
     needs: detect
@@ -132,7 +159,8 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+      - id: node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
         with:
           node-version: '24'
           cache: npm
@@ -172,10 +200,33 @@ jobs:
         if: ${{ !cancelled() }}
         run: node scripts/check-stack.mjs
 
+      - id: modules
+        name: restore node_modules
+        if: ${{ !cancelled() }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ${{ needs.detect.outputs.modules }}
+          key: node-modules-${{ runner.os }}-${{ runner.arch }}-node${{ steps.node.outputs.node-version }}-${{ hashFiles('package-lock.json', '**/package.json') }}
       - id: install
         name: npm ci
         if: ${{ !cancelled() }}
-        run: npm ci
+        env:
+          CACHE_HIT: ${{ steps.modules.outputs.cache-hit }}
+        run: |
+          if [ "$CACHE_HIT" = true ]; then
+            echo "node_modules came from the cache for this package-lock.json, so npm ci did not run; running the project's install scripts."
+            for script in preinstall install postinstall prepare; do
+              npm run "$script" --workspaces --include-workspace-root --if-present
+            done
+          else
+            npm ci
+          fi
+      - name: save node_modules
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.modules.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ${{ needs.detect.outputs.modules }}
+          key: ${{ steps.modules.outputs.cache-primary-key }}
 
       # Applies when package.json declares `check-types` or the repository has
       # TypeScript sources of its own — then a missing script fails. The commit
@@ -291,11 +342,29 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.knip-gate.outputs.run == 'true' }}
         run: npx --yes knip@6.41.0 --no-progress --no-config-hints --reporter symbols --reporter github-actions
 
+  # The full suite runs once per code fingerprint (code-fingerprint.mjs in the gitflow
+  # skill): one hash of the tree, comments and whitespace left out of TypeScript and
+  # JavaScript. The tree is the checked-out commit — the PR merged into main, the code
+  # the suite tests. Each run records its result on the PR's head commit as the `full-suite`
+  # status, whose description carries that fingerprint (the name and the format live in
+  # code-fingerprint.mjs, FULL_SUITE). When an earlier commit of this PR passed on the
+  # same fingerprint, the suite does not run again: the pass is carried forward, and says
+  # from where. /deploy reads the same status, and skips its own run of the suite on code
+  # that has one.
+  #
+  # Under TEST_RUNNER=aws (the project's value in .claude/sync-substitutions.json, resolved by
+  # the gitflow skill's settings.sh; no .env here) the full suite runs in the project's
+  # CodeBuild test project instead, which reports `full-suite` to the PR itself: this job
+  # runs the unit tests only, and records nothing.
   vitest:
     name: vitest
     needs: detect
     if: ${{ needs.detect.outputs.node == 'true' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
     env:
       # globalSetup.ts reads these to fork ONE ephemeral Neon branch per run
       # for the integration tests (~$0.01/run). API_KEY + PROJECT_ID gate the
@@ -347,13 +416,53 @@ jobs:
           fi
           echo "run=false" >> "$GITHUB_OUTPUT"
           echo "::notice::The test job does not apply: package.json declares no \"test\" script and the repository has no vitest config or test files."
-      - if: steps.applies.outputs.run == 'true'
+      - id: runner
+        name: where the full suite runs
+        if: steps.applies.outputs.run == 'true'
+        run: |
+          set -uo pipefail
+          script=.claude/skills/gitflow/scripts/settings.sh
+          if [ ! -f "$script" ]; then
+            echo "::notice::$script is missing (run /sync-dev-kit), so the full suite runs here, on GitHub Actions."
+            echo "runner=github" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          runner=$(bash "$script" TEST_RUNNER --no-env) || exit 1
+          echo "runner=$runner" >> "$GITHUB_OUTPUT"
+          if [ "$runner" = aws ]; then
+            echo "::notice::TEST_RUNNER is aws: the full suite runs in the project's CodeBuild test project, which reports full-suite to this PR. This job runs the unit tests only and records nothing."
+          else
+            echo "The full suite runs here (TEST_RUNNER is github)."
+          fi
+      - id: node
+        if: steps.applies.outputs.run == 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
         with:
           node-version: '24'
           cache: npm
+      # node_modules from the cache on an exact hit, as in node-checks.
+      - id: modules
+        if: steps.applies.outputs.run == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ${{ needs.detect.outputs.modules }}
+          key: node-modules-${{ runner.os }}-${{ runner.arch }}-node${{ steps.node.outputs.node-version }}-${{ hashFiles('package-lock.json', '**/package.json') }}
       - if: steps.applies.outputs.run == 'true'
-        run: npm ci
+        env:
+          CACHE_HIT: ${{ steps.modules.outputs.cache-hit }}
+        run: |
+          if [ "$CACHE_HIT" = true ]; then
+            for script in preinstall install postinstall prepare; do
+              npm run "$script" --workspaces --include-workspace-root --if-present
+            done
+          else
+            npm ci
+          fi
+      - if: steps.applies.outputs.run == 'true' && steps.modules.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ${{ needs.detect.outputs.modules }}
+          key: ${{ steps.modules.outputs.cache-primary-key }}
       # The integration gate (testing.md §3). The integration project is
       # dropped when it cannot reach its database — on PostgreSQL, when the Neon
       # secrets are absent — and the run still passes, so integration tests that
@@ -363,7 +472,7 @@ jobs:
       # are still real signal.
       - id: integration
         name: must the integration tests run
-        if: steps.applies.outputs.run == 'true'
+        if: steps.applies.outputs.run == 'true' && steps.runner.outputs.runner != 'aws'
         env:
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
@@ -374,7 +483,7 @@ jobs:
             engine=$(jq -r '.DB_ENGINE // "" | strings' "$subs")
             ci_off=$(jq -r '.INTEGRATION_CI_OFF // "" | strings' "$subs")
           fi
-          files=$(git ls-files -- '*.integration.test.ts' '*.integration.test.tsx' '*.integration.test.mts' | { grep -vE '(^|/)node_modules/' || true; })
+          files=$(git ls-files -- '*.integration.test.ts' '*.integration.test.tsx' '*.integration.test.mts' ':(exclude)*.dev.integration.test.*' | { grep -vE '(^|/)node_modules/' || true; })
           required=false
           if [ -z "$files" ]; then
             echo "::notice::The repository has no integration tests, so none must run."
@@ -392,24 +501,106 @@ jobs:
             required=true
           fi
           echo "required=$required" >> "$GITHUB_OUTPUT"
+      # Whether an earlier commit of this PR passed the full suite on this exact code.
+      # After the install: the fingerprint reads code with the project's TypeScript.
+      # GitHub unreadable, or no fingerprint, runs the suite.
+      - id: record
+        name: has this exact code passed the full suite
+        if: steps.applies.outputs.run == 'true' && steps.runner.outputs.runner != 'aws'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -uo pipefail
+          script=.claude/skills/gitflow/scripts/code-fingerprint.mjs
+          if [ ! -f "$script" ]; then
+            echo "::notice::$script is missing (run /sync-dev-kit), so no pass can be carried forward — the suite runs."
+            exit 0
+          fi
+          # The checked-out commit, not the working tree: what the install scripts
+          # generate is not the code, and /deploy fingerprints a commit too.
+          if ! fp=$(node "$script" --commit HEAD); then
+            echo "::warning::The code fingerprint could not be computed — the suite runs."
+            exit 0
+          fi
+          context=$(node "$script" --status-context)
+          echo "fp=$fp" >> "$GITHUB_OUTPUT"
+          echo "code fingerprint: $fp"
+          if ! shas=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits" --jq '.[].sha' 2>&1); then
+            echo "::warning::GitHub could not list this PR's commits, so no earlier pass can be found — the suite runs. $shas"
+            exit 0
+          fi
+          for sha in $(printf '%s\n' "$shas" | tac); do
+            if ! desc=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/status" \
+                --jq ".statuses[] | select(.context == \"$context\" and .state == \"success\") | .description" 2>&1); then
+              echo "::warning::GitHub could not read the statuses of $sha — the suite runs. $desc"
+              exit 0
+            fi
+            [ -n "$desc" ] || continue
+            if [ "$(node "$script" --status-fp "$desc" || true)" = "$fp" ]; then
+              echo "from=$sha" >> "$GITHUB_OUTPUT"
+              echo "::notice::The full suite passed on this exact code at $sha — carried forward, not run again."
+              exit 0
+            fi
+          done
+          echo "No earlier commit of this PR passed the full suite on this code — the suite runs."
       # NO_COLOR keeps vitest's project labels plain: on a runner, where `CI` is
       # set, it otherwise prints each one as a coloured badge with no `|` around it.
-      - if: steps.applies.outputs.run == 'true'
+      - if: steps.applies.outputs.run == 'true' && steps.runner.outputs.runner != 'aws' && steps.record.outputs.from == ''
         env:
           NO_COLOR: "1"
         run: |
           set -o pipefail
           npm test 2>&1 | tee "$RUNNER_TEMP/vitest.log"
+      - name: unit tests (the full suite runs in CodeBuild)
+        if: steps.applies.outputs.run == 'true' && steps.runner.outputs.runner == 'aws'
+        run: npm test -- --project unit
       # vitest labels each file of a named project, so `|integration|` in the
-      # output is the integration project having run.
+      # output is the integration project having run. A carried-forward pass ran
+      # the suite, and this check, on the commit it came from.
       - name: integration tests ran
-        if: ${{ !cancelled() && steps.integration.outputs.required == 'true' }}
+        if: ${{ !cancelled() && steps.integration.outputs.required == 'true' && steps.record.outputs.from == '' }}
         run: |
           if ! grep -qF '|integration|' "$RUNNER_TEMP/vitest.log"; then
             echo "::error::This repository has integration tests, but the integration project did not run. On another engine than PostgreSQL, register it in test/project.ts under the name \"integration\" (the engine rule says how), or declare why CI cannot run it in INTEGRATION_CI_OFF (testing.md §3)."
             exit 1
           fi
           echo "The integration project ran."
+      # The record: `full-suite` on the PR's head commit, success or failure, carrying the
+      # fingerprint. Last, so a failure in any step above is a failure here. GitHub
+      # gives a Dependabot PR's run a read-only token, so its run records nothing; a
+      # record that cannot be posted costs only a later reuse, so it warns.
+      - name: record the full suite
+        if: ${{ !cancelled() && steps.record.outputs.fp != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          JOB_STATUS: ${{ job.status }}
+          FP: ${{ steps.record.outputs.fp }}
+          FROM: ${{ steps.record.outputs.from }}
+        run: |
+          set -uo pipefail
+          if [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
+            echo "::notice::Dependabot PRs run with a read-only token, so the full suite's result is not recorded."
+            exit 0
+          fi
+          script=.claude/skills/gitflow/scripts/code-fingerprint.mjs
+          state=failure
+          [ "$JOB_STATUS" = success ] && state=success
+          if [ -n "$FROM" ]; then
+            description=$(node "$script" --status-description "$FP" --from "$FROM")
+          else
+            description=$(node "$script" --status-description "$FP")
+          fi
+          context=$(node "$script" --status-context)
+          if ! out=$(gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
+              -f state="$state" -f context="$context" -f description="$description" \
+              -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" 2>&1); then
+            echo "::warning::The full suite's result could not be recorded on $HEAD_SHA, so a later run or /deploy will run the suite again. $out"
+            exit 0
+          fi
+          echo "Recorded $context: $state — $description"
 
   python:
     name: python

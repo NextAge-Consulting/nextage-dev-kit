@@ -30,7 +30,7 @@ A checkpoint that was already pushed is never folded; rewriting it would need a 
 
 ## What this command skips
 
-- Typecheck, lint, semgrep and the rule review — the real commit runs them over the folded content
+- Every gate — typecheck, lint, semgrep, the integration gate and the headless reviews — the real commit runs them over the folded content
 - Changelog — checkpoints never appear in the changelog
 - Version bump — only main branch merges trigger bumps
 - The code-complete decision — a checkpoint is partway by definition; issue links stay on the branch until `/commit` or `/ship-main` carries them

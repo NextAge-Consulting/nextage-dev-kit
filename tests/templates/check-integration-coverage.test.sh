@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression suite for _claude-project/templates/scripts/check-integration-coverage.mjs.
+# Test suite for _claude-project/templates/scripts/check-integration-coverage.mjs.
 #
 # Lives outside every synced source directory, so it never reaches a consumer.
 # Each case builds a throwaway git repository with a stub drizzle-orm type package,
@@ -15,7 +15,7 @@ tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 ok()  { echo "ok   $1"; }
 bad() { echo "FAIL $1"; fail=1; }
 
-# A repository whose base commit holds a database client and a stub drizzle-orm.
+# A repository whose base commit holds a database client, its tables and a stub drizzle-orm.
 repo() {
     local r="$tmp/$1"
     mkdir -p "$r/src/db" "$r/test" "$r/node_modules/drizzle-orm" "$r/.claude"
@@ -24,22 +24,34 @@ repo() {
     cat > "$r/node_modules/drizzle-orm/index.d.ts" <<'EOF'
 export declare class SQL { readonly brand: "sql" }
 export declare function sql(strings: TemplateStringsArray, ...values: unknown[]): SQL;
+export declare class PgColumn<T extends { columnType: string; data: unknown }> { readonly columnType: T["columnType"]; readonly data: T["data"] }
 export declare class PgTable { readonly name: string }
-export declare class PgTransaction { select(): unknown[]; execute(query: SQL): Promise<unknown> }
-export declare class NodePgDatabase<T> { schema: T; select(): unknown[]; execute(query: SQL): Promise<unknown>; transaction<R>(fn: (tx: PgTransaction) => Promise<R>): Promise<R> }
+export declare class PgSelect { from(t: PgTable): PgSelect; where(c: SQL | undefined): PgSelect; innerJoin(t: PgTable, on: SQL): PgSelect; leftJoin(t: PgTable, on: SQL): PgSelect; groupBy(...c: unknown[]): PgSelect; having(c: SQL): PgSelect }
+export declare class PgInsert { values(v: unknown): PgInsert; onConflictDoUpdate(c: unknown): PgInsert; onConflictDoNothing(): PgInsert }
+export declare class PgUpdate { set(v: unknown): PgUpdate; where(c: SQL | undefined): PgUpdate }
+export declare class PgDelete { where(c: SQL | undefined): PgDelete }
+export declare class PgTransaction { select(f?: unknown): PgSelect; insert(t: PgTable): PgInsert; update(t: PgTable): PgUpdate; delete(t: PgTable): PgDelete; execute(query: SQL): Promise<unknown> }
+export declare class NodePgDatabase<T> { schema: T; select(f?: unknown): PgSelect; insert(t: PgTable): PgInsert; update(t: PgTable): PgUpdate; delete(t: PgTable): PgDelete; execute(query: SQL): Promise<unknown>; transaction<R>(fn: (tx: PgTransaction) => Promise<R>): Promise<R> }
 export declare function eq(a: unknown, b: unknown): SQL;
+export declare function and(...c: (SQL | undefined)[]): SQL | undefined;
+export declare function gte(a: unknown, b: unknown): SQL;
+export declare function count(c?: unknown): SQL;
 EOF
     echo '{"compilerOptions":{"strict":true,"target":"ES2022","module":"ESNext","moduleResolution":"Bundler","noEmit":true,"skipLibCheck":true}}' > "$r/tsconfig.json"
     printf 'node_modules/\n' > "$r/.gitignore"
     cat > "$r/src/db/client.ts" <<'EOF'
-import { NodePgDatabase } from "drizzle-orm";
+import { NodePgDatabase, PgColumn, PgTable } from "drizzle-orm";
+type Int = PgColumn<{ columnType: "PgInteger"; data: number }>;
 export type Db = NodePgDatabase<Record<string, never>>;
 export declare const db: Db;
+export declare const orders: PgTable & { id: Int; customerid: Int; placedat: PgColumn<{ columnType: "PgTimestamp"; data: Date }>; dueon: PgColumn<{ columnType: "PgDateString"; data: string }> };
+export declare const customers: PgTable & { id: Int };
 EOF
     cat > "$r/src/legacy.ts" <<'EOF'
-import type { Db } from "./db/client";
-export function legacyRead(db: Db) {
-  return db.select();
+import { and, eq } from "drizzle-orm";
+import { type Db, orders } from "./db/client";
+export function legacyRead(db: Db, id: number, customer: number) {
+  return db.select().from(orders).where(and(eq(orders.id, id), eq(orders.customerid, customer)));
 }
 EOF
     git -C "$r" init -q -b main
@@ -59,52 +71,95 @@ expect() {
     ok "$name"
 }
 
-r=$(repo untested)
-cat > "$r/src/orders.ts" <<'EOF'
-import type { Db } from "./db/client";
-export async function readOrders(db: Db) {
-  return db.select();
+# risky <repo> <name> <body> — writes src/<name>.ts: an exported function <name>(db, since).
+risky() {
+    cat > "$1/src/$2.ts" <<EOF
+import { and, count, eq, gte, sql } from "drizzle-orm";
+import { type Db, customers, orders } from "./db/client";
+export async function $2(db: Db, since: Date) {
+  $3
 }
 EOF
-expect "a new function that queries a handle parameter, with no test, fails" "$r" 1 "src/orders.ts:2  readOrders — queries the database and no integration test calls it"
+}
 
-r=$(repo tested)
-cat > "$r/src/orders.ts" <<'EOF'
-import type { Db } from "./db/client";
-export async function readOrders(db: Db) {
-  return db.select();
-}
-EOF
-cat > "$r/test/orders.integration.test.ts" <<'EOF'
-import { readOrders } from "../src/orders";
+# tested <repo> <test file> <name> — a test under test/ that imports src/<name>.ts and calls it.
+tested() {
+    cat > "$1/test/$2" <<EOF
+import { $3 } from "../src/$3";
 import type { Db } from "../src/db/client";
 declare const tx: Db;
-await readOrders(tx);
+await $3(tx, new Date());
 EOF
-expect "an integration test calling it passes" "$r" 0 "1 query the database — 1 called by an integration test"
+}
+
+JOINED='return db.select().from(orders).innerJoin(customers, eq(orders.customerid, customers.id));'
+
+r=$(repo thin)
+cat > "$r/src/orders.ts" <<'EOF'
+import { eq } from "drizzle-orm";
+import { type Db, orders } from "./db/client";
+export async function readOrder(db: Db, id: number) {
+  return db.select().from(orders).where(eq(orders.id, id));
+}
+export async function addOrder(db: Db, id: number) {
+  return db.insert(orders).values({ id });
+}
+EOF
+expect "thin code — a select by key, a plain insert — needs no test" "$r" 0 "2 query the database, 0 in a risky shape"
+
+r=$(repo join); risky "$r" joined "$JOINED"
+expect "a join with no test fails, naming the function and the shape" "$r" 1 "src/joined.ts:3  joined — a join, and no happy-path or risk test calls it"
+
+r=$(repo filter); risky "$r" filtered 'return db.select().from(orders).where(and(eq(orders.id, 1), eq(orders.customerid, 2)));'
+expect "a filter beyond a single equality is risky" "$r" 1 "filtered — a filter beyond a lookup by key"
+
+r=$(repo aggregate); risky "$r" totals 'return db.select({ n: count() }).from(orders).groupBy(orders.customerid);'
+expect "an aggregate is risky" "$r" 1 "totals — an aggregate"
+
+r=$(repo date); risky "$r" recent 'return db.select().from(orders).where(gte(orders.placedat, since));'
+expect "a date comparison is risky" "$r" 1 "a date comparison"
+
+r=$(repo date-column); risky "$r" due 'return db.select().from(orders).where(gte(orders.dueon, "2026-01-01"));'
+expect "a comparison on a date column holding strings is a date comparison" "$r" 1 "due — a filter beyond a lookup by key, a date comparison"
+
+r=$(repo number-compare); risky "$r" big 'return db.select().from(orders).where(gte(orders.id, 10));'
+expect "a comparison on a number is a filter, not a date comparison" "$r" 1 "big — a filter beyond a lookup by key, and no"
+
+r=$(repo upsert); risky "$r" saved 'return db.insert(orders).values({ id: 1 }).onConflictDoNothing();'
+expect "an upsert is risky" "$r" 1 "saved — an upsert"
+
+r=$(repo transaction); risky "$r" moved 'return db.transaction(async (tx) => tx.select());'
+expect "a transaction is risky" "$r" 1 "moved — a transaction"
+
+r=$(repo writes); risky "$r" swapped 'await db.delete(orders).where(eq(orders.id, 1)); await db.insert(orders).values({ id: 2 });'
+expect "more than one write is risky" "$r" 1 "swapped — more than one write"
+
+r=$(repo raw-template); risky "$r" late 'return db.select().from(orders).where(sql`placedat < now()`);'
+expect "a sql template is raw SQL" "$r" 1 "raw SQL, and no happy-path or risk test calls it"
+
+r=$(repo risk-tested); risky "$r" joined "$JOINED"; tested "$r" joined.integration.test.ts joined
+expect "a risk test calling it passes" "$r" 0 "1 in a risky shape — 1 called by a happy-path or risk test"
+
+r=$(repo happy-tested); risky "$r" joined "$JOINED"; tested "$r" joined.happy.integration.test.ts joined
+expect "a happy-path test calling it passes" "$r" 0 "1 called by a happy-path or risk test"
+
+r=$(repo dev-only); risky "$r" joined "$JOINED"; tested "$r" joined.dev.integration.test.ts joined
+expect "a development test alone does not cover it" "$r" 1 "only a development test calls it"
 
 r=$(repo imported-handle)
 cat > "$r/src/orders.ts" <<'EOF'
-import { db } from "./db/client";
-export const countOrders = async () => db.select().length;
+import { count } from "drizzle-orm";
+import { db, orders } from "./db/client";
+export const countOrders = async () => db.select({ n: count() }).from(orders);
 EOF
-expect "an imported handle counts, in an exported const arrow function" "$r" 1 "countOrders — queries the database"
-
-r=$(repo transaction)
-cat > "$r/src/orders.ts" <<'EOF'
-import type { PgTransaction } from "drizzle-orm";
-export function inTx(tx: PgTransaction) {
-  return tx.select();
-}
-EOF
-expect "a transaction handle counts" "$r" 1 "inTx — queries the database"
+expect "an imported handle counts, in an exported const arrow function" "$r" 1 "countOrders — an aggregate"
 
 r=$(repo wrapper)
 cat > "$r/src/orders.ts" <<'EOF'
 import { db } from "./db/client";
 import { legacyRead } from "./legacy";
 export function getOrders() {
-  return legacyRead(db);
+  return legacyRead(db, 1, 2);
 }
 EOF
 expect "a wrapper that only passes the handle along is not judged" "$r" 0 "0 query the database"
@@ -116,38 +171,34 @@ export const byId = (id: number) => eq(sql`id`, id);
 EOF
 expect "building a SQL fragment is not a query" "$r" 0 "0 query the database"
 
-r=$(repo exempt)
-cat > "$r/src/orders.ts" <<'EOF'
-import type { Db } from "./db/client";
-// integration-exempt: reads a view the test database does not carry
-export function readView(db: Db) {
-  return db.select();
-}
-EOF
-expect "integration-exempt with a reason passes" "$r" 0 "1 exempt"
-
-r=$(repo exempt-empty)
-cat > "$r/src/orders.ts" <<'EOF'
-import type { Db } from "./db/client";
-// integration-exempt:
-export function readView(db: Db) {
-  return db.select();
-}
-EOF
-expect "integration-exempt with no reason fails" "$r" 1 "readView — \`integration-exempt:\` gives no reason"
-
 r=$(repo untouched)
 cat > "$r/src/other.ts" <<'EOF'
 export const plain = (n: number) => n + 1;
 EOF
 expect "an untouched untested function is not judged" "$r" 0 "1 changed exported function(s) in 1 changed file(s)"
-expect "--report-untested counts it" "$r" 0 "untouched code — 1 exported function(s) query the database" --report-untested
+expect "--report-untested counts it" "$r" 0 "untouched code — 1 exported function(s) query the database in a risky shape" --report-untested
 
 r=$(repo edit-legacy)
-printf '\n// touched\n' >> "$r/src/legacy.ts"
-sed -i.bak 's/return db.select();/return db.select(); \/\/ edited/' "$r/src/legacy.ts" && rm "$r/src/legacy.ts.bak"
-git -C "$r" add -A
-expect "editing an untested function requires its test" "$r" 1 "legacyRead — queries the database and no integration test calls it"
+sed -i.bak 's/customer)));/customer))); \/\/ edited/' "$r/src/legacy.ts" && rm "$r/src/legacy.ts.bak"
+expect "editing an untested risky function requires its test" "$r" 1 "legacyRead — a filter beyond a lookup by key, and no happy-path or risk test calls it"
+
+r=$(repo no-app-code)
+cat > "$r/test/copy.integration.test.ts" <<'EOF'
+import { sql } from "drizzle-orm";
+import type { Db } from "../src/db/client";
+declare const tx: Db;
+await tx.execute(sql`insert into orders (id) values (1) on conflict do nothing`);
+EOF
+expect "a test importing nothing from app source fails, naming the file" "$r" 1 "test/copy.integration.test.ts — imports nothing from the app's source"
+
+r=$(repo harness)
+cat > "$r/test/harness.integration.test.ts" <<'EOF'
+import { sql } from "drizzle-orm";
+import type { Db } from "../src/db/client";
+declare const tx: Db;
+await tx.execute(sql`select 1`);
+EOF
+expect "the kit's harness test is not judged for app code" "$r" 0 "nothing to judge"
 
 r=$(repo raw-sql)
 cat > "$r/src/report.ts" <<'EOF'
@@ -157,12 +208,7 @@ export async function report(db: Db) {
   return db.execute(sql`select 1`);
 }
 EOF
-cat > "$r/test/report.integration.test.ts" <<'EOF'
-import { report } from "../src/report";
-import type { Db } from "../src/db/client";
-declare const tx: Db;
-await report(tx);
-EOF
+tested "$r" report.integration.test.ts report
 expect "db.execute with no raw-sql reason fails" "$r" 1 "src/report.ts:4  report — a whole query through .execute() with no reason"
 
 r=$(repo raw-sql-reason)
@@ -186,10 +232,10 @@ r=$(repo raw-sql-line-above)
 cat > "$r/src/report.ts" <<'EOF'
 import { sql } from "drizzle-orm";
 import type { Db } from "./db/client";
-// integration-exempt: covered by the reporting suite
 // raw-sql: recursive CTE over the category tree
 export const report = async (db: Db) => db.execute(sql`select 1`);
 EOF
+tested "$r" report.integration.test.ts report
 expect "a raw-sql reason on the line above a one-line function counts" "$r" 0 "1 changed .execute() call(s)"
 
 r=$(repo sql-templates)
@@ -204,7 +250,7 @@ echo 'export const x = 1;' > "$r/src/x.ts"
 expect "DB_ENGINE None does not apply" "$r" 0 "does not apply — DB_ENGINE is None"
 
 r=$(repo nothing-changed)
-expect "nothing changed says so" "$r" 0 "no TypeScript source changed"
+expect "nothing changed says so" "$r" 0 "no TypeScript source or integration test changed"
 
 r="$tmp/no-ts"; mkdir -p "$r/.claude"; echo '{"DB_ENGINE":"PostgreSQL"}' > "$r/.claude/sync-substitutions.json"
 git -C "$r" init -q -b main; echo x > "$r/a.md"; git -C "$r" add -A; git -C "$r" -c user.email=a@example.com -c user.name=a commit -qm base

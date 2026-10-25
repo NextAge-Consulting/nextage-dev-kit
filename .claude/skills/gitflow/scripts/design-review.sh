@@ -33,6 +33,13 @@ if [ "${SKIP_DESIGN_REVIEW:-}" = "1" ]; then
 fi
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "gitflow: design review: not in a git repository." >&2; exit 1; }
+CACHE_LIB="$(dirname "${BASH_SOURCE[0]}")/review-cache.sh"
+if [ ! -f "$CACHE_LIB" ]; then
+    echo "gitflow: the design review cannot run — review-cache.sh is missing beside it. Run /sync-dev-kit." >&2
+    exit 1
+fi
+# shellcheck source=./review-cache.sh
+source "$CACHE_LIB"
 SUBS="$ROOT/.claude/sync-substitutions.json"
 INVENTORY="$ROOT/.claude/rules/project/ui-inventory.md"
 BLOCK_TYPES="$ROOT/.claude/skills/design-system/references/block-types.md"
@@ -218,8 +225,6 @@ for line in sys.stdin.read().split("\n"):
     cat "$WORK/diff"
 } >"$WORK/input"
 
-echo "gitflow: reviewing ${#FILES[@]} UI file(s) against the design system..." >&2
-
 read -r -d '' PREAMBLE <<'EOF'
 You review one change to a business application's UI: its stylesheets, design.md, parts, UI pattern references and screens. Apply the design checks below to the lines the diff adds and to nothing else — lines whose code starts with "+" (not the "+++" header). Each diff line is prefixed with its line number in the new file; report that number. Judge each changed file at its own layer, held to the material for the layers beneath it: the roles and what each is for, the UI inventory, the patterns, the block-type list and the kit's design opinions. Nothing else exists for you; do not assume a role, part or pattern that is not given. Leave out every check marked *Whole layer*. Report each finding under its check's name as the rule. A clean diff returns {"findings": []}.
 For each finding give the file, the line number in the new file, the rule, the exact added text quoted, one sentence on what is wrong, a concrete fix, and your confidence: "high" only when the finding is unambiguous from the material given.
@@ -230,6 +235,16 @@ $(cat "$CHECKS")"
 
 RULES=$(printf '%s\n' "$CHECK_NAMES" | jq -R -s -c '[split("\n")[] | select(. != "")]')
 SCHEMA=$(jq -n -c --argjson rules "$RULES" '{type: "object", properties: {findings: {type: "array", items: {type: "object", properties: {file: {type: "string"}, line: {type: "integer"}, rule: {type: "string", enum: $rules}, quote: {type: "string"}, finding: {type: "string"}, fix: {type: "string"}, confidence: {type: "string", enum: ["high", "medium"]}}, required: ["file", "line", "rule", "quote", "finding", "fix", "confidence"]}}}, required: ["findings"]}')
+
+if ! CACHE_KEY=$(review_cache_key "$WORK" "${BASH_SOURCE[0]}" "$SYSTEM" "$SCHEMA" "$WORK/input"); then
+    CACHE_KEY=""
+fi
+if review_cache_hit "$ROOT" design-review "$CACHE_KEY"; then
+    echo "gitflow: design review — reusing the earlier pass: the same ${#FILES[@]} UI file(s) and the same design material, unchanged since it was reviewed." >&2
+    exit 0
+fi
+
+echo "gitflow: reviewing ${#FILES[@]} UI file(s) against the design system..." >&2
 
 OUT=$(cd "$WORK" && "$CLAUDE_BIN" -p \
     --model sonnet --tools "" --system-prompt "$SYSTEM" --json-schema "$SCHEMA" \
@@ -272,5 +287,6 @@ if [ -n "$REPORT" ]; then
     exit 1
 fi
 
+review_cache_store "$ROOT" design-review "$CACHE_KEY"
 echo "gitflow: design review clean — ${#FILES[@]} UI file(s) reviewed." >&2
 exit 0

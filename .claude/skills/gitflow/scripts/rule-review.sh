@@ -42,6 +42,13 @@ if [ -f "$KIT_LIB" ]; then
 else
     is_kit_delivered() { return 1; }
 fi
+CACHE_LIB="$(dirname "${BASH_SOURCE[0]}")/review-cache.sh"
+if [ ! -f "$CACHE_LIB" ]; then
+    echo "gitflow: the rule review cannot run — review-cache.sh is missing beside it. Run /sync-dev-kit." >&2
+    exit 1
+fi
+# shellcheck source=./review-cache.sh
+source "$CACHE_LIB"
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -82,15 +89,13 @@ if ! command -v "$CLAUDE_BIN" >/dev/null 2>&1; then
     exit 1
 fi
 
-DIFF=$(cd "$ROOT" && for f in "${FILES[@]}"; do
+(cd "$ROOT" && for f in "${FILES[@]}"; do
     if git ls-files --error-unmatch -- "$f" >/dev/null 2>&1; then
         git diff "$BASE" -- "$f"
     else
         git diff --no-index -- /dev/null "$f"
     fi
-done)
-
-echo "gitflow: reviewing ${#FILES[@]} rule-prose file(s) against the rule-authoring standard..." >&2
+done) >"$WORK/input"
 
 read -r -d '' SYSTEM <<'EOF'
 You review diffs of instruction files — rules, skills, commands, pattern references — that an AI loads and follows as law. They say WHEN something applies and HOW to do it. Nothing else belongs in them.
@@ -109,10 +114,20 @@ EOF
 
 SCHEMA='{"type":"object","properties":{"findings":{"type":"array","items":{"type":"object","properties":{"file":{"type":"string"},"quote":{"type":"string"},"category":{"type":"string","enum":["HISTORY","JUSTIFICATION","COUNTED LIST"]},"fix":{"type":"string"}},"required":["file","quote","category","fix"]}}},"required":["findings"]}'
 
-OUT=$(cd "$WORK" && printf '%s\n' "$DIFF" | "$CLAUDE_BIN" -p \
+if ! CACHE_KEY=$(review_cache_key "$WORK" "${BASH_SOURCE[0]}" "$SYSTEM" "$SCHEMA" "$WORK/input"); then
+    CACHE_KEY=""
+fi
+if review_cache_hit "$ROOT" rule-review "$CACHE_KEY"; then
+    echo "gitflow: rule review — reusing the earlier pass: the same ${#FILES[@]} rule-prose file(s), unchanged since it was reviewed." >&2
+    exit 0
+fi
+
+echo "gitflow: reviewing ${#FILES[@]} rule-prose file(s) against the rule-authoring standard..." >&2
+
+OUT=$(cd "$WORK" && "$CLAUDE_BIN" -p \
     --model sonnet --tools "" --system-prompt "$SYSTEM" --json-schema "$SCHEMA" \
     --output-format json --no-session-persistence --disable-slash-commands \
-    --strict-mcp-config --setting-sources "" 2>"$WORK/err")
+    --strict-mcp-config --setting-sources "" <"$WORK/input" 2>"$WORK/err")
 STATUS=$?
 
 REPORT=$(printf '%s' "$OUT" | python3 -c '
@@ -148,5 +163,6 @@ if [ -n "$REPORT" ]; then
     exit 1
 fi
 
+review_cache_store "$ROOT" rule-review "$CACHE_KEY"
 echo "gitflow: rule review clean — ${#FILES[@]} rule-prose file(s) reviewed." >&2
 exit 0

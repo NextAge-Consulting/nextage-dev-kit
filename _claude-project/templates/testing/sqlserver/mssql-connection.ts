@@ -32,3 +32,15 @@ export function connectionStringFromEnv(env: Record<string, string | undefined>)
     `Encrypt=${env.DB_ENCRYPT ?? "true"};TrustServerCertificate=${env.DB_TRUST_SERVER_CERTIFICATE ?? "true"}`
   );
 }
+
+/**
+ * The integration tests' pool settings, from the connection string above. The pool lends a
+ * connection unchecked: by default `mssql` runs `SELECT 1` on each one before lending it,
+ * a server round trip on every test. A connection the pool already knows is closed or
+ * errored is still discarded, and one that died unnoticed fails the test at its
+ * transaction's first statement, which reports it.
+ */
+export function testPoolConfig(connectionString: string): sql.config & { validateConnection: boolean } {
+  // `validateConnection` is an `mssql` setting its type definitions do not list.
+  return { ...sql.ConnectionPool.parseConnectionString(connectionString), validateConnection: false };
+}

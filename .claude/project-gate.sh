@@ -38,6 +38,10 @@ suites_for() {
             echo "tests/templates/biome-plugins.test.sh"
             return
             ;;
+        _claude-project/templates/testing/settings.ts)
+            echo "tests/templates/test-settings.test.mjs"
+            return
+            ;;
         _claude-project/templates/scripts/*.mjs)
             echo "tests/templates/$(basename "$f" .mjs).test.sh"
             ;;

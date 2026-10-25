@@ -33,7 +33,8 @@ dispatch GitHub Actions instead, or record that they deploy by their own procedu
 Run `/deploy` on an up-to-date `main`. In one pass it:
 
 1. Refuses to start if `main` is dirty, out of step with GitHub, failing CI, or has
-   nothing new since the last release.
+   nothing new since the last release — or if the full test suite fails. It runs the suite
+   only when `main`'s exact code has no recorded pass.
 2. Works out the version bump from the commit subjects (a breaking change is major, a
    feature is minor, anything else is a patch) and writes the changelog entry.
 3. Commits the bump, tags it, and pushes both.
@@ -88,8 +89,9 @@ secrets. The parts that are yours:
 
 Every project with a database gets integration tests by default, enforced at three points:
 `/commit` checks that each changed database function has a test and runs the ones the change
-reaches, CI runs the whole suite and fails if the integration tests didn't run, and
-`/deploy` runs the whole suite before it bumps anything. Turning a gate off is your call as
+reaches, CI runs the whole suite — once per version of the code, so a comment-only push
+reuses the last pass — and fails if the integration tests didn't run, and `/deploy` runs
+the whole suite before it bumps anything, unless `main`'s exact code already passed it. Turning a gate off is your call as
 the project owner. Write the reason as the value of `INTEGRATION_COMMIT_OFF`,
 `INTEGRATION_CI_OFF` or `INTEGRATION_DEPLOY_OFF` in `.claude/sync-substitutions.json`;
 the gate prints it when it stands down. The usual reason is reach: CI or the deploy machine
@@ -98,6 +100,20 @@ can't get to the test database. Set all three and the project needs no integrati
 
 The check asks nothing of code nobody touches. A developer editing an old database function
 writes its test then, so the untested count CI prints falls as the code is worked on.
+
+**Where the whole suite runs is your setting too.** `TEST_RUNNER` is `github` by default:
+CI runs it on GitHub Actions. Set it to `aws` and it runs in a CodeBuild project in the
+project's own account instead — fewer GitHub minutes, and the one way to reach a database
+on a private network. You provision that project, its role and its PR webhook as
+Terraform, and give it the database credentials CI held (`infrastructure.md`, "The full
+suite in CodeBuild"). `/deploy` then reads its results, and starts a run there when `main`'s
+code has none.
+
+**`ASSURANCE_LEVEL` `strict` is for a project that has to show evidence of its controls.**
+Under it `/ship-main` takes docs only, `/deploy` ships only code with a recorded full-suite
+pass, and `/open-pr` refuses an app with no current happy path. You also turn on a GitHub
+ruleset requiring the `full-suite` check (`new-project-setup.md` step 3a). The default,
+`assist`, warns where strict refuses. (`pipeline.md` §1.6)
 
 ## Keeping it healthy
 

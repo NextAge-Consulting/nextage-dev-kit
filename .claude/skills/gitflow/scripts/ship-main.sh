@@ -14,6 +14,7 @@
 # Guardrails:
 #   - Refuses unless on main/master (a body of work in progress is on its own
 #     branch, so it can't trip this by accident).
+#   - Under ASSURANCE_LEVEL=strict, refuses anything but docs (exit 16).
 #   - In an org repo, refuses a Terraform change unless every root it touches plans
 #     "No changes" — anything that changes AWS goes through /open-pr and /deploy.
 #   - Runs the same typecheck, biome, knip and semgrep gates as /commit (gates.sh);
@@ -41,6 +42,8 @@ source "$SCRIPT_DIR/issue_helpers.sh"
 source "$SCRIPT_DIR/gates.sh"
 # shellcheck source=_claude-project/skills/gitflow/scripts/repo_kind.sh
 source "$SCRIPT_DIR/repo_kind.sh"
+# shellcheck source=./settings.sh
+source "$SCRIPT_DIR/settings.sh"
 
 MESSAGE=""
 MODEL_NAME="Claude"
@@ -89,6 +92,31 @@ fi
 # against it; the fold itself waits until they have all passed.
 FOLD_BASE=$(checkpoint_fold_base)
 
+# --- Strict: only docs go straight to main ---------------------------------
+# Under ASSURANCE_LEVEL=strict (settings.sh) every change to what runs reaches main
+# through a PR, where CI records the full suite. Docs are the documentation half of
+# deploy-org.sh's combo classification: anything under project-documentation/, and any
+# Markdown file. The change is the folded content against FOLD_BASE plus every
+# untracked file.
+if ! ASSURANCE_LEVEL=$(kit_setting ASSURANCE_LEVEL); then
+    exit 2
+fi
+if [ "$ASSURANCE_LEVEL" = "strict" ]; then
+    if ! SHIP_CHANGED=$(git diff --name-only "$FOLD_BASE" 2>&1) || ! SHIP_UNTRACKED=$(git ls-files --others --exclude-standard 2>&1); then
+        echo "ship-main.sh: could not list what this change touches — nothing was shipped." >&2
+        exit 16
+    fi
+    NOT_DOCS=$(printf '%s\n%s\n' "$SHIP_CHANGED" "$SHIP_UNTRACKED" | awk 'NF' | sort -u \
+        | { grep -vE '^project-documentation/|\.md$' || true; })
+    if [ -n "$NOT_DOCS" ]; then
+        echo "ship-main.sh: ASSURANCE_LEVEL=strict — /ship-main ships docs only (project-documentation/ and Markdown), and this change touches:" >&2
+        printf '%s\n' "$NOT_DOCS" | sed 's/^/  /' >&2
+        echo "  Ship it through /commit and a PR, whose CI runs the full suite. Nothing was shipped." >&2
+        exit 16
+    fi
+    echo "gitflow: ship-main: ASSURANCE_LEVEL=strict — docs only, as strict allows." >&2
+fi
+
 # --- Infrastructure: Terraform reaches main only through /deploy ----------
 # /deploy applies a Terraform PR before merging it, so main holds only what is
 # live. Terraform shipped straight to main would be code nobody applied.
@@ -120,13 +148,11 @@ if repo_holds_infra; then
     fi
 fi
 
-# The integration preflight first — it is the one that can need a decision from the
-# person shipping — then typecheck, biome, knip and semgrep. gates.sh holds each gate
+# Typecheck, biome, knip, semgrep and the integration tier. gates.sh holds each gate
 # and why it is shaped the way it is. Only the typecheck honours --skip-typecheck. Biome, knip and
 # semgrep always run: this commits straight to main, so a finding that slips
 # through does not wait on a branch for review — it lands on the default branch
 # and breaks CI for everyone.
-run_integration_preflight INTEGRATION_COMMIT_OFF "shipping to main" || exit $?
 run_typecheck_gate "$SKIP_TYPECHECK" "shipping to main (or --skip-typecheck for a true emergency)" || exit $?
 run_biome_gate "shipping to main" || exit $?
 run_knip_gate "shipping to main" || exit $?
@@ -140,17 +166,12 @@ run_integration_gate "$FOLD_BASE" "shipping to main" || exit $?
 # stands. Cheap and local, so it runs before the headless reviews.
 run_fit_check_gate "shipping to main" || exit $?
 
-# Rule-prose review: every rule, skill, command or pattern reference changed since
-# FOLD_BASE, reviewed by a headless Claude against the rule-authoring standard.
-"$SCRIPT_DIR/rule-review.sh" "$FOLD_BASE" || exit 4
-
-# New-part review: every part added since FOLD_BASE, checked by a headless Claude against
-# the parts the UI inventory already lists. A suspected duplicate goes to the human.
-"$SCRIPT_DIR/part-review.sh" "$FOLD_BASE" || exit 4
-"$SCRIPT_DIR/design-review.sh" "$FOLD_BASE" || exit 4
-# SQL review: every changed Drizzle `sql` template, read by a headless Claude for a table or
-# column typed as text (drizzle.md §I).
-"$SCRIPT_DIR/sql-review.sh" "$FOLD_BASE" || exit 4
+# The headless reviews, side by side — rule prose against the rule-authoring standard,
+# new parts against the UI inventory, UI changes against the design system, changed
+# Drizzle `sql` templates for a table or column typed as text (drizzle.md §I), and the
+# tests of changed TypeScript against the kit's criteria for what earns a test. gates.sh
+# runs them; each reuses its own earlier pass when its input is unchanged.
+run_headless_reviews "$FOLD_BASE" "shipping to main" || exit 4
 
 # --- Fold checkpoints, stage + commit directly on main ---------------------
 fold_checkpoints "$FOLD_BASE"

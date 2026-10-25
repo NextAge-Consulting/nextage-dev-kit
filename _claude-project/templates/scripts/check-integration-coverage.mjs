@@ -1,31 +1,42 @@
 #!/usr/bin/env node
 /**
- * Integration-test coverage check (see .claude/rules/testing-verification.md, "The
- * integration tier", and .claude/rules/drizzle.md §I).
+ * Integration-test coverage check (see .claude/rules/testing-verification.md, "Which
+ * database code needs a test", and .claude/rules/drizzle.md §I).
  *
  *   node scripts/check-integration-coverage.mjs [--base <ref>] [--report-untested]
  *   node scripts/check-integration-coverage.mjs --sql-templates [--base <ref>]
  *
- * TWO RULES, both judged only on code changed since the base — the ratchet:
+ * THREE RULES, each judged only on code changed since the base — the ratchet:
  *
- *   coverage  An exported function whose body queries the database has an
- *             integration test (*.integration.test.ts) that calls it, or carries
- *             `// integration-exempt: <reason>` above it.
- *   raw SQL   A `.execute(…)` on a database handle carries `// raw-sql: <reason>` on
- *             its line or above its statement.
+ *   risky shape  An exported function that queries the database in a risky shape is
+ *                called by a happy-path or risk test (*.happy.integration.test.ts,
+ *                *.integration.test.ts). A development test (*.dev.integration.test.ts)
+ *                is not in the full suite, so it does not count. The shapes: raw SQL (a
+ *                Drizzle `sql` template, a handle's `.execute(…)` or `.query(…)`), a
+ *                join, a filter beyond a single equality, an aggregate or grouping, a
+ *                comparison on a date, an upsert, a transaction, more than one write.
+ *                Thin code — a plain insert, a select by key — needs no test.
+ *   app code     An integration test file imports something from the app's own source,
+ *                not only the harness, its test helpers and libraries. The kit's own
+ *                harness test (harness.integration.test.ts) is the one file that tests
+ *                the harness, and is not judged.
+ *   raw SQL      A `.execute(…)` on a database handle carries `// raw-sql: <reason>` on
+ *                its line or above its statement.
  *
  * "Queries the database" means the body reads a property of a database handle —
  * `db.select`, `tx.execute`, `pool.query` — whether the handle is a parameter, an
  * import or a call's result. A function that only passes a handle along does not
  * query, so a request wrapper around a tested data function is not judged. Handles
  * are recognised by TYPE, through TypeScript's checker: a Drizzle database or
- * transaction, or a driver's pool, client, connection or request.
+ * transaction, or a driver's pool, client, connection or request. The query
+ * builder's methods and operators are recognised by where they are declared: in a
+ * database library.
  *
  * The base is --base, else INTEGRATION_COVERAGE_BASE, else where HEAD left
- * origin/main. Without one, every function is judged.
+ * origin/main. Without one, every function and test file is judged.
  *
- * --report-untested also counts the untouched exported functions that query the
- * database with no test. The count never fails the check; it falls as each one is
+ * --report-untested also counts the untouched exported functions of a risky shape with
+ * no happy-path or risk test. The count never fails the check; it falls as each one is
  * changed and therefore judged.
  *
  * --sql-templates prints, as JSON, every `sql` template on a changed line, for the
@@ -91,7 +102,9 @@ function loadTypeScript() {
   if (typescript) return typescript;
   let root = "";
   try {
-    root = execFileSync("npm", ["root", "-g"], { encoding: "utf8" }).trim();
+    // On Windows npm is npm.cmd, which Node runs only through a shell; the arguments are fixed.
+    const windows = process.platform === "win32";
+    root = execFileSync(windows ? "npm.cmd" : "npm", ["root", "-g"], { encoding: "utf8", shell: windows }).trim();
   } catch {}
   typescript = root ? usable(join(root, "noop.js")) : null;
   if (!typescript) fail("TypeScript is not installed in the repository or globally — this check reads source with it (npm i -D typescript)");
@@ -104,6 +117,10 @@ const TS = ["*.ts", "*.tsx", "*.mts", "*.cts"];
 const OUTSIDE = /(^|\/)(node_modules|\.claude|dist|build|coverage)\//;
 const TEST_DIR = /(^|\/)(test|tests|__tests__|e2e)\//;
 const INTEGRATION_TEST = /\.integration\.test\.[cm]?tsx?$/;
+// A development test: written to get code right, run only while its code changes.
+const DEV_TEST = /\.dev\.integration\.test\.[cm]?tsx?$/;
+// The kit's test of the integration harness itself, which has no app code to import.
+const HARNESS_TEST = "harness.integration.test.ts";
 
 function trackedTypeScript() {
   return git("ls-files", "--cached", "--others", "--exclude-standard", "--", ...TS)
@@ -209,16 +226,36 @@ const DB_LIBRARY =
 // pool, client, connection or request. A table, column or SQL fragment is not a handle.
 const HANDLE_NAME = /(Database|Transaction|Session|Pool|PoolClient|Client|Connection|ConnectionPool|Request|Kysely|Knex|PrismaClient)$|^Sql$/;
 
+const fromDbLibrary = (symbol) => (symbol?.getDeclarations() ?? []).some((d) => DB_LIBRARY.test(d.getSourceFile().fileName.replaceAll("\\", "/")));
+
 function isHandleType(ts, type, seen = new Set()) {
   if (!type || seen.has(type)) return false;
   seen.add(type);
   if (type.isUnionOrIntersection?.()) return type.types.some((t) => isHandleType(ts, t, seen));
   for (const symbol of [type.getSymbol?.(), type.aliasSymbol]) {
-    if (!symbol || !HANDLE_NAME.test(symbol.getName())) continue;
-    if ((symbol.getDeclarations() ?? []).some((d) => DB_LIBRARY.test(d.getSourceFile().fileName.replaceAll("\\", "/")))) return true;
+    if (symbol && HANDLE_NAME.test(symbol.getName()) && fromDbLibrary(symbol)) return true;
   }
   return false;
 }
+
+/** Whether a type is a date: a Date, or a database library's date, time or timestamp column
+ * — by its class name, or by the `columnType` a Drizzle column declares. */
+function isDateType(ts, checker, type, seen = new Set()) {
+  if (!type || seen.has(type)) return false;
+  seen.add(type);
+  if (type.isUnionOrIntersection?.()) return type.types.some((t) => isDateType(ts, checker, t, seen));
+  for (const symbol of [type.getSymbol?.(), type.aliasSymbol]) {
+    if (!symbol) continue;
+    if (symbol.getName() === "Date") return true;
+    if (!fromDbLibrary(symbol)) continue;
+    if (DATE_NAME.test(symbol.getName())) return true;
+    const columnType = checker.getPropertyOfType(type, "columnType");
+    const literal = columnType && checker.getTypeOfSymbol(columnType);
+    if (literal?.isStringLiteral?.() && DATE_NAME.test(literal.value)) return true;
+  }
+  return false;
+}
+const DATE_NAME = /(Date|Time|Timestamp)/;
 
 /** The function-like node an exported declaration carries, or null. */
 function functionBody(ts, decl) {
@@ -253,17 +290,81 @@ function leadingComments(ts, node) {
 }
 
 // The marker, then its reason: the rest of the comment line, up to a closing `*/`.
-const MARKERS = {
-  "integration-exempt": /integration-exempt:[ \t]*(\S[^\n*]*)?/,
-  "raw-sql": /raw-sql:[ \t]*(\S[^\n*]*)?/,
-};
-const markerReason = (text, name) => {
-  const m = text.match(MARKERS[name]);
+const RAW_SQL_MARKER = /raw-sql:[ \t]*(\S[^\n*]*)?/;
+const markerReason = (text) => {
+  const m = text.match(RAW_SQL_MARKER);
   return m ? (m[1] ?? "").trim() : null;
 };
 
+// The query builder's names for each risky shape. A name counts only where a database
+// library declares it, so an array's own `.join()` or a local `count()` is not one.
+const JOIN = /^(inner|left|right|full|cross)Join(Lateral)?$/;
+const AGGREGATE_METHOD = new Set(["groupBy", "having", "$count"]);
+const AGGREGATE_FUNCTION = new Set(["count", "countDistinct", "sum", "sumDistinct", "avg", "avgDistinct", "min", "max"]);
+const COMPARISON = new Set(["gt", "gte", "lt", "lte", "between", "notBetween"]);
+const UPSERT = new Set(["onConflictDoUpdate", "onConflictDoNothing", "onDuplicateKeyUpdate", "upsert"]);
+const WRITE = new Set(["insert", "update", "delete"]);
+const RAW_CALL = new Set(["execute", "query", "unsafe"]);
+
+/** The risky shapes in one function body, as the phrases the finding names. */
+function riskyShapes(ts, checker, body) {
+  const shapes = new Set();
+  let writes = 0;
+  const calleeSymbol = (call) => {
+    const target = ts.isPropertyAccessExpression(call.expression) ? call.expression.name : call.expression;
+    let symbol = checker.getSymbolAtLocation(target);
+    if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+    return symbol;
+  };
+  const calleeName = (call) =>
+    ts.isPropertyAccessExpression(call.expression) ? call.expression.name.text : ts.isIdentifier(call.expression) ? call.expression.text : "";
+  // A filter is a lookup when it is one equality: `eq(col, v)`, or `{ col: v }` in the
+  // relational query API, or a callback returning either.
+  const isLookup = (node) => {
+    let n = node;
+    if (ts.isArrowFunction(n) && !ts.isBlock(n.body)) n = n.body;
+    while (ts.isParenthesizedExpression(n)) n = n.expression;
+    if (ts.isCallExpression(n)) return calleeName(n) === "eq" && fromDbLibrary(calleeSymbol(n));
+    if (ts.isObjectLiteralExpression(n))
+      return n.properties.length === 1 && ts.isPropertyAssignment(n.properties[0]) && !ts.isObjectLiteralExpression(n.properties[0].initializer);
+    return false;
+  };
+  const visit = (n) => {
+    if (ts.isTaggedTemplateExpression(n)) {
+      let symbol = checker.getSymbolAtLocation(ts.isPropertyAccessExpression(n.tag) ? n.tag.expression : n.tag);
+      if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+      if (fromDbLibrary(symbol)) shapes.add("raw SQL");
+    }
+    if (ts.isCallExpression(n)) {
+      const name = calleeName(n);
+      const onHandle = ts.isPropertyAccessExpression(n.expression) && isHandleType(ts, checker.getTypeAtLocation(n.expression.expression));
+      const library = onHandle || fromDbLibrary(calleeSymbol(n));
+      if (onHandle && RAW_CALL.has(name)) shapes.add("raw SQL");
+      if (onHandle && name === "transaction") shapes.add("a transaction");
+      if (onHandle && WRITE.has(name)) writes++;
+      if (library) {
+        if (JOIN.test(name)) shapes.add("a join");
+        if (AGGREGATE_METHOD.has(name) || (AGGREGATE_FUNCTION.has(name) && !ts.isPropertyAccessExpression(n.expression))) shapes.add("an aggregate");
+        if (UPSERT.has(name)) shapes.add("an upsert");
+        if (name === "where" && n.arguments[0] && !isLookup(n.arguments[0])) shapes.add("a filter beyond a lookup by key");
+        if (COMPARISON.has(name) && n.arguments.some((a) => isDateType(ts, checker, checker.getTypeAtLocation(a)))) shapes.add("a date comparison");
+      }
+    }
+    // The relational query API: `db.query.x.findMany({ where: … })`.
+    if (ts.isPropertyAssignment(n) && n.name.getText() === "where" && !isLookup(n.initializer)) {
+      let call = n.parent;
+      while (call && !ts.isCallExpression(call)) call = call.parent;
+      if (call && fromDbLibrary(calleeSymbol(call))) shapes.add("a filter beyond a lookup by key");
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(body);
+  if (writes > 1) shapes.add("more than one write");
+  return [...shapes];
+}
+
 /** Every exported function a source file declares, with whether its body queries the
- * database and every handle `.execute(…)` call in it. */
+ * database, the risky shapes it holds, and every handle `.execute(…)` call in it. */
 function exportedFunctions(ts, program, sf) {
   const checker = program.getTypeChecker();
   const module = checker.getSymbolAtLocation(sf);
@@ -292,15 +393,15 @@ function exportedFunctions(ts, program, sf) {
         start: lineOf(sf, statement.getStart()),
         end: lineOf(sf, statement.getEnd()),
         queries,
+        shapes: queries ? riskyShapes(ts, checker, body) : [],
         executes,
-        exempt: markerReason(leadingComments(ts, statement), "integration-exempt"),
       });
     }
   }
   return out;
 }
 
-/** Keys of every exported function an integration test file calls. */
+/** Keys of every exported function a test file calls. */
 function calledFrom(ts, program, sf, into) {
   const checker = program.getTypeChecker();
   const visit = (n) => {
@@ -312,6 +413,29 @@ function calledFrom(ts, program, sf, into) {
     ts.forEachChild(n, visit);
   };
   visit(sf);
+}
+
+/** Whether a test file imports a value from the app's own source: a module that resolves
+ * to a source file in the repository, not a test, a test helper or a library. A type-only
+ * import does not count — it calls nothing. */
+function importsAppSource(ts, program, sf) {
+  const checker = program.getTypeChecker();
+  const specifiers = [];
+  const visit = (n) => {
+    if (ts.isImportDeclaration(n) && !n.importClause?.isTypeOnly) specifiers.push(n.moduleSpecifier);
+    else if (ts.isExportDeclaration(n) && n.moduleSpecifier && !n.isTypeOnly) specifiers.push(n.moduleSpecifier);
+    else if (ts.isCallExpression(n) && n.expression.kind === ts.SyntaxKind.ImportKeyword && n.arguments[0]) specifiers.push(n.arguments[0]);
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  for (const specifier of specifiers) {
+    const module = checker.getSymbolAtLocation(specifier);
+    for (const decl of module?.getDeclarations() ?? []) {
+      const file = relative(repo, realOr(decl.getSourceFile().fileName)).replaceAll("\\", "/");
+      if (!file.startsWith("..") && !OUTSIDE.test(file) && isSource(file)) return true;
+    }
+  }
+  return false;
 }
 
 /** A handle `.execute(…)`'s `raw-sql:` reason: in a comment on its line, in the comment
@@ -328,7 +452,7 @@ function rawSqlReason(ts, call) {
   const lineEnd = text.indexOf("\n", call.name.getEnd());
   const span = [leadingComments(ts, statement), ...above, text.slice(statement.getStart(), lineEnd < 0 ? undefined : lineEnd)].join("\n");
   const comments = (span.match(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g) ?? []).join("\n");
-  return markerReason(comments, "raw-sql");
+  return markerReason(comments);
 }
 
 // --- the check --------------------------------------------------------------------
@@ -354,7 +478,7 @@ if (sources.length === 0) {
 const base = baseRef();
 let changed;
 try {
-  changed = base ? changedLines(base) : new Map(sources.map((f) => [f, ALL]));
+  changed = base ? changedLines(base) : new Map(all.map((f) => [f, ALL]));
 } catch (error) {
   fail(`cannot list what changed since ${base}: ${error.message}`);
 }
@@ -365,7 +489,7 @@ const touches = (file, from, to) => {
   for (let n = from; n <= to; n++) if (lines.has(n)) return true;
   return false;
 };
-const since = base ? `since ${base.slice(0, 12)}` : "(no base to measure from — every function judged)";
+const since = base ? `since ${base.slice(0, 12)}` : "(no base to measure from — everything judged)";
 const changedSources = sources.filter((f) => changed.has(f));
 
 if (sqlTemplates) {
@@ -394,36 +518,41 @@ if (sqlTemplates) {
 }
 
 const tests = all.filter((f) => INTEGRATION_TEST.test(f));
+const changedTests = tests.filter((f) => changed.has(f) && f.split("/").pop() !== HARNESS_TEST);
 const judged = flag("--report-untested") ? sources : changedSources;
-if (changedSources.length === 0 && !flag("--report-untested")) {
-  console.log(`✓ ${NAME}: no TypeScript source changed ${since} — nothing to judge (${sources.length} source file(s) in the repository).`);
+if (changedSources.length === 0 && changedTests.length === 0 && !flag("--report-untested")) {
+  console.log(`✓ ${NAME}: no TypeScript source or integration test changed ${since} — nothing to judge (${sources.length} source file(s) in the repository).`);
   process.exit(0);
 }
 
 const ts = loadTypeScript();
 const called = new Set();
+const calledByDev = new Set();
 const functions = [];
+const testsWithoutApp = [];
 for (const program of programs([...judged, ...tests])) {
   for (const root of program.getRootFileNames()) {
     const sf = program.getSourceFile(root);
     if (!sf) continue;
     const file = relative(repo, sf.fileName).replaceAll("\\", "/");
-    if (INTEGRATION_TEST.test(file)) calledFrom(ts, program, sf, called);
-    else for (const fn of exportedFunctions(ts, program, sf)) functions.push({ ...fn, file, sf });
+    if (INTEGRATION_TEST.test(file)) {
+      calledFrom(ts, program, sf, DEV_TEST.test(file) ? calledByDev : called);
+      if (changedTests.includes(file) && !importsAppSource(ts, program, sf)) testsWithoutApp.push(file);
+    } else for (const fn of exportedFunctions(ts, program, sf)) functions.push({ ...fn, file, sf });
   }
 }
 
 const problems = [];
 let inspected = 0;
 let querying = 0;
+let risky = 0;
 let covered = 0;
-let exempt = 0;
 let executes = 0;
 let untested = 0;
 for (const fn of functions) {
   const isChanged = touches(fn.file, fn.start, fn.end);
   if (!isChanged) {
-    if (fn.queries && fn.exempt === null && !called.has(fn.key)) untested++;
+    if (fn.shapes.length && !called.has(fn.key)) untested++;
     continue;
   }
   inspected++;
@@ -436,19 +565,22 @@ for (const fn of functions) {
     if (!rawSqlReason(ts, call))
       problems.push(`${fn.file}:${line}  ${fn.name} — a whole query through .execute() with no reason — add \`// raw-sql: <what the query builder cannot express>\` above it, or write it with the query builder (drizzle.md §I)`);
   }
-  if (fn.exempt !== null) {
-    if (fn.exempt) exempt++;
-    else problems.push(`${fn.file}:${fn.start}  ${fn.name} — \`integration-exempt:\` gives no reason — say why no integration test can call it`);
-    continue;
-  }
+  if (!fn.shapes.length) continue;
+  risky++;
   if (called.has(fn.key)) covered++;
-  else
-    problems.push(`${fn.file}:${fn.start}  ${fn.name} — queries the database and no integration test calls it — call it from a *.integration.test.ts, or mark it \`// integration-exempt: <reason>\` (testing-verification.md)`);
+  else {
+    const only = calledByDev.has(fn.key) ? " (only a development test calls it, and that is not in the full suite)" : "";
+    problems.push(
+      `${fn.file}:${fn.start}  ${fn.name} — ${fn.shapes.join(", ")}, and no happy-path or risk test calls it${only} — call it from a *.integration.test.ts (testing-verification.md)`,
+    );
+  }
 }
+for (const file of testsWithoutApp)
+  problems.push(`${file} — imports nothing from the app's source, so it tests no app code — import the function it tests and call it (testing-verification.md)`);
 
-const summary = `${inspected} changed exported function(s) in ${changedSources.length} changed file(s) inspected ${since}; ${querying} query the database — ${covered} called by an integration test, ${exempt} exempt; ${executes} changed .execute() call(s); ${tests.length} integration test file(s) read`;
+const summary = `${inspected} changed exported function(s) in ${changedSources.length} changed file(s) inspected ${since}; ${querying} query the database, ${risky} in a risky shape — ${covered} called by a happy-path or risk test; ${executes} changed .execute() call(s); ${changedTests.length} changed integration test file(s) checked for app code, of ${tests.length} read`;
 if (flag("--report-untested"))
-  console.log(`${NAME}: untouched code — ${untested} exported function(s) query the database with no integration test. Each is judged when it next changes.`);
+  console.log(`${NAME}: untouched code — ${untested} exported function(s) query the database in a risky shape with no happy-path or risk test. Each is judged when it next changes.`);
 if (problems.length) {
   console.error(`✗ ${NAME}: ${summary}.\n${problems.map((p) => `  ${p}`).join("\n")}`);
   process.exit(1);

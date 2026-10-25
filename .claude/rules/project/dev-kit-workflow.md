@@ -56,10 +56,12 @@ The kit dogfoods only what it actually uses. Everything below ships to consumers
 | Template-only item (`_claude-project/…`) | Why the kit doesn't dogfood it |
 |-------------------------------------------|--------------------------------|
 | `commands/deploy.md`, `skills/gitflow/scripts/deploy.sh`, `deploy-org.sh` and their suites | Kit has nothing to deploy — no version artifact, no deploy target, no Terraform. |
+| `templates/codebuild/buildspec-test.yml`, `skills/gitflow/scripts/codebuild-suite.sh` and its suite | The full test suite in a consumer's CodeBuild test project (`TEST_RUNNER=aws`). Kit has no test suite, no AWS account and no CodeBuild. Syncs to `infra/codebuild/` only when the project's `TEST_RUNNER` is `aws`. |
 | `commands/dev.md`, `skills/dev-server/**` | Kit has no dev server / runnable app. |
 | `skills/design-system/**`, `rules/ui-design.md`, `rules/a11y-baseline.md` | Kit has no UI — no JSX/TSX, no `design.md` (kitmaintainer-handbook.md §12a.7). |
 | `skills/claude-design/**`, `commands/ui-design.md` | Kit has no UI package and no design system to publish to Claude Design. |
 | `commands/design-audit.md` | Kit has no design system or UI code to audit. |
+| `commands/happy-path.md`, `skills/happy-path/**` | Kit has no app, no routes, server functions or tables, and no integration tests — no core to audit and nothing to drift. |
 | `skills/ui-patterns/**`, `rules/ui-patterns.md` | Kit has no UI — nothing to compose and no interactions to pattern. |
 | `templates/dependency-policy.md` | Operating procedure for acting on Dependabot output. The kit has no `package.json` and no dependencies, so there is nothing to triage and no timelines to own. Syncs to consumers in `merge` mode: the owners, timelines and project-notes regions are the project's (pipeline.md §3.5). |
 | `templates/ui-inventory.md` | A consumer's `rules/project/ui-inventory.md`, synced in `merge` mode — the project's own components and patterns live in its regions. Kit has no UI, so there is nothing to enumerate. |
@@ -80,7 +82,7 @@ The kit dogfoods only what it actually uses. Everything below ships to consumers
 | `rules/dependencies.md` | Kit has no `package.json` — nothing to install, no lockfile to protect. |
 | `skills/dependency-triage/**` | Kit has no `package.json` and no `.github/dependabot.yml` — no dependency PRs are ever opened here. |
 | `templates/knip.config.ts` | The kit's unused-code configuration. It reads a root `package.json` and the workspaces it declares; the kit has neither, and no JavaScript to analyse. |
-| `templates/scripts/**` | Seeds for a consumer's `scripts/` — `check-dep-alignment.mjs`, `check-workspace-tiers.mjs`, `check-stack.mjs`, `db-branch.mjs`, `check-integration-coverage.mjs`. The dependency, tier and stack checks read a `package.json` / workspace graph the kit does not have; the branch resolver and the coverage check need a database, and the kit has none. |
+| `templates/scripts/**` | Seeds for a consumer's `scripts/` — `check-dep-alignment.mjs`, `check-workspace-tiers.mjs`, `check-stack.mjs`, `check-types.mjs`, `db-branch.mjs`, `check-integration-coverage.mjs`. The dependency, tier, stack and type checks read a `package.json` / workspace graph the kit does not have; the branch resolver and the coverage check need a database, and the kit has none. |
 | `rules/project/README.md` | Consumer scaffolding placeholder; the kit has its own `rules/project/` content. |
 | `commands/sync-dev-kit.md`, `scripts/sync-dev-kit.sh` and its suite | The launcher syncs a project from the kit clone; the engine refuses to run inside the kit itself. |
 

@@ -16,6 +16,7 @@ tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 cat > "$tmp/claude" <<'EOF'
 #!/bin/bash
 cat > "$STUB_LOG"
+echo call >> "$STUB_LOG.calls"
 printf '%s\n' "$@" > "$STUB_LOG.args"
 case "$STUB_MODE" in
   clean)   echo '{"is_error":false,"structured_output":{"findings":[]}}' ;;
@@ -43,6 +44,9 @@ EOF
   git -C "$repo" add -A; git -C "$repo" commit -qm init
 }
 gate(){ (cd "$repo" && STUB_MODE="$1" STUB_LOG="$tmp/log" DESIGN_REVIEW_CLAUDE="$tmp/claude" "$S" "${BASE:-HEAD}" 2>"$tmp/err"); echo $?; }
+calls(){ if [ -f "$tmp/log.calls" ]; then wc -l <"$tmp/log.calls" | tr -d ' '; else echo 0; fi; }
+# A passed review is remembered under the git dir; forgetting it makes the next run ask again.
+forget(){ rm -rf "$(git -C "$repo" rev-parse --path-format=absolute --git-path gitflow-review-cache)"; }
 t(){ if [ "$2" = "$1" ]; then echo "  ✓ $3"; else echo "  ✗ FAIL (got $2, want $1) — $3"; fail=1; fi; }
 called(){ [ -f "$tmp/log" ]; }
 
@@ -78,7 +82,7 @@ grep -q '^radius: rounded-panel' "$tmp/log" && echo "  ✓ the project's roles a
 grep -q '`Button`' "$tmp/log" && echo "  ✓ the inventory is sent" || { echo "  ✗ FAIL — inventory not sent"; fail=1; }
 grep -q "=== THE KIT'S DESIGN OPINIONS" "$tmp/log" && grep -q '^# Design opinions' "$tmp/log" && echo "  ✓ the kit's design opinions are sent" || { echo "  ✗ FAIL — design opinions not sent"; fail=1; }
 grep -q 'design review clean — 1 UI file' "$tmp/err" && echo "  ✓ a clean review counts what it reviewed" || { echo "  ✗ FAIL — no count"; fail=1; }
-t 1 "$(gate finding)" 'a finding: exit 1'
+forget; t 1 "$(gate finding)" 'a finding: exit 1'
 grep -q 'src/routes/orders.tsx:2 — CALL-SITE-REPAINT' "$tmp/err" && grep -q 'fix: add a surface variant' "$tmp/err" && grep -q 'fix it, or skip it' "$tmp/err" && echo "  ✓ …naming the place, why, the fix, and asking fix or skip" || { echo "  ✗ FAIL — message incomplete"; fail=1; }
 t 0 "$( (cd "$repo" && SKIP_DESIGN_REVIEW=1 STUB_MODE=finding STUB_LOG="$tmp/log" DESIGN_REVIEW_CLAUDE="$tmp/claude" "$S" HEAD 2>/dev/null); echo $?)" 'SKIP_DESIGN_REVIEW=1: the developer skips, exit 0'
 new_repo; printf ':root {\n  --color-surface: #fff;\n  --radius-big: 8px;\n}\n' > "$repo/src/styles/tokens.css"
@@ -132,6 +136,23 @@ t 1 "$(gate error)" 'reviewer exits non-zero: exit 1'
 t 1 "$(gate garbage)" 'reviewer returns unparseable output: exit 1'
 t 1 "$( (cd "$repo" && DESIGN_REVIEW_CLAUDE="$tmp/no-such-cli" "$S" HEAD 2>/dev/null); echo $?)" 'CLI missing: exit 1'
 t 1 "$(BASE=no-such-ref gate clean)" 'a base git cannot diff against: exit 1'
+
+echo "A PASS IS REUSED:"
+new_repo; printf 'export const S = () => <div />\n' > "$repo/src/routes/orders.tsx"; rm -f "$tmp/log.calls"
+gate clean >/dev/null; gate clean >/dev/null
+[ "$(calls)" = 1 ] && grep -q 'reusing the earlier pass' "$tmp/err" && echo "  ✓ the same input again: no call, and it says it reused the pass" || { echo "  ✗ FAIL — calls=$(calls): $(cat "$tmp/err")"; fail=1; }
+[ -d "$(git -C "$repo" rev-parse --path-format=absolute --git-path gitflow-review-cache)" ] && ! git -C "$repo" status --porcelain --ignored | grep -q gitflow-review-cache && echo "  ✓ …recorded under the git dir, never in the tree" || { echo "  ✗ FAIL — the record is not under the git dir"; fail=1; }
+printf 'export const T = () => <div />\n' >> "$repo/src/routes/orders.tsx"; gate clean >/dev/null
+[ "$(calls)" = 2 ] && echo "  ✓ changed content: reviewed again" || { echo "  ✗ FAIL — changed content reused (calls=$(calls))"; fail=1; }
+printf '| `Card` | a panel | Panel | approved |\n' >> "$repo/.claude/rules/project/ui-inventory.md"; gate clean >/dev/null
+[ "$(calls)" = 3 ] && echo "  ✓ a changed inventory: reviewed again" || { echo "  ✗ FAIL — changed reference reused (calls=$(calls))"; fail=1; }
+new_repo; printf 'export const S = () => <div />\n' > "$repo/src/routes/orders.tsx"; rm -f "$tmp/log.calls"
+t 1 "$(gate finding)" 'a finding fails'
+t 1 "$(gate finding)" '…and is not remembered: the same input fails again'
+[ "$(calls)" = 2 ] && echo "  ✓ …asking the reviewer both times" || { echo "  ✗ FAIL — a finding was reused (calls=$(calls))"; fail=1; }
+t 1 "$(gate error)" 'a review that could not run fails'
+t 0 "$(gate clean)" '…and is not remembered: the next run reviews'
+[ "$(calls)" = 4 ] && echo "  ✓ …asking the reviewer again" || { echo "  ✗ FAIL — a failed run was reused (calls=$(calls))"; fail=1; }
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"
