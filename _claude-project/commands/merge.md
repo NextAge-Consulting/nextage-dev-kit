@@ -34,12 +34,18 @@ The script:
   that merges cleanly is reported and the merge goes ahead.
 - Runs a **local production build gate** — every workspace with a `build` script (or the
   root, in a single-package repo), counted and printed; with none it says nothing was
-  built — before the readiness wait and before the squash. CI does not build (it type-checks,
+  built — while the readiness wait below polls, and before the squash. Its output is
+  printed whole when it finishes. A failed build stops the wait (exit 15); a failed wait
+  stops the build and says where it stood (exit 11). CI does not build (it type-checks,
   lints and tests), so a build-only break is invisible until here. This is the last
   moment the PR is still OPEN, so a failure is fixed on the branch that caused it rather
   than in a follow-up PR repairing the first. Not in CI on purpose: CI fires on every
-  push, and building there would tax every commit, `/open-pr` and triage fix.
-- Invokes `wait-for-pr-ready.sh` which is **trigger-aware**: blocks until CI required checks pass AND — if a `/gemini review` comment was posted for the current HEAD — Gemini Code Assist has posted its review. If no trigger comment exists for the current HEAD (e.g. last `/commit` was `--no-review`), proceeds on CI-only. `GEMINI_NOT_INSTALLED="true"` in `.claude/sync-substitutions.json` short-circuits the entire Gemini path. Polls every 30s, times out fail-loud after 15min.
+  push, and building there would tax every commit, `/open-pr` and triage fix. A build that
+  passed records the code fingerprint it built (`code-fingerprint.mjs`), so a re-run of
+  `/merge` on the same code — after a failed CI wait, say, or a change to comments only —
+  skips the build, saying "code unchanged since the last pass". A failed build is never
+  recorded.
+- Invokes `wait-for-pr-ready.sh` which is **trigger-aware**: blocks until CI required checks pass AND — if a `/gemini review` comment was posted for the current HEAD — Gemini Code Assist has posted its review. If no trigger comment exists for the current HEAD (e.g. last `/commit` was `--no-review`), proceeds on CI-only. `GEMINI_NOT_INSTALLED="true"` in `.claude/sync-substitutions.json` short-circuits the entire Gemini path. When the project's `TEST_RUNNER` is `aws`, the PR is not ready until the `full-suite` commit status from the CodeBuild test project has reported too — it can arrive after GitHub's own checks finish. Polls every 30s, times out fail-loud after 15min.
 - Squash-merges via `gh pr merge --squash` with the PR's own title and body as the commit message, whatever the repository's squash setting — the body carries the `Closes #N` line `/deploy` reads to move shipped issues — then deletes the remote branch as a separate best-effort step
 - Switches this checkout to `main` and fast-forwards it to the merged tip
 - Deletes the now-merged local branch
@@ -134,4 +140,4 @@ says so and merges anyway. Your own PR gets no approval.
 
 ## Emergency bypass
 
-`--force-unchecked` flag on the script bypasses the CI gate. Use ONLY for hotfixes with explicit user authorization. Never use in automated flows.
+`--force-unchecked` flag on the script bypasses the base-drift check, the production build and the CI wait. Use ONLY for hotfixes with explicit user authorization. Never use in automated flows.

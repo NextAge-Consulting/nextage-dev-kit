@@ -4,7 +4,7 @@
 
 import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
-import { expect } from "vitest";
+import { expect, inject } from "vitest";
 import { dbTest, type TestDb } from "./integration-helpers";
 
 // A table this run alone creates, inside the first test's transaction. SQL Server rolls
@@ -35,10 +35,10 @@ dbTest("each test reads under snapshot isolation", async (db) => {
   expect(result.recordset[0]?.level).toBe(5);
 });
 
-dbTest("a lock wait fails after ten seconds instead of hanging", async (db) => {
+dbTest("a lock wait fails after the resolved lock-wait limit instead of hanging", async (db) => {
   // raw-sql: @@LOCK_TIMEOUT is a server function with no query-builder form.
   const result = await db.execute<{ timeout: number }>(sql`SELECT @@LOCK_TIMEOUT AS timeout`);
-  expect(result.recordset[0]?.timeout).toBe(10_000);
+  expect(result.recordset[0]?.timeout).toBe(inject("lockTimeoutMs"));
 });
 
 dbTest("a nested db.transaction stays inside the test's transaction", async (db) => {

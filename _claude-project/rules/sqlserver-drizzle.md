@@ -271,6 +271,7 @@ human's call (`drizzle.md` §II).
 
 **Declare `"test:preflight": "vitest run -c <shared module>/vitest.config.ts --project
 integration <shared module>/test/harness.integration.test.ts"` in the root
-`package.json`.** `/commit`, `/ship-main` and `/deploy` run it before anything else
-(testing.md §3), so a database that is unmarked, offline, refusing snapshot isolation
-or missing a migration is caught while the developer is there.
+`package.json`.** `/deploy` runs it before anything else (testing.md §3), so a
+database that is unmarked, offline, refusing snapshot isolation or missing a migration
+is caught while the developer is there. At `/commit` and `/ship-main` the integration
+gate's own run reports the same refusal.

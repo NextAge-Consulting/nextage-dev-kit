@@ -3,7 +3,8 @@
 # has not merged is refused, and merging someone else's PR records an approval first.
 # Also the uncommitted-changes gate and the worktree tail.
 # Runs with --force-unchecked (no CI wait, no build) against a real origin; gh is a
-# fake that answers from FAKE_* and records every call.
+# fake that answers from FAKE_* and records every call. Last, the build running while the
+# readiness wait polls, against a fake wait and a fake npm, and skipped on code it built.
 set -uo pipefail
 M="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/merge.sh"
 fail=0
@@ -145,5 +146,89 @@ branch feat/primary-deploy
 merge_with --deploy-from-worktree; rc=$?
 { [ "$rc" -eq 2 ] && [ ! -s "$FAKE_LOG" ]; } \
     && ok "--deploy-from-worktree outside a worktree is refused" || bad "primary deploy flag (rc=$rc): $(cat "$tmp/out")"
+
+# ─── The build runs while the readiness wait polls ────────────────────────
+# A copy of the scripts whose readiness wait is a fake that takes FAKE_WAIT_SEC and exits
+# FAKE_WAIT_EXIT; npm is a fake whose build takes FAKE_BUILD_SEC and exits FAKE_BUILD_EXIT.
+kit="$tmp/kit/scripts"; mkdir -p "$kit"
+cp "$(dirname "$M")"/*.sh "$(dirname "$M")"/*.mjs "$kit/"
+cat > "$kit/wait-for-pr-ready.sh" <<'WAIT'
+#!/bin/bash
+echo "wait started" >> "$FAKE_LOG"
+sleep "${FAKE_WAIT_SEC:-0}"
+echo "wait finished" >> "$FAKE_LOG"
+exit "${FAKE_WAIT_EXIT:-0}"
+WAIT
+chmod +x "$kit/wait-for-pr-ready.sh"
+cat > "$tmp/bin/npm" <<'NPM'
+#!/bin/bash
+[ "$1 $2" = "run build" ] || exit 0
+echo "build started" >> "$FAKE_LOG"
+echo $$ > "$FAKE_LOG.npm-pid"
+sleep "${FAKE_BUILD_SEC:-0}"
+echo "BUILD OUTPUT LINE"
+[ "${FAKE_BUILD_EXIT:-0}" -eq 0 ] || { echo "BUILD ERROR LINE" >&2; exit "$FAKE_BUILD_EXIT"; }
+echo "build finished" >> "$FAKE_LOG"
+NPM
+chmod +x "$tmp/bin/npm"
+git checkout -q main
+printf '{"name":"app","private":true,"scripts":{"build":"vite build"}}\n' > package.json
+git add -A; git commit -qm "chore: build"; git push -q origin main
+checked(){ : > "$FAKE_LOG"; FAKE_ME=alice FAKE_AUTHOR=alice FAKE_BASE=main PATH="$tmp/bin:$PATH" "$kit/merge.sh" >"$tmp/out" 2>&1; }
+
+branch feat/build-fails
+start=$(date +%s); FAKE_BUILD_EXIT=1 FAKE_BUILD_SEC=0 FAKE_WAIT_SEC=30 checked; rc=$?; took=$(( $(date +%s) - start ))
+{ [ "$rc" -eq 15 ] && ! grep -q "pr merge" "$FAKE_LOG" && [ "$took" -lt 10 ] && ! grep -q "wait finished" "$FAKE_LOG" \
+  && grep -q "BUILD ERROR LINE" "$tmp/out" && grep -q "production build FAILED" "$tmp/out" && grep -q "readiness wait stopped" "$tmp/out"; } \
+    && ok "a failing build stops the merge with 15, stops the wait, shows the build's output, no pr merge (${took}s)" \
+    || bad "build fails (rc=$rc, ${took}s): $(cat "$tmp/out"; cat "$FAKE_LOG")"
+
+branch feat/build-overlaps
+start=$(date +%s); FAKE_BUILD_SEC=3 FAKE_WAIT_SEC=3 checked; rc=$?; took=$(( $(date +%s) - start ))
+{ [ "$rc" -eq 0 ] && grep -q "pr merge" "$FAKE_LOG" && [ "$took" -lt 6 ] \
+  && [ "$(grep -n "build started" "$FAKE_LOG" | cut -d: -f1)" -lt "$(grep -n "wait finished" "$FAKE_LOG" | cut -d: -f1)" ]; } \
+    && ok "a 3 s build and a 3 s wait overlap: ${took}s, not 6, then it merges" || bad "overlap (rc=$rc, ${took}s): $(cat "$tmp/out"; cat "$FAKE_LOG")"
+out_lines=$(grep -c "BUILD OUTPUT LINE" "$tmp/out")
+[ "$out_lines" = 1 ] && grep -B1 -A1 "BUILD OUTPUT LINE" "$tmp/out" | grep -q "running production build" \
+    && ok "…the build's output is printed whole, in one block" || bad "build output: $(cat "$tmp/out")"
+
+branch feat/wait-fails
+start=$(date +%s); FAKE_BUILD_SEC=30 FAKE_WAIT_SEC=0 FAKE_WAIT_EXIT=2 checked; rc=$?; took=$(( $(date +%s) - start ))
+{ [ "$rc" -eq 11 ] && ! grep -q "pr merge" "$FAKE_LOG" && [ "$took" -lt 10 ] && grep -q "CI failed on PR" "$tmp/out" \
+  && grep -q "production build stopped" "$tmp/out" && ! grep -q "build finished" "$FAKE_LOG"; } \
+    && ok "a failing wait exits 11 and stops the build still running (${took}s)" || bad "wait fails (rc=$rc, ${took}s): $(cat "$tmp/out"; cat "$FAKE_LOG")"
+sleep 1; if kill -0 "$(cat "$FAKE_LOG.npm-pid")" 2>/dev/null; then bad "…the build's npm outlived the stop"; else ok "…and the build's own processes are stopped too"; fi
+
+branch feat/wait-fails-late
+FAKE_BUILD_SEC=0 FAKE_WAIT_SEC=2 FAKE_WAIT_EXIT=3 checked; rc=$?
+{ [ "$rc" -eq 11 ] && ! grep -q "pr merge" "$FAKE_LOG" && grep -q "production build OK" "$tmp/out"; } \
+    && ok "a wait that fails after the build passed exits 11, the build's pass shown" || bad "wait fails late (rc=$rc): $(cat "$tmp/out")"
+
+branch feat/interrupted
+: > "$FAKE_LOG"; FAKE_ME=alice FAKE_AUTHOR=alice FAKE_BASE=main FAKE_BUILD_SEC=30 FAKE_WAIT_SEC=30 PATH="$tmp/bin:$PATH" "$kit/merge.sh" >"$tmp/out" 2>&1 &
+mpid=$!; sleep 2; kill -TERM "$mpid"; wait "$mpid"; rc=$?; sleep 1
+{ [ "$rc" -eq 11 ] && grep -q "interrupted — the readiness wait and the build were stopped" "$tmp/out" \
+  && ! kill -0 "$(cat "$FAKE_LOG.npm-pid")" 2>/dev/null && ! grep -q "pr merge" "$FAKE_LOG"; } \
+    && ok "interrupted while waiting: exit 11, the build and the wait both stopped, nothing merged" || bad "interrupt (rc=$rc): $(cat "$tmp/out")"
+
+branch feat/forced
+: > "$FAKE_LOG"; FAKE_ME=alice FAKE_AUTHOR=alice FAKE_BASE=main FAKE_BUILD_EXIT=1 FAKE_WAIT_EXIT=2 PATH="$tmp/bin:$PATH" "$kit/merge.sh" --force-unchecked >"$tmp/out" 2>&1; rc=$?
+{ [ "$rc" -eq 0 ] && ! grep -q "build started\|wait started" "$FAKE_LOG" && grep -q "pr merge" "$FAKE_LOG"; } \
+    && ok "--force-unchecked skips both the build and the wait" || bad "forced (rc=$rc): $(cat "$tmp/out"; cat "$FAKE_LOG")"
+
+# ─── The build is skipped on code it already built ────────────────────────
+branch feat/built-once
+FAKE_BUILD_SEC=0 FAKE_WAIT_SEC=1 FAKE_WAIT_EXIT=3 checked; rc=$?
+{ [ "$rc" -eq 11 ] && grep -q "production build OK" "$tmp/out"; } \
+    && ok "a build passes and the wait fails: nothing merged" || bad "built once (rc=$rc): $(cat "$tmp/out")"
+FAKE_BUILD_SEC=0 FAKE_WAIT_SEC=0 checked; rc=$?
+{ [ "$rc" -eq 0 ] && ! grep -q "build started" "$FAKE_LOG" && grep -q "pr merge" "$FAKE_LOG" \
+  && grep -q "production build: code unchanged since the last pass (comments and whitespace only) — production build skipped" "$tmp/out"; } \
+    && ok "…the retry on the same code skips the build, saying so, and merges" || bad "retry build (rc=$rc): $(cat "$tmp/out"; cat "$FAKE_LOG")"
+branch feat/built-failed
+FAKE_BUILD_EXIT=1 FAKE_WAIT_SEC=0 checked; rc=$?
+FAKE_BUILD_SEC=0 FAKE_WAIT_SEC=0 checked; rc=$?
+{ [ "$rc" -eq 0 ] && grep -q "build started" "$FAKE_LOG"; } \
+    && ok "a failed build is never recorded: the retry builds again" || bad "retry after failure (rc=$rc): $(cat "$tmp/out"; cat "$FAKE_LOG")"
 
 exit "$fail"

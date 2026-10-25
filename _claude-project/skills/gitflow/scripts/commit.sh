@@ -194,10 +194,8 @@ elif is_wip_branch "$CURRENT_BRANCH" && wip_branch_unpushed "$CURRENT_BRANCH"; t
     CURRENT_BRANCH="$TARGET_NAME"
 fi
 
-# The integration preflight, then typecheck, biome, knip, semgrep, terraform fmt and the integration tier — gates.sh
-# holds each gate and why it is shaped the way it is. The preflight goes first: it is the one that can need a
-# decision from the person committing.
-run_integration_preflight INTEGRATION_COMMIT_OFF "committing" || exit $?
+# Typecheck, biome, knip, semgrep, terraform fmt and the integration tier — gates.sh holds each gate and why it
+# is shaped the way it is.
 run_typecheck_gate "$SKIP_TYPECHECK" "committing" || exit $?
 run_biome_gate "committing" || exit $?
 run_knip_gate "committing" || exit $?
@@ -211,17 +209,12 @@ run_integration_gate "$FOLD_BASE" "committing" || exit $?
 # stands. Cheap and local, so it runs before the headless reviews.
 run_fit_check_gate "committing" || exit $?
 
-# Rule-prose review: every rule, skill, command or pattern reference changed since
-# FOLD_BASE, reviewed by a headless Claude against the rule-authoring standard.
-"$SCRIPT_DIR/rule-review.sh" "$FOLD_BASE" || exit 4
-
-# New-part review: every part added since FOLD_BASE, checked by a headless Claude against
-# the parts the UI inventory already lists. A suspected duplicate goes to the human.
-"$SCRIPT_DIR/part-review.sh" "$FOLD_BASE" || exit 4
-"$SCRIPT_DIR/design-review.sh" "$FOLD_BASE" || exit 4
-# SQL review: every changed Drizzle `sql` template, read by a headless Claude for a table or
-# column typed as text (drizzle.md §I).
-"$SCRIPT_DIR/sql-review.sh" "$FOLD_BASE" || exit 4
+# The headless reviews, side by side — rule prose against the rule-authoring standard,
+# new parts against the UI inventory, UI changes against the design system, changed
+# Drizzle `sql` templates for a table or column typed as text (drizzle.md §I), and the
+# tests of changed TypeScript against the kit's criteria for what earns a test. gates.sh
+# runs them; each reuses its own earlier pass when its input is unchanged.
+run_headless_reviews "$FOLD_BASE" "committing" || exit 4
 
 # Every gate passed — fold the checkpoints, then stage everything.
 fold_checkpoints "$FOLD_BASE"

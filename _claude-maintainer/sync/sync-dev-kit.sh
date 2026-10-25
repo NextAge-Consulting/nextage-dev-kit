@@ -21,7 +21,8 @@
 #   --apply-gitignore       Append missing .gitignore-additions entries to project .gitignore.
 #   --migration-done <name> Record that a migration the scan listed has been run in this sync.
 #   --finalize              Update lockfile kit commit SHA + timestamp after all decisions applied,
-#                           carrying any listed migration not run to the next sync.
+#                           carrying any listed migration not run to the next sync, and
+#                           recording each uncommitted migration run (migrationsRunAhead).
 #
 # Claude invokes --scan, reviews the report interactively with the user, invokes
 # --apply-file for each accepted change, then invokes --finalize at the end.
@@ -284,9 +285,11 @@ is_app_only() {
         _claude-project/rules/drizzle.md|_claude-project/rules/postgres-drizzle.md|_claude-project/rules/sqlserver-drizzle.md) return 0 ;;
         _claude-project/rules/integrations/agent-browser.md) return 0 ;;
         _claude-project/commands/dev.md|_claude-project/commands/ui-design.md) return 0 ;;
+        _claude-project/commands/design-audit.md|_claude-project/commands/happy-path.md) return 0 ;;
         _claude-project/skills/agent-browser/*|_claude-project/skills/claude-design/*) return 0 ;;
         _claude-project/skills/dependency-triage/*|_claude-project/skills/design-system/*) return 0 ;;
         _claude-project/skills/dev-server/*|_claude-project/skills/e2e/*|_claude-project/skills/e2e-author/*) return 0 ;;
+        _claude-project/skills/happy-path/*) return 0 ;;
         _claude-project/skills/mfing-bible-of-tanstack/*|_claude-project/skills/postgres-neon-drizzle/*) return 0 ;;
         _claude-project/skills/shadcn/*|_claude-project/skills/ui-patterns/*) return 0 ;;
         _claude-project/stack-manifest.json) return 0 ;;
@@ -294,6 +297,7 @@ is_app_only() {
         _claude-project/templates/knip.config.ts|_claude-project/templates/scripts/*) return 0 ;;
         _claude-project/templates/dependency-policy.md|_claude-project/templates/ui-inventory.md) return 0 ;;
         _claude-project/templates/design-system/*|_claude-project/templates/testing/*) return 0 ;;
+        _claude-project/templates/codebuild/*|_claude-project/skills/gitflow/scripts/codebuild-suite*) return 0 ;;
         _github-project/dependabot.yml) return 0 ;;
     esac
     return 1
@@ -716,6 +720,9 @@ dest_for_kit_path() {
         _claude-project/templates/scripts/check-stack.mjs)
             echo "scripts/check-stack.mjs"
             ;;
+        _claude-project/templates/scripts/check-types.mjs)
+            echo "scripts/check-types.mjs"
+            ;;
         _claude-project/templates/scripts/db-branch.mjs)
             echo "scripts/db-branch.mjs"
             ;;
@@ -750,6 +757,13 @@ dest_for_kit_path() {
             [ -z "$ui_pkg" ] && { echo ""; return; }
             subst_intentionally_empty "DESIGN_FEED_BARREL" && { echo ""; return; }
             echo "${ui_pkg%/}/design-system/${kit_rel#_claude-project/templates/design-system/}"
+            ;;
+        _claude-project/templates/codebuild/buildspec-test.yml)
+            # The full suite in CodeBuild, for a project whose TEST_RUNNER is aws. The
+            # same in every project, so kit-owned; it lands beside the project's own
+            # deploy buildspec. Any other runner skips it (`skipped_unconfigured`).
+            [ "$(subst_value "TEST_RUNNER")" = "aws" ] || { echo ""; return; }
+            echo "infra/codebuild/buildspec-test.yml"
             ;;
         _claude-project/templates/testing/vitest.config.ts)
             # Test scaffolding has no fixed home — it lands beside the shared
@@ -847,6 +861,7 @@ dest_key_for_kit_path() {
         _claude-project/templates/testing/globalSetup.ts|_claude-project/templates/testing/integration-helpers.ts|_claude-project/templates/testing/harness.integration.test.ts|_claude-project/templates/testing/sqlserver/*)
             if [ -z "$(subst_value SHARED_MODULE_DIR)" ]; then echo "SHARED_MODULE_DIR"; else echo "DB_ENGINE"; fi ;;
         _claude-project/templates/testing/*)       echo "SHARED_MODULE_DIR" ;;
+        _claude-project/templates/codebuild/*)     echo "TEST_RUNNER" ;;
         _claude-project/templates/design-system/*)
             if [ -z "$(subst_value DESIGN_UI_PACKAGE)" ]; then echo "DESIGN_UI_PACKAGE"; else echo "DESIGN_FEED_BARREL"; fi ;;
         *) echo "" ;;
@@ -1027,7 +1042,18 @@ update_lockfile_file() {
 # the ones the kit added after it, oldest first, plus any an earlier sync carried forward
 # unrun (`pendingMigrations`), less those already run in this sync (`migrationsDone`,
 # cleared by --finalize). A first sync runs none: the project starts on the current kit.
+#
+# A maintainer's machine (~/.claude/kitmaster) syncs from the kit's working tree, which
+# can hold migrations its HEAD does not. Those are pending too, after the committed ones,
+# so a kit change is tested with its migration before it ships. Each one run is recorded
+# by name in `migrationsRunAhead`, which keeps it from running again once the kit commits
+# it; --finalize drops the record when the kit's history holds the migration. A syncer's
+# clone is a clean release, so it has none to offer — it still honours the record.
 MIGRATIONS_DIR="_claude-maintainer/migrations"
+
+is_maintainer_machine() {
+    [ -f "$HOME/.claude/kitmaster" ]
+}
 
 # Names of the migrations the kit added after <commit>, oldest first. Fails when the
 # commit is not in the kit's history, since the project's version then cannot be read.
@@ -1039,9 +1065,26 @@ migrations_added_since() {
     printf '%s\n' "$out" | sed -n "s#^${MIGRATIONS_DIR}/\([^/]*\)/PROMPT\.md\$#\1#p"
 }
 
-# The migrations this project has still to run, oldest first, one name per line.
+# Names of the migrations in the kit's working tree that its HEAD does not hold, in byte
+# order of name. Name, not file time: a draft's mtime moves every time it is edited, and a
+# commit adding several migrations lists them in this same order, so the order a project
+# runs them in ahead of the commit is the order it would run them in after.
+uncommitted_migrations() {
+    local mig name names=""
+    for mig in "$KIT_PATH/$MIGRATIONS_DIR"/*/; do
+        [ -f "${mig}PROMPT.md" ] || continue
+        name=$(basename "$mig")
+        git -C "$KIT_PATH" cat-file -e "HEAD:$MIGRATIONS_DIR/$name/PROMPT.md" 2>/dev/null && continue
+        names="$names$name"$'\n'
+    done
+    [ -n "$names" ] || return 0
+    printf '%s' "$names" | LC_ALL=C sort
+}
+
+# The migrations this project has still to run, oldest first, one name per line. With
+# `committed`, only those the kit has committed — what --finalize carries forward.
 pending_migrations() {
-    local since added carried ran name seen=" "
+    local scope="${1:-all}" since added carried ahead="" ran name seen=" "
     [ -f "$LOCKFILE" ] || return 0
     since=$(jq -r '.lastSyncedCommit // ""' "$LOCKFILE")
     if ! added=$(migrations_added_since "$since"); then
@@ -1049,7 +1092,10 @@ pending_migrations() {
         return 1
     fi
     carried=$(jq -r '(.pendingMigrations // [])[]' "$LOCKFILE")
-    ran=" $(jq -r '(.migrationsDone // []) | join(" ")' "$LOCKFILE") "
+    if [ "$scope" = "all" ] && [ -n "$since" ] && is_maintainer_machine; then
+        ahead=$(uncommitted_migrations)
+    fi
+    ran=" $(jq -r '((.migrationsDone // []) + (.migrationsRunAhead // [])) | join(" ")' "$LOCKFILE") "
     while IFS= read -r name; do
         [ -z "$name" ] && continue
         case "$seen" in *" $name "*) continue ;; esac
@@ -1057,7 +1103,7 @@ pending_migrations() {
         case "$ran" in *" $name "*) continue ;; esac
         [ -f "$KIT_PATH/$MIGRATIONS_DIR/$name/PROMPT.md" ] || continue
         echo "$name"
-    done <<<"$(printf '%s\n%s\n' "$carried" "$added")"
+    done <<<"$(printf '%s\n%s\n%s\n' "$carried" "$added" "$ahead")"
 }
 
 # ---------------------------------------------------------------------------
@@ -1076,13 +1122,9 @@ if [ "$MODE" = "scan" ]; then
     if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
         KIT_CLEAN=false
     fi
-    # A migration is read from the kit's commits, so one the kit has not committed is never run.
-    UNCOMMITTED_MIGRATIONS="[]"
-    for mig in "$MIGRATIONS_DIR"/*/; do
-        [ -f "${mig}PROMPT.md" ] || continue
-        git cat-file -e "HEAD:${mig}PROMPT.md" 2>/dev/null && continue
-        UNCOMMITTED_MIGRATIONS=$(jq -c --arg n "$(basename "$mig")" '. + [$n]' <<<"$UNCOMMITTED_MIGRATIONS")
-    done
+    # Migrations the kit's HEAD does not hold. On a maintainer's machine each one not yet
+    # run is also in migrations_pending; anywhere else none runs.
+    UNCOMMITTED_MIGRATIONS=$(uncommitted_migrations | jq -R -s -c '[split("\n")[] | select(. != "")]')
 
     KIT_BEHIND=false
     git fetch origin >/dev/null 2>&1 || true
@@ -1758,10 +1800,39 @@ if [ "$MODE" = "finalize" ]; then
 
     NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-    # Read before lastSyncedCommit moves: a migration listed and not run is carried to
-    # the next sync rather than passed over.
-    if ! UNRUN=$(pending_migrations); then exit 5; fi
+    # Read before lastSyncedCommit moves: a committed migration listed and not run is
+    # carried to the next sync rather than passed over. An uncommitted one not run needs no
+    # carrying — the working tree offers it again, and the kit's commit of it after this
+    # sync's commit lists it as added.
+    if ! UNRUN=$(pending_migrations committed); then exit 5; fi
     UNRUN_JSON=$(printf '%s\n' "$UNRUN" | jq -R -s -c '[split("\n")[] | select(. != "")]')
+
+    # Migrations run ahead of the kit's commit. The record keeps one from running again
+    # when the kit commits it after this sync's lastSyncedCommit, and is dropped once the
+    # kit's history up to that commit holds it — or, on the maintainer's machine, once the
+    # draft is gone from the working tree too, abandoned. A first sync records every
+    # uncommitted migration: the project starts on the working tree, as it starts on the
+    # current kit. Only a maintainer's machine adds records; every machine prunes them.
+    AHEAD_NEW="[]"
+    if is_maintainer_machine; then
+        UNCOMMITTED_JSON=$(uncommitted_migrations | jq -R -s -c '[split("\n")[] | select(. != "")]')
+        AHEAD_NEW=$(jq -c --argjson u "$UNCOMMITTED_JSON" '
+            if (.lastSyncedCommit // "") == "" then $u
+            else [(.migrationsDone // [])[] | select(. as $m | $u | index($m) != null)] end
+        ' "$LOCKFILE")
+    fi
+    AHEAD="[]"
+    while IFS= read -r name; do
+        [ -z "$name" ] && continue
+        prompt="$MIGRATIONS_DIR/$name/PROMPT.md"
+        if ! added_in=$(git -C "$KIT_PATH" log -1 --format=%H --diff-filter=A "$KIT_COMMIT" -- "$prompt" 2>/dev/null); then
+            echo "sync-dev-kit.sh: could not read the kit's history for migration $name" >&2
+            exit 5
+        fi
+        [ -n "$added_in" ] && continue
+        is_maintainer_machine && [ ! -f "$KIT_PATH/$prompt" ] && continue
+        AHEAD=$(jq -c --arg n "$name" '. + [$n]' <<<"$AHEAD")
+    done <<<"$(jq -r --argjson new "$AHEAD_NEW" '((.migrationsRunAhead // []) + $new) | unique | .[]' "$LOCKFILE")"
 
     # ─── Backfill: record every already-matching kit file ──────────────────
     #
@@ -1861,16 +1932,21 @@ if [ "$MODE" = "finalize" ]; then
     tmp=$(mktemp)
     jq --arg repo "$KIT_REMOTE" --arg commit "$KIT_COMMIT" --arg ts "$NOW" \
         --argjson backfill "$BACKFILL" --argjson stale "$STALE" --argjson unrun "$UNRUN_JSON" \
+        --argjson ahead "$AHEAD" \
         '.kitRepo = $repo | .lastSyncedCommit = $commit | .lastSyncedAt = $ts
          | .files = ((.files + $backfill) | with_entries(select(.key as $k | $stale | index($k) == null)))
          | del(.migrationsDone)
-         | if ($unrun | length) > 0 then .pendingMigrations = $unrun else del(.pendingMigrations) end' \
+         | if ($unrun | length) > 0 then .pendingMigrations = $unrun else del(.pendingMigrations) end
+         | if ($ahead | length) > 0 then .migrationsRunAhead = $ahead else del(.migrationsRunAhead) end' \
         "$LOCKFILE" > "$tmp"
     mv "$tmp" "$LOCKFILE"
 
     echo "sync-dev-kit.sh: lockfile finalized (kit commit $KIT_COMMIT)" >&2
     if [ -n "$UNRUN" ]; then
         echo "sync-dev-kit.sh: carried to the next sync, not run: $(printf '%s' "$UNRUN" | tr '\n' ' ')" >&2
+    fi
+    if [ "$AHEAD" != "[]" ]; then
+        echo "sync-dev-kit.sh: run ahead of the kit's commit, recorded so they do not run again: $(jq -r 'join(" ")' <<<"$AHEAD")" >&2
     fi
     if [ "$BACKFILL_N" -gt 0 ]; then
         echo "sync-dev-kit.sh: baselined $BACKFILL_N already-matching file(s) that had no lockfile entry — the kit can now propagate their deletion." >&2

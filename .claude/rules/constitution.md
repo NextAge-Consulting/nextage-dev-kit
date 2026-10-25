@@ -34,7 +34,7 @@ The carve-out is absolute-instant audit fields: `new Date()` is right for sessio
 
 New code is guilty until proven innocent. Check code from the last session or PR first; production code that has run for weeks is probably correct.
 
-Reproduce it minimally, isolate the failing component, trace to the root cause rather than the symptom, fix with verification, then add a test that catches the regression.
+Reproduce it minimally, isolate the failing component, trace to the root cause rather than the symptom, fix with verification, then add a test that catches it — a risk test when a sensible later change could bring it back, else a development test (`testing-verification.md`).
 
 ## VIII. Code Standards
 

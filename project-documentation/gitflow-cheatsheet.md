@@ -62,7 +62,7 @@ Without `--worktree`, nothing changes: one checkout, one branch, `/ship-main` an
 /checkpoint      # local save point — no gates, no branch, no push
 /commit          # full conventional commit with AI-generated message
 npm test         # run vitest (if the project has test scaffolding)
-npm run check-types  # tsc across all workspaces
+npm run check-types  # tsc in every workspace, concurrently
 npm run lint     # biome lint across the repo
 semgrep scan --config auto --error <files>   # the CI security scan, on demand
 ```
@@ -77,7 +77,7 @@ Use `/checkpoint` freely for in-progress snapshots. Use `/commit` when a unit of
 
 **Checkpoints stay local.** A checkpoint commits on the branch you are standing on, `main` included, and pushes nothing. `/commit` and `/ship-main` fold every unpushed checkpoint into the one commit they make, so a `🔖 wip:` subject never reaches `main` for `/deploy` to read.
 
-`/commit` runs check-types, biome, knip and semgrep itself before staging, so the CI equivalents fire locally first — knip only where `KNIP_GATE` is `"true"`, as in CI, and semgrep scoped to the files the commit touches, where CI scans the whole repo. It runs the integration gate — every changed exported function that queries the database needs an integration test calling it, and the integration tests reaching the change run (`testing.md` §3) — and sends any changed `sql` template to the SQL review. It also sends any changed rule, skill, command or pattern reference to a headless Claude reviewer, which stops the commit on history, justification or a counted list; `SKIP_RULE_REVIEW=1` overrides a finding you judge wrong. `/ship-main` runs the same gates. `/checkpoint` deliberately does not: it is the fast WIP save, and a scan on every snapshot is friction on the one path built to have none.
+`/commit` runs check-types, biome, knip and semgrep itself before staging, so the CI equivalents fire locally first — knip only where `KNIP_GATE` is `"true"`, as in CI, and semgrep scoped to the files the commit touches, where CI scans the whole repo. It runs the integration gate — a changed function of a risky database shape needs a happy-path or risk test calling it, a changed integration test must import the app code it tests, and the integration tests reaching the change run, development tests included (`testing.md` §3) — and sends any changed `sql` template to the SQL review and any changed TypeScript, with its tests, to the test judge — which stops the commit on risky code with no test, a test that re-implements the logic instead of calling it, a superfluous test, or a test filed as the wrong kind. It also sends any changed rule, skill, command or pattern reference to a headless Claude reviewer, which stops the commit on history, justification or a counted list; `SKIP_RULE_REVIEW=1` overrides a finding you judge wrong. The headless reviews run side by side, and one that already passed on the same input is reused rather than asked again — re-running `/commit` after fixing one finding does not pay for the rest. The typecheck and the integration gate skip when the code is unchanged since their last pass but for comments and whitespace, and say so. `/ship-main` runs the same gates. `/checkpoint` deliberately does not: it is the fast WIP save, and a scan on every snapshot is friction on the one path built to have none.
 
 ---
 
@@ -102,12 +102,15 @@ No new branch, no stash. Just link and keep working.
                 #   asked ("Does this PR finish #42, or is it part of #42?"); neither → no PR
                 # a finished issue → "Staged" with its Staged comment; a part gets `Part of #N`
                 #   instead of `Closes #N`, closes nothing, and stays where it is on the board
+                # warns, and still opens, when an app it touches has no happy path or has moved
+                #   past the drift limit since its snapshot — run /happy-path <app>
                 # does NOT touch changelog.md — single-writer model, /deploy owns it (pipeline.md §2.3)
 /catchup      # on main: fast-forward local main from origin/main (just want latest code)
                 # on a feature branch: merge updated origin/main INTO the feature branch
 /e2e          # behavioral E2E via agent-browser (asks a scope question — see next section)
-/merge        # local prod build gate, verify CI green, squash-merge, land back on main,
+/merge        # local prod build while it waits for CI green, squash-merge, land back on main,
                 # delete the merged branch
+                # the build is skipped when the code is unchanged since its last pass
                 # refuses on uncommitted changes, before anything is built or merged: commit them
                 #   first, or — when none is in the PR — merge without them and keep them on main
                 # in a worktree: merges on GitHub, then removes the worktree
@@ -117,6 +120,7 @@ No new branch, no stash. Just link and keep working.
                 # post-merge: if landing on main changed package*.json, merge.sh runs `npm ci`
                 #   so node_modules isn't left stale (bites the next /merge build gate)
 /deploy       # bump version, tag, push, dispatch the deploy build(s)
+                # runs the full test suite first, unless main's exact code already passed it
                 # moves every issue named by `Closes #N` in the release → the deploy status
 /deploy promote <version>
                 # a project with a separate Prod: put a release Test already ran onto Prod
@@ -176,11 +180,12 @@ approval on it first.
 
 ## After `/open-pr` — triaging the PR
 
-CI (4 jobs) runs on every PR push. Gemini Code Assist runs only when a `/gemini review` comment is posted on the PR (auto-trigger is OFF in `.gemini/config.yaml`). `/open-pr` always posts the trigger; `/commit` asks you whether to post (or pass `--review` / `--no-review` to skip the prompt); `/deploy` never posts on release PRs.
+CI runs on every PR push. Gemini Code Assist runs only when a `/gemini review` comment is posted on the PR (auto-trigger is OFF in `.gemini/config.yaml`). `/open-pr` always posts the trigger; `/commit` asks you whether to post (or pass `--review` / `--no-review` to skip the prompt); `/deploy` never posts on release PRs.
 
 | What | Gate? | Typical time |
 |---|---|---|
-| `check-types`, `biome`, `lint`, `semgrep` | **required** | <2 min total (parallel) |
+| `node-checks` (check-types, biome, knip, the dependency and design checks), `vitest`, `semgrep`, and `python` / `terraform` / `project` where they apply | **required** | a few minutes (parallel) |
+| `full-suite` status — from the `vitest` job, or the CodeBuild test project under `TEST_RUNNER` `aws` | **required** | skipped when an earlier commit of the PR passed on the same code |
 | Gemini review | advisory, comment-triggered | ~5 min first pass, faster on incremental |
 
 ```
@@ -199,7 +204,7 @@ gh pr view <N> --web        # open the PR in your browser
    - 🟢 Low — advisory; ignore or reply
 3. **Every thread ends** with a fix-push OR a reply. Don't leave threads silent.
 
-Gemini does NOT register a separate check entry on the PR — its review surface is inline comments + PR-level summary only. Required gates are the four CI jobs above.
+Gemini does NOT register a separate check entry on the PR — its review surface is inline comments + PR-level summary only. Required gates are the CI jobs above.
 
 ### `/triage` — one-at-a-time Gemini walkthrough
 

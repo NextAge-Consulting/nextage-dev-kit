@@ -26,7 +26,9 @@ The next real commit folds checkpoints away, so they never reach `main`.
 
 **Commit with `/commit`.** Claude writes the message. Before anything is staged, the type
 check, lint and security scan run over what you changed, so problems surface in seconds
-here instead of minutes later in CI. On `main`, `/commit` cuts a branch named from the
+here instead of minutes later in CI. The AI reviews run together, and a re-run after a fix
+reuses every review that already passed; a change to comments alone skips the type check
+and the tests. On `main`, `/commit` cuts a branch named from the
 message. It decides which linked issues are finished, asks you only about one it cannot
 judge, and moves the finished ones to Staged with a note for whoever filed them.
 
@@ -34,7 +36,8 @@ judge, and moves the finished ones to Staged with a note for whoever filed them.
 `Closes #N` for your issues, and waits for CI and the AI reviewer. `/triage` walks the
 reviewer's comments one at a time: fix it, skip it with a reason, or discuss it.
 
-**Land it with `/merge`.** It builds the app, confirms CI is green, squash-merges and puts
+**Land it with `/merge`.** It refuses while you have uncommitted changes, builds the app
+while it waits for CI to go green, squash-merges and puts
 you back on an up-to-date `main`. Merging does not deploy; `/deploy` and `/deploy promote` are DevOps's steps.
 
 **Stay current with `/catchup`.** It brings `main` into your branch when others have
@@ -45,7 +48,8 @@ and branch of its own, so neither session's commit sweeps up the other's work, a
 removes it when the work lands. The gitflow cheatsheet has the details.
 
 **Small infra fix straight to `main`?** `/ship-main` commits and pushes directly: no
-branch, no PR. You have to ask for it by name; a plain "commit" on `main` always branches.
+branch, no PR. You have to ask for it by name; a plain "commit" on `main` always branches. On a project at `ASSURANCE_LEVEL` `strict` it takes docs only; code goes
+through a PR.
 
 ## Where work is tracked
 
@@ -85,13 +89,32 @@ unit test; anything whose answer comes from the database gets an integration tes
 Postgres each run gets a throwaway copy of the real database; the engine rule says where
 other engines run theirs. Run `npm test` from the repo root.
 
-Every function you add or change that queries the database needs an integration test that
-calls it, and `/commit` checks: it names the function and stops. Old code you do not touch
-is left alone; touch it and it needs its test too. When a function really cannot be
-tested that way, mark it `// integration-exempt: <why>`. A whole query written as raw SQL
-through `.execute()` needs `// raw-sql: <what the builder can't do>` above it. `/commit`
-also runs the integration tests your change reaches, and sends any `sql` template you wrote
-to a quick review for table or column names typed as text (`testing.md` §3).
+An integration test is one of three kinds, told apart by its file name. A happy-path test
+(`*.happy.integration.test.ts`) proves the main success case of a core function. A risk
+test (`*.integration.test.ts`) covers something a sensible later change could quietly
+break: money, dates and time zones, permissions, data integrity, locking, another
+system's contract, code many others depend on. A development test
+(`*.dev.integration.test.ts`) is one you wrote to get the code right; it runs while that
+code changes and stays out of the full suite, so the suite grows only with tests that keep
+paying.
+
+Which functions are core is yours to decide, with Claude, in `/happy-path <app>`: it ranks
+the app's core, you correct the list, and it writes the missing happy-path tests and a
+snapshot of the app beside them. `/open-pr` warns when an app you touched has no happy
+path, or has changed too much since its snapshot to trust it, and names that command. On a
+project at `ASSURANCE_LEVEL` `strict` it refuses the PR instead.
+
+Database code of a risky shape — raw SQL, a join, a real filter, an aggregate, a date
+range, an upsert, a transaction, more than one write — needs a happy-path or risk test
+that calls it, and `/commit` checks: it names the function and the shapes, and stops. The
+shape only means one test is kept: when nothing about the function is on the risk list, its
+main success case, filed as a risk test, is enough, and its other cases are development
+tests. A plain insert or a select by key needs none. A test has to import and call your code; one
+that only talks to the database is refused. Old code you do not touch is left alone; touch
+it and it needs its test too. A whole query written as raw SQL through `.execute()` needs
+`// raw-sql: <what the builder can't do>` above it. `/commit` also runs the integration
+tests your change reaches, development tests included, and sends any `sql` template you
+wrote to a quick review for table or column names typed as text (`testing.md` §3).
 
 `/e2e` drives the app in a browser through plain-English flows; it is a check you run, not
 a gate. Setup and the flow format: `testing.md`.
@@ -179,6 +202,13 @@ either way.
 **`/commit` stopped on the rule review.** A change to a rule, skill, command or pattern
 reference carries history, a justification, or a counted list. Have Claude fix the text
 and commit again. If you judge a finding wrong, commit with `SKIP_RULE_REVIEW=1`.
+
+**`/commit` stopped on the test judge.** It judged the tests of the TypeScript you
+changed: risky code with no test (write it), a test running its own copy of the logic
+(make it call the app), a test that proves nothing or repeats another (delete it), or a
+test filed as the wrong kind (rename it). It searches the whole repository's tests before
+calling one missing or a duplicate, and judges a change of any size. Have Claude
+act on each and commit again. If you judge a finding wrong, commit with `SKIP_TEST_REVIEW=1`.
 
 **`/commit` stopped on the project gate.** The project has a `.claude/project-gate.sh`,
 which `/commit` and `/ship-main` run after the kit's own checks, passing the commit it

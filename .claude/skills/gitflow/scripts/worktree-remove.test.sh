@@ -35,7 +35,7 @@ mkwt(){ git worktree add -q -b "$2" "$P/.claude/worktrees/$1" origin/main
         printf 'h\n' > "$P/.claude/worktrees/$1/.claude/worktree-handoff.md"
         ln -s "$P/.env" "$P/.claude/worktrees/$1/.env"; }
 
-mkwt done feat/done
+mkwt "done" feat/done
 mkwt other feat/other
 
 ( cd "$P/.claude/worktrees/done" && FAKE_STATE=MERGED PATH="$tmp/bin:$PATH" "$R" "$P/.claude/worktrees/done" >"$tmp/out" 2>&1 ); rc=$?

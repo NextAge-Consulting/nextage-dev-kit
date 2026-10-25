@@ -59,7 +59,7 @@ This rule subsumes any prior or training-data instinct toward "one issue per PR.
 ## What gitflow does NOT do
 
 - Does not run git commands directly. All mechanics live in `/commit`, `/checkpoint`, `/open-pr`, `/merge`, `/deploy` commands, which in turn call scripts in `skills/gitflow/scripts/`.
-- Does not bypass validation. `commit.sh` runs the typecheck, biome, knip and semgrep gates in `gates.sh` before committing — each says what it checked or why it does not apply here — plus the rule review of any changed rule prose, and `git-guard.sh` fires regardless. If either blocks, fix the underlying issue — do not attempt to bypass.
+- Does not bypass validation. `commit.sh` and `ship-main.sh` run the gates in `gates.sh` before committing — typecheck, biome, knip, semgrep, the integration gate and the headless reviews, each saying what it checked or why it does not apply here — and `git-guard.sh` fires regardless. If either blocks, fix the underlying issue — do not attempt to bypass.
 - Does not auto-bump version or auto-write changelog at merge time. Version bump + changelog generation happen at `/deploy` time only (human-in-the-loop). Merging to main does not ship.
 
 ## Usage procedure
@@ -158,7 +158,7 @@ Walk through open Gemini Code Assist review comments on the current PR **one at 
 - Filter stale/resolved items, order by file/line
 - Present item 1 → wait → act → advance to item 2 → repeat
 
-On "fix": implement + `/commit` (focused message) + push; the user decides at commit time whether to post a fresh `/gemini review` (via `--review` flag or the `/commit` prompt). On "skip": optional 1-2 sentence reply via `gh pr comment` or silent pass. One commit per accepted fix.
+On "fix": implement it and reply on the thread; nothing is committed mid-triage. On "skip": reply on the thread and leave an inline source comment stating the carve-out. At the end, one `/commit` bundles every fix, on the user's instruction; they decide then whether to post a fresh `/gemini review` (`--review` or the `/commit` prompt).
 
 See `commands/triage.md`. Gemini-only for MVP; human reviewers and other bots are future scope.
 
@@ -169,8 +169,8 @@ Wait for PR readiness and squash-merge the current branch's PR.
 **Procedure:**
 - Identify the open PR (auto-detect from current branch, or `--pr <number>` arg)
 - If multiple open PRs are associated with the branch, ask the user which
-- `merge.sh` invokes `wait-for-pr-ready.sh` (trigger-aware: waits for Gemini only if a `/gemini review` was posted for the current HEAD; otherwise proceeds CI-only). `/commit --no-review` is the user's signal that no Gemini wait is needed at merge. Bypassable via `--force-unchecked` for emergency hotfixes only (skips CI too).
-- On wait exit 0: `gh pr merge --squash --delete-branch`, switch to main, pull
+- `merge.sh` invokes `wait-for-pr-ready.sh` (trigger-aware: waits for Gemini only if a `/gemini review` was posted for the current HEAD; otherwise proceeds CI-only). `/commit --no-review` is the user's signal that no Gemini wait is needed at merge. It refuses uncommitted changes first (exit 26), and builds every workspace locally while the wait polls. Bypassable via `--force-unchecked` for emergency hotfixes only (skips the build and the CI wait).
+- On a passed build and wait: squash-merge, switch to main, fast-forward. In a worktree nothing local changes and the worktree is removed afterwards, or kept to `/deploy` from (`--deploy-from-worktree`)
 
 See `commands/merge.md`. Wait timeout is 15min by default; on timeout, surface diagnostic and stop — the user decides whether to extend (Gemini may be rate-limited despite the trigger landing), opt this repo out of Gemini gating (`GEMINI_NOT_INSTALLED="true"` — only correct if Gemini is genuinely absent), or `--force-unchecked`.
 
@@ -202,12 +202,24 @@ The commands invoke these scripts in `skills/gitflow/scripts/`:
 
 | Script | Purpose |
 |--------|---------|
-| `work.sh` | Refresh `main` or resume the current branch, cutting nothing; `--issue <N[,N…]>` to link one or more issues to the branch you are on; `--retrieve` to fetch and switch to someone else's branch; `--discussion <slug\|URL>` to locate a discussion folder and print its pointer |
-| `commit.sh` | Full conventional commit, stages all, pushes; auto-branches on main; folds unpushed checkpoints |
+| `work.sh` | Refresh `main` or resume the current branch, cutting nothing; `--issue <N[,N…]>` to link one or more issues to the branch you are on; `--retrieve` to fetch and switch to someone else's branch; `--discussion <slug\|URL>` to locate a discussion folder and print its pointer; `--worktree` to create or re-enter a worktree |
+| `commit.sh` | Full conventional commit after the gates, stages all, pushes; auto-branches on main; folds unpushed checkpoints |
+| `ship-main.sh` | The same gates, then a conventional commit straight to `main` and a push |
 | `checkpoint.sh` | Local commit on the current branch, stages all; no branch, no push |
-| `open-pr.sh` | Refuse (exit 12) while a linked issue is neither code complete nor `--part`; push branch, create PR via gh or GitHub API; prepends `Closes #N` for the issues it finishes and moves them to Staged, and `Part of #N` for `--part` ones |
-| `wait-for-pr-ready.sh` | Poll until CI green + (if a `/gemini review` comment was posted for the current HEAD) Gemini Code Assist has posted its review; fail-loud timeout. Trigger-aware: no trigger comment for HEAD → CI-only ready. `GEMINI_NOT_INSTALLED="true"` short-circuits the Gemini path entirely. Invoked by `/open-pr`, `/triage`, `/merge`. |
-| `merge.sh` | Wait for PR readiness, squash-merge via gh, land this checkout back on `main`, delete the merged local branch, reinstall deps if manifests changed |
+| `catchup.sh` | Fast-forward `main`, or merge `main` (or a stacked branch's parent) into the current branch |
+| `open-pr.sh` | Refuse (exit 12) while a linked issue is neither code complete nor `--part`; run the happy-path check (a warning; exit 16 under `ASSURANCE_LEVEL` `strict`); push branch, create PR via gh or GitHub API; prepends `Closes #N` for the issues it finishes and moves them to Staged, and `Part of #N` for `--part` ones |
+| `wait-for-pr-ready.sh` | Poll until CI green + (if a `/gemini review` comment was posted for the current HEAD) Gemini Code Assist has posted its review; under `TEST_RUNNER` `aws`, also the `full-suite` status; fail-loud timeout. Trigger-aware: no trigger comment for HEAD → CI-only ready. `GEMINI_NOT_INSTALLED="true"` short-circuits the Gemini path entirely. Invoked by `/open-pr`, `/triage`, `/merge`. |
+| `merge.sh` | Refuse uncommitted changes, build locally while waiting for PR readiness, squash-merge via gh, land this checkout back on `main`, delete the merged local branch, reinstall deps if manifests changed |
+| `worktree-remove.sh` | Remove a finished worktree and its local branch, from the primary checkout |
+| `deploy.sh`, `deploy-org.sh` | `/deploy`: release gates, bump, changelog, tag, dispatch; in a repo holding infrastructure, apply and merge a Terraform PR |
+| `gates.sh` | The gates `/commit`, `/ship-main`, `/merge` and `/deploy` run; the typecheck, integration and build gates skip on an unchanged code fingerprint |
+| `rule-review.sh`, `part-review.sh`, `design-review.sh`, `sql-review.sh`, `test-review.sh` | The headless reviews, run side by side by `gates.sh` |
+| `review-cache.sh` | Remembers each review's last pass, so the same review over the same input is not called again |
+| `code-fingerprint.mjs` | One hash of the code, unchanged by comments and whitespace; the name and description of the `full-suite` status |
+| `settings.sh` | Resolves `TEST_RUNNER` and `ASSURANCE_LEVEL` — kit default, then the project's value, then (`TEST_RUNNER` only) `.env` |
+| `codebuild-suite.sh` | The full suite in a CodeBuild test project under `TEST_RUNNER` `aws` |
+| `repo_kind.sh` | What the repository holds — app, org or combo |
+| `file-issue.sh` | File an issue and put it on the project board |
 | `branch_helpers.sh` | Shared helpers sourced by work/commit/checkpoint scripts |
 | `issue_helpers.sh` | Shared issue helpers: parse CSV, validate issues, link to branch and mark code complete (git config), project status transitions (In Progress, Staged, the deploy status), user assignment, issue context dump |
 | `get_timestamp.sh` | Local-timezone timestamp utility |

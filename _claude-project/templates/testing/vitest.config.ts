@@ -11,6 +11,7 @@ import { config as loadDotenv } from "dotenv";
 import { runnerImport } from "vite";
 import { configDefaults, defineConfig, type Plugin } from "vitest/config";
 import type { TestProject } from "./test/define.ts";
+import type * as Settings from "./test/settings.ts";
 
 // This file's folder is the shared module; the repository root is the nearest folder
 // above it holding .claude/sync-substitutions.json, wherever the module sits.
@@ -29,7 +30,7 @@ const inShared = (glob: string) => (shared === "." ? glob : `${shared}/${glob}`)
 // they are read here as well as by the tests. CI puts them in process.env; locally they
 // live in the repository's .env. Only the NEON_* keys are promoted, from a sandbox, and
 // CI's own values win. DATABASE_URL is never promoted: globalSetup.ts sets it per run to
-// the branch it creates.
+// the branch it creates. The layered settings below (test/settings.ts) read the same sandbox.
 const envSandbox: Record<string, string> = {};
 loadDotenv({ path: resolve(repoRoot, ".env"), processEnv: envSandbox, quiet: true });
 for (const key of ["NEON_API_KEY", "NEON_PROJECT_ID", "NEON_DATABASE_NAME", "NEON_ROLE_NAME"]) {
@@ -78,8 +79,37 @@ const appAliases: Plugin = {
 // graph into the bundled config, where Vite 8 flags every extensionless import in it.
 export default defineConfig(async () => {
   const project = (await runnerImport<{ default: TestProject }>(resolve(here, "test/project.ts"))).module.default;
+  // Loaded the same way, not imported: a value import of a .ts path fails the shared
+  // module's typecheck, and an extensionless one is what Vite 8 flags.
+  const { positiveInteger, resolveSetting } = (await runnerImport<typeof Settings>(resolve(here, "test/settings.ts"))).module;
 
+  // Each layered setting is resolved here, once, from the kit's default, test/project.ts and
+  // the developer's .env (test/settings.ts), before any worker spawns; a value that is set
+  // but invalid fails the run here, naming its key.
+  const integrationWorkers = resolveSetting(
+    { kind: positiveInteger, kitDefault: Math.max(8, availableParallelism()), projectKey: "integrationWorkers", envKey: "INTEGRATION_WORKERS" },
+    project,
+    envSandbox,
+  );
+  // SQL Server's lock-wait limit reaches the workers through provide; integration-helpers.ts
+  // reads it with inject() and sets it on each test's transaction.
+  const provide =
+    dbEngine === "SQLServer"
+      ? {
+          lockTimeoutMs: resolveSetting(
+            { kind: positiveInteger, kitDefault: 10_000, projectKey: "lockTimeoutMs", envKey: "INTEGRATION_LOCK_TIMEOUT_MS" },
+            project,
+            envSandbox,
+          ),
+        }
+      : {};
+
+  // The include covers all three kinds of integration test: happy-path tests
+  // (*.happy.integration.test.ts), risk tests (*.integration.test.ts) and development tests
+  // (*.dev.integration.test.ts). The full suite is the first two; a development test runs only
+  // when INTEGRATION_DEV_TESTS=1 is set, as /commit's run of the tests reaching a change sets it.
   const integrationInclude = project.integrationInclude ?? [inShared("test/**/*.integration.test.ts")];
+  const devTests = process.env.INTEGRATION_DEV_TESTS === "1" ? [] : ["**/*.dev.integration.test.ts"];
   const setupFiles = [resolve(here, "test/test-utils.ts")];
 
   // Each inline project extends the root config below, which sets only the reporters, and
@@ -100,6 +130,8 @@ export default defineConfig(async () => {
 
   // Every test runs in a rolled-back transaction on the run's one database, so the tests
   // run in parallel; the work is I/O-bound, so the worker count does not stop at the CPUs.
+  // How many the database can serve is the project's to set, and a developer's to override
+  // (integrationWorkers, INTEGRATION_WORKERS).
   // The group order runs integration after unit, so a unit failure is reported first.
   const integrationProject = {
     plugins: [appAliases],
@@ -109,9 +141,11 @@ export default defineConfig(async () => {
       environment: "node" as const,
       globals: false,
       include: integrationInclude,
+      exclude: [...configDefaults.exclude, ...devTests],
       globalSetup: [resolve(here, "test/globalSetup.ts")],
       setupFiles,
-      maxWorkers: Math.max(8, availableParallelism()),
+      maxWorkers: integrationWorkers,
+      provide,
       sequence: { groupOrder: 1 },
     },
   };

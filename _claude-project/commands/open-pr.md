@@ -90,7 +90,7 @@ Callers scanned: <symbol> → apps/x/foo.ts:42, apps/y/bar.ts:88 (compiler-blind
 Callers scanned: <symbol> → 0 callers (compiler-blind; private to apps/x/foo.ts).
 ```
 
-Rules: `<symbol>` bare (no backticks); every listed `file:line` MUST be a site you actually opened and reconciled — the list is auditable against the diff, so do not pad it; `<reason>` names the seam (e.g. "raw-SQL column rename", "serverFn payload field"). Do **NOT** write `N references across M files` counts — that unfalsifiable count is exactly what the old format rotted into.
+Rules: `<symbol>` bare (no backticks); every listed `file:line` MUST be a site you actually opened and reconciled — the list is auditable against the diff, so do not pad it; `<reason>` names the seam (e.g. "raw-SQL column rename", "serverFn payload field"). Do **NOT** write `N references across M files` counts.
 
 **Before composing the section**, grep the diff for the compiler-blind seams only (type-visible changes need no grep — the type-check covers them):
 
@@ -154,7 +154,7 @@ The author keeps it unless a taker is named:
 
 ### Step 7: Invoke the script
 
-`/open-pr` does NOT touch `changelog.md`. The changelog is owned exclusively by `/deploy`, which composes the consolidated release entry from commit subjects since the last tag at version-bump time. Earlier versions of this command wrote a per-PR entry here too, which produced duplicate bullets in main's changelog after `/deploy` ran (one from the feature-branch insertion, one from the release-branch insertion). Single-writer fixes the duplication structurally — there is no flag to opt back into per-PR changelog inserts.
+`/open-pr` does NOT touch `changelog.md`. The changelog is owned exclusively by `/deploy`, which composes the consolidated release entry from commit subjects since the last tag at version-bump time. There is no flag for a per-PR entry.
 
 ```bash
 .claude/skills/gitflow/scripts/open-pr.sh \
@@ -164,6 +164,13 @@ The author keeps it unless a taker is named:
 ```
 
 Optional: `--draft` to open as draft PR, `--base <branch>` if targeting something other than main.
+
+If the script warns about an app's happy path — none, no snapshot, or moved past the kit's
+drift threshold — relay each warning as it printed it and offer `/happy-path <app>`; under
+the default assurance level (`ASSURANCE_LEVEL` `assist`) the PR opens regardless. Under
+`strict` the same warnings — or a check that could not run — refuse the PR (exit 16)
+before anything is pushed: run `/happy-path <app>` for each app named, then `/open-pr`
+again.
 
 If the script reports `main has moved`, relay the commits behind and the files changed on
 both sides. Where files overlap, recommend `/catchup` before triaging: the review ran on code
@@ -177,7 +184,7 @@ on this branch — their next `/commit` stacks a new branch on it.
 
 `open-pr.sh` has already posted an explicit `/gemini review` comment on the PR (Gemini's auto-review on PR open is disabled in `.gemini/config.yaml: pull_request_opened.code_review: false`; reviews are comment-driven). If the post failed, the script exited 9 — surface the failure; do not proceed to wait.
 
-Invoke the readiness wait — blocks until CI required checks pass AND (unless `GEMINI_NOT_INSTALLED="true"` in `.claude/sync-substitutions.json`) Gemini has posted a review against the current HEAD. The wait reads the trigger-comment history to decide whether a Gemini review is expected; for `/open-pr` it always is, because the script just posted the trigger.
+Invoke the readiness wait — blocks until CI required checks pass AND (unless `GEMINI_NOT_INSTALLED="true"` in `.claude/sync-substitutions.json`) Gemini has posted a review against the current HEAD — and, when the project's `TEST_RUNNER` is `aws`, the `full-suite` status from the CodeBuild test project has reported. The wait reads the trigger-comment history to decide whether a Gemini review is expected; for `/open-pr` it always is, because the script just posted the trigger.
 
 ```bash
 .claude/skills/gitflow/scripts/wait-for-pr-ready.sh
@@ -218,7 +225,7 @@ If the user runs `/triage` and lands a fix commit via `/commit --review`, that p
 ## What happens after
 
 On PR open:
-- `ci.yml` runs typecheck + Biome + Semgrep + tests (if installed)
+- `ci.yml` runs typecheck + Biome + Semgrep + tests (if installed). Its vitest job runs the full suite and posts the `full-suite` commit status `/deploy` trusts; under `TEST_RUNNER` `aws` it runs the unit tests only and the CodeBuild test project runs the full suite and posts that status
 - `pr-title.yml` validates the PR title format (if installed)
 
 `changelog.md` is **not** modified on the feature branch. It receives one consolidated release entry at `/deploy` time, covering every commit since the last `v*.*.*` tag — see pipeline.md §2.1.
@@ -232,6 +239,7 @@ Post-merge, **nothing fires automatically**. To ship to production, run `/deploy
 - No remote configured: add `origin` remote
 - Neither `gh` nor `$GITHUB_TOKEN` available: auth setup needed
 - A linked issue is not code complete and was not confirmed: exit 12, nothing pushed
+- `ASSURANCE_LEVEL` is `strict` and an app the branch touches has no current happy path: exit 16, nothing pushed
 - The PR opened but the board update failed: exit 11 — set the status on the board once the cause is fixed
 - A linked issue has no Staged comment in `--notes`: exit 2, nothing pushed
 - The PR opened and the board updated but a Staged comment did not post: exit 13 — the script prints the exact `gh issue comment` to run

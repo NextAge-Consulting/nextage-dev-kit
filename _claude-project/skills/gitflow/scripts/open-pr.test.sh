@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Regression suite for open-pr.sh's PR ownership: who it is assigned to, handing it
 # over (--to, GITFLOW_PR_TO), re-assigning an open PR, and a stacked branch opening
-# against its parent. Runs against a real origin; gh is a fake that answers from
+# against its parent, and the happy-path check — a warning under the assist assurance
+# level, a refusal (exit 16) under strict. Runs against a real origin; gh is a fake that answers from
 # FAKE_* and records every call.
 set -uo pipefail
 # changed-roots.sh sits in the terraform skill beside this one; in the kit's own
@@ -9,6 +10,10 @@ set -uo pipefail
 CHANGED_ROOTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../terraform/scripts/changed-roots.sh"
 [ -f "$CHANGED_ROOTS" ] || CHANGED_ROOTS="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev/null)/_claude-project/skills/terraform/scripts/changed-roots.sh"
 [ -f "$CHANGED_ROOTS" ] || { echo "FAIL changed-roots.sh not found"; exit 1; }
+# drift.mjs sits in the happy-path skill, which the kit's own .claude/ does not carry either.
+DRIFT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../happy-path/scripts/drift.mjs"
+[ -f "$DRIFT" ] || DRIFT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev/null)/_claude-project/skills/happy-path/scripts/drift.mjs"
+[ -f "$DRIFT" ] || { echo "FAIL drift.mjs not found"; exit 1; }
 O="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/open-pr.sh"
 fail=0
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
@@ -141,5 +146,62 @@ printf 'resource "x" "c" {}\n' >> infra/terraform/shared/main.tf; git add -A; gi
 open; rc=$?
 { [ "$rc" -eq 14 ] && grep -q "no plan for: shared" "$tmp/out"; } \
     && ok "combo: a changed root with no plan in the body is refused" || bad "combo no plan (rc=$rc): $(cat "$tmp/out")"
+
+# ─── Happy path: each app the PR touches has one, and it is current ──────
+branch feat/no-skill
+open; rc=$?
+{ [ "$rc" -eq 0 ] && grep -q "happy-path check does not apply: .*drift.mjs is not installed here" "$tmp/out"; } \
+    && ok "happy path: without the skill installed, it says the check does not apply" || bad "no skill (rc=$rc): $(cat "$tmp/out")"
+git checkout -q main
+mkdir -p .claude/skills/happy-path/scripts apps/shop/src/routes apps/shop/test/happy-path
+cp "$DRIFT" .claude/skills/happy-path/scripts/
+printf '{"GEMINI_NOT_INSTALLED":"true","DB_ENGINE":"PostgreSQL"}\n' > .claude/sync-substitutions.json
+printf '{"workspaces":["apps/*"]}\n' > package.json
+printf '{"name":"shop"}\n' > apps/shop/package.json
+printf "createFileRoute('/')\n" > apps/shop/src/routes/index.tsx
+git add -A; git commit -qm "chore: an app"; git push -q origin main 2>/dev/null
+branch feat/shop-nohappy
+printf "createFileRoute('/cart')\n" > apps/shop/src/routes/cart.tsx; git add -A; git commit -qm "feat: cart"
+open; rc=$?
+{ [ "$rc" -eq 0 ] && grep -q "WARNING — apps/shop has no happy-path tests — run /happy-path apps/shop" "$tmp/out" && grep -q "pr create" "$FAKE_LOG"; } \
+    && ok "happy path: an app with none is warned about, naming /happy-path, and the PR opens" || bad "no happy path (rc=$rc): $(cat "$tmp/out")"
+branch feat/shop-strict
+printf "createFileRoute('/cart')\n" > apps/shop/src/routes/cart.tsx
+printf '{"GEMINI_NOT_INSTALLED":"true","DB_ENGINE":"PostgreSQL","ASSURANCE_LEVEL":"strict"}\n' > .claude/sync-substitutions.json
+git add -A; git commit -qm "feat: cart, strict"
+open; rc=$?
+{ [ "$rc" -eq 16 ] && grep -q "WARNING — apps/shop has no happy-path tests" "$tmp/out" && grep -q "refused (ASSURANCE_LEVEL=strict)" "$tmp/out" \
+  && ! grep -q "pr create" "$FAKE_LOG" && [ -z "$(git ls-remote origin feat/shop-strict)" ]; } \
+    && ok "happy path, strict: an app with none refuses the PR (16) before anything is pushed" || bad "strict no happy path (rc=$rc): $(cat "$tmp/out")"
+printf '{"GEMINI_NOT_INSTALLED":"true","DB_ENGINE":"PostgreSQL","ASSURANCE_LEVEL":"strictest"}\n' > .claude/sync-substitutions.json
+git add -A; git commit -qm "chore: a typo"
+open; rc=$?
+{ [ "$rc" -eq 16 ] && grep -q "ASSURANCE_LEVEL is 'strictest' in .claude/sync-substitutions.json" "$tmp/out" && ! grep -q "pr create" "$FAKE_LOG"; } \
+    && ok "happy path: an invalid ASSURANCE_LEVEL fails loud, naming the key and the file, and refuses" || bad "invalid level (rc=$rc): $(cat "$tmp/out")"
+git checkout -q main
+printf '' > apps/shop/test/happy-path/home.happy.integration.test.ts
+node .claude/skills/happy-path/scripts/drift.mjs snapshot apps/shop >/dev/null
+git add -A; git commit -qm "test: happy path"; git push -q origin main 2>/dev/null
+branch feat/shop-small
+printf "createFileRoute('/')\n// changed\n" > apps/shop/src/routes/index.tsx; git add -A; git commit -qm "feat: tweak"
+open; rc=$?
+{ [ "$rc" -eq 0 ] && grep -q "happy-path check: 1 app(s) touched, each with a current happy path" "$tmp/out" && ! grep -q WARNING "$tmp/out"; } \
+    && ok "happy path: a touched app with a current snapshot passes quietly" || bad "current (rc=$rc): $(cat "$tmp/out")"
+branch feat/shop-drift
+printf "createFileRoute('/cart')\n" > apps/shop/src/routes/cart.tsx; git add -A; git commit -qm "feat: cart again"
+open; rc=$?
+{ [ "$rc" -eq 0 ] && grep -q "WARNING — apps/shop has moved 100% since its happy path was decided" "$tmp/out"; } \
+    && ok "happy path: an app past the drift threshold is warned about" || bad "drift (rc=$rc): $(cat "$tmp/out")"
+branch feat/docs-only
+printf 'notes\n' > NOTES.md; git add -A; git commit -qm "docs: notes"
+open; rc=$?
+{ [ "$rc" -eq 0 ] && grep -q "this branch changes no app's source" "$tmp/out"; } \
+    && ok "happy path: a branch changing no app's source says so" || bad "no app (rc=$rc): $(cat "$tmp/out")"
+git checkout -q main; git checkout -q -b feat/no-db
+printf '{"GEMINI_NOT_INSTALLED":"true","DB_ENGINE":"None"}\n' > .claude/sync-substitutions.json
+printf "createFileRoute('/x')\n" > apps/shop/src/routes/x.tsx; git add -A; git commit -qm "feat: x"
+open; rc=$?
+{ [ "$rc" -eq 0 ] && grep -q "does not apply: DB_ENGINE is None" "$tmp/out"; } \
+    && ok "happy path: DB_ENGINE None stands the check down, saying why" || bad "no db (rc=$rc): $(cat "$tmp/out")"
 
 exit "$fail"

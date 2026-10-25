@@ -132,6 +132,12 @@ Collisions on the target name are resolved by appending `-2`, `-3`, etc.
 
 Unpushed `/checkpoint` commits are folded into this one: once every gate has passed, the script soft-resets to the commit they sit on and commits once. The gates scan everything the checkpoints saved, since checkpoints skip them.
 
+The headless reviews — rule, part, design, SQL and the test judge — run side by side, so they take as long as the slowest, and each one's output prints whole once all have finished. Each runs only when its kind of file changed, and a review that passed is reused: the same review over the same input says so and makes no call, so re-running `/commit` after fixing one finding does not pay for the others again. A finding, or a review that could not run, is asked again every time.
+
+The integration gate runs the integration tests that reach a change — the development tests (`*.dev.integration.test.ts`) included, which the full suite leaves out. The separate integration preflight (`test:preflight`) is not run here; the gate's own run reports a database the tests cannot use, and `/deploy` runs the preflight.
+
+The typecheck and the integration gate each record the code fingerprint they passed on (`code-fingerprint.mjs`: the tree with comments and whitespace left out of TypeScript and JavaScript). On the same fingerprint they skip, printing "code unchanged since the last pass (comments and whitespace only)" — so a commit that only rewords comments, or a re-run after fixing a review finding in prose, does not type-check or test again. The integration gate's record also names the commit it measured from. A failure is never recorded.
+
 ## What this command does NOT do
 
 - Does not update `changelog.md` — `/deploy` is its only writer
@@ -143,16 +149,16 @@ Unpushed `/checkpoint` commits are folded into this one: once every gate has pas
 
 The script will exit non-zero if:
 
-- The integration preflight fails: the project's `test:preflight` found the integration tests' database not ready — not set up for tests, unreachable, or missing a migration this branch adds. It runs before every other gate so this is asked while the developer is there. Put its message to them as it reads; a missing migration is an apply for them to approve (`drizzle.md` §II), after which run the command again
 - TypeScript or Python typecheck fails, a root `package.json` has no `check-types` script while the repository has TypeScript sources, or a root `pyproject.toml` is present with neither pyright nor mypy installed
 - Biome lint reports an error, or `biome.json` is present and `@biomejs/biome` is not installed
 - knip reports unused code or cannot run, when `KNIP_GATE` is `"true"` in `.claude/sync-substitutions.json`
 - Semgrep reports a finding in a file this commit touches (`.semgrepignore` applies, as in CI), CI declares a `semgrep` job and semgrep is not installed locally, or the changed files cannot be listed
-- The integration gate fails: the coverage check finds a changed exported function that queries the database with no integration test calling it, or a changed `.execute()` with no `raw-sql:` reason; an integration test reaching a changed file fails; or the repository has integration tests and no integration project runs here. Write the test, or mark the function `// integration-exempt: <reason>` (`testing-verification.md`)
+- The integration gate fails: the coverage check finds a changed exported function of a risky database shape that no happy-path or risk test calls, a changed integration test file that imports nothing from the app's source, or a changed `.execute()` with no `raw-sql:` reason; an integration test reaching a changed file fails; the integration tests' database is not ready — the harness refuses before any test connects when it is not set up for tests, cannot be reached, or lacks a migration this branch adds; or the repository has integration tests and no integration project runs here. Write the test, or make the test import and call the app's function (`testing-verification.md`). Put a refusal to the developer as it reads: it names the fix, and a missing migration is an apply for them to approve (`drizzle.md` §II), after which run the command again
 - The SQL review finds a table or column typed as text inside a changed `sql` template, or cannot run. Put each finding to the developer with the fix, and ask: fix it, or skip it. Skip: commit again with `SKIP_SQL_REVIEW=1`
+- The test judge judges the tests of the changed TypeScript and finds one to fix, or cannot run. Act on each finding by its kind: `missing` — write the test for the case it names; `reimplements` — rewrite the test to call the application's function instead of its own copy of the logic, or delete it when there is no application code for it to call; `superfluous` — delete the test, never rename it a development test; `misnamed` — rename or move it as the fix says. Then commit again. A finding the human judges wrong: they may commit with `SKIP_TEST_REVIEW=1`
 - The rule review finds history, justification or a counted list in a changed rule, skill, command or pattern reference, or cannot run. Fix the text; the human may override a wrong finding with `SKIP_RULE_REVIEW=1`
 - A pending component has no fit check on its inventory line, or its file changed after the check approved it (`check-ui-status.mjs --fit-only`). Run the fit check (`.claude/skills/design-system/references/fit-check.md`) and commit again
-- The part review suspects a new part duplicates one the UI inventory already lists, or cannot run. The human decides: the same thing folds into the existing part; different gets their reason on the new part's inventory line
+- The part review suspects a new part duplicates a part that already exists in the source, or cannot run. The human decides: the same thing folds into the existing part; different gets their reason on the new part's inventory line
 - The design review finds a change that breaks one of the design checks (`.claude/skills/design-system/references/design-checks.md`) — a screen using a role against its purpose or departing from its pattern, a pattern asking for what a part does not have, a call site repainting a part — or cannot run. Put each finding to the developer with its why and fix, and ask: fix it, or skip it. Fix: make the change and commit again. Skip: commit again with `SKIP_DESIGN_REVIEW=1`
 - Nothing is staged (empty diff)
 - `git commit` itself fails for any reason
@@ -163,7 +169,7 @@ The script will exit non-zero if:
 - An issue reaching Staged has no comment in `--notes` (exit 2, before anything is committed)
 - The commit, push and board update landed but a Staged comment did not post (exit 13 — the script prints the exact `gh issue comment` to run)
 
-When the script blocks, surface the reason to the user. Fix underlying issues per constitution section XVI (own all errors). Do not bypass.
+When the script blocks, surface the reason to the user. Fix underlying issues per constitution §XII (own all errors). Do not bypass.
 
 ## Recovery: `--push-only` mode
 

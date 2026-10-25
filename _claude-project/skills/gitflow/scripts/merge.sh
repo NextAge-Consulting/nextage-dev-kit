@@ -11,7 +11,10 @@
 # for emergency hotfixes with explicit user authorization.
 #
 # Production build gate (exit 15): every workspace's `build` script runs LOCALLY
-# before the squash. CI does not build — it type-checks, lints and tests — so a build-only
+# before the squash, in the background while the readiness wait (exit 11) polls CI and
+# Gemini, so its minutes are spent inside time the merge waits anyway. Its output is
+# printed whole when it finishes. Whichever of the two fails first stops the other and
+# decides the exit code; the squash needs both. CI does not build — it type-checks, lints and tests — so a build-only
 # break (bundler, Tailwind, a package import its `exports` map does not resolve) is
 # invisible to every earlier gate. This is the last moment the PR is still OPEN, which is
 # the whole point: a failure here is fixed on the branch that caused it, in the PR that is
@@ -241,16 +244,28 @@ if [ "$FORCE_UNCHECKED" -eq 0 ] && ! main_drift_report "$BASE" merge.sh; then
     esac
 fi
 
-# ─── Production build gate ─────────────────────────────────────────────────
-# Runs BEFORE the readiness wait: a build break should fail in seconds, not after
-# several minutes of polling CI and Gemini for a merge that is not going to happen.
-# Non-Node repos have no package.json and skip the block entirely. gates.sh holds
-# the gate; it says how many packages it built, or that none declares a build.
-if [ "$FORCE_UNCHECKED" -eq 0 ] && [ -f "$REPO_ROOT/package.json" ]; then
-    run_build_gate "$REPO_ROOT" || exit $?
-fi
+# ─── Production build gate (exit 15) and readiness wait (exit 11) ──────────
+# The build runs in the background while the readiness wait polls CI and Gemini in the
+# foreground, so its minutes are spent inside time the merge waits anyway. The build's
+# output is captured and printed whole once it finishes; the wait's polling prints live.
+# Whichever fails first decides: a failed build stops the wait and exits 15 with the
+# build's output; a failed wait stops the build (or, where its processes cannot be found,
+# lets it finish), reports where the build stood, and exits 11. Both passing is what
+# lets the squash go ahead. Non-Node repos have no package.json and run the wait alone.
+# gates.sh holds the build gate; it says how many packages it built, or that none
+# declares a build.
 
-# Verify CI passed AND Gemini Code Assist has reviewed current HEAD (unless bypass).
+# kill_tree <pid> — stop a process and every process under it. Prints nothing; succeeds
+# only when pgrep can see the children, so the caller knows whether they were stopped.
+kill_tree() {
+    local child children
+    command -v pgrep >/dev/null 2>&1 || return 1
+    children=$(pgrep -P "$1" 2>/dev/null) || children=""
+    for child in $children; do kill_tree "$child" || true; done
+    kill "$1" 2>/dev/null || true
+    return 0
+}
+
 if [ "$FORCE_UNCHECKED" -eq 0 ]; then
     WAIT_SCRIPT="$SCRIPT_DIR/wait-for-pr-ready.sh"
     if [ ! -x "$WAIT_SCRIPT" ]; then
@@ -258,11 +273,87 @@ if [ "$FORCE_UNCHECKED" -eq 0 ]; then
         exit 12
     fi
 
+    BUILD_PID=""
+    BUILD_DIR=""
+    if [ -f "$REPO_ROOT/package.json" ]; then
+        BUILD_DIR=$(mktemp -d)
+        (
+            if run_build_gate "$REPO_ROOT"; then rc=0; else rc=$?; fi
+            echo "$rc" >"$BUILD_DIR/rc.tmp" && mv "$BUILD_DIR/rc.tmp" "$BUILD_DIR/rc"
+        ) >"$BUILD_DIR/out" 2>&1 &
+        BUILD_PID=$!
+        echo "gitflow: production build started in the background; its output follows when it finishes." >&2
+    fi
+
+    # build_result — once the build has ended: print its output whole, return its exit.
+    build_result() {
+        local rc=15
+        wait "$BUILD_PID" 2>/dev/null || true
+        cat "$BUILD_DIR/out" >&2
+        if [ -f "$BUILD_DIR/rc" ]; then
+            rc=$(cat "$BUILD_DIR/rc")
+        else
+            echo "merge.sh: the production build ended without a result — nothing merged." >&2
+        fi
+        rm -rf "$BUILD_DIR"
+        BUILD_PID=""
+        return "$rc"
+    }
+
+    # stop_job <pid> — stop a background job and everything under it, then reap it.
+    stop_job() {
+        kill_tree "$1" || kill "$1" 2>/dev/null || true
+        wait "$1" 2>/dev/null || true
+    }
+
+    # A background job ignores Ctrl-C, so the interrupt stops both jobs here.
+    WAIT_PID=""
+    trap '[ -n "$WAIT_PID" ] && stop_job "$WAIT_PID"; [ -n "$BUILD_PID" ] && stop_job "$BUILD_PID"; rm -rf "$BUILD_DIR"
+          echo "merge.sh: interrupted — the readiness wait and the build were stopped. Nothing merged." >&2; exit 11' INT TERM
+
     echo "gitflow: verifying PR is ready (CI green + Gemini reviewed HEAD if enabled)..." >&2
-    set +e
-    "$WAIT_SCRIPT" --pr "$PR_NUMBER"
-    WAIT_EXIT=$?
-    set -e
+    "$WAIT_SCRIPT" --pr "$PR_NUMBER" &
+    WAIT_PID=$!
+    WAIT_EXIT=""
+    while [ -z "$WAIT_EXIT" ]; do
+        if [ -n "$BUILD_PID" ] && [ -f "$BUILD_DIR/rc" ]; then
+            if build_result; then
+                :
+            else
+                BUILD_EXIT=$?
+                stop_job "$WAIT_PID"
+                echo "merge.sh: readiness wait stopped — the build failed, so PR #$PR_NUMBER will not merge." >&2
+                exit "$BUILD_EXIT"
+            fi
+        fi
+        if ! kill -0 "$WAIT_PID" 2>/dev/null; then
+            if wait "$WAIT_PID"; then WAIT_EXIT=0; else WAIT_EXIT=$?; fi
+            WAIT_PID=""
+            break
+        fi
+        sleep 1
+    done
+
+    if [ "$WAIT_EXIT" -ne 0 ] && [ -n "$BUILD_PID" ]; then
+        if [ -f "$BUILD_DIR/rc" ]; then
+            if build_result; then
+                echo "gitflow: the production build passed (above), but the readiness wait did not." >&2
+            else
+                echo "merge.sh: the production build failed as well (above)." >&2
+            fi
+        elif kill_tree "$BUILD_PID"; then
+            wait "$BUILD_PID" 2>/dev/null || true
+            rm -rf "$BUILD_DIR"
+            BUILD_PID=""
+            echo "gitflow: production build stopped — it was still running when the readiness wait failed." >&2
+        else
+            echo "gitflow: the readiness wait failed; letting the production build finish to report it..." >&2
+            build_result || true
+        fi
+    fi
+
+    trap - INT TERM
+
     case $WAIT_EXIT in
         0) ;;
         2)
@@ -283,6 +374,14 @@ if [ "$FORCE_UNCHECKED" -eq 0 ]; then
             exit 11
             ;;
     esac
+
+    # The wait passed; the build may still be running.
+    if [ -n "$BUILD_PID" ]; then
+        [ -f "$BUILD_DIR/rc" ] || echo "gitflow: PR is ready; waiting for the production build to finish..." >&2
+        if ! build_result; then
+            exit 15
+        fi
+    fi
 fi
 
 # ─── Squash-merge, then delete the remote branch (two separate steps) ───────

@@ -27,7 +27,7 @@ The single walkthrough for taking a brand-new project from nothing to "kit insta
 - [ ] **0b** — The organization's org repo exists, and this project knows its name (only if this project uses AWS) `[claude+you]`
 - [ ] **1** — Project exists as a local git repo `[claude+you]`
 - [ ] **2** — GitHub repo created and `main` pushed `[claude+you]`
-- [ ] **3** — Confirm `main` requires no PR `[claude]`
+- [ ] **3** — Confirm `main` requires no PR; at `ASSURANCE_LEVEL` `strict`, add the `full-suite` ruleset `[claude]` then `[you]`
 - [ ] **4** — Kit sync set up in the project and `/sync-dev-kit` run; settings walkthrough completed `[claude+you]`
 - [ ] **5** — Gemini Code Review installed + repo linked — or explicitly marked not-installed `[you]` then `[claude]`
 - [ ] **6** — Secrets & env: `.env`, GitHub Actions secrets, MCP API keys `[claude+you]`
@@ -246,6 +246,37 @@ The one hard requirement: **`main` must not require a PR.** A fresh repo has req
 
 **Verify:** `main` does not require a PR (the default on a new repo). If a protection rule was ever added, confirm require-PR is off.
 
+#### 3a — At `ASSURANCE_LEVEL` `strict`: GitHub requires the `full-suite` check `[claude]` then `[you]`
+
+A project that must evidence its controls sets `ASSURANCE_LEVEL` to `strict` (`pipeline.md` §1.6), and adds one GitHub-side control: a ruleset on `main` requiring the `full-suite` check — and, if the project wants it, an approving review. It is a setup step, not automated; the kit never changes a repository's rules.
+
+GitHub applies a required check to every update of `main`, a direct push included, and `/deploy`'s release commit and `/ship-main`'s docs commits reach `main` by direct push. So the ruleset's **bypass list** holds the role of whoever runs those — repository admins below. Everyone else lands code only through a PR whose `full-suite` passed.
+
+`[claude]` prepares the call; `[you]` run it, since it changes the repository's rules:
+
+```bash
+gh api -X POST "repos/{owner}/{repo}/rulesets" --input - <<'JSON'
+{
+  "name": "main: full suite",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": { "ref_name": { "include": ["refs/heads/main"], "exclude": [] } },
+  "bypass_actors": [ { "actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always" } ],
+  "rules": [
+    { "type": "required_status_checks",
+      "parameters": { "strict_required_status_checks_policy": false,
+                      "required_status_checks": [ { "context": "full-suite" } ] } }
+  ]
+}
+JSON
+```
+
+`actor_id` 5 is GitHub's built-in admin role. For a required review, add
+`{ "type": "pull_request", "parameters": { "required_approving_review_count": 1, "dismiss_stale_reviews_on_push": true, "require_code_owner_review": false, "require_last_push_approval": false, "required_review_thread_resolution": false } }`
+to `rules`.
+
+**Verify:** `gh api "repos/{owner}/{repo}/rulesets"` lists it, and the next PR shows `full-suite` as required.
+
 ### 4 — Set up kit sync, then run `/sync-dev-kit` `[claude+you]`
 
 From the **project root** (not inside the kit), paste the "Set up" prompt from `kit-sync-cheatsheet.md` into Claude Code. It finds or clones the kit, writes `~/.claude/dev-kit-config.json`, and copies `/sync-dev-kit` and its launcher into the project. Then run `/sync-dev-kit`. First-run flow:
@@ -317,11 +348,12 @@ Either way, finish with `/design-audit system`: it lists where the kit's design 
 
 ### 7 — Deploy pipeline (if this project deploys) `[claude+you]`
 
-**Deploys run on AWS CodeBuild.** Everything that touches AWS runs in AWS; only PR CI and
-commit linting stay on GitHub Actions (`infrastructure.md`). **Start a new project here** —
+**Deploys run on AWS CodeBuild.** Everything that touches AWS runs in AWS; PR CI and commit
+linting run on GitHub Actions by default, and a project may move its full test suite into
+CodeBuild with `TEST_RUNNER` `aws` (`infrastructure.md`, "The full suite in CodeBuild"). **Start a new project here** —
 standing the deploy up on Actions intending to move it later is the expensive path.
 
-The pipeline is **project-specific** — the kit ships no buildspec (different targets,
+The pipeline is **project-specific** — the kit ships no deploy buildspec (different targets,
 registries, hosts). Author ONE deploy buildspec in the repo (`infra/codebuild/buildspec.yml`)
 and provision a CodeBuild project per deployable service, named
 `<CODEBUILD_PROJECT_PREFIX><service>`, each pointing at that buildspec and setting its own
@@ -346,6 +378,7 @@ Set in `.claude/sync-substitutions.json`:
 - `CODEBUILD_MIGRATE_PROJECT` — only when the migration project does not follow the prefix pattern.
 - `MIGRATE_WORKFLOW` — if this project migrates a database. `/deploy` runs it first and gates on it.
 - `AWS_ACCOUNT_ID`, `AWS_REGION`, `AWS_PROFILE`.
+- `TEST_RUNNER` — `aws` to run the full test suite in the CodeBuild project `<CODEBUILD_PROJECT_PREFIX>test` rather than on GitHub Actions; then provision that project, its role and webhook (`infrastructure.md`, "The full suite in CodeBuild"), and give it the suite's database credentials in place of the GitHub Actions secrets. Leave it empty for the default, `github`.
 
 Empty `DEPLOY_WORKFLOWS` means this repo doesn't deploy — record that in
 `_intentionally_empty` so the sync walkthrough stops asking. Empty with `MIGRATE_WORKFLOW`
@@ -645,6 +678,18 @@ DEPLOY_PROMOTE_AWS_SECRET_ACCESS_KEY=<promote secret>
 
 Holding the deploy key never means being able to change Prod; whoever holds this one is
 who may promote.
+
+**Under `TEST_RUNNER` `aws` the deploy key also reaches the test project.** `/deploy` reads
+its builds for a pass on `main`'s exact code, and starts one when there is none. Add a
+second statement to the deploy-trigger policy:
+
+```hcl
+{
+  Effect   = "Allow"
+  Action   = ["codebuild:StartBuild", "codebuild:BatchGetBuilds", "codebuild:ListBuildsForProject"]
+  Resource = [aws_codebuild_project.test.arn]
+}
+```
 
 ### 8 — Full verification `[claude]`
 

@@ -10,6 +10,7 @@ tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 cat > "$tmp/claude" <<'EOF'
 #!/bin/bash
 cat > "$STUB_LOG"
+echo call >> "$STUB_LOG.calls"
 case "$STUB_MODE" in
   clean)    echo '{"is_error":false,"structured_output":{"findings":[]}}' ;;
   findings) echo '{"is_error":false,"structured_output":{"findings":[{"file":".claude/rules/a.md","quote":"written after the \"incident\"","category":"HISTORY","fix":"delete"}]}}' ;;
@@ -29,6 +30,7 @@ new_repo(){
 gate(){ # $1=mode, rest=env; runs in $repo, base HEAD unless BASE set
   (cd "$repo" && STUB_MODE="$1" STUB_LOG="$tmp/log" RULE_REVIEW_CLAUDE="$tmp/claude" "$S" "${BASE:-HEAD}" 2>"$tmp/err"); echo $?
 }
+calls(){ if [ -f "$tmp/log.calls" ]; then wc -l <"$tmp/log.calls" | tr -d ' '; else echo 0; fi; }
 t(){ if [ "$2" = "$1" ]; then echo "  ✓ $3"; else echo "  ✗ FAIL (got $2, want $1) — $3"; fail=1; fi; }
 
 echo "PASSES:"
@@ -97,6 +99,36 @@ new_repo; base=$(git -C "$repo" rev-parse HEAD); printf 'cp\n' >> "$repo/.claude
 git -C "$repo" commit -qam checkpoint
 BASE="$base" gate clean >/dev/null
 grep -q '+cp' "$tmp/log" && echo "  ✓ content already in a checkpoint since the base" || { echo "  ✗ FAIL — checkpointed change missing"; fail=1; }
+
+echo "A PASS IS REUSED:"
+new_repo; printf 'more\n' >> "$repo/.claude/rules/a.md"; rm -f "$tmp/log.calls"
+gate clean >/dev/null; gate clean >/dev/null
+[ "$(calls)" = 1 ] && grep -q 'reusing the earlier pass' "$tmp/err" && echo "  ✓ the same input again: no call, and it says it reused the pass" || { echo "  ✗ FAIL — calls=$(calls): $(cat "$tmp/err")"; fail=1; }
+[ -d "$(git -C "$repo" rev-parse --path-format=absolute --git-path gitflow-review-cache)" ] && ! git -C "$repo" status --porcelain --ignored | grep -q gitflow-review-cache && echo "  ✓ …recorded under the git dir, never in the tree" || { echo "  ✗ FAIL — the record is not under the git dir"; fail=1; }
+printf 'again\n' >> "$repo/.claude/rules/a.md"; gate clean >/dev/null
+[ "$(calls)" = 2 ] && echo "  ✓ changed content: reviewed again" || { echo "  ✗ FAIL — changed content reused (calls=$(calls))"; fail=1; }
+printf 'n\n' > "$repo/.claude/rules/b.md"; gate clean >/dev/null
+[ "$(calls)" = 3 ] && echo "  ✓ another rule file: reviewed again" || { echo "  ✗ FAIL — changed reference reused (calls=$(calls))"; fail=1; }
+new_repo; printf 'more\n' >> "$repo/.claude/rules/a.md"; rm -f "$tmp/log.calls"
+t 1 "$(gate findings)" 'a finding fails'
+t 1 "$(gate findings)" '…and is not remembered: the same input fails again'
+[ "$(calls)" = 2 ] && echo "  ✓ …asking the reviewer both times" || { echo "  ✗ FAIL — a finding was reused (calls=$(calls))"; fail=1; }
+t 1 "$(gate error)" 'a review that could not run fails'
+t 0 "$(gate clean)" '…and is not remembered: the next run reviews'
+[ "$(calls)" = 4 ] && echo "  ✓ …asking the reviewer again" || { echo "  ✗ FAIL — a failed run was reused (calls=$(calls))"; fail=1; }
+
+# The rule-authoring standard the reviewer applies is the script's own prompt: a changed
+# script is a changed standard.
+kit="$tmp/kit/.claude"; mkdir -p "$kit/skills/gitflow/scripts" "$kit/hooks"
+cp "$S" "$(dirname "$S")/review-cache.sh" "$kit/skills/gitflow/scripts/"; cp "$LIB" "$kit/hooks/"
+new_repo; printf 'more\n' >> "$repo/.claude/rules/a.md"; rm -f "$tmp/log.calls"
+kgate(){ (cd "$repo" && STUB_MODE=clean STUB_LOG="$tmp/log" RULE_REVIEW_CLAUDE="$tmp/claude" "$kit/skills/gitflow/scripts/rule-review.sh" HEAD 2>"$tmp/err"); echo $?; }
+kgate >/dev/null; kgate >/dev/null
+printf '# a changed standard\n' >> "$kit/skills/gitflow/scripts/rule-review.sh"; kgate >/dev/null
+[ "$(calls)" = 2 ] && echo "  ✓ a changed review script: reviewed again" || { echo "  ✗ FAIL — changed script reused (calls=$(calls))"; fail=1; }
+rm "$kit/skills/gitflow/scripts/review-cache.sh"
+t 1 "$(kgate)" 'review-cache.sh missing beside the script: exit 1'
+grep -q 'review-cache.sh is missing' "$tmp/err" && echo "  ✓ …naming it" || { echo "  ✗ FAIL — not named: $(cat "$tmp/err")"; fail=1; }
 
 [ "$fail" -eq 0 ] && echo "ALL PASS" || echo "FAILURES"
 exit "$fail"

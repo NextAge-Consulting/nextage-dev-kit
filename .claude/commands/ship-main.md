@@ -20,6 +20,8 @@ $ARGUMENTS
 
 Whether a change goes straight to main is the developer's call — never switch to `/commit` on your own. When the change touches application code — the source the app is built from or runs, the kind of change a code reviewer like Gemini would review — ask, and wait: "This appears to contain code that should go through a PR — are you sure?" Yes → continue. No → stop; the developer picks the next step. Docs, kit files, CI and review configuration (`.github/`, `.gemini/`), Docker and build files are not application code.
 
+Under `ASSURANCE_LEVEL` `strict` the script ships docs only — files under `project-documentation/` and Markdown files — and refuses anything else (exit 16), naming the files, before any gate runs. Everything else reaches `main` through `/commit` and a PR, where CI runs the full suite. Say so and stop; there is no override.
+
 In a repo holding infrastructure (`REPO_KIND` is `org` or `combo`) the script refuses a Terraform change (exit 14) unless every root it touches plans "No changes" — removing a spent `imports.tf`, say. Anything that changes AWS reaches main only through `/open-pr` and `/deploy`, which apply it.
 
 ### Step 2: Compose a conventional commit message
@@ -61,7 +63,7 @@ committing (exit 2) when one is missing, and posts each once the board has moved
 
 The script:
 - Refuses unless on `main`/`master` — a body of work in progress is on its own branch and cannot trip it.
-- Runs the integration preflight first, then `check-types`, `biome lint`, `knip` (when `KNIP_GATE` is on), `semgrep`, the integration gate, the fit checks, the rule review, the part review, the design review and the SQL review over the files the commit touches — the same gates `/commit` runs. **`--skip-typecheck` skips the TYPECHECK only.** Biome, knip, semgrep, the integration gate and the rule review sit outside that guard and always run; there is no flag that bypasses them.
+- Runs `check-types`, `biome lint`, `knip` (when `KNIP_GATE` is on), `semgrep`, the integration gate, the fit checks, the rule review, the part review, the design review, the SQL review and the test judge over the files the commit touches — the same gates `/commit` runs. **`--skip-typecheck` skips the TYPECHECK only.** Every other gate and review sits outside that guard and always run; there is no flag that bypasses them. The typecheck and the integration gate skip on code unchanged since their last pass but for comments and whitespace, as at `/commit`, and say so; `--skip-typecheck` records no pass. The headless reviews run side by side, and a review that passed on the same input is reused rather than called again. The integration gate runs the tests reaching the change, development tests included; the separate integration preflight is `/deploy`'s alone.
 - Stages all changes, commits directly on `main` with `--no-verify` (validation already ran).
 - Pushes straight to `main`. If `origin/main` advanced, it rebases the commit onto it and re-pushes; on conflict it stops and tells you to resolve + push.
 
@@ -73,12 +75,13 @@ The script:
 - An issue reaching Staged has no comment in `--notes`: exit 2, nothing committed.
 - A Staged comment did not post after the push: exit 13. The commit is live and the board updated; the script prints the exact `gh issue comment` to run.
 - Refused (not on main): tell the user they're on `<branch>`; use `/commit` for branch work.
+- Refused under `ASSURANCE_LEVEL` `strict` (exit 16): the change touches more than docs. Relay the files it named; the change goes through `/commit` and a PR.
 - Typecheck failure — including a root `package.json` with no `check-types` script while the repository has TypeScript sources, or a `pyproject.toml` with neither pyright nor mypy installed: surface the command to run; offer `--skip-typecheck` only if the user explicitly accepts shipping unverified.
 - Biome, knip, semgrep or rule-review failure: surface the finding. `--skip-typecheck` does not apply — fix it, or ship the change through `/commit` and a PR instead. A rule-review finding the human judges wrong: they may re-run with `SKIP_RULE_REVIEW=1`.
-- Integration-preflight failure: put its message to the developer as it reads. A missing migration is an apply for them to approve (`drizzle.md` §II); then run `/ship-main` again.
-- Integration-gate failure: surface it. Write the missing test, mark the function `// integration-exempt: <reason>`, or fix the failing test.
+- Integration-gate failure: surface it. Write the missing test, rewrite a test that imports no app code to call the app's function, or fix the failing test. When the harness refused the database — not set up for tests, unreachable, or missing a migration this change adds — put its message to the developer as it reads; a missing migration is an apply for them to approve (`drizzle.md` §II), then run `/ship-main` again.
 - SQL-review finding: put each one to the developer with the fix, and ask: fix it, or skip it. Skip: re-run with `SKIP_SQL_REVIEW=1`.
 - Design-review finding: put each one to the developer with its why and fix, and ask: fix it, or skip it. Fix: make the change and re-run. Skip: re-run with `SKIP_DESIGN_REVIEW=1`.
+- Test-review finding: act on each by its kind — `missing`: write the test for the case it names; `reimplements`: rewrite the test to call the application's function, or delete it when there is no application code for it to call; `superfluous`: delete the test, never rename it a development test; `misnamed`: rename or move it as the fix says — then re-run. A finding the human judges wrong: they may re-run with `SKIP_TEST_REVIEW=1`.
 - Rebase conflict: surface the conflict; the user resolves then `git push origin main`.
 
 ## Naming issues without a PR

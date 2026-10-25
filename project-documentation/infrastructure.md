@@ -4,9 +4,10 @@ How the box under a kit-pipeline app is normally built. **This is how we do it, 
 the only way to do it** — a project is free to diverge with a reason.
 
 A reference, read when relevant. Not a rule, not enforced, not synced into consumer
-projects. The kit ships no buildspec because deploy targets vary (pipeline.md §2.7);
+projects. The kit ships no deploy buildspec because deploy targets vary (pipeline.md §2.7);
 what does not vary in practice is the shape below, and re-deriving it per project is
-how pieces get silently skipped.
+how pieces get silently skipped. The one buildspec the kit does ship is the test buildspec,
+which is the same in every project ("The full suite in CodeBuild", below).
 
 Every resource in this shape is owned as Terraform in the organization's org repo, never
 console clicks or CLI commands. The model, the layout and the access-and-change procedure
@@ -212,8 +213,9 @@ rather than an inbound SSH port. No AWS credential lives in a repository secret,
 only remaining GitHub dependency is the git clone. **This is where a new project starts** —
 standing one up on GitHub Actions intending to move it later is the expensive path.
 
-Only PR CI and commit linting stay on Actions: event-driven, high-frequency, wanting the
-PR-integrated UI, and touching no AWS credential at all. Where something genuinely must
+PR CI and commit linting run on Actions by default: event-driven, high-frequency, wanting the
+PR-integrated UI, and touching no AWS credential at all. A project may run its full test
+suite in CodeBuild instead, with `TEST_RUNNER` `aws` ("The full suite in CodeBuild", below). Where something genuinely must
 stay on Actions and still needs AWS, it uses OIDC (`role-to-assume`) — never a static key
 pair.
 
@@ -424,6 +426,139 @@ swallows the error:
 2. Give each its own user and key, and change the code to use them.
 3. Deploy, and exercise each call path for real: send a mail, read and write the bucket.
 4. Set the hop limit to 1, then remove those permissions from the instance role.
+
+## The full suite in CodeBuild
+
+For a project whose `TEST_RUNNER` is `aws` (`pipeline.md` §1.6): one CodeBuild project,
+`<CODEBUILD_PROJECT_PREFIX>test`, runs the full test suite on every PR and whenever
+`/deploy` finds no pass on `main`'s exact code. It is Terraform in the org repo like every
+other build project. Its buildspec is the kit's `infra/codebuild/buildspec-test.yml`, which
+sync writes only into a project whose `TEST_RUNNER` is `aws`; it runs
+`.claude/skills/gitflow/scripts/codebuild-suite.sh`, which carries an earlier pass on the
+same code fingerprint forward or runs `npm test`, and exports the fingerprint as
+`FULL_SUITE_FP`.
+
+**How a PR build behaves:**
+
+- A PR webhook build tests the PR's head commit (`sourceVersion` `pr/<N>`, resolved to the head SHA), not its merge into `main`.
+- The CodeConnections connection the build clones through also posts its status to the PR, with no further setup.
+- The PR shows that status under the `buildStatusConfig` context exactly as configured — `full-suite` — linked to the build.
+
+```hcl
+resource "aws_codebuild_project" "test" {
+  name          = "<CODEBUILD_PROJECT_PREFIX>test"
+  service_role  = aws_iam_role.codebuild_test.arn
+  build_timeout = 30
+
+  source {
+    type                = "GITHUB"
+    location            = "https://github.com/<owner>/<repo>.git"
+    buildspec           = "infra/codebuild/buildspec-test.yml"
+    git_clone_depth     = 1
+    report_build_status = true
+    build_status_config {
+      context = "full-suite"   # the name code-fingerprint.mjs gives the record (FULL_SUITE)
+    }
+  }
+  artifacts { type = "NO_ARTIFACTS" }
+
+  environment {
+    compute_type    = "BUILD_GENERAL1_MEDIUM"
+    image           = "aws/codebuild/standard:8.0"
+    type            = "LINUX_CONTAINER"
+    privileged_mode = false   # the suite builds no image
+
+    # What the suite reaches its database with — never PLAINTEXT. PostgreSQL:
+    environment_variable {
+      name  = "NEON_API_KEY"
+      type  = "SECRETS_MANAGER"
+      value = "<project>/test:NEON_API_KEY"
+    }
+    environment_variable {
+      name  = "NEON_PROJECT_ID"
+      type  = "PARAMETER_STORE"
+      value = "/<project>/test/NEON_PROJECT_ID"
+    }
+    # SQL Server: the DB_* keys sqlserver-drizzle.md names, the same way.
+  }
+
+  # Only when the database is on a private network (below).
+  # vpc_config {
+  #   vpc_id             = <vpc>
+  #   subnets            = [<private subnet ids>]
+  #   security_group_ids = [<a group the database admits>]
+  # }
+}
+
+resource "aws_codebuild_webhook" "test" {
+  project_name = aws_codebuild_project.test.name
+  build_type   = "BUILD"
+  filter_group {
+    filter {
+      type    = "EVENT"
+      pattern = "PULL_REQUEST_CREATED, PULL_REQUEST_UPDATED, PULL_REQUEST_REOPENED"
+    }
+    filter {
+      type    = "BASE_REF"
+      pattern = "^refs/heads/main$"
+    }
+  }
+}
+```
+
+The source authenticates through the account's registered CodeConnections credential
+(`new-project-setup.md` §7-prereq), the same clone every deploy project uses. In a public
+repository add an `ACTOR_ACCOUNT_ID` filter naming the people whose PRs may build: a
+pull request from a fork otherwise runs with the project's database secrets.
+
+**Its own service role, `<project>-codebuild-test` — not the shared deploy role.** The one
+shared role is settled because every deploy build runs code its authors already reviewed;
+a PR build runs code nobody has reviewed yet, a Dependabot PR's dependency install scripts
+included, so it gets a role that can reach nothing a deploy can. It holds only:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Sid": "Logs", "Effect": "Allow",
+      "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+      "Resource": ["arn:aws:logs:<region>:<account>:log-group:/aws/codebuild/<CODEBUILD_PROJECT_PREFIX>test",
+                   "arn:aws:logs:<region>:<account>:log-group:/aws/codebuild/<CODEBUILD_PROJECT_PREFIX>test:*"] },
+
+    { "Sid": "ReadOwnBuildsToCarryAPassForward", "Effect": "Allow",
+      "Action": ["codebuild:ListBuildsForProject", "codebuild:BatchGetBuilds"],
+      "Resource": "arn:aws:codebuild:<region>:<account>:project/<CODEBUILD_PROJECT_PREFIX>test" },
+
+    { "Sid": "TheSuitesDatabaseCredentials", "Effect": "Allow",
+      "Action": ["secretsmanager:GetSecretValue", "ssm:GetParameters"],
+      "Resource": ["arn:aws:secretsmanager:<region>:<account>:secret:<project>/test*",
+                   "arn:aws:ssm:<region>:<account>:parameter/<project>/test/*"] },
+
+    { "Sid": "UseTheSourceConnection", "Effect": "Allow",
+      "Action": ["codeconnections:GetConnectionToken", "codeconnections:GetConnection",
+                 "codeconnections:UseConnection"],
+      "Resource": "<the connection ARN>" }
+  ]
+}
+```
+
+A `SecureString` parameter also needs `kms:Decrypt` conditioned on
+`kms:ViaService` = `ssm.<region>.amazonaws.com`, as in the deploy role. With a `vpc_config`,
+the role also needs the network-interface actions CodeBuild's VPC documentation lists
+(`ec2:CreateNetworkInterface`, `ec2:DescribeNetworkInterfaces`, `ec2:DeleteNetworkInterface`,
+`ec2:DescribeSubnets`, `ec2:DescribeSecurityGroups`, `ec2:DescribeDhcpOptions`,
+`ec2:DescribeVpcs`, and `ec2:CreateNetworkInterfacePermission` scoped to the subnets).
+
+**A VPC only when the database is on a private network.** A Neon database, or any database
+reachable over the internet, needs none: the build runs outside any VPC with internet
+access. A database inside the VPC needs the build in private subnets, a security group the
+database admits, and a NAT gateway for the clone and `npm ci` to reach out — and a NAT
+gateway bills by the hour whether or not a build runs — about $0.045 an hour in us-east-1, some $33 a month before data —
+so it is the cost of choosing `aws` for a private database, not a detail.
+
+**The deploy-trigger key gains three grants on the test project** —
+`codebuild:StartBuild`, `codebuild:BatchGetBuilds` and `codebuild:ListBuildsForProject` —
+so `/deploy` can find a pass and start a build (`new-project-setup.md` §7c).
 
 ## Container resource limits
 

@@ -1,7 +1,6 @@
 // Whether the SQL Server database the integration tests are about to use is one they may
 // use — the kit's, kept current by /sync-dev-kit (sqlserver-drizzle.md §V). globalSetup.ts
-// runs it before any test connects, and `npm run test:preflight` runs it first in /commit,
-// /ship-main and /deploy.
+// runs it before any test connects, and `npm run test:preflight` runs it first in /deploy.
 //
 // Every refusal says what is wrong and what to do about it, in words a developer who has
 // never seen this file can act on.
