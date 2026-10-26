@@ -5,8 +5,9 @@
 #   .claude/skills/terraform/scripts/tf.sh prod plan -out=prod.tfplan
 #   .claude/skills/terraform/scripts/tf.sh prod apply prod.tfplan
 #
-# An init is followed by `providers lock` for linux_amd64, darwin_arm64 and
-# darwin_amd64, so the committed .terraform.lock.hcl verifies on CI and every Mac.
+# An init that changes .terraform.lock.hcl is followed by `providers lock` for
+# linux_amd64, darwin_arm64 and darwin_amd64, so the committed lock verifies on CI
+# and every Mac.
 #
 # <root> is a folder under infra/terraform/. Run from the repository root.
 #
@@ -44,9 +45,14 @@ esac
 aws_session tf.sh || exit $?
 
 # A lock file written here must also verify on CI's Linux and on every developer's
-# Mac, so every init is followed by a lock for all three. It only ever adds checksums.
+# Mac, so an init that changed it is followed by a lock for all three. It only ever
+# adds checksums. An init that left it unchanged has verified the providers against
+# it, and locking again would download every provider for every platform.
 if [ "${1:-}" = "init" ]; then
+    LOCK="$DIR/.terraform.lock.hcl"
+    before=$(cat "$LOCK" 2>/dev/null || true)
     terraform -chdir="$DIR" "$@" || exit $?
+    [ "$(cat "$LOCK" 2>/dev/null || true)" = "$before" ] && exit 0
     exec terraform -chdir="$DIR" providers lock -platform=linux_amd64 -platform=darwin_arm64 -platform=darwin_amd64
 fi
 

@@ -18,6 +18,15 @@ A rule, a project rule or a doc written because a session thought something matt
 
 **File a kit issue only for a defect, a blocker, or a change a new feature or dependency forces** — never for "this could read better".
 
+**A kit defect report carries what the maintainer needs to reproduce it:**
+
+- the exact command that failed, with its arguments, and whether it ran from a Claude session or a terminal;
+- its full output, unedited apart from the identifiers the next paragraph excludes;
+- the project's kit version — `lastSyncedCommit` in `.claude/.kit-sync.json` — the OS, and the version of each tool involved (`gh --version`, `node --version`, …);
+- the steps that bring it back.
+
+**Report what you saw apart from what you concluded.** State a cause as confirmed only when you reproduced it, and say how; otherwise call it a hypothesis. Propose a fix only for a confirmed cause.
+
 **A kit issue and every comment on one is world-readable: the kit's repository is public, and editing or deleting text there does not unpublish it.** Name the project, the people and what happened as fully as the problem needs. Leave out anything that is or looks like a credential, all infrastructure identity — account ids, hostnames, domains, IPs, ports, ARNs, endpoint, bucket and database names, connection strings — and any business detail the client would treat as confidential: their data, schema drawn from their model, row counts, volumes. When unsure whether a detail qualifies, leave it out. A project whose client asked not to be named says so in `rules/project/`, and its kit issues call it "a consumer project".
 
 **When a kit-owned file stands in the way of the work, follow the script in `block-kit-edit.sh`'s deny message:** put the reason to the human, and change the file only as the temporary patch it describes, after their yes.

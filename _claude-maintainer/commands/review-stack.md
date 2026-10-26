@@ -4,9 +4,9 @@ Maintainer-only. Answers one question: **what has changed in every package
 `stack-manifest.json` pins since we pinned it, does it affect us, and if we take a
 bump — what in our skills, templates and workflows has to change to match.**
 
-**This is the only way the manifest changes.** A consumer project never
-bumps a version to make its build pass; `scripts/check-stack.mjs` failing
-there is the system working.
+**This is the only way the manifest changes.** Each version in it is a minimum:
+a consumer project may run a newer exact version, which `scripts/check-stack.mjs`
+notes and passes, but never an older one.
 
 ## When to invoke
 
@@ -94,11 +94,14 @@ says its issues closing is no reason to adopt middleware.
 
 **A `stack-advisory` hit comes first**, and is recommended now whatever the
 monthly cadence — unless the advisory does not reach our usage, which you show.
+Once the user agrees it does not, record it in the manifest under that package's
+`advisoriesReviewed`, keyed by its GHSA id, with the reason in one sentence, so the
+watch stops filing it.
 
 Then one recommendation covering every package: what changed, whether it
 reaches us, what we should take up, and the blast radius — which consumers'
-code the bump changes, measured by reading it. Lockstep is absolute: every
-project upgrades together.
+code the bump changes, measured by reading it. Raising a minimum moves every
+project still below it at its next sync.
 
 **The user answers it once.** Steps 5–7 run only for the bumps they accept, and
 not at all when they accept none.

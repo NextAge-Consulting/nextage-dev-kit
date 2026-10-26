@@ -202,6 +202,12 @@ if (uiPackage) {
     if (icons) iconModules.push(toPosix(join(dirname(configPath), icons[1])));
   }
 }
+// Nothing imports the icon module by name, so it is an entry — the design-system glob
+// above covers .mjs, .ts and .css, never an icons.tsx.
+for (const file of iconModules) {
+  const { ws, path } = inWorkspace(file);
+  entriesOf(ws).push(path);
+}
 
 // Entries whose exports a tool or framework consumes, not an import: the server entry,
 // the Claude Design config, its icon module and the Vite config that builds its feed

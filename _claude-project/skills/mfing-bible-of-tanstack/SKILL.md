@@ -29,12 +29,11 @@ The joins matter more than any one library:
 `.claude/stack-manifest.json` holds the blessed version of every TanStack
 package; `scripts/check-stack.mjs` enforces it.
 
-**Lockstep is absolute.** TanStack publishes no LTS — no `lts` dist-tag, no
-support window, one rolling line per library — so the kit *is* the LTS. If a
-project uses a TanStack library it uses the kit's version, pinned exactly.
-Adding or moving a pin is a kit decision, made by the maintainer through
-`/review-stack` — a command that installs only on their machine. Never change a
-pin to get a build green; raise it with them.
+**The kit's version is the floor.** A project using a TanStack library declares an
+exact version: the kit's, or a newer one. These references are written for the kit's version; on a newer one, check
+the library's release notes before trusting them. Moving the kit's version is the
+maintainer's decision, through `/review-stack`; never edit
+`.claude/stack-manifest.json` in a project.
 
 ## The opinions
 
