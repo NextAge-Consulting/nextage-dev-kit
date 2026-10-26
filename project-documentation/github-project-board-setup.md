@@ -111,7 +111,9 @@ All view config is under the **View** button (gear icon, top-right) — NOT the 
 
 1. Double-click a tab name → rename to the repo/product.
 2. **Fields:** Title, Assignees, Status, Linked pull requests. Leave Parent issue off; the hierarchy already shows it.
-3. **Filter:** `-status:Done,Staged,Deployed repo:<org>/<repo> -is:draft,closed`
+3. **Filter:** `-status:Done,Staged,Deployed repo:<org>/<repo> -is:draft,closed no:parent-issue -sub-issues.is:draft,closed`
+
+   `no:parent-issue` keeps each sub-issue from showing twice — once nested, once as a row of its own. `-sub-issues.is:draft,closed` hides closed and draft sub-issues under an open parent; `-is:closed` alone does not reach nested rows, so without it a parent's finished sub-issues still show.
 
 **Shared views** — one each per board, across every repo. **+ New view**, rename it, then:
 

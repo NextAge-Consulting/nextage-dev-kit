@@ -170,6 +170,29 @@ expect "a workspace that resolves the root's older copy fails" "$r" 1 "esbuild r
 r=$(lockrepo nested-old 0.27.0)
 expect "a workspace's own older copy fails, naming the workspace" "$r" 1 "esbuild resolves to 0.27.0 for packages/ui, blessed is 0.28.2"
 
+r=$(lockrepo nested-new 0.29.1)
+expect "a workspace's own newer copy passes, noted as ahead of the kit" "$r" 0 "esbuild resolves to 0.29.1 for packages/ui (the kit's minimum is 0.28.2)"
+
+# declared <name> <declared version> — packages/ui declares esbuild at <declared version>;
+# the lockfile resolves the same.
+declared() {
+    local r; r=$(lockrepo "$1" "$2")
+    jq --arg v "$2" '.devDependencies.esbuild = $v' "$r/packages/ui/package.json" > "$r/p.json" && mv "$r/p.json" "$r/packages/ui/package.json"
+    echo "$r"
+}
+
+r=$(declared declared-new 0.29.1)
+expect "a newer declared version passes, noted as ahead of the kit" "$r" 0 "packages/ui/package.json: esbuild 0.29.1 (the kit's minimum is 0.28.2)"
+
+r=$(declared declared-old 0.27.0)
+expect "an older declared version fails" "$r" 1 "esbuild is \"0.27.0\" — the kit blesses \"0.28.2\""
+
+r=$(declared declared-range "^0.29.0")
+expect "a range still fails, newer or not" "$r" 1 "declare the exact blessed version"
+
+r=$(declared declared-pre 0.28.2-rc.1)
+expect "a prerelease of the minimum is older than it, and fails" "$r" 1 "the kit blesses \"0.28.2\""
+
 # pinrepo <name> <DESIGN_UI_PACKAGE value> — the manifest pins esbuild whenever the UI
 # package's design-system config exists, with the key read when the check runs; the config
 # exists under packages/ui and esbuild is declared nowhere.

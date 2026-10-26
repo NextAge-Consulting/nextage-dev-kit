@@ -65,3 +65,10 @@ listed. Commit afterwards, the same as any change.
 
 File an issue on the kit's repository. The kit itself changes only through its
 maintainer; your project takes each change when you sync it.
+
+A defect gets fixed only once the maintainer can reproduce it, so a report needs the
+exact command that failed, its full output, the project's kit version, and the steps
+that bring it back. Your Claude session is told to gather these when it files one;
+check they are there before it posts. A cause your AI guessed at is labelled a
+guess, not stated as fact. The repository is public, so leave out hostnames,
+credentials and client data.

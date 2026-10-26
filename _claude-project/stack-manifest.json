@@ -18,11 +18,15 @@
     "Dependabot and the dependency-triage pass. This file is not a list of every",
     "dependency; it is the list the kit refuses to let drift.",
     "",
-    "EXACT VERSIONS, NOT RANGES. A caret lets a fresh install drift to a version the",
-    "kit never blessed, defeating lockstep silently — and `npm install` ADDS a caret",
-    "by default, which is how it keeps coming back. `whenResolved` entries are the",
-    "exception and pin a MAJOR, because a transitively-dragged package's exact",
-    "version is not the project's to choose.",
+    "EXACT VERSIONS, NOT RANGES. A caret lets a fresh install drift to a version",
+    "nobody chose — and `npm install` ADDS a caret by default, which is how it keeps",
+    "coming back. `whenResolved` entries are the exception and pin a MAJOR, because a",
+    "transitively-dragged package's exact version is not the project's to choose.",
+    "",
+    "THE VERSION IS A MINIMUM. A project declares the kit's version or a newer exact",
+    "one; check-stack fails anything older and notes anything newer. The kit's",
+    "instructions are written for its own version, so a project ahead of it runs",
+    "code they may not describe yet.",
     "",
     "EACH ENTRY CARRIES ITS OWN TRIGGER, and the trigger is what makes 'opinionated",
     "but does not block unless it matters' mechanical rather than a convention:",
@@ -119,6 +123,9 @@
       "severity": "required",
       "installedBy": "project",
       "blessedAt": "2026-10-16",
+      "advisoriesReviewed": {
+        "GHSA-fmh4-wcc4-5jm3": "No version fixes it: the fix is configuration, and the bible's auth.md (Organizations) prescribes it for any project using the organization plugin."
+      },
       "why": "Better Auth holds the front door, and its breaking changes are invisible until a version boundary. It validates the auth schema it is given against its own model and rejects authentication requests on a mismatch — a missing column, or a required column it never writes — so a schema that was right for one version can lock every user out on the next. A caret range walks a project across that boundary on a fresh install with no commit to blame. Pin exactly, and treat every bump as a change that re-checks the auth tables: `npx auth check schema` reports every mismatch without changing anything."
     },
     "@biomejs/biome": {

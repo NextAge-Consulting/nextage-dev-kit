@@ -22,6 +22,7 @@ mkdir -p "$tmp/bin"
 cat > "$tmp/bin/gh" <<'GH'
 #!/bin/bash
 printf '%s\n' "$*" >> "$FAKE_LOG"
+case "$*" in *"pr merge"*) echo "merge prompts: ${GH_PROMPT_DISABLED:-enabled}" >> "$FAKE_LOG" ;; esac
 case "$*" in
   "api user --jq .login") echo "$FAKE_ME" ;;
   "pr list --head "*"--json number,title,url"*) echo '[{"number":77,"title":"t","url":"u"}]' ;;
@@ -63,6 +64,8 @@ branch feat/mine
 FAKE_ME=alice FAKE_AUTHOR=alice FAKE_BASE=main merge; rc=$?
 { [ "$rc" -eq 0 ] && ! grep -q "pr review" "$FAKE_LOG" && grep -q "pr merge" "$FAKE_LOG"; } \
     && ok "merging your own PR records no approval" || bad "own merge (rc=$rc): $(cat "$tmp/out")"
+grep -qx "merge prompts: 1" "$FAKE_LOG" \
+    && ok "the squash-merge runs with gh's prompts disabled" || bad "merge prompts: $(cat "$FAKE_LOG")"
 
 # ─── Org repo: /deploy lands the PR, /merge does not ──────────────────────
 branch feat/org

@@ -441,9 +441,14 @@ fi
 # set -e in the outer shell IS inherited by `(...)` subshells on bash 3.2 and
 # 4.4+ (NOT the inherit_errexit case — that governs `$()`), so the explicit
 # `if !` is for diagnostic clarity, not error propagation.
+#
+# GH_PROMPT_DISABLED: with these flags gh's only question is "already merged — delete
+# the branch locally?", asked when the PR merged before this call and gh sees a
+# terminal. Nobody is there to answer it, and gh waits on it. Disabled, gh warns
+# that the PR was already merged and exits 0.
 if ! (
     cd /tmp
-    gh -R "$REMOTE_REPO" pr merge "$PR_NUMBER" --squash \
+    GH_PROMPT_DISABLED=1 gh -R "$REMOTE_REPO" pr merge "$PR_NUMBER" --squash \
         --subject "$PR_TITLE (#$PR_NUMBER)" --body "$PR_BODY"
 ); then
     echo "merge.sh: 'gh pr merge --squash' failed for PR #$PR_NUMBER. Inspect on github.com or via 'gh pr view $PR_NUMBER'." >&2

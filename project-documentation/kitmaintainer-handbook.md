@@ -932,9 +932,10 @@ change.
 ### 9.13. Watching the pins
 
 **The kit has no `package.json`, so Dependabot never sees the versions in
-`stack-manifest.json`.** A consumer's Dependabot PR for a pinned package fails its stack
-check until the kit moves the pin, and an advisory against a pin reaches the kit only if
-someone notices it in a consumer. The kit repo's own `stack-watch` workflow
+`stack-manifest.json`.** Each version there is a minimum, so a consumer's Dependabot
+PR that raises a pinned package passes its stack check, noted as ahead of the kit — but
+the kit's instructions stay written for the old version until the pin moves, and an
+advisory against a pin reaches the kit only if someone notices it in a consumer. The kit repo's own `stack-watch` workflow
 (`.github/workflows/stack-watch.yml`, running `.github/scripts/stack-watch.sh`) closes that gap.
 
 | Run | When | Files |
@@ -946,7 +947,9 @@ Each keeps one open issue per label and rewrites it on the next run. Neither dec
 anything: the issue is the cue to run `/review-stack`, which reads it, recommends, and,
 once you approve, moves the pins. The review's report names the issue, and the commit that
 lands the review cites it by number. An advisory with no fix upstream stays in the issue until the review
-decides it does not reach how we use the package.
+decides it does not reach how we use the package and records it under that package's
+`advisoriesReviewed` in `stack-manifest.json`, with why; the watch names a recorded
+advisory in its log and files nothing for it.
 
 Run either by hand from the Actions tab (`workflow_dispatch`), or locally with
 `--dry-run` to print the issue instead of filing it:

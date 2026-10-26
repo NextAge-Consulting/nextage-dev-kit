@@ -71,6 +71,14 @@ Per `design.md`: a control the *role* cannot use is removed from the DOM; a
 control blocked by *record status* stays visible, disabled, with a tooltip saying
 why. Both are UI conveniences — the server re-checks regardless.
 
+## Organizations
+
+Better Auth's `organization` plugin lets a signed-in user accept an invitation
+whose email matches theirs, whether or not that email is verified
+(GHSA-fmh4-wcc4-5jm3). Configure it with
+`organization({ requireEmailVerificationOnInvitation: true })`, unless sign-in
+already requires a verified email (`emailAndPassword.requireEmailVerification: true`).
+
 ## Passwords
 
 Where a legacy application shares the database, the password write path is

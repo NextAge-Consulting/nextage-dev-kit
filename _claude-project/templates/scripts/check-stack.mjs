@@ -15,7 +15,9 @@
  * EACH ENTRY CARRIES ITS OWN TRIGGER, which is what keeps the kit opinionated
  * without blocking a project the opinion does not apply to:
  *
- *   whenDeclared   this project declares it -> it must be the blessed version
+ *   whenDeclared   this project declares it -> it must be the blessed version or
+ *                  a newer exact one: the blessed version is a minimum, and a
+ *                  project ahead of it passes with a note
  *   whenFile       a kit-shipped config is present -> the tool behind it must be
  *                  pinned. No config, no opinion, no output. A `$KEY` in the path
  *                  is read from sync-substitutions.json when the check runs.
@@ -136,6 +138,23 @@ const lock = existsSync(lockPath) ? readJson(lockPath) : null;
 const pinnedIn = (workflow, name, version) =>
   workflow.includes(`${name}@${version}`) || workflow.includes(`${name}==${version}`);
 
+// The blessed version is a minimum: a project may run a newer exact version, never an
+// older one. -1, 0 or 1 for two exact versions, a prerelease before its release; null
+// when either is not an exact x.y.z, which is then judged as before.
+const compareVersions = (a, b) => {
+  const parse = (v) => /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(String(v));
+  const x = parse(a);
+  const y = parse(b);
+  if (!x || !y) return null;
+  for (let i = 1; i <= 3; i++) if (Number(x[i]) !== Number(y[i])) return Number(x[i]) > Number(y[i]) ? 1 : -1;
+  if (x[4] === y[4]) return 0;
+  if (!x[4]) return 1;
+  if (!y[4]) return -1;
+  return x[4] > y[4] ? 1 : -1;
+};
+// Versions a project runs ahead of the kit: reported, never failed.
+const ahead = [];
+
 // --- 1. blessed packages, each under its own trigger -----------------------
 // Counted when the trigger fires — a pin whose condition never holds here was
 // not checked, and the summary must not say it was.
@@ -229,6 +248,8 @@ for (const [name, spec] of Object.entries(blessed)) {
           `      A range lets a fresh install drift off the kit's version, and \`npm install\`\n` +
           `      adds a caret by DEFAULT — use --save-exact.${why}`,
       );
+    } else if (compareVersions(got, spec.version) === 1) {
+      ahead.push(`${where(dir)}: ${name} ${got} (the kit's minimum is ${spec.version})`);
     } else {
       report(severity, `${where(dir)}: ${name} is "${got}" — the kit blesses "${spec.version}".${why}`);
     }
@@ -249,11 +270,15 @@ for (const [name, spec] of Object.entries(blessed)) {
     }
     for (const [key, dir] of copies) {
       const version = lock?.packages?.[key]?.version;
-      if (version && version !== spec.version)
-        report(
-          severity,
-          `package-lock.json: ${name} resolves to ${version}${key === root ? "" : ` for ${dir}`}, blessed is ${spec.version}. Reinstall so the lockfile matches.`,
-        );
+      if (!version || version === spec.version) continue;
+      if (compareVersions(version, spec.version) === 1) {
+        ahead.push(`package-lock.json: ${name} resolves to ${version}${key === root ? "" : ` for ${dir}`} (the kit's minimum is ${spec.version})`);
+        continue;
+      }
+      report(
+        severity,
+        `package-lock.json: ${name} resolves to ${version}${key === root ? "" : ` for ${dir}`}, blessed is ${spec.version}. Reinstall so the lockfile matches.`,
+      );
     }
   }
 }
@@ -498,6 +523,9 @@ if (nodeMajor !== undefined) {
 // Advisories print whether or not anything failed. They name real problems the
 // fleet has not adopted a fix for, and a problem that only prints on a green
 // run is a problem nobody ever reads.
+if (ahead.length) {
+  console.log(`· stack: ahead of the kit (passes; the kit's instructions were written for its minimum):\n${ahead.map((a) => `  ${a}`).join("\n")}\n`);
+}
 if (advisories.length) {
   console.error(`! stack advisories (not blocking):\n${advisories.map((a) => `  ${a}`).join("\n")}\n`);
 }

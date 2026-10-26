@@ -181,10 +181,17 @@ while IFS=$'\t' read -r pkg version; do
                  range: .vulnerable_version_range, patched: (.patched_versions // "")} ]' <<<"$raw")
         hits=$(jq -c --argjson m "$more" '. + $m | unique_by(.ghsa)' <<<"$hits")
     fi
+    # An advisory /review-stack recorded under the package's advisoriesReviewed does not
+    # reach how the kit uses it: named here, never filed.
+    reviewed=$(jq -c --arg p "$pkg" '.packages[$p].advisoriesReviewed // {} | keys' "$MANIFEST")
+    for ghsa in $(jq -r --argjson r "$reviewed" '.[] | select(.ghsa as $g | $r | index($g)) | .ghsa' <<<"$hits"); do
+        echo "stack-watch: $ghsa on $pkg@$version is reviewed (advisoriesReviewed) — not filed." >&2
+    done
+    hits=$(jq -c --argjson r "$reviewed" '[.[] | select(.ghsa as $g | $r | index($g) | not)]' <<<"$hits")
     jq --arg p "$pkg" --arg v "$version" --argjson h "$hits" '. + [$h[] | . + {package: $p, pinned: $v}]' "$FOUND" >"$TMP/next" && mv "$TMP/next" "$FOUND"
 done < <(jq -r '.packages | to_entries[] | "\(.key)\t\(.value.version // .value)"' "$MANIFEST")
 affected=$(jq 'length' "$FOUND")
-echo "stack-watch: checked $count pinned version(s) against the GitHub Advisory Database; $affected advisory hit(s)." >&2
+echo "stack-watch: checked $count pinned version(s) against the GitHub Advisory Database; $affected advisory hit(s) not yet reviewed." >&2
 [ "$count" -gt 0 ] || { echo "stack-watch: the manifest lists no packages — nothing was checked." >&2; exit 1; }
 
 if [ "$affected" -eq 0 ]; then
@@ -192,7 +199,7 @@ if [ "$affected" -eq 0 ]; then
     exit 0
 fi
 {
-    echo "A pinned version in \`_claude-project/stack-manifest.json\` is affected by a published advisory. Consumers cannot take the fix until the kit moves the pin. Run \`/review-stack\`."
+    echo "A pinned version in \`_claude-project/stack-manifest.json\` is affected by a published advisory. A project can take a fixed version now — the pin is a minimum — but the kit's minimum still allows the affected one. Run \`/review-stack\`: raise the minimum, or record the advisory under the package's \`advisoriesReviewed\` with why it does not reach us."
     echo
     echo "| Package | Pinned | Advisory | Severity | Affected | Patched in |"
     echo "|---|---|---|---|---|---|"

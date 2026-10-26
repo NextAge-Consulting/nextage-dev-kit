@@ -52,7 +52,7 @@ Per-app test infrastructure the kit owns. `/sync-dev-kit` keeps every file ident
 **Enabling it for a consumer:**
 
 ```bash
-# 1. Deps, at the versions stack-manifest.json pins — check-stack fails any other.
+# 1. Deps, at the versions stack-manifest.json pins or newer — check-stack fails anything older.
 npm install -D --save-exact vitest@5.0.5 vite@8.3.4 @neondatabase/api-client@2.7.3 pg@8.23.1
 
 # 2. Point the substitution at the workspace holding the shared module.
