@@ -477,11 +477,11 @@ Changelog ownership, the `/deploy` procedure and version bumps are DevOps refere
 Procedure:
 1. Resolve the open PR for the current branch via `gh pr list --head <branch>` (or accept a PR number argument)
 1.5. Confirm Gemini reviewed the current HEAD: invoke `wait-for-pr-ready.sh --pr <N>` first. The wait is trigger-aware — it reads PR comments to decide whether a `/gemini review` was posted for the current HEAD. If the trigger comment exists and Gemini has posted its review, ready. If no trigger comment exists for HEAD (e.g. last `/commit` was `--no-review`), CI-only ready — meaning there is no fresh Gemini review for triage to walk. Surface that to the user; they can re-trigger (`gh pr comment <N> --body '/gemini review'`) and re-invoke, or skip triage. `GEMINI_NOT_INSTALLED="true"` short-circuits the Gemini path entirely.
-2. Pull Gemini reviews + inline comments via `gh api` filtered by `user.login == "gemini-code-assist[bot]"`; filter stale-commit and user-resolved items; order by file/line
+2. Pull Gemini reviews + inline comments via `gh api` filtered by `user.login == "gemini-code-assist[bot]"`; filter stale-commit and user-resolved items; keep the API's order, which is Gemini's severity order and the order the PR page shows
 3. Present item 1 with location, severity, Gemini's concern, proposed fix, and a one-line recommendation (`fix | skip | discuss`); **wait** for user decision
-4. On `fix`: implement → `/commit` (focused message referencing the Gemini finding) → push. The commit IS the reply — no manual thread post. The user decides at commit time (via `--review` / `--no-review` / the prompt) whether the new HEAD triggers another Gemini review.
-5. On `skip`: ask reply-or-silent. If reply, draft 1-2 sentences; on user confirm, post a **threaded** reply via `gh api POST .../comments/{id}/replies` (not `gh pr comment` — that loses thread context). **Then stage an inline source comment at the flagged line stating the carve-out reason** (one to three lines, e.g. `// §VI safe: absolute-instant audit timestamp, not user-facing`). Both are required: PR-thread reply is the audit trail; inline comment is the durable record. Gemini reviews are stateless across cycles — without the source-level record, the same finding resurfaces on the next push and costs another triage cycle. Inline comment lands as part of the single end-of-triage commit (not a separate commit).
-6. Advance to item 2; repeat until done. Final summary lists fixed/replied/skipped counts.
+4. On `fix`: implement and stage it, uncommitted, and post a threaded `Fixed in upcoming commit.` reply on the finding.
+5. On `skip`: post a 1-2 sentence **threaded** reply with the reason via `gh api POST .../comments/{id}/replies` (not `gh pr comment` — that loses thread context), written and posted without asking the user to approve its wording. **Then stage an inline source comment at the flagged line stating the carve-out reason** (one to three lines, e.g. `// §VI safe: absolute-instant audit timestamp, not user-facing`). Both are required: PR-thread reply is the audit trail; inline comment is the durable record. Gemini reviews are stateless across cycles — without the source-level record, the same finding resurfaces on the next push and costs another triage cycle. Inline comment lands as part of the single end-of-triage commit (not a separate commit).
+6. Advance to item 2; repeat until done. Final summary lists fixed/replied/skipped counts, then one `/commit` with every fix and carve-out comment, on the user's go-ahead; they choose `--review` or `--no-review` for the new HEAD.
 
 Hard rules: one item at a time (no batching), never auto-act, NEVER commit mid-triage (single end-of-triage commit batches all fixes + carve-out comments; multiple `--review` commits = multiple Gemini cycles + wasted quota), every declined finding lands an inline source comment at the flagged line, Gemini-only for MVP (human reviewer comments and other bots are future scope), recommendation is a hint not a filter.
 
@@ -972,7 +972,7 @@ One run, in the kit, when the maintainer types it:
 
 1. `.claude/scripts/shipkit.sh --plan`, read-only: the version, the base the release is measured from (the last release tag, or `origin/main` before the first), the migrations it adds with each one's `Kind`, the title, any new migration with no Estimate — which stops the release — and every added line naming a project that syncs this kit on this machine, which is reviewed before anything is committed, because the kit is public.
 2. Claude writes the release notes: what changed, for a project's syncer, and a Migrations section with each migration's Kind, its `Your time` and what it touches.
-3. `/commit`, `/open-pr` with the title and the notes as the body, and `/merge` — each by its own procedure, the pre-ship gate included.
+3. `/commit`, `/open-pr` with the title and the notes as the body, Gemini's review, and `/merge` — each by its own procedure, the pre-ship gate included. Claude waits for the review and triages it alone, by `/triage`'s mechanics: every fix-or-skip call is its own, and only a finding that is the maintainer's decision — one that changes what projects experience beyond a defect fix, reverses a recorded decision, or rests on an unrecorded preference — is put to them. The fixes land in one `/commit --no-review`.
 4. `shipkit.sh --release` on `main`: `VERSION`, the commit `🚀 release: <version>`, the push, the tag and the GitHub release.
 
 **Versions are UTC dates** — `2026.10.23`, and `2026.10.23.2` for a second release that day. **The title states the migration impact:** `2026.10.25 — 2 migrations, 1 asks for decisions`, or `— no migrations`. The GitHub releases are the kit's one record of what changed.
@@ -1133,7 +1133,7 @@ Solving #1 by adjusting iTerm settings is impossible — Agents view doesn't upd
 |------|---------|
 | `_claude-project/skills/dev-server/SKILL.md` | Natural-language routing layer (same shape as gitflow skill). |
 | `_claude-project/skills/dev-server/scripts/dev.sh` | Implementation: project-root detection, port probing, and the tab-launch backend ladder (§12.2.2). Supports `--tunnel` flag (§12.3.2). |
-| `_claude-project/skills/dev-server/scripts/dev-with-tunnel.mjs` | Implementation for `--tunnel`: spawns `cloudflared tunnel run` + `npm run dev:<app>` in one tab. Hostname `<subdomain>.thenextage.com`, subdomain defaulting to `<app>` (shop-standard parent). Byte-identical across consumer projects. See §12.3.2. |
+| `_claude-project/skills/dev-server/scripts/dev-with-tunnel.mjs` | Implementation for `--tunnel`: spawns `cloudflared tunnel run` + `npm run dev:<app>` in one tab. Hostname read from the developer's cloudflared config, matched on subdomain (default `<app>`). Byte-identical across consumer projects. See §12.3.2. |
 | `_claude-project/skills/dev-server/templates/DevServer.json` | iTerm DynamicProfile template. Installed once per dev machine to `~/Library/Application Support/iTerm2/DynamicProfiles/DevServer.json`. Applies to the iTerm backend only. See §12.2.1. |
 | `_claude-project/commands/dev.md` | `/dev` slash command spec. |
 | `_claude-project/rules/dev-server.md` | The 5 lifecycle rules (check first, use occupied, never kill, leave running). Updated with `/dev` canonical-path declaration. |
@@ -1198,7 +1198,7 @@ An Agents-view session's host is spawned by launchd (`LAUNCHCTL_ENV_REEXEC`, `XP
 | `/dev` | List `dev*` scripts from the resolved project's `package.json`. Await user choice. |
 | `/dev <app>` | Stage `npm run dev:<app>` at the project root on the detected port (auto-bumped on collision). |
 | `/dev <app1> <app2>` | One iTerm tab per app. |
-| `/dev <app> --tunnel` | Stage `npm run dev:tunnel:<app>` — cloudflared + vite in one tab, public at `<subdomain>.thenextage.com` (default `<app>`). Mutually exclusive with `--main`. See §12.3.2. |
+| `/dev <app> --tunnel` | Stage `npm run dev:tunnel:<app>` — cloudflared + vite in one tab, public at the developer's own ingress hostname for `<subdomain>` (default `<app>`). Mutually exclusive with `--main`. See §12.3.2. |
 | `/dev --status` | List listening processes on `:3000-:3099` (pid, port, cwd, cmd). Never kills. |
 
 ### 12.3.2. Cloudflare tunnel mode (`--tunnel`)
@@ -1210,28 +1210,28 @@ An Agents-view session's host is spawned by launchd (`LAUNCHCTL_ENV_REEXEC`, `XP
 "dev:tunnel:dealer": "node .claude/skills/dev-server/scripts/dev-with-tunnel.mjs dealer"
 ```
 
-The kit ships `dev-with-tunnel.mjs` at `_claude-project/skills/dev-server/scripts/dev-with-tunnel.mjs`. **Byte-identical across all consumer projects.** Hostname convention is `<subdomain>.thenextage.com`. The parent is this shop's standard tunnel domain and is fixed: every consumer's apps live under it. The subdomain is the script's optional second argument, defaulting to `<app>`; a project whose app folder has a generic name (`web`) passes its product name there, because the script name must match the folder for `/dev` to find the app's `vite.config.ts` while the hostname must be unique across projects.
+The kit ships `dev-with-tunnel.mjs` at `_claude-project/skills/dev-server/scripts/dev-with-tunnel.mjs`. **Byte-identical across all consumer projects.** **The kit facilitates the tunnel and never configures it.** Each developer runs their own named tunnel on their own Cloudflare account and domain; the script reads the hostname from the cloudflared config `cloudflared tunnel run` uses — the ingress `hostname:` whose first label is the subdomain — and refuses with what to add when none matches or more than one does. The subdomain is the script's optional second argument, defaulting to `<app>`; a project whose app folder has a generic name (`web`) passes its product name there, because the script name must match the folder for `/dev` to find the app's `vite.config.ts` while the hostname must be unique on the developer's machine.
 
 `~/.cloudflared/config.yml` (per-user-machine, not in the repo) carries per-app ingress rules:
 
 ```yaml
 ingress:
-  - hostname: shop.thenextage.com
+  - hostname: shop.example.com
     service: http://localhost:3001
-  - hostname: dealer.thenextage.com
+  - hostname: dealer.example.com
     service: http://localhost:3010
 ```
 
 `dev-with-tunnel.mjs`:
 
-1. Reads `PORT` from env (set by `dev.sh`'s `lsof` pick).
+1. Reads `PORT` from env (set by `dev.sh`'s `lsof` pick) and resolves the hostname from the cloudflared config, exiting before anything spawns when it cannot.
 2. Spawns `cloudflared tunnel run` (uses local `~/.cloudflared/config.yml`).
-3. Injects `BETTER_AUTH_URL` and `VITE_BETTER_AUTH_URL` = `https://<app>.thenextage.com` into the dev-server environment so any better-auth (or other origin-aware service) sees the tunnel URL as its public base. Without this, better-auth defaults to `http://localhost:<port>` and login redirects + cookie domains break under the tunnel. Both env vars are no-ops in apps that don't use better-auth.
+3. Injects `BETTER_AUTH_URL` and `VITE_BETTER_AUTH_URL` = `https://<hostname>` into the dev-server environment so any better-auth (or other origin-aware service) sees the tunnel URL as its public base. Without this, better-auth defaults to `http://localhost:<port>` and login redirects + cookie domains break under the tunnel. Both env vars are no-ops in apps that don't use better-auth.
 4. Spawns `npm run dev:<app>` once the tunnel reports "Registered tunnel connection".
 
 **Multi-replica behavior.** `/dev shop --tunnel` + `/dev dealer --tunnel` each spawn their own `cloudflared` process. Cloudflare treats them as replicas of the same tunnel UUID; both share the ingress map; traffic load-balances. Each replica costs ~30–50MB RAM + a few edge keepalive connections. Acceptable; matches the "single-script-per-tab" model.
 
-**One-time DNS** (Cloudflare dashboard, per-machine setup): wildcard CNAME `*.thenextage.com` → `<tunnel-uuid>.cfargotunnel.com`, Proxied. Universal SSL covers single-label wildcards natively; no paid Advanced Certificate needed.
+**One-time DNS** (Cloudflare dashboard, per-machine setup): wildcard CNAME `*.<your-domain>` → `<tunnel-uuid>.cfargotunnel.com`, Proxied. Universal SSL covers single-label wildcards natively; no paid Advanced Certificate needed.
 
 ### 12.4. Port-override algorithm
 
