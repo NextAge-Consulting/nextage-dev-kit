@@ -36,15 +36,28 @@ project it touches.>
 
 Read every commit since `base` (`git log <base>..HEAD`) and the outgoing diff to write "What changed". Leave out what only the kit's own maintenance sees. With no migrations, the Migrations section says "None — this release can be synced any time." Nothing in the notes names a project, client, person or deployment.
 
-## Step 3: Commit, open the PR, merge
+## Step 3: Commit, open the PR, triage, merge
 
 Carry out each command's own procedure, in order:
 
 1. **`/commit`**, with a conventional message summing up the release. It cuts the branch from `main` and runs every gate, the kit's pre-ship gate included.
 2. **`/open-pr`**, with the plan's `title` as the title and the notes as the body.
-3. **`/merge`**, which lands this checkout back on `main`.
+3. **Triage Gemini's review yourself**, below.
+4. **`/merge`**, which lands this checkout back on `main`.
 
 A gate that fails stops the release there. Fix it and continue from that command.
+
+### Triage Gemini's review yourself
+
+Run `.claude/skills/gitflow/scripts/wait-for-pr-ready.sh --pr <N>`, with the PR `/open-pr` opened.
+
+- **Exit 0, its ready line showing no findings** — no `findings=`, or `findings=0`: go to `/merge`.
+- **Exit 2, CI failed:** fix it, `/commit --no-review`, and wait again.
+- **Exit 3, timed out:** ask the human whether to release without Gemini's review.
+- **Any other exit:** relay its message and stop.
+- **Exit 0 with `findings=` above zero, or `findings=error`:** fetch and work them by `/triage`'s Step 2 and its Step 4 Hard Rules, but make every fix-or-skip call yourself, without the one-at-a-time walk-through. Then `/commit --no-review` once with every fix and carve-out comment.
+
+**Put a finding to the human only when the call is theirs:** the fix changes what projects experience beyond correcting a defect, reverses a decision the kit's docs record, or rests on a preference nothing in the kit settles. Decide the rest first, then ask about these together, each with its options and your recommendation.
 
 ## Step 4: Release
 
@@ -56,4 +69,4 @@ With `version` and `base` from Step 1. It commits `VERSION`, pushes `main`, tags
 
 ## Step 5: Report
 
-The release's title and URL, and the migrations it carries, each with its Kind.
+The release's title and URL, the migrations it carries, each with its Kind, and Gemini's findings, each fixed or declined with its reason.

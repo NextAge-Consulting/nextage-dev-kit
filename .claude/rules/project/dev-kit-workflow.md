@@ -39,6 +39,7 @@ Those prove the extensibility pattern: any project can add commands in its own `
 | `_claude-project/*` | Mirror into the kit's `.claude/` so the kit itself uses it — **unless the item is template-only** per the manifest below. Commit both surfaces when mirrored. |
 | `_claude-maintainer/{kit-maintainer.md,commands,scripts}` | Edit the kit source AND `~/.claude/` in the SAME pass; `diff` to prove byte-identical. |
 | `_claude-maintainer/{sync,migrations}` | Lives only in the kit — every launcher runs it from the clone. Edit in place. |
+| `_gemini-project/*` | Mirror into the kit's `.gemini/`, byte-identical, and commit both surfaces. |
 | `_statusline/statusline.sh` | Edit the kit source AND `~/.claude/statusline.sh` in the SAME pass; `diff` to prove byte-identical. `/install-statusline` is bootstrap, not propagation. |
 | Kit-custom command or rule in `.claude/` | Lives only there — edit in place. Do not move to `_claude-project/`, do not install globally. |
 | Kit's own tweak to a SHARED rule | Copy to `_claude-project/rules/` if it applies to every project; leave it in `.claude/rules/` if it is about the kit's own machinery. |

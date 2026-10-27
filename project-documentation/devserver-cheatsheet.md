@@ -114,7 +114,7 @@ The +10 pattern leaves room for adjacent apps. No collision between shop's hops 
 
 `/dev <app> --tunnel` swaps the staged command to `npm run dev:tunnel:<app>`, which the kit ships at `_claude-project/skills/dev-server/scripts/dev-with-tunnel.mjs`. That script:
 
-1. Builds the public hostname as `<subdomain>.thenextage.com`. The subdomain is the script's optional second argument and defaults to `<app>`; the parent domain is this shop's standard and fixed.
+1. Looks up the public hostname in your own cloudflared config: the ingress `hostname:` whose first label is `<subdomain>`. The subdomain is the script's optional second argument and defaults to `<app>`. If no entry matches, or more than one does, it stops and says what to add.
 2. Spawns `cloudflared tunnel run` (reads `~/.cloudflared/config.yml`) + `npm run dev:<app>` in the same tab.
 3. Propagates the port chosen by `/dev`'s `lsof` pre-check into vite, through the env var the app's `vite.config.ts` reads.
 4. Injects `BETTER_AUTH_URL` + `VITE_BETTER_AUTH_URL` = the tunnel's `https://` origin so better-auth's cookie domain + redirect URLs use the tunnel origin, not `localhost`. Apps without better-auth ignore these.
@@ -128,7 +128,7 @@ The +10 pattern leaves room for adjacent apps. No collision between shop's hops 
 "dev:tunnel:dealer": "node .claude/skills/dev-server/scripts/dev-with-tunnel.mjs dealer"
 ```
 
-**Pass a subdomain when the app folder's name is generic.** The parent domain is shared by every project, so two projects with an `apps/web` cannot both own `web.thenextage.com`. Keep the script named after the folder, so `/dev web` finds `apps/web/vite.config.ts`, and name the product in the second argument:
+**Pass a subdomain when the app folder's name is generic.** One tunnel serves every project on your machine, so two projects with an `apps/web` cannot both own `web.<your-domain>`. Keep the script named after the folder, so `/dev web` finds `apps/web/vite.config.ts`, and name the product in the second argument:
 
 ```json
 "dev:tunnel:web": "node .claude/skills/dev-server/scripts/dev-with-tunnel.mjs web myproduct"
@@ -136,7 +136,9 @@ The +10 pattern leaves room for adjacent apps. No collision between shop's hops 
 
 ### One-time per-user-machine setup
 
-1. **Cloudflare DNS** (one-time, dashboard): wildcard CNAME `*.thenextage.com` → `<tunnel-uuid>.cfargotunnel.com`, Proxied. Universal SSL covers single-label wildcards natively; no paid Advanced Cert needed.
+The tunnel is yours: your Cloudflare account, your domain, your config. The kit only reads the hostname from it.
+
+1. **Cloudflare DNS** (one-time, dashboard): wildcard CNAME `*.<your-domain>` → `<tunnel-uuid>.cfargotunnel.com`, Proxied. Universal SSL covers single-label wildcards natively; no paid Advanced Cert needed.
 2. **`~/.cloudflared/config.yml`** — per-app ingress entries:
 
    ```yaml
@@ -144,16 +146,16 @@ The +10 pattern leaves room for adjacent apps. No collision between shop's hops 
    credentials-file: /Users/<you>/.cloudflared/<tunnel-uuid>.json
 
    ingress:
-     - hostname: shop.thenextage.com
+     - hostname: shop.example.com
        service: http://localhost:3001
-     - hostname: dealer.thenextage.com
+     - hostname: dealer.example.com
        service: http://localhost:3010
      - service: http_status:404
    ```
 3. **Each app's `vite.config.ts`** — add the public hostname to `server.allowedHosts`:
 
    ```ts
-   allowedHosts: ['.trycloudflare.com', 'shop.thenextage.com'],
+   allowedHosts: ['.trycloudflare.com', 'shop.example.com'],
    ```
 
 ### Costs

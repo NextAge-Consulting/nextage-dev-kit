@@ -142,7 +142,7 @@ const pinnedIn = (workflow, name, version) =>
 // older one. -1, 0 or 1 for two exact versions, a prerelease before its release; null
 // when either is not an exact x.y.z, which is then judged as before.
 const compareVersions = (a, b) => {
-  const parse = (v) => /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(String(v));
+  const parse = (v) => /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(String(v));
   const x = parse(a);
   const y = parse(b);
   if (!x || !y) return null;
@@ -150,7 +150,26 @@ const compareVersions = (a, b) => {
   if (x[4] === y[4]) return 0;
   if (!x[4]) return 1;
   if (!y[4]) return -1;
-  return x[4] > y[4] ? 1 : -1;
+  // SemVer precedence: build metadata is ignored, and a prerelease compares identifier by
+  // identifier — numbers as numbers (rc.10 > rc.2) and below words, a shorter prefix first.
+  // A leading-zero identifier (`01`) is not special-cased: SemVer makes such a version
+  // invalid, and every version compared here is one npm accepted, which it never is.
+  const xs = x[4].split(".");
+  const ys = y[4].split(".");
+  for (let i = 0; i < Math.max(xs.length, ys.length); i++) {
+    if (xs[i] === undefined) return -1;
+    if (ys[i] === undefined) return 1;
+    const xn = /^\d+$/.test(xs[i]);
+    const yn = /^\d+$/.test(ys[i]);
+    if (xn && yn) {
+      if (Number(xs[i]) !== Number(ys[i])) return Number(xs[i]) > Number(ys[i]) ? 1 : -1;
+    } else if (xn !== yn) {
+      return xn ? -1 : 1;
+    } else if (xs[i] !== ys[i]) {
+      return xs[i] > ys[i] ? 1 : -1;
+    }
+  }
+  return 0;
 };
 // Versions a project runs ahead of the kit: reported, never failed.
 const ahead = [];

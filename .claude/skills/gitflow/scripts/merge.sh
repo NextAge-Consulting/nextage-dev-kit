@@ -437,23 +437,35 @@ if [ ! -d /tmp ] || [ ! -x /tmp ]; then
     echo "  Diagnose the system before retrying. /tmp must exist and be traversable." >&2
     exit 21
 fi
-# The squash-merge is FATAL on failure — a failed merge means nothing shipped.
-# set -e in the outer shell IS inherited by `(...)` subshells on bash 3.2 and
-# 4.4+ (NOT the inherit_errexit case — that governs `$()`), so the explicit
-# `if !` is for diagnostic clarity, not error propagation.
-#
 # GH_PROMPT_DISABLED: with these flags gh's only question is "already merged — delete
 # the branch locally?", asked when the PR merged before this call and gh sees a
 # terminal. Nobody is there to answer it, and gh waits on it. Disabled, gh warns
 # that the PR was already merged and exits 0.
-if ! (
-    cd /tmp
-    GH_PROMPT_DISABLED=1 gh -R "$REMOTE_REPO" pr merge "$PR_NUMBER" --squash \
-        --subject "$PR_TITLE (#$PR_NUMBER)" --body "$PR_BODY"
-); then
-    echo "merge.sh: 'gh pr merge --squash' failed for PR #$PR_NUMBER. Inspect on github.com or via 'gh pr view $PR_NUMBER'." >&2
-    exit 20
-fi
+squash_merge() {
+    ( cd /tmp
+      GH_PROMPT_DISABLED=1 gh -R "$REMOTE_REPO" pr merge "$PR_NUMBER" --squash \
+          --subject "$PR_TITLE (#$PR_NUMBER)" --body "$PR_BODY" )
+}
+# A failed `gh pr merge` does not prove nothing merged. GitHub can answer the merge
+# mutation with an empty body — gh then prints a bare `EOF` — after the merge landed,
+# or before it was attempted. So a failure is settled by the PR's state on GitHub:
+# MERGED carries on as a success, OPEN is retried once, anything else is fatal
+# (exit 20). Retrying cannot merge twice: GitHub refuses to merge a merged PR.
+merge_attempt=1
+while ! squash_merge; do
+    pr_state=$( cd /tmp && gh -R "$REMOTE_REPO" pr view "$PR_NUMBER" --json state -q .state 2>/dev/null ) || pr_state=""
+    if [ "$pr_state" = MERGED ]; then
+        echo "gitflow: gh reported the squash-merge as failed, but GitHub shows PR #$PR_NUMBER merged — carrying on." >&2
+        break
+    fi
+    if [ "$pr_state" != OPEN ] || [ "$merge_attempt" -ge 2 ]; then
+        echo "merge.sh: 'gh pr merge --squash' failed for PR #$PR_NUMBER (GitHub shows it ${pr_state:-in an unknown state}). Inspect on github.com or via 'gh pr view $PR_NUMBER'." >&2
+        exit 20
+    fi
+    merge_attempt=2
+    echo "gitflow: the squash-merge failed and PR #$PR_NUMBER is still open — retrying once in 5 seconds..." >&2
+    sleep 5
+done
 
 # PRs stacked on this branch (opened against it while it was under review) move to
 # $BASE before the branch goes. Deleting a PR's base branch through the API closes

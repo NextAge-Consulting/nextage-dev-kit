@@ -10,17 +10,19 @@
  *   1. cloudflared tunnel run    (reads ~/.cloudflared/config.yml — user-machine)
  *   2. npm run dev:<app>         (with the port /dev picked propagated)
  *
- * Hostname convention:
- *   `<subdomain>.thenextage.com`, where <subdomain> defaults to <app>. The
- *   parent domain is this shop's standard and is not configurable. Pass a
- *   subdomain when the app's folder name is not unique across projects — two
- *   projects with an `apps/web` cannot both own `web.thenextage.com`.
+ * Hostname:
+ *   Read from the developer's own cloudflared config — the ingress hostname
+ *   whose first label is <subdomain>, which defaults to <app>. The tunnel,
+ *   its domain and its ingress map belong to whoever runs it; the kit only
+ *   looks the hostname up. Pass a subdomain when the app's folder name is not
+ *   unique across projects — two projects with an `apps/web` cannot both own
+ *   `web.<domain>` on one machine.
  *
  * Per-user-machine values:
- *   Tunnel UUID + ingress rules live in ~/.cloudflared/config.yml. The user
- *   wires `<app>.thenextage.com` → http://localhost:<port> ingress rules
- *   there, and points the wildcard `*.thenextage.com` DNS record at the
- *   tunnel UUID once in the Cloudflare dashboard.
+ *   Tunnel UUID + ingress rules live in the cloudflared config that
+ *   `cloudflared tunnel run` reads (usually ~/.cloudflared/config.yml). The
+ *   developer wires `<subdomain>.<their-domain>` → http://localhost:<port>
+ *   there and points that hostname's DNS at their tunnel.
  *
  * Port propagation:
  *   /dev runs lsof first, picks a free port, and invokes
@@ -32,7 +34,8 @@
  */
 
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -59,7 +62,63 @@ if (!APP) {
 }
 
 const SUBDOMAIN = process.argv[3] || APP;
-const HOSTNAME = `${SUBDOMAIN}.thenextage.com`;
+
+// The directories `cloudflared tunnel run` searches for its config, in its
+// own order; the first config file found is the one the tunnel serves.
+const CLOUDFLARED_CONFIG_DIRS = [
+  join(homedir(), ".cloudflared"),
+  join(homedir(), ".cloudflare-warp"),
+  join(homedir(), "cloudflare-warp"),
+  "/etc/cloudflared",
+  "/usr/local/etc/cloudflared",
+];
+
+function findCloudflaredConfig() {
+  for (const dir of CLOUDFLARED_CONFIG_DIRS) {
+    for (const name of ["config.yml", "config.yaml"]) {
+      const path = join(dir, name);
+      if (existsSync(path)) return path;
+    }
+  }
+  return null;
+}
+
+function resolveHostname() {
+  const configPath = findCloudflaredConfig();
+  if (!configPath) {
+    throw new Error(
+      "No cloudflared config found (looked for config.yml in ~/.cloudflared). " +
+        "Set up your own named tunnel first: cloudflared tunnel login, then cloudflared tunnel create.",
+    );
+  }
+  const hostnames = [
+    ...readFileSync(configPath, "utf8").matchAll(
+      /^\s*-?\s*hostname:\s*["']?([^"'\s#]+)/gm,
+    ),
+  ].map((m) => m[1]);
+  const matches = [
+    ...new Set(hostnames.filter((h) => h.split(".")[0] === SUBDOMAIN)),
+  ];
+  if (matches.length === 1) return matches[0];
+  if (matches.length === 0) {
+    throw new Error(
+      `No ingress hostname for "${SUBDOMAIN}" in ${configPath}. ` +
+        `Add one under ingress: "- hostname: ${SUBDOMAIN}.<your-domain>" with "service: http://localhost:<port>".`,
+    );
+  }
+  throw new Error(
+    `More than one ingress hostname for "${SUBDOMAIN}" in ${configPath} (${matches.join(", ")}). ` +
+      "Pass a distinct subdomain as the script's second argument.",
+  );
+}
+
+let HOSTNAME;
+try {
+  HOSTNAME = resolveHostname();
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
 const PORT = process.env.DEV_PORT || process.env.PORT || "(default)";
 
 let tunnelProcess = null;

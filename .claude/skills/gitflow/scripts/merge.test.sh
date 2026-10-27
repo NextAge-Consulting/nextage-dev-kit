@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Regression suite for merge.sh's PR-ownership behaviour: a stacked PR whose parent
 # has not merged is refused, and merging someone else's PR records an approval first.
-# Also the uncommitted-changes gate and the worktree tail.
+# Also a failed squash-merge settled by the PR's state, the uncommitted-changes gate
+# and the worktree tail.
 # Runs with --force-unchecked (no CI wait, no build) against a real origin; gh is a
 # fake that answers from FAKE_* and records every call. Last, the build running while the
 # readiness wait polls, against a fake wait and a fake npm, and skipped on code it built.
@@ -32,6 +33,8 @@ case "$*" in
   *"pr view 77 --json title"*) echo "✨ feat: x" ;;
   *"pr view 77 --json body"*) echo "body" ;;
   *"pr list --base "*) printf '%s\n' ${FAKE_STACKED:-} ;;
+  *"pr view 77 --json state"*) [ -n "${FAKE_STATE:-}" ] || exit 1; echo "$FAKE_STATE" ;;
+  *"pr merge"*) [ "$(grep -c "pr merge" "$FAKE_LOG")" -gt "${FAKE_MERGE_FAILS:-0}" ] || { echo EOF >&2; exit 1; } ;;
   "api repos/acme/app/git/ref/heads/"*) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
   *) exit 0 ;;
 esac
@@ -66,6 +69,30 @@ FAKE_ME=alice FAKE_AUTHOR=alice FAKE_BASE=main merge; rc=$?
     && ok "merging your own PR records no approval" || bad "own merge (rc=$rc): $(cat "$tmp/out")"
 grep -qx "merge prompts: 1" "$FAKE_LOG" \
     && ok "the squash-merge runs with gh's prompts disabled" || bad "merge prompts: $(cat "$FAKE_LOG")"
+
+# ─── A failed squash-merge is settled by the PR's state on GitHub ─────────
+merges(){ grep -c "pr merge" "$FAKE_LOG"; }
+branch feat/merged-anyway
+FAKE_ME=alice FAKE_AUTHOR=alice FAKE_BASE=main FAKE_MERGE_FAILS=1 FAKE_STATE=MERGED merge; rc=$?
+{ [ "$rc" -eq 0 ] && [ "$(merges)" -eq 1 ] && grep -q "GitHub shows PR #77 merged — carrying on" "$tmp/out" \
+  && [ "$(git branch --show-current)" = main ]; } \
+    && ok "gh fails but the PR merged: carries on to main, no second merge" || bad "merged anyway (rc=$rc): $(cat "$tmp/out")"
+branch feat/retried
+FAKE_ME=alice FAKE_AUTHOR=alice FAKE_BASE=main FAKE_MERGE_FAILS=1 FAKE_STATE=OPEN merge; rc=$?
+{ [ "$rc" -eq 0 ] && [ "$(merges)" -eq 2 ] && grep -q "still open — retrying once" "$tmp/out"; } \
+    && ok "gh fails and the PR is still open: one retry, which merges" || bad "retry (rc=$rc): $(cat "$tmp/out")"
+branch feat/retry-fails
+FAKE_ME=alice FAKE_AUTHOR=alice FAKE_BASE=main FAKE_MERGE_FAILS=2 FAKE_STATE=OPEN merge; rc=$?
+{ [ "$rc" -eq 20 ] && [ "$(merges)" -eq 2 ] && grep -q "failed for PR #77 (GitHub shows it OPEN)" "$tmp/out"; } \
+    && ok "the retry fails too: exit 20 after exactly two attempts" || bad "retry fails (rc=$rc): $(cat "$tmp/out")"
+branch feat/closed
+FAKE_ME=alice FAKE_AUTHOR=alice FAKE_BASE=main FAKE_MERGE_FAILS=1 FAKE_STATE=CLOSED merge; rc=$?
+{ [ "$rc" -eq 20 ] && [ "$(merges)" -eq 1 ] && grep -q "(GitHub shows it CLOSED)" "$tmp/out"; } \
+    && ok "gh fails and the PR is closed: exit 20, no retry" || bad "closed (rc=$rc): $(cat "$tmp/out")"
+branch feat/state-unknown
+FAKE_ME=alice FAKE_AUTHOR=alice FAKE_BASE=main FAKE_MERGE_FAILS=1 FAKE_STATE='' merge; rc=$?
+{ [ "$rc" -eq 20 ] && [ "$(merges)" -eq 1 ] && grep -q "(GitHub shows it in an unknown state)" "$tmp/out"; } \
+    && ok "gh fails and the state cannot be read: exit 20, no retry" || bad "state unknown (rc=$rc): $(cat "$tmp/out")"
 
 # ─── Org repo: /deploy lands the PR, /merge does not ──────────────────────
 branch feat/org
