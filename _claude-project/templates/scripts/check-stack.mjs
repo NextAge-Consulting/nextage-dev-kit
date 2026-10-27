@@ -152,6 +152,8 @@ const compareVersions = (a, b) => {
   if (!y[4]) return -1;
   // SemVer precedence: build metadata is ignored, and a prerelease compares identifier by
   // identifier — numbers as numbers (rc.10 > rc.2) and below words, a shorter prefix first.
+  // A leading-zero identifier (`01`) is not special-cased: SemVer makes such a version
+  // invalid, and every version compared here is one npm accepted, which it never is.
   const xs = x[4].split(".");
   const ys = y[4].split(".");
   for (let i = 0; i < Math.max(xs.length, ys.length); i++) {
