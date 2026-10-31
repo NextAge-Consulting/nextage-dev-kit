@@ -237,6 +237,109 @@ printf '# kit v3\n' >> "$KIT/_github-project/workflows/ci.yml"; kit_commit "ci v
 run --ack-file _github-project/workflows/ci.yml >/dev/null 2>&1
 [ -n "$(lock "$CI" '.skeleton // ""')" ] && ok "ack records the kit skeleton" || bad "ack skeleton"
 
+# ─── Action pins: the kit's is the floor, a newer one the project's ──────
+PT=".github/workflows/pr-title.yml"
+pin() {  # file action sha version
+    python3 - "$1" "$2" "$3" "$4" <<'EOF'
+import re, sys; p, a, s, v = sys.argv[1:]; t = open(p).read()
+open(p, "w").write(re.sub(r"(uses: " + re.escape(a) + r")@\S+(\s+# \S+)?", r"\g<1>@" + s + "  # " + v, t))
+EOF
+}
+cat > "$KIT/_github-project/workflows/pr-title.yml" <<'EOF'
+jobs:
+  title:
+    steps:
+      - uses: actions/checkout@aaaa  # v7.0.1
+      - uses: actions/setup-node@bbbb  # v7.1.0
+      - run: echo kit
+EOF
+kit_commit "pr-title"
+run --apply-file _github-project/workflows/pr-title.yml >/dev/null 2>&1
+[ "$(lock "$PT" '.skeletonPins // false')" = "true" ] && ok "pins: a workflow records a skeleton without its action refs" || bad "pins: skeletonPins"
+
+pin "$PROJ/$PT" actions/checkout cccc v7.0.2
+[ "$(state "$PT")" = "clean-converged" ] && ok "pins: a newer project pin is not a project edit" || bad "pins: project ahead: $(state "$PT")"
+run --apply-file _github-project/workflows/pr-title.yml >/dev/null 2>&1
+grep -q 'actions/checkout@cccc  # v7.0.2' "$PROJ/$PT" && ok "pins: applying keeps the newer project pin" || bad "pins: newer pin reverted"
+
+printf '      - run: echo kit two\n' >> "$KIT/_github-project/workflows/pr-title.yml"; kit_commit "pr-title step"
+[ "$(state "$PT")" = "kit-only" ] && ok "pins: a kit change beside a newer project pin is kit-only" || bad "pins: kit change: $(state "$PT")"
+run --apply-file _github-project/workflows/pr-title.yml >/dev/null 2>&1
+grep -q 'echo kit two' "$PROJ/$PT" && grep -q 'actions/checkout@cccc  # v7.0.2' "$PROJ/$PT" \
+    && ok "pins: the kit change lands and the newer pin stays" || bad "pins: kit change content"
+
+pin "$KIT/_github-project/workflows/pr-title.yml" actions/setup-node dddd v7.2.0; kit_commit "setup-node up"
+[ "$(state "$PT")" = "kit-only" ] && ok "pins: a project behind the kit's pin is kit-only" || bad "pins: project behind: $(state "$PT")"
+run --apply-file _github-project/workflows/pr-title.yml >/dev/null 2>&1
+grep -q 'actions/setup-node@dddd  # v7.2.0' "$PROJ/$PT" && grep -q 'actions/checkout@cccc  # v7.0.2' "$PROJ/$PT" \
+    && ok "pins: applying raises the project to the kit's pin" || bad "pins: floor not applied"
+[ "$(state "$PT")" = "clean" ] && ok "pins: clean after apply" || bad "pins: after apply: $(state "$PT")"
+
+pin "$PROJ/$PT" actions/setup-node eeee v7.0.0
+[ "$(state "$PT")" = "kit-only" ] && ok "pins: a pin lowered below the kit's is raised again" || bad "pins: lowered: $(state "$PT")"
+run --apply-file _github-project/workflows/pr-title.yml >/dev/null 2>&1
+printf '      - run: echo stray\n' >> "$PROJ/$PT"
+[ "$(state "$PT")" = "unsanctioned" ] && ok "pins: an edit beyond the pins is still a project edit" || bad "pins: stray edit: $(state "$PT")"
+run --apply-file _github-project/workflows/pr-title.yml >/dev/null 2>&1
+
+# A merge workflow carries pins as well as regions.
+cat > "$KIT/_github-project/workflows/ci.yml" <<'EOF'
+jobs:
+  project:
+    steps:
+      - uses: actions/checkout@aaaa  # v7.0.1
+      # project:begin project-steps
+      - run: echo seed
+      # project:end project-steps
+EOF
+kit_commit "ci pinned"
+run --apply-file _github-project/workflows/ci.yml >/dev/null 2>&1
+pin "$PROJ/$CI" actions/checkout ffff v7.1.0
+[ "$(state "$CI")" = "clean-converged" ] && ok "pins: a merge workflow's newer pin is not a project edit" || bad "pins: merge ahead: $(state "$CI")"
+
+# A skeleton recorded with the refs in reads as no skeleton, so a project whose
+# Dependabot raised a pin under it is matched afresh rather than taken for an edit.
+jq --arg d "$CI" '.files[$d] |= del(.skeletonPins)' "$PROJ/.claude/.kit-sync.json" > "$tmp/l" && mv "$tmp/l" "$PROJ/.claude/.kit-sync.json"
+[ "$(state "$CI")" = "clean-first" ] && ok "pins: an old skeleton is not compared, so a newer pin is no edit" || bad "pins: legacy skeleton: $(state "$CI")"
+pin "$KIT/_github-project/workflows/ci.yml" actions/checkout gggg v7.2.0; kit_commit "ci checkout up"
+[ "$(state "$CI")" = "kit-only" ] && ok "pins: under an old skeleton, a kit pin above the project's is kit-only" || bad "pins: legacy floor: $(state "$CI")"
+run --apply-file _github-project/workflows/ci.yml >/dev/null 2>&1
+grep -q 'actions/checkout@gggg  # v7.2.0' "$PROJ/$CI" && [ "$(lock "$CI" '.skeletonPins // false')" = "true" ] \
+    && ok "pins: applying raises the pin and records the new skeleton" || bad "pins: legacy apply"
+
+# An entry recorded before pins were carried: its skeleton is rebuilt from the kit
+# file at lastSyncedCommit, so a raised pin and a kit change in one sync is kit-only.
+cp "$KIT/_github-project/workflows/pr-title.yml" "$PROJ/$PT"
+run --finalize >/dev/null 2>&1
+python3 - "$PROJ/.claude/.kit-sync.json" "$PROJ/$CI" "$CI" "$PT" "$PROJ/$PT" <<'EOF'
+import hashlib, json, re, sys
+lock, ci, ci_key, pt_key, pt = sys.argv[1:]
+body, keep = [], True
+for line in open(ci).read().splitlines(True):
+    if re.match(r"\s*# project:end ", line): keep = True
+    if keep: body.append(line)
+    if re.match(r"\s*# project:begin ", line): keep = False
+d = json.load(open(lock))
+d["files"][ci_key] = {"sha": d["files"][ci_key]["sha"], "mode": "merge",
+                      "skeleton": hashlib.sha256("".join(body).encode()).hexdigest()}
+d["files"][pt_key] = {"sha": hashlib.sha256(open(pt, "rb").read()).hexdigest(), "mode": "owned"}
+json.dump(d, open(lock, "w"))
+EOF
+pin "$PROJ/$CI" actions/checkout hhhh v7.3.0
+pin "$PROJ/$PT" actions/checkout iiii v7.3.0
+printf '# ci v5\n' >> "$KIT/_github-project/workflows/ci.yml"
+printf '      - run: echo kit three\n' >> "$KIT/_github-project/workflows/pr-title.yml"; kit_commit "workflows v5"
+[ "$(state "$CI")" = "kit-only" ] && ok "pins: an old merge skeleton is rebuilt — raised pin + kit change is kit-only" || bad "pins: rebuilt merge: $(state "$CI")"
+[ "$(state "$PT")" = "kit-only" ] && ok "pins: an old owned entry is rebuilt — raised pin + kit change is kit-only" || bad "pins: rebuilt owned: $(state "$PT")"
+printf 'stray: true\n' >> "$PROJ/$PT"
+[ "$(state "$PT")" = "unsanctioned" ] && ok "pins: under a rebuilt skeleton a real edit is still an edit" || bad "pins: rebuilt edit: $(state "$PT")"
+python3 - "$PROJ/$PT" <<'EOF'
+import sys; p = sys.argv[1]; open(p, "w").write(open(p).read().replace("stray: true\n", ""))
+EOF
+run --apply-file _github-project/workflows/ci.yml >/dev/null 2>&1
+grep -q 'actions/checkout@hhhh  # v7.3.0' "$PROJ/$CI" && grep -q 'ci v5' "$PROJ/$CI" \
+    && ok "pins: the rebuilt case applies the kit text and keeps the raised pin" || bad "pins: rebuilt apply"
+
 # ─── Destination from a substitution ──────────────────────────────────────
 jq '.DESIGN_UI_PACKAGE = "packages/ui"' "$PROJ/.claude/sync-substitutions.json" > "$tmp/s" && mv "$tmp/s" "$PROJ/.claude/sync-substitutions.json"
 d=$(scan | jq -r '.files[] | select(.kit_path == "_claude-project/templates/design-system/engine.mjs") | .dest_path + " " + .mode')

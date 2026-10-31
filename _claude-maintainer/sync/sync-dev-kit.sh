@@ -641,15 +641,117 @@ sha256_stdin() {
     fi
 }
 
-# SHA of a file with its region bodies removed — the part of a merge file the
-# kit owns. Empty on malformed markers (reason on stderr).
-sha256_skeleton() {
-    local syn="$1" file="$2" out
+# ─── Action pins ───────────────────────────────────────────────────────────
+# A workflow's `uses: owner/action@<sha>  # vX.Y.Z` lines are the one thing in a
+# kit workflow a project may move: its Dependabot raises them, and sync keeps
+# whichever of the two versions is newer. The kit's pin is the floor — a project
+# behind it is brought up to it — and a project ahead of it is never reverted.
+# Every other line is the kit's. The version is read from the `# vX.Y.Z` comment
+# Dependabot keeps beside the SHA; a pin without one takes the kit's.
+carries_pins() {
+    case "$1" in
+        _github-project/workflows/*) return 0 ;;
+    esac
+    return 1
+}
+
+# pin_awk <op> <file> [<project-file>]
+#   blank  — <file> with every action reference after `@` removed
+#   carry  — <file> (the kit) with each action taken at the project's ref
+#            wherever the project's version is newer
+pin_awk() {
+    awk -v op="$1" -v projfile="${3:-}" '
+        # Sets head (the line up to and including "@"), name and rest for a
+        # `uses:` line naming an action at a ref; 0 for any other line.
+        function parse(line,    i, after, at) {
+            if (line !~ /^[ \t]*(-[ \t]+)?uses:[ \t]*[^@ \t]+@/) return 0
+            i = index(line, "uses:")
+            after = substr(line, i + 5)
+            sub(/^[ \t]+/, "", after)
+            at = index(after, "@")
+            name = substr(after, 1, at - 1)
+            rest = substr(after, at + 1)
+            head = substr(line, 1, length(line) - length(rest))
+            return 1
+        }
+        function ver(r,    v) {
+            if (!match(r, /#[ \t]*v?[0-9]+(\.[0-9]+)*/)) return ""
+            v = substr(r, RSTART, RLENGTH)
+            sub(/^#[ \t]*v?/, "", v)
+            return v
+        }
+        # Is version a newer than version b? Missing parts count as 0.
+        function newer(a, b,    x, y, nx, ny, i, xa, yb) {
+            nx = split(a, x, "."); ny = split(b, y, ".")
+            for (i = 1; i <= 3; i++) {
+                xa = (i <= nx) ? x[i] + 0 : 0
+                yb = (i <= ny) ? y[i] + 0 : 0
+                if (xa != yb) return xa > yb
+            }
+            return 0
+        }
+        BEGIN {
+            if (op == "carry") {
+                while ((getline line < projfile) > 0) {
+                    if (!parse(line)) continue
+                    v = ver(rest)
+                    if (v == "") continue
+                    if (!(name in best) || newer(v, best[name])) { best[name] = v; bestref[name] = rest }
+                }
+                close(projfile)
+            }
+        }
+        {
+            if (!parse($0)) { print; next }
+            if (op == "blank") { print head; next }
+            v = ver(rest)
+            if (v != "" && (name in best) && newer(best[name], v)) print head bestref[name]
+            else print
+        }
+    ' "$2"
+}
+
+# SHA of the part of a file the kit owns: region bodies removed for a merge
+# file, action refs removed for a workflow. Empty on malformed region markers
+# (reason on stderr).
+file_skeleton() {
+    local kit_rel="$1" file="$2" out blanked
     out=$(mktemp)
-    if ! region_awk blank "$syn" "$file" > "$out"; then
-        rm -f "$out"; echo ""; return
+    if [ "$(mode_for_kit_path "$kit_rel")" = "merge" ]; then
+        if ! region_awk blank "$(region_syntax "$kit_rel")" "$file" > "$out"; then
+            rm -f "$out"; echo ""; return
+        fi
+    else
+        cat "$file" > "$out"
+    fi
+    if carries_pins "$kit_rel"; then
+        blanked=$(mktemp)
+        pin_awk blank "$out" > "$blanked"
+        mv "$blanked" "$out"
     fi
     sha256_stdin < "$out"
+    rm -f "$out"
+}
+
+# compose_kit <kit-rel> <substituted-kit-file> <project-file> — what applying
+# writes: the kit file with the project's region bodies (merge) and its newer
+# action pins (workflow) carried in. No project file, the kit file as it is.
+# Exit 3 on malformed region markers (reason on stderr).
+compose_kit() {
+    local kit_rel="$1" kit="$2" proj="$3" out
+    out=$(mktemp)
+    if [ "$(mode_for_kit_path "$kit_rel")" = "merge" ] && [ -f "$proj" ]; then
+        if ! region_awk compose "$(region_syntax "$kit_rel")" "$kit" "$proj" > "$out"; then
+            rm -f "$out"; return 3
+        fi
+    else
+        cat "$kit" > "$out"
+    fi
+    if carries_pins "$kit_rel" && [ -f "$proj" ]; then
+        pin_awk carry "$out" "$proj"
+    else
+        cat "$out"
+    fi
     rm -f "$out"
 }
 
@@ -1003,21 +1105,78 @@ update_lockfile_declined() {
     mv "$tmp" "$LOCKFILE"
 }
 
-# The skeleton SHA recorded for a merge file: its kit-owned text, region bodies
-# removed, as last written. Empty for any other file or a legacy entry.
+# The skeleton SHA recorded for a merge file or a workflow: its kit-owned text,
+# as last written. Empty for any other file or a legacy entry. A workflow's
+# skeleton leaves out its action refs, which `skeletonPins` records; one taken
+# with the refs in cannot be compared, and reads as no skeleton at all.
 load_baseline_skeleton() {
-    local dest_rel="$1"
+    local dest_rel="$1" kit_rel="$2" pins=false
     [ -f "$LOCKFILE" ] || { echo ""; return; }
-    jq -r --arg k "$dest_rel" '
-        (.files[$k] // "") | if type == "object" then (.skeleton // "") else "" end
+    carries_pins "$kit_rel" && pins=true
+    jq -r --arg k "$dest_rel" --argjson pins "$pins" '
+        (.files[$k] // "") | if type == "object" and ((.skeletonPins // false) == $pins)
+        then (.skeleton // "") else "" end
     ' "$LOCKFILE"
+}
+
+# The skeleton of the kit file this project last took, rebuilt from the kit's
+# history at its lastSyncedCommit — for an entry with no skeleton this engine can
+# compare. It is trusted only when that file, hashed as the lockfile entry was,
+# reproduces the entry: the substituted file for an owned workflow, its skeleton
+# with the action refs in for a merge file. Empty otherwise.
+rebuilt_baseline_skeleton() {
+    local kit_rel="$1" dest_rel="$2" commit entry old old_skel got want
+    [ -f "$LOCKFILE" ] || { echo ""; return; }
+    commit=$(jq -r '.lastSyncedCommit // ""' "$LOCKFILE")
+    [ -n "$commit" ] || { echo ""; return; }
+    old=$(mktemp)
+    if ! git -C "$KIT_PATH" show "${commit}:${kit_rel}" > "$old" 2>/dev/null; then
+        rm -f "$old"; echo ""; return
+    fi
+    if ! apply_substitutions < "$old" > "$old.s"; then
+        rm -f "$old" "$old.s"; echo ""; return
+    fi
+    mv "$old.s" "$old"
+    entry=$(jq -c --arg k "$dest_rel" '.files[$k] // {} | if type == "object" then . else {sha: .} end' "$LOCKFILE")
+    if [ "$(mode_for_kit_path "$kit_rel")" = "merge" ]; then
+        want=$(jq -r '.skeleton // ""' <<<"$entry")
+        old_skel=$(mktemp)
+        if region_awk blank "$(region_syntax "$kit_rel")" "$old" > "$old_skel" 2>/dev/null; then
+            got=$(sha256_stdin < "$old_skel")
+        else
+            got=""
+        fi
+        rm -f "$old_skel"
+    else
+        want=$(jq -r '.sha // ""' <<<"$entry")
+        got=$(sha256 "$old")
+    fi
+    if [ -n "$want" ] && [ "$got" = "$want" ]; then
+        file_skeleton "$kit_rel" "$old"
+    else
+        echo ""
+    fi
+    rm -f "$old"
+}
+
+# The lockfile fields a skeleton is recorded with, as a JSON object.
+skeleton_fields() {
+    local kit_rel="$1" skeleton="$2"
+    if [ -z "$skeleton" ]; then
+        echo '{}'
+    elif carries_pins "$kit_rel"; then
+        jq -n -c --arg s "$skeleton" '{skeleton: $s, skeletonPins: true}'
+    else
+        jq -n -c --arg s "$skeleton" '{skeleton: $s}'
+    fi
 }
 
 update_lockfile_file() {
     local dest_rel="$1"
     local new_sha="$2"
     local mode="${3:-owned}"
-    local skeleton="${4:-}"
+    local skel_json="${4:-}"
+    [ -n "$skel_json" ] || skel_json='{}'
 
     mkdir -p "$(dirname "$LOCKFILE")"
     if [ ! -f "$LOCKFILE" ]; then
@@ -1027,8 +1186,8 @@ update_lockfile_file() {
     local tmp
     tmp=$(mktemp)
     if [ -n "$new_sha" ]; then
-        jq --arg k "$dest_rel" --arg v "$new_sha" --arg m "$mode" --arg s "$skeleton" \
-            '.files[$k] = ({sha: $v, mode: $m} + (if $s == "" then {} else {skeleton: $s} end))' "$LOCKFILE" > "$tmp"
+        jq --arg k "$dest_rel" --arg v "$new_sha" --arg m "$mode" --argjson s "$skel_json" \
+            '.files[$k] = ({sha: $v, mode: $m} + $s)' "$LOCKFILE" > "$tmp"
     else
         jq --arg k "$dest_rel" 'del(.files[$k])' "$LOCKFILE" > "$tmp"
     fi
@@ -1193,16 +1352,17 @@ if [ "$MODE" = "scan" ]; then
 
         # kit_sha is what applying would write: the kit file after placeholder
         # substitution — and, for a merge file, with the project's region
-        # bodies carried in. proj_sha is the raw project file. settings.json
-        # canonicalizes both sides via jq (kitmaintainer-handbook.md §9.6).
+        # bodies carried in; for a workflow, with its newer action pins carried
+        # in. proj_sha is the raw project file. settings.json canonicalizes both
+        # sides via jq (kitmaintainer-handbook.md §9.6).
         if is_settings_json "$kit_rel"; then
             kit_sha=$(sha256_settings_kit "$kit_full")
             proj_sha=$(sha256_settings_proj "$proj_full")
-        elif [ "$file_mode" = "merge" ]; then
+        elif [ "$file_mode" = "merge" ] || carries_pins "$kit_rel"; then
             syn=$(region_syntax "$kit_rel")
             tmp_kit=$(mktemp)
             apply_substitutions < "$kit_full" > "$tmp_kit"
-            kit_skel=$(sha256_skeleton "$syn" "$tmp_kit")
+            kit_skel=$(file_skeleton "$kit_rel" "$tmp_kit")
             if [ -z "$kit_skel" ]; then
                 rm -f "$tmp_kit"
                 echo "sync-dev-kit.sh: the kit's $kit_rel has malformed region markers — fix the kit before syncing" >&2
@@ -1211,7 +1371,7 @@ if [ "$MODE" = "scan" ]; then
             kit_sha=$(sha256 "$tmp_kit")
             proj_sha=$(sha256 "$proj_full")
             if [ -n "$proj_sha" ]; then
-                if ! has_region_markers "$syn" "$proj_full"; then
+                if [ "$file_mode" = "merge" ] && ! has_region_markers "$syn" "$proj_full"; then
                     # The project's content predates the regions. Applying would
                     # discard it, so nothing is written until it is moved into
                     # the regions by hand.
@@ -1219,10 +1379,13 @@ if [ "$MODE" = "scan" ]; then
                 else
                     tmp_merged=$(mktemp)
                     tmp_err=$(mktemp)
-                    if region_awk compose "$syn" "$tmp_kit" "$proj_full" > "$tmp_merged" 2> "$tmp_err"; then
+                    if compose_kit "$kit_rel" "$tmp_kit" "$proj_full" > "$tmp_merged" 2> "$tmp_err"; then
                         kit_sha=$(sha256 "$tmp_merged")
-                        proj_skel=$(sha256_skeleton "$syn" "$proj_full")
-                        base_skel=$(load_baseline_skeleton "$dest_rel")
+                        proj_skel=$(file_skeleton "$kit_rel" "$proj_full")
+                        base_skel=$(load_baseline_skeleton "$dest_rel" "$kit_rel")
+                        if [ -z "$base_skel" ] && carries_pins "$kit_rel"; then
+                            base_skel=$(rebuilt_baseline_skeleton "$kit_rel" "$dest_rel")
+                        fi
                         if [ -z "$base_skel" ]; then
                             # First merge-aware sync: no record of the kit text
                             # this project last took, so an outside difference
@@ -1241,8 +1404,9 @@ if [ "$MODE" = "scan" ]; then
                         elif [ "$proj_sha" = "$kit_sha" ]; then
                             if [ "$proj_sha" = "$baseline_sha" ]; then state="clean"; else state="clean-converged"; fi
                         else
-                            # Kit text moved, or a region the project lacks takes
-                            # its kit seed. Region bodies are carried, so applying
+                            # Kit text moved, a region the project lacks takes
+                            # its kit seed, or a pin is behind the kit's. Region
+                            # bodies and newer pins are carried, so applying
                             # never costs the project anything.
                             state="kit-only"
                         fi
@@ -1537,30 +1701,27 @@ if [ "$MODE" = "apply" ]; then
         mv "$tmp_final" "$proj_full"
         rm -f "$tmp_subst"
         new_sha=$(sha256_settings_proj "$proj_full")
-    elif [ "$(mode_for_kit_path "$APPLY_FILE")" = "merge" ]; then
-        # Kit text everywhere, the project's bodies inside its regions.
+    elif [ "$(mode_for_kit_path "$APPLY_FILE")" = "merge" ] || carries_pins "$APPLY_FILE"; then
+        # Kit text everywhere, the project's bodies inside its regions and its
+        # newer action pins.
         syn=$(region_syntax "$APPLY_FILE")
         tmp_kit=$(mktemp)
         tmp_final=$(mktemp)
         apply_substitutions < "$kit_full" > "$tmp_kit"
-        if [ -f "$proj_full" ]; then
-            if ! has_region_markers "$syn" "$proj_full"; then
-                rm -f "$tmp_kit" "$tmp_final"
-                echo "sync-dev-kit.sh: $dest_rel has no project regions yet (merge-unmarked). Move its project content into the kit's regions by hand first — applying now would discard it." >&2
-                exit 4
-            fi
-            if ! region_awk compose "$syn" "$tmp_kit" "$proj_full" > "$tmp_final"; then
-                rm -f "$tmp_kit" "$tmp_final"
-                echo "sync-dev-kit.sh: could not merge $dest_rel — fix the region markers named above, then apply again" >&2
-                exit 4
-            fi
-        else
-            cp "$tmp_kit" "$tmp_final"
+        if [ -f "$proj_full" ] && [ "$(mode_for_kit_path "$APPLY_FILE")" = "merge" ] && ! has_region_markers "$syn" "$proj_full"; then
+            rm -f "$tmp_kit" "$tmp_final"
+            echo "sync-dev-kit.sh: $dest_rel has no project regions yet (merge-unmarked). Move its project content into the kit's regions by hand first — applying now would discard it." >&2
+            exit 4
+        fi
+        if ! compose_kit "$APPLY_FILE" "$tmp_kit" "$proj_full" > "$tmp_final"; then
+            rm -f "$tmp_kit" "$tmp_final"
+            echo "sync-dev-kit.sh: could not merge $dest_rel — fix the region markers named above, then apply again" >&2
+            exit 4
         fi
         cat "$tmp_final" > "$proj_full"
         rm -f "$tmp_kit" "$tmp_final"
         new_sha=$(sha256 "$proj_full")
-        new_skeleton=$(sha256_skeleton "$syn" "$proj_full")
+        new_skeleton=$(skeleton_fields "$APPLY_FILE" "$(file_skeleton "$APPLY_FILE" "$proj_full")")
     else
         apply_substitutions < "$kit_full" > "$proj_full"
         case "$APPLY_FILE" in
@@ -1572,9 +1733,9 @@ if [ "$MODE" = "apply" ]; then
     # Lockfile baseline SHA tracks what was WRITTEN: the substituted kit
     # content (canonicalized for settings.json, region-merged for a merge
     # file). This keeps subsequent scans clean until the kit template changes
-    # or the substitution value changes. A merge file also records its skeleton
-    # — the kit-owned text — which is how a later scan tells a project edit
-    # outside the regions from one inside them.
+    # or the substitution value changes. A merge file or a workflow also
+    # records its skeleton — the kit-owned text — which is how a later scan
+    # tells a project edit to it from one to its regions or its action pins.
     update_lockfile_file "$dest_rel" "$new_sha" "$(mode_for_kit_path "$APPLY_FILE")" "${new_skeleton:-}"
 
     echo "sync-dev-kit.sh: applied $dest_rel ($new_sha)" >&2
@@ -1613,20 +1774,21 @@ if [ "$MODE" = "ack" ]; then
     [ ! -f "$kit_full" ] && { echo "sync-dev-kit.sh: $APPLY_FILE does not exist in the kit" >&2; exit 4; }
 
     # Same hash the scan computes for kit_sha, so the next scan sees the kit
-    # as unchanged. A merge file records the kit's skeleton too; its kit_sha
-    # carries the project's regions, so it is taken from the composed text.
+    # as unchanged. A merge file or a workflow records the kit's skeleton too;
+    # its kit_sha carries the project's regions and newer action pins, so it is
+    # taken from the composed text.
     ack_skeleton=""
     if is_settings_json "$APPLY_FILE"; then
         ack_sha=$(sha256_settings_kit "$kit_full")
-    elif [ "$(mode_for_kit_path "$APPLY_FILE")" = "merge" ]; then
+    elif [ "$(mode_for_kit_path "$APPLY_FILE")" = "merge" ] || carries_pins "$APPLY_FILE"; then
         syn=$(region_syntax "$APPLY_FILE")
         tmp_kit=$(mktemp)
         apply_substitutions < "$kit_full" > "$tmp_kit"
-        ack_skeleton=$(sha256_skeleton "$syn" "$tmp_kit")
+        ack_skeleton=$(skeleton_fields "$APPLY_FILE" "$(file_skeleton "$APPLY_FILE" "$tmp_kit")")
         proj_full="${PROJECT_PATH}/${dest_rel}"
-        if [ -f "$proj_full" ] && has_region_markers "$syn" "$proj_full"; then
+        if [ -f "$proj_full" ] && { [ "$(mode_for_kit_path "$APPLY_FILE")" != "merge" ] || has_region_markers "$syn" "$proj_full"; }; then
             tmp_merged=$(mktemp)
-            if ! region_awk compose "$syn" "$tmp_kit" "$proj_full" > "$tmp_merged"; then
+            if ! compose_kit "$APPLY_FILE" "$tmp_kit" "$proj_full" > "$tmp_merged"; then
                 rm -f "$tmp_kit" "$tmp_merged"
                 echo "sync-dev-kit.sh: could not merge $dest_rel — fix the region markers named above first" >&2
                 exit 4
@@ -1882,20 +2044,23 @@ if [ "$MODE" = "finalize" ]; then
         file_mode=$(mode_for_kit_path "$kit_rel")
         proj_full="${PROJECT_PATH}/${dest_rel}"
         proj_sha=$(sha256 "$proj_full")
-        skeleton=""
+        skeleton='{}'
 
-        if [ "$file_mode" = "merge" ]; then
-            # A merge file matches when composing the kit around the project's
-            # own regions reproduces the project file exactly — its regions may
-            # hold anything, its kit text must be the kit's.
+        if [ "$file_mode" = "merge" ] || carries_pins "$kit_rel"; then
+            # A merge file or a workflow matches when composing the kit around
+            # the project's own regions and newer action pins reproduces the
+            # project file exactly — its regions may hold anything, its kit text
+            # must be the kit's.
             syn=$(region_syntax "$kit_rel")
-            has_region_markers "$syn" "$proj_full" || continue
+            if [ "$file_mode" = "merge" ]; then
+                has_region_markers "$syn" "$proj_full" || continue
+            fi
             tmp_kit=$(mktemp)
             tmp_merged=$(mktemp)
             apply_substitutions < "${KIT_PATH}/${kit_rel}" > "$tmp_kit"
-            if region_awk compose "$syn" "$tmp_kit" "$proj_full" > "$tmp_merged" 2>/dev/null; then
+            if compose_kit "$kit_rel" "$tmp_kit" "$proj_full" > "$tmp_merged" 2>/dev/null; then
                 kit_sha=$(sha256 "$tmp_merged")
-                skeleton=$(sha256_skeleton "$syn" "$tmp_kit")
+                skeleton=$(skeleton_fields "$kit_rel" "$(file_skeleton "$kit_rel" "$tmp_kit")")
             else
                 kit_sha=""
             fi
@@ -1908,14 +2073,10 @@ if [ "$MODE" = "finalize" ]; then
         fi
         [ -n "$kit_sha" ] && [ "$kit_sha" = "$proj_sha" ] || continue
 
-        already=$(jq -r --arg k "$dest_rel" '
-            (.files[$k] // "") | if type == "object" then ((.sha // "") + "|" + (.skeleton // "") + "|" + (.mode // "owned")) else . + "||owned" end
-        ' "$LOCKFILE")
-        [ "$already" = "${kit_sha}|${skeleton}|${file_mode}" ] && continue
+        entry=$(jq -c -n --arg v "$kit_sha" --arg m "$file_mode" --argjson s "$skeleton" '{sha: $v, mode: $m} + $s')
+        jq -e --arg k "$dest_rel" --argjson e "$entry" '.files[$k] == $e' "$LOCKFILE" >/dev/null && continue
 
-        BACKFILL=$(jq -c --arg k "$dest_rel" --arg v "$kit_sha" \
-            --arg m "$file_mode" --arg s "$skeleton" \
-            '. + {($k): ({sha: $v, mode: $m} + (if $s == "" then {} else {skeleton: $s} end))}' <<<"$BACKFILL")
+        BACKFILL=$(jq -c --arg k "$dest_rel" --argjson e "$entry" '. + {($k): $e}' <<<"$BACKFILL")
         BACKFILL_N=$((BACKFILL_N + 1))
     done <<< "$ALL_KIT_FILES"
 

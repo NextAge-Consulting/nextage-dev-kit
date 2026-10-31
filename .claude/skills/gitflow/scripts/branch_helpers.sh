@@ -10,6 +10,61 @@ post_gemini_review() {
     printf '%s' "/gemini review" | gh pr comment "$1" --body-file -
 }
 
+# review_owed <pr_number> — whether a Gemini review on the PR is still owed. Prints one
+# line saying why and returns 0 when one is; returns 1 when none is; returns 2, printing
+# nothing, when gh cannot say. Owed means either:
+#   - a `/gemini review` was posted after the PR's head commit, and no review (or
+#     decline) of that commit has come back;
+#   - a Gemini finding is unanswered: its thread has no reply and is not resolved.
+#     /triage replies to every finding it handles, fixed or declined.
+review_owed() {
+    local pr="$1" repo owner name head head_date out triggered reviewed unanswered
+    repo=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || return 2
+    [ -n "$repo" ] || return 2
+    owner="${repo%%/*}"; name="${repo#*/}"
+    head=$(gh pr view "$pr" --json headRefOid -q .headRefOid 2>/dev/null) || return 2
+    [ -n "$head" ] || return 2
+    head_date=$(gh api "repos/$repo/commits/$head" --jq '.commit.committer.date' 2>/dev/null) || return 2
+    [ -n "$head_date" ] || return 2
+
+    out=$(gh api "repos/$repo/issues/$pr/comments" --paginate 2>/dev/null) || return 2
+    triggered=$(jq -s --arg d "$head_date" '[add // [] | .[]
+        | select((.body // "") | test("(?i)^[[:space:]]*/gemini[[:space:]]+review[[:space:]]*$"))
+        | select(.created_at > $d)] | length' <<<"$out") || return 2
+    if [ "$triggered" -gt 0 ]; then
+        reviewed=$(jq -s --arg d "$head_date" '[add // [] | .[]
+            | select(.user.login == "gemini-code-assist[bot]")
+            | select((.body // "") | test("(?i)unable to generate a review"))
+            | select(.created_at > $d)] | length' <<<"$out") || return 2
+        if [ "$reviewed" -eq 0 ]; then
+            out=$(gh api "repos/$repo/pulls/$pr/reviews" --paginate 2>/dev/null) || return 2
+            reviewed=$(jq -s --arg h "$head" '[add // [] | .[]
+                | select(.user.login == "gemini-code-assist[bot]" and .commit_id == $h)] | length' <<<"$out") || return 2
+        fi
+        if [ "$reviewed" -eq 0 ]; then
+            echo "a Gemini review was asked for on ${head:0:7} and has not come back yet"
+            return 0
+        fi
+    fi
+
+    # shellcheck disable=SC2016 # $o, $r, $n, $endCursor are GraphQL variables
+    out=$(gh api graphql --paginate -F o="$owner" -F r="$name" -F n="$pr" -f query='
+        query($o: String!, $r: String!, $n: Int!, $endCursor: String) {
+          repository(owner: $o, name: $r) { pullRequest(number: $n) {
+            reviewThreads(first: 100, after: $endCursor) {
+              pageInfo { hasNextPage endCursor }
+              nodes { isResolved comments(first: 1) { totalCount nodes { author { login } } } }
+            } } } }' 2>/dev/null) || return 2
+    unanswered=$(jq -s '[.[] | .data.repository.pullRequest.reviewThreads.nodes[]
+        | select(.comments.nodes[0].author.login == "gemini-code-assist")
+        | select((.isResolved | not) and .comments.totalCount == 1)] | length' <<<"$out") || return 2
+    if [ "$unanswered" -gt 0 ]; then
+        echo "$unanswered Gemini finding(s) on this PR have no reply — nobody has triaged them"
+        return 0
+    fi
+    return 1
+}
+
 # ─── PR hand-off ────────────────────────────────────────────────────────────
 # A PR assigned to someone other than you has left your hands: the review is
 # theirs, and the next thing you commit belongs on a branch of its own, cut from

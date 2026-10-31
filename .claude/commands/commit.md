@@ -164,6 +164,7 @@ The script will exit non-zero if:
 - `git commit` itself fails for any reason
 - `--review` and `--no-review` both passed (mutually exclusive — exit 2)
 - `--review` passed and the `/gemini review` comment failed to post (exit 10 — fail-loud so the user knows Gemini is NOT coming; downstream `wait-for-pr-ready.sh` would otherwise silently proceed CI-only)
+- The PR still owes a Gemini review — one asked for and not back, or a finding with no reply (exit 14, before anything is committed). Keep the fix in the tree and do what the message says: rejoin the wait with `--review-only`, or run `/triage`, whose one commit carries the fix. Committing past it is the human's call alone: put it to them and wait, and pass `--skip-review-wait "<their reason>"` only when they say so in the message you are answering. The reason lands in the commit and on the PR
 - `--complete` names an issue not linked on the branch (exit 2, before anything is committed)
 - The commit and push landed but the board update failed (exit 11 — the issues are marked complete locally; `/open-pr` sets every linked issue to Staged again)
 - An issue reaching Staged has no comment in `--notes` (exit 2, before anything is committed)

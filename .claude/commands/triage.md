@@ -30,7 +30,7 @@ The script reads the trigger-comment history. If a `/gemini review` comment exis
 
 Exit handling:
 - `0` → Gemini posted (or skipped — see ready message). Proceed to Step 2 only if `findings=N > 0`.
-- `2` → CI failed. Triage is pointless until CI is green. Surface the failure and stop.
+- `2` → CI failed. Fix the failure in the tree, uncommitted, and keep the review cycle going. When the wait says the review is in, triage it now (Step 2 onward): the CI fix lands in the end-of-triage commit with the findings. When it says the review is still due, run the wait again with `--review-only` once the fix is in, and continue from its result.
 - `3` → timeout. Surface the diagnostic; The user decides whether to extend, disable Gemini gating, or proceed manually.
 - `5` → user interrupted. Stop cleanly.
 

@@ -2,6 +2,7 @@
 # gitflow commit: full conventional commit with AI-generated message.
 # Usage: commit.sh --message "<full conventional message>" [--model "Claude Opus 4.7"] [--skip-typecheck]
 #                  [--complete "<N[,N…]>" --notes <dir>]
+#                  [--skip-review-wait "<the human's reason>"]
 #        commit.sh --push-only
 #
 # Modes:
@@ -55,6 +56,7 @@ REVIEW=0
 NO_REVIEW=0
 COMPLETE_ISSUES=""
 NOTES_DIR=""
+SKIP_REVIEW_WAIT=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -65,6 +67,13 @@ while [[ $# -gt 0 ]]; do
         --review)          REVIEW=1; shift 1 ;;
         --no-review)       NO_REVIEW=1; shift 1 ;;
         --notes)           NOTES_DIR="$2"; shift 2 ;;
+        --skip-review-wait)
+            SKIP_REVIEW_WAIT="${2:-}"
+            if [ -z "$SKIP_REVIEW_WAIT" ]; then
+                echo "commit.sh: --skip-review-wait needs the human's reason for committing past the review" >&2
+                exit 2
+            fi
+            shift 2 ;;
         --complete)
             COMPLETE_ISSUES=$(parse_issue_csv "$2")
             if [ -z "$COMPLETE_ISSUES" ]; then
@@ -157,6 +166,42 @@ if ! is_protected_branch "$CURRENT_BRANCH"; then
         echo "  If its PR was handed to someone else, this commit joins their review." >&2
     elif [ "$handoff_rc" -ne 0 ]; then
         HANDED_TO=""
+    fi
+fi
+
+# A Gemini review this PR still owes — asked for and not back, or back and not
+# triaged — stops the commit before anything is written: a commit now would leave
+# that review behind, and one with --review would ask for a second on top of it.
+# The fix for whatever is failing is made in the tree while the review is awaited,
+# and lands with /triage's commit. --skip-review-wait is the human's decision alone;
+# its reason is recorded in the commit and on the PR.
+REVIEW_PR=""
+if ! is_protected_branch "$CURRENT_BRANCH" && [ -z "$HANDED_TO" ] && command -v gh >/dev/null 2>&1 \
+   && [ "$(jq -r '.GEMINI_NOT_INSTALLED // ""' "$(git rev-parse --show-toplevel)/.claude/sync-substitutions.json" 2>/dev/null)" != "true" ]; then
+    REVIEW_PR=$(open_pr_for_branch "$CURRENT_BRANCH")
+fi
+if [ -n "$REVIEW_PR" ]; then
+    set +e
+    owed=$(review_owed "$REVIEW_PR")
+    owed_rc=$?
+    set -e
+    if [ "$owed_rc" -eq 2 ]; then
+        owed="GitHub could not be asked whether PR #$REVIEW_PR's Gemini review is done"
+        owed_rc=0
+    fi
+    if [ "$owed_rc" -eq 0 ] && [ -z "$SKIP_REVIEW_WAIT" ]; then
+        echo "commit.sh: not committing — $owed (PR #$REVIEW_PR)." >&2
+        echo "  Keep any fix in the tree, uncommitted, and finish the review cycle:" >&2
+        echo "    - review not back yet: .claude/skills/gitflow/scripts/wait-for-pr-ready.sh --pr $REVIEW_PR --review-only" >&2
+        echo "    - review back: /triage — its one commit carries this fix too" >&2
+        echo "  Committing past it is the human's call: --skip-review-wait \"<their reason>\"." >&2
+        exit 14
+    fi
+    if [ "$owed_rc" -eq 0 ]; then
+        echo "gitflow: committing past the review — $owed. Reason: $SKIP_REVIEW_WAIT" >&2
+        MESSAGE="${MESSAGE}"$'\n'"Review-wait-skipped: ${SKIP_REVIEW_WAIT}"
+    else
+        SKIP_REVIEW_WAIT=""
     fi
 fi
 
@@ -303,6 +348,15 @@ if [ "$REVIEW" -eq 1 ]; then
         return 10
     }
     trigger_gemini_review || exit $?
+fi
+
+# A review wait skipped is said on the PR too, where its reviewer reads it.
+if [ -n "$SKIP_REVIEW_WAIT" ]; then
+    if ! printf 'Committed without waiting for the Gemini review: %s\n' "$SKIP_REVIEW_WAIT" \
+            | gh pr comment "$REVIEW_PR" --body-file - >/dev/null 2>&1; then
+        echo "commit.sh: the commit landed, but the skipped review wait could not be noted on PR #$REVIEW_PR." >&2
+        echo "  Post it by hand: gh pr comment $REVIEW_PR --body \"Committed without waiting for the Gemini review: $SKIP_REVIEW_WAIT\"" >&2
+    fi
 fi
 
 echo "gitflow: commit complete on $CURRENT_BRANCH." >&2

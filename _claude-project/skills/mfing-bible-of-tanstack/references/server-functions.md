@@ -403,6 +403,13 @@ response helpers' headers into every response it builds
 by the app's server entry, not by Start, and keep their own cache headers
 (`deployment.md`).
 
+**A file the reader opens or keeps — a PDF above all — is `Cache-Control:
+private, no-cache`, never `no-store`.** Start applies a `setResponseHeader`
+header over the headers of a `Response` a handler returns, so a file served through Start sets its header
+with `setResponseHeader('cache-control', …)`, replacing the middleware's for
+that response. One served by the server entry ahead of Start sets it on the
+`Response`.
+
 ## Where they live
 
 **A server function is defined in `apps/<app>/src/lib/serverFunctions/<domain>Fn.ts`,
