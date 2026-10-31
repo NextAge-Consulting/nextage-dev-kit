@@ -194,7 +194,7 @@ Status updates print every poll cycle (~30s). The user is sitting at the keyboar
 
 Exit handling:
 - `0` → PR is ready. Continue to Step 9.
-- `2` → CI failed. Surface the failing check name and PR URL; stop. The user fixes locally and pushes; the failing CI gate is the signal to act.
+- `2` → CI failed. Surface the failing check, then fix it in the tree, uncommitted: the review cycle is still open. When the wait says a review is still due, rejoin it once the fix is in — `wait-for-pr-ready.sh --pr <N> --review-only` — and hand off by Step 9. When it says the review is in, hand off to `/triage`, whose one commit carries the fix with the findings. With no review asked for, `/commit` the fix.
 - `3` → timeout (default 15min). Surface the diagnostic message the script printed (likely Gemini queued/rate-limited, or CI legitimately slow). The user decides: re-invoke with `--timeout-min <larger>`, or — only if Gemini is genuinely absent — set `GEMINI_NOT_INSTALLED="true"` in `.claude/sync-substitutions.json` to opt out.
 - `5` → user pressed Ctrl-C. Stop cleanly, no further steps.
 
@@ -208,6 +208,8 @@ The wait script's ready message includes a `findings=N` count whenever Gemini po
 | `Gemini=no-trigger-for-HEAD` (post failed silently or repo opted out) | `PR #<N> ready (CI only). /merge when you're set.` |
 | `Gemini=posted, findings=0` | `PR #<N> ready. Gemini reviewed clean — /merge when you're set.` |
 | `Gemini=posted, findings=N` (N > 0) | `PR #<N> ready. Gemini raised <N> finding(s) — run /triage to walk them, or /merge to ship without triage.` |
+
+After a `--review-only` rejoin, a CI fix is in the tree: with findings, `/triage` commits it with them; with none, the hand-off is `/commit` for the fix, then `/merge`.
 
 Do NOT auto-invoke `/triage` and do NOT auto-invoke `/merge`. The user decides per finding count. The explicit handoff prevents the "trapped in a flow" feeling and lets them abandon cleanly.
 

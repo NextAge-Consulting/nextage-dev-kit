@@ -168,4 +168,65 @@ else
     rm -f "$tmp/bin/npm"
 fi
 
+# ─── A Gemini review still owed stops the commit; the human can push past it ──
+# This gh serves an open PR #7 and its review state from fixture files, applying the
+# --jq the scripts pass, and logs each PR comment posted.
+HEAD7=0123456789abcdef0123456789abcdef01234567
+mkdir -p "$tmp/bin3" "$tmp/fx"
+cat > "$tmp/bin3/gh" <<'GH'
+#!/bin/bash
+q=""; prev=""; for a in "$@"; do [ "$prev" = "--jq" ] && q="$a"; prev="$a"; done
+case "$*" in
+  "api user --jq .login") echo alice; exit 0 ;;
+  "pr list --head "*"--json assignees"*) exit 0 ;;
+  "pr list --head "*"--json number"*) echo 7; exit 0 ;;
+  "pr list"*) exit 0 ;;
+  "repo view"*) echo acme/app; exit 0 ;;
+  "pr view 7 --json headRefOid"*) echo "$HEAD7"; exit 0 ;;
+  "pr comment 7"*) cat >> "$FX/pr-comments.log"; exit 0 ;;
+  "api repos/acme/app/commits/"*) f="$FX/commit.json" ;;
+  "api repos/acme/app/issues/7/comments"*) f="$FX/issue-comments.json" ;;
+  "api repos/acme/app/pulls/7/reviews"*) f="$FX/reviews.json" ;;
+  "api graphql"*) f="$FX/threads.json" ;;
+  *) exit 0 ;;
+esac
+if [ -n "$q" ]; then jq -r "$q" "$f"; else cat "$f"; fi
+GH
+chmod +x "$tmp/bin3/gh"
+printf '{"commit":{"committer":{"date":"2026-10-30T10:00:00Z"}}}\n' > "$tmp/fx/commit.json"
+thread(){ printf '{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false},"nodes":[{"isResolved":%s,"comments":{"totalCount":%s,"nodes":[{"author":{"login":"gemini-code-assist"}}]}}]}}}}}\n' "$1" "$2"; }
+fx3(){ printf '%s\n' "$1" > "$tmp/fx/issue-comments.json"; printf '%s\n' "$2" > "$tmp/fx/reviews.json"; printf '%s\n' "$3" > "$tmp/fx/threads.json"; }
+TRIGGER3='[{"body":"/gemini review","created_at":"2026-10-30T10:05:00Z","user":{"login":"alice"}}]'
+REVIEWED3="[{\"user\":{\"login\":\"gemini-code-assist[bot]\"},\"commit_id\":\"$HEAD7\"}]"
+printf '{"DB_ENGINE":"None"}\n' > .claude/sync-substitutions.json
+git checkout -q -b feat/reviewed; git add -A; git commit -qm "feat: reviewed base"; git push -q -u origin feat/reviewed 2>/dev/null
+rcommit(){ PATH="$tmp/bin3:$PATH" FX="$tmp/fx" HEAD7="$HEAD7" SKIP_RULE_REVIEW=1 "$C" --skip-typecheck "$@" >"$tmp/out" 2>&1; }
+
+before=$(git rev-parse HEAD)
+fx3 "$TRIGGER3" '[]' "$(thread false 1)"
+printf 'ci fix\n' > ci-fix.txt
+rcommit --message "fix: ci"; rc=$?
+{ [ "$rc" -eq 14 ] && [ "$(git rev-parse HEAD)" = "$before" ] && [ -f ci-fix.txt ] && grep -q 'has not come back yet' "$tmp/out" && grep -q -- '--review-only' "$tmp/out"; } \
+    && ok "a review asked for and not back: nothing committed, the fix left in the tree, the way back named" || bad "owed pending (rc=$rc): $(cat "$tmp/out")"
+fx3 "$TRIGGER3" "$REVIEWED3" "$(thread false 1)"
+rcommit --message "fix: ci" --review; rc=$?
+{ [ "$rc" -eq 14 ] && [ "$(git rev-parse HEAD)" = "$before" ] && grep -q 'no reply' "$tmp/out" && grep -q '/triage' "$tmp/out"; } \
+    && ok "a review back and untriaged: a --review commit is refused, pointing at /triage" || bad "owed untriaged (rc=$rc): $(cat "$tmp/out")"
+rcommit --message "fix: ci" --skip-review-wait; rc=$?
+[ "$rc" -eq 2 ] && ok "--skip-review-wait without a reason is refused" || bad "skip without reason (rc=$rc)"
+rm -f "$tmp/fx/pr-comments.log"
+rcommit --message "fix: ci" --skip-review-wait "release today; Gemini is down"; rc=$?
+{ [ "$rc" -eq 0 ] && git log -1 --format=%B | grep -q '^Review-wait-skipped: release today; Gemini is down$' \
+  && grep -q 'release today; Gemini is down' "$tmp/fx/pr-comments.log"; } \
+    && ok "--skip-review-wait commits, recording the reason in the commit and on the PR" || bad "skip (rc=$rc): $(cat "$tmp/out")"
+fx3 "$TRIGGER3" "$REVIEWED3" "$(thread false 2)"
+printf 'triaged\n' > triaged.txt
+rcommit --message "fix: triaged"; rc=$?
+{ [ "$rc" -eq 0 ] && [ -z "$(git status --porcelain)" ] && ! git log -1 --format=%B | grep -q 'Review-wait-skipped'; } \
+    && ok "every finding answered: the commit goes through" || bad "answered (rc=$rc): $(cat "$tmp/out")"
+fx3 "$TRIGGER3" "$REVIEWED3" "$(thread true 1)"
+printf 'resolved\n' > resolved.txt
+rcommit --message "fix: resolved"; rc=$?
+[ "$rc" -eq 0 ] && ok "a finding resolved without a reply counts as answered" || bad "resolved (rc=$rc): $(cat "$tmp/out")"
+
 exit "$fail"

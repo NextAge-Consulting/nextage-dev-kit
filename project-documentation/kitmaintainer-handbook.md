@@ -602,6 +602,7 @@ Nothing is ever full-replaced. Every sync is a three-way comparison per file: ki
   "files": {
     ".claude/hooks/git-guard.sh": { "sha": "<hash of what sync wrote>", "mode": "owned" },
     ".claude/rules/project/ui-inventory.md": { "sha": "<hash of what sync wrote>", "mode": "merge", "skeleton": "<hash of the kit-owned text>" },
+    ".github/workflows/pr-title.yml": { "sha": "<hash of what sync wrote>", "mode": "owned", "skeleton": "<hash without the action refs>", "skeletonPins": true },
     ".gemini/config.yaml": { "sha": "<kit hash at refusal>", "mode": "owned", "declined": true }
   },
   "pendingMigrations": ["<a migration a sync listed and did not run>"],
@@ -609,7 +610,7 @@ Nothing is ever full-replaced. Every sync is a three-way comparison per file: ki
 }
 ```
 
-Committed so every dev and every cloud session has the same baseline. `sha` is the hash of what sync wrote — substituted, canonicalized for `settings.json`, region-merged for a `merge` file. `skeleton` is recorded for `merge` files only (§9.10). `pendingMigrations` is present only while a migration is carried to the next sync; `migrationsDone` exists only during a sync, between `--migration-done` and `--finalize`. `migrationsRunAhead` is present only while the project holds a migration it ran from the maintainer's working tree that the kit's history up to `lastSyncedCommit` does not yet contain (§9.4).
+Committed so every dev and every cloud session has the same baseline. `sha` is the hash of what sync wrote — substituted, canonicalized for `settings.json`, region-merged for a `merge` file, with the project's newer action pins carried for a workflow. `skeleton` is recorded for `merge` files and workflows only, and `skeletonPins` marks a workflow's, taken without its action refs (§9.10). `pendingMigrations` is present only while a migration is carried to the next sync; `migrationsDone` exists only during a sync, between `--migration-done` and `--finalize`. `migrationsRunAhead` is present only while the project holds a migration it ran from the maintainer's working tree that the kit's history up to `lastSyncedCommit` does not yet contain (§9.4).
 
 ### 9.3. Sync states per file
 
@@ -883,6 +884,8 @@ The orchestration is in the sync procedure (`_claude-maintainer/sync/procedure.m
 
 **How the scan tells a region edit from an outside edit.** The lockfile records two hashes for a `merge` file: `sha`, of what was written, and `skeleton`, of that file with every region body removed. A project skeleton that matches neither the recorded skeleton nor the kit's current one means kit-owned text was edited in the project → `patched` or `unsanctioned`. Otherwise the scan compares the composed result with the project file: equal is `clean` (or `clean-converged` after a region edit), different is `kit-only`, which is always safe to apply. A file with no recorded skeleton yet (first merge-aware sync) reports `clean-first`, `kit-only` when only region seeds differ, or `conflict-first`.
 
+**A workflow's action pins are the project's above the kit's.** Every file under `_github-project/workflows/`, `owned` or `merge`, is written with each `uses: <action>@<sha>  # vX.Y.Z` taken at whichever version is newer, the kit's or the project's, read from the `# vX.Y.Z` comment. A project's Dependabot raises its pins, and sync never reverts them; a project behind the kit is brought up to the kit's pin, as `kit-only`. Every other line is the kit's. The skeleton leaves the action refs out, so a raised pin is never a project edit; the lockfile marks that skeleton `skeletonPins`, and one recorded without it is read as no skeleton at all. A pin with no version comment takes the kit's.
+
 **First sync of an existing project file without markers is `merge-unmarked`**, and `--apply-file` refuses it. Someone moves the project's content into the kit's regions by hand, then the next scan proceeds normally.
 
 **The patch register.** `.claude/.kit-patches.json` is the project's record of sanctioned edits to kit-owned text:
@@ -950,6 +953,14 @@ lands the review cites it by number. An advisory with no fix upstream stays in t
 decides it does not reach how we use the package and records it under that package's
 `advisoriesReviewed` in `stack-manifest.json`, with why; the watch names a recorded
 advisory in its log and files nothing for it.
+
+**The workflows' action pins move at every release.** `/shipkit` runs
+`.claude/scripts/bump-action-pins.sh`, which writes each action the kit's workflows use —
+`_github-project/workflows/` and the kit's own `.github/workflows/` — at the newest
+release in its major that is at least seven days old, as its exact commit SHA. A newer
+major is named, not taken: `/shipkit` reads its release notes and takes it with
+`--major <action>` when nothing the kit's workflows use has changed. The kit's pin is the
+floor every project's sync brings it up to (§9.10).
 
 Run either by hand from the Actions tab (`workflow_dispatch`), or locally with
 `--dry-run` to print the issue instead of filing it:

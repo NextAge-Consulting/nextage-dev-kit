@@ -155,6 +155,7 @@ Every entry also carries a `mode` field, declared kit-side by `mode_for_kit_path
 
 - **`owned`** (default, nearly everything) — the kit owns the content. `block-kit-edit.sh` denies consumer edits. A project edit is `patched` or `unsanctioned`, never a silent skip; a two-sided divergence with no register entry is a `conflict` to reconcile toward the kit.
 - **`merge`** — owned, except inside the file's named project regions. Sync writes the kit's text around the project's region bodies, so `kit-only` is always safe to apply and a region edit is never a conflict. An edit outside the regions is `patched` or `unsanctioned`.
+- **Workflows** (`.github/workflows/`, `owned` or `merge`) — sync writes each action pin at the newer of the kit's and the project's version, so a pin the project's Dependabot raised is not a project edit. Apply a `kit-only` workflow like any other: it keeps the newer pins and raises the older ones.
 - **`template`** — a SEED: the project's own content from the start. It is offered once, as `new-kit`, to a project that has never had it. Once the project has it — untouched, adapted or deleted — or declined it, a kit change never offers it again (`template-kept`, `declined`). The hook permits consumer edits.
 
 **Acking an `owned` file — the test is whether the kit's current content has been INCORPORATED.** `--ack-file` accepts any file: it advances the baseline to what the kit ships today and leaves the project file untouched.

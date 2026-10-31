@@ -536,7 +536,7 @@ Ship this as part of Semgrep adoption. Do NOT wait for a timeout-warning inciden
 | Ecosystem | Directory | Cadence | Cooldown (patch/minor/major days) | Grouping |
 |---|---|---|---|---|
 | `npm` | `/` (workspaces auto-detected) | monthly Monday | 3 / 7 / 30 | `npm-patch` + `npm-dev-minor` + `npm-security` — runtime majors open individually |
-| `github-actions` | `/` (scans `.github/workflows/*.yml`) | monthly Monday | 3 / 7 / 14 | `actions-minor-patch` |
+| `github-actions` | `/` (scans `.github/workflows/*.yml`) | monthly Monday | 7 (one cooldown for every bump) | `actions-minor-patch` |
 | `docker` | `/` (scans root for `Dockerfile*`) | monthly Monday | 3 / 7 / 30 | `docker-minor-patch` |
 
 **Why monthly + cooldown** (design rationale — critical for a 2–10 engineer shop to understand before tuning):
@@ -554,6 +554,8 @@ Result: one monthly grouped wave per ecosystem + majors individually after 30-da
 - `include: scope` is INTENTIONALLY ABSENT from all three blocks. With it set, Dependabot appends its own `(deps)` scope on top of the prefix — titles render as `chore(deps)(deps): bump foo`. The prefix already carries the scope; don't double it.
 
 **Interaction with `/deploy` (§2.1)**: dep PRs land on main via `/merge` like any other PR, but do not fire deploys on their own. They ride the next `/deploy` invocation alongside whatever else has accumulated. The monthly cadence + cooldown limits the dep-PR wave per ecosystem; whether a wave triggers a release is the maintainer's call at `/deploy` time. Cadence solves review burden; `/deploy` solves "when does it ship."
+
+**An action PR is safe to merge into a kit workflow.** `/sync-dev-kit` keeps a project's action pin wherever it is newer than the kit's, and raises it to the kit's wherever it is older, so a merged Dependabot action PR is never reverted. A project that never merges them still moves forward at every sync.
 
 **Ignore rules — one ships by default:**
 

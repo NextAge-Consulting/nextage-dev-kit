@@ -42,7 +42,12 @@
 # Re-reads HEAD + trigger state each cycle so user-pushed mid-wait commits
 # retarget the poll.
 #
-# Usage: wait-for-pr-ready.sh [--pr <number>] [--timeout-min <minutes>] [--poll-sec <seconds>]
+# A CI failure exits at once, so the fix can start while Gemini is still reviewing.
+# When a review is due for HEAD, the failure message says so: the fix is made in the
+# tree without committing, and --review-only rejoins the wait — it waits for that
+# review and ignores CI, whose failure the fix in the tree is already answering.
+#
+# Usage: wait-for-pr-ready.sh [--pr <number>] [--review-only] [--timeout-min <minutes>] [--poll-sec <seconds>]
 #
 # Exit codes:
 #   0  ready
@@ -55,6 +60,7 @@ set -e
 trap 'echo "wait-for-pr-ready: interrupted" >&2; exit 5' INT
 
 PR_NUMBER=""
+REVIEW_ONLY=0
 TIMEOUT_MIN=15
 POLL_SEC=30
 # While CI for a push has not started, look again this often, this many times, before
@@ -65,6 +71,7 @@ START_POLL_TRIES=6
 while [[ $# -gt 0 ]]; do
     case $1 in
         --pr)            PR_NUMBER="$2"; shift 2 ;;
+        --review-only)   REVIEW_ONLY=1; shift 1 ;;
         --timeout-min)   TIMEOUT_MIN="$2"; shift 2 ;;
         --poll-sec)      POLL_SEC="$2"; shift 2 ;;
         *) echo "wait-for-pr-ready: unknown option: $1" >&2; exit 4 ;;
@@ -349,15 +356,29 @@ while true; do
     fi
     LAST_HEAD=$HEAD
 
-    LAST_CI=$(ci_state "$HEAD")
+    GEMINI_NOT_INSTALLED=$(read_gemini_not_installed)
+
+    if [ "$REVIEW_ONLY" -eq 1 ]; then
+        LAST_CI="ignored"
+    else
+        LAST_CI=$(ci_state "$HEAD")
+    fi
     if [ "$LAST_CI" = "fail" ]; then
         echo "" >&2
         echo "wait-for-pr-ready: CI FAILED on PR #$PR_NUMBER." >&2
         echo "  Review: gh pr checks $PR_NUMBER" >&2
+        if [ "$GEMINI_NOT_INSTALLED" != "true" ] && [ "$(gemini_trigger_for_head "$HEAD")" != "no" ]; then
+            if [ "$(gemini_review_for_head "$HEAD")" = "posted" ]; then
+                echo "  Gemini's review of ${HEAD:0:7} is in. Run /triage: it fixes this failure in the same commit as the findings." >&2
+            else
+                echo "  A Gemini review of ${HEAD:0:7} is still due — the cycle is not over. Fix the failure in the tree WITHOUT" >&2
+                echo "  committing, then rejoin the wait: wait-for-pr-ready.sh --pr $PR_NUMBER --review-only" >&2
+                echo "  When the review is in, /triage commits the fix together with the findings." >&2
+            fi
+        fi
         exit 2
     fi
 
-    GEMINI_NOT_INSTALLED=$(read_gemini_not_installed)
     if [ "$GEMINI_NOT_INSTALLED" = "true" ]; then
         LAST_TRIGGER="skipped"
         LAST_REVIEW="skipped"
@@ -377,7 +398,7 @@ while true; do
     #   - CI pass + Gemini gating skipped → ready
     #   - CI pass + no trigger for HEAD → ready (CI-only)
     #   - CI pass + trigger present + review posted → ready
-    if [ "$LAST_CI" = "pass" ]; then
+    if [ "$LAST_CI" = "pass" ] || [ "$LAST_CI" = "ignored" ]; then
         if [ "$LAST_TRIGGER" = "skipped" ]; then
             echo "wait-for-pr-ready: ready (CI=$LAST_CI, Gemini=skipped, HEAD=${HEAD:0:7}, ${ELAPSED}s elapsed)" >&2
             exit 0
@@ -395,8 +416,12 @@ while true; do
             echo "wait-for-pr-ready: ready (CI=$LAST_CI, Gemini=posted, findings=$FINDINGS, HEAD=${HEAD:0:7}, ${ELAPSED}s elapsed)" >&2
             if [ "$FINDINGS" = "error" ]; then
                 echo "wait-for-pr-ready: findings lookup failed (transient gh api error). Run /triage to be safe before /merge." >&2
+            elif [ "$FINDINGS" -gt 0 ] 2>/dev/null && [ "$REVIEW_ONLY" -eq 1 ]; then
+                echo "wait-for-pr-ready: Gemini raised $FINDINGS finding(s). Run /triage: its one commit carries the fix in the tree too." >&2
             elif [ "$FINDINGS" -gt 0 ] 2>/dev/null; then
                 echo "wait-for-pr-ready: Gemini raised $FINDINGS finding(s). Run /triage to walk them, or /merge to ship without triage." >&2
+            elif [ "$REVIEW_ONLY" -eq 1 ]; then
+                echo "wait-for-pr-ready: Gemini raised nothing. Commit the fix in the tree: /commit." >&2
             fi
             exit 0
         fi

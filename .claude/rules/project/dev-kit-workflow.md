@@ -26,7 +26,7 @@ The kit is a project like any other, with its own `.claude/` of rules, hooks, sk
 
 The kit repo's project-level config, loaded when working in the kit. It holds the part of `_claude-project/` the kit actually uses — gitflow commands, the shared rules, hooks and skills — which is everything the manifest below does not mark template-only. The manifest governs; a large slice is deliberately absent.
 
-It also holds kit-custom items that never propagate: the `install-cpl`, `install-statusline` and `shipkit` commands, `scripts/shipkit.sh`, the kit-specific rules `dev-kit-workflow.md`, `sync-design-pre-read.md`, `hook-testing.md` and `migrations.md`, and the pre-ship gate — `project-gate.sh` and `kit-gate/` (kitmaintainer-handbook.md §9.11). Edit those in place — they have no other home, and the "kit's own rule tweak" row below does not apply to them.
+It also holds kit-custom items that never propagate: the `install-cpl`, `install-statusline` and `shipkit` commands, `scripts/shipkit.sh`, `scripts/bump-action-pins.sh`, the kit-specific rules `dev-kit-workflow.md`, `sync-design-pre-read.md`, `hook-testing.md` and `migrations.md`, and the pre-ship gate — `project-gate.sh` and `kit-gate/` (kitmaintainer-handbook.md §9.11). Edit those in place — they have no other home, and the "kit's own rule tweak" row below does not apply to them.
 
 Those prove the extensibility pattern: any project can add commands in its own `.claude/commands/` that the kit knows nothing about.
 

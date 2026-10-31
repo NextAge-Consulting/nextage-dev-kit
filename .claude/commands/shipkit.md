@@ -17,6 +17,20 @@ It prints the `version`, the `base` the release is measured from, the `title`, t
 - **`missing_estimate` not empty:** stop. Write each one's Estimate (`.claude/rules/project/migrations.md`), test its commands against a real project, and run `/shipkit` again.
 - **`consumer_name_hits`:** the kit is public. Read each hit. A real name of a project, client or person is rewritten generically before anything is committed (`kit-maintainer.md`, "THE KIT IS PUBLIC"); a common word that happens to match is left. Then run the plan again.
 
+## Step 1a: Bring the actions up to date
+
+```bash
+.claude/scripts/bump-action-pins.sh
+```
+
+It moves every action the kit's workflows pin to the newest release in its major that is at least seven days old, and names each newer major it left. For each one named:
+
+1. Read the release notes of every major up to it (`gh api repos/<owner>/<repo>/releases`) against the `with:` inputs and outputs the kit's workflows use for that action.
+2. Change the workflows where the notes require it; often nothing needs changing.
+3. Take it: `.claude/scripts/bump-action-pins.sh --major <action>`.
+
+A non-zero exit from either run wrote nothing: relay its message and stop the release.
+
 ## Step 2: Write the release notes
 
 Write them to a scratch file outside the repository. They are what a project's kit syncer reads to decide when to sync, so write for someone who knows the kit only as a user:
@@ -52,7 +66,7 @@ A gate that fails stops the release there. Fix it and continue from that command
 Run `.claude/skills/gitflow/scripts/wait-for-pr-ready.sh --pr <N>`, with the PR `/open-pr` opened.
 
 - **Exit 0, its ready line showing no findings** — no `findings=`, or `findings=0`: go to `/merge`.
-- **Exit 2, CI failed:** fix it, `/commit --no-review`, and wait again.
+- **Exit 2, CI failed:** fix it in the tree, uncommitted. When the wait says the review is still due, run it again with `--review-only`, then go on from its result; the one `/commit --no-review` below carries the CI fix with the findings' fixes. When no review is due, `/commit --no-review` the fix and wait again.
 - **Exit 3, timed out:** ask the human whether to release without Gemini's review.
 - **Any other exit:** relay its message and stop.
 - **Exit 0 with `findings=` above zero, or `findings=error`:** fetch and work them by `/triage`'s Step 2 and its Step 4 Hard Rules, but make every fix-or-skip call yourself, without the one-at-a-time walk-through. Then `/commit --no-review` once with every fix and carve-out comment.

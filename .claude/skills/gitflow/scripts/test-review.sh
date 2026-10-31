@@ -70,7 +70,9 @@ kind_of() {
         *.test.ts|*.test.tsx|*.test.mts|*.test.cts|*.test.js|*.test.jsx|*.test.mjs|*.test.cjs) echo test; return 0 ;;
         *.spec.ts|*.spec.tsx|*.spec.mts|*.spec.cts|*.spec.js|*.spec.jsx|*.spec.mjs|*.spec.cjs) echo test; return 0 ;;
         test/*|*/test/*|tests/*|*/tests/*|__tests__/*|*/__tests__/*) return 0 ;;
-        *.ts|*.tsx) echo source ;;
+        # Source is TypeScript only, as the coverage check reads it: JavaScript here is scripts
+        # and config, listed above so a JavaScript test is still judged.
+        *.ts|*.tsx|*.mts|*.cts) echo source ;;
     esac
 }
 
