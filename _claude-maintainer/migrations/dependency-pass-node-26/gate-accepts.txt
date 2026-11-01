@@ -1,0 +1,6 @@
+# Findings the kit gate's replay accepts while this migration ships: the manifest moves the
+# Node major to 26 and check-stack now reads buildspecs; step 4 moves every Node version,
+# buildspecs included, to the new major.
+the kit's Node major is
+its floor must be Node
+runs Node with no runtime-versions nodejs

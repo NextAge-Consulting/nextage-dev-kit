@@ -26,6 +26,8 @@ Gemini reviews are comment-triggered (auto-review on PR open is OFF in `.gemini/
 .claude/skills/gitflow/scripts/wait-for-pr-ready.sh --pr <N>
 ```
 
+Run it with the Monitor tool, exactly as `/open-pr` Step 8 runs it.
+
 The script reads the trigger-comment history. If a `/gemini review` comment exists for the current HEAD and a Gemini review has been posted against it, exits ready. If no trigger exists (e.g. last `/commit` was `--no-review`), it exits ready on CI alone — meaning there's no fresh Gemini review to triage. In that case, surface to the user: `Gemini has no review for the current HEAD — last commit was --no-review. Re-trigger with: gh pr comment <N> --body '/gemini review' and re-run /triage, or skip triage.`
 
 Exit handling:

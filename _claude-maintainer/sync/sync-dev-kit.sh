@@ -285,11 +285,11 @@ is_app_only() {
         _claude-project/rules/drizzle.md|_claude-project/rules/postgres-drizzle.md|_claude-project/rules/sqlserver-drizzle.md) return 0 ;;
         _claude-project/rules/integrations/agent-browser.md) return 0 ;;
         _claude-project/commands/dev.md|_claude-project/commands/ui-design.md) return 0 ;;
-        _claude-project/commands/design-audit.md|_claude-project/commands/happy-path.md) return 0 ;;
+        _claude-project/commands/design-audit.md|_claude-project/commands/primary-route-audit.md) return 0 ;;
         _claude-project/skills/agent-browser/*|_claude-project/skills/claude-design/*) return 0 ;;
         _claude-project/skills/dependency-triage/*|_claude-project/skills/design-system/*) return 0 ;;
         _claude-project/skills/dev-server/*|_claude-project/skills/e2e/*|_claude-project/skills/e2e-author/*) return 0 ;;
-        _claude-project/skills/happy-path/*) return 0 ;;
+        _claude-project/skills/primary-route-tests/*) return 0 ;;
         _claude-project/skills/mfing-bible-of-tanstack/*|_claude-project/skills/postgres-neon-drizzle/*) return 0 ;;
         _claude-project/skills/shadcn/*|_claude-project/skills/ui-patterns/*) return 0 ;;
         _claude-project/stack-manifest.json) return 0 ;;
@@ -298,7 +298,6 @@ is_app_only() {
         _claude-project/templates/dependency-policy.md|_claude-project/templates/ui-inventory.md) return 0 ;;
         _claude-project/templates/design-system/*|_claude-project/templates/testing/*) return 0 ;;
         _claude-project/templates/codebuild/*|_claude-project/skills/gitflow/scripts/codebuild-suite*) return 0 ;;
-        _github-project/dependabot.yml) return 0 ;;
     esac
     return 1
 }
@@ -643,11 +642,11 @@ sha256_stdin() {
 
 # ─── Action pins ───────────────────────────────────────────────────────────
 # A workflow's `uses: owner/action@<sha>  # vX.Y.Z` lines are the one thing in a
-# kit workflow a project may move: its Dependabot raises them, and sync keeps
-# whichever of the two versions is newer. The kit's pin is the floor — a project
+# kit workflow a project may move, and sync keeps whichever of the two versions
+# is newer. The kit's pin is the floor — a project
 # behind it is brought up to it — and a project ahead of it is never reverted.
 # Every other line is the kit's. The version is read from the `# vX.Y.Z` comment
-# Dependabot keeps beside the SHA; a pin without one takes the kit's.
+# beside the SHA; a pin without one takes the kit's.
 carries_pins() {
     case "$1" in
         _github-project/workflows/*) return 0 ;;

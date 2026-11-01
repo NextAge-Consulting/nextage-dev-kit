@@ -571,11 +571,15 @@ account nobody has thought about lately. Enumerate the accounts from the profile
 
 #### 7b — Buildspec traps `[claude]`
 
-Four things bite when authoring a buildspec, each failing in a way that does not name its
+These bite when authoring a buildspec, each failing in a way that does not name its
 cause:
 
-- **The standard CodeBuild image is Amazon Linux, not Ubuntu.** A step that installs a
-  `.deb` dies with a bare exit 127. Use the Amazon Linux package manager, or pin an image.
+- **Know which OS the image is.** `aws/codebuild/standard:*` is Ubuntu; the
+  `aws/codebuild/amazonlinux-*` images are Amazon Linux, where a step that installs a
+  `.deb` dies with a bare exit 127. Use that image's package manager.
+- **Name the Node version in `runtime-versions`.** A buildspec that runs `npm`, `npx` or
+  `node` without `nodejs: <the kit's Node major>` in its install phase gets the image's
+  default, which AWS changes on its own schedule. `check-stack` fails it.
 - **The registry cache needs the `docker-container` buildx driver.** `--cache-to
   type=registry` fails outright with "Cache export is not supported for the docker driver"
   unless the buildspec creates and selects a `docker-container` builder first. The cache

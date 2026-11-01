@@ -72,9 +72,11 @@ while any linked issue is not complete.
    ```
    Empty → nothing to decide, pass nothing.
 3. **Judge each one against its issue** (`gh issue view <N>`): what it asks for, its
-   "done when" if it has one, and its comments. It is complete when every condition it
-   states is met by work you can point to — in this session or in the tree — and nothing
-   in it waits on an open question or decision.
+   "done when" if it has one, and its comments. It is complete when every change it asks
+   for is built — in this session or in the tree — and nothing in it waits on an open
+   question or decision. **A condition only a deploy can satisfy — something arriving,
+   appearing or being confirmed afterwards — is met by the deploy, and never holds the
+   issue open.** Following it up is a new issue, or reopening this one.
 4. **Ask only about the ones you cannot judge** — a condition you cannot check, a scope
    reaching past the work in front of you, an open question or decision still on the
    issue. One question in prose naming just those and why each is unclear, then wait. Ask
@@ -153,7 +155,7 @@ The script will exit non-zero if:
 - Biome lint reports an error, or `biome.json` is present and `@biomejs/biome` is not installed
 - knip reports unused code or cannot run, when `KNIP_GATE` is `"true"` in `.claude/sync-substitutions.json`
 - Semgrep reports a finding in a file this commit touches (`.semgrepignore` applies, as in CI), CI declares a `semgrep` job and semgrep is not installed locally, or the changed files cannot be listed
-- The integration gate fails: the coverage check finds a changed exported function of a risky database shape that no happy-path or risk test calls, a changed integration test file that imports nothing from the app's source, or a changed `.execute()` with no `raw-sql:` reason; an integration test reaching a changed file fails; the integration tests' database is not ready — the harness refuses before any test connects when it is not set up for tests, cannot be reached, or lacks a migration this branch adds; or the repository has integration tests and no integration project runs here. Write the test, or make the test import and call the app's function (`testing-verification.md`). Put a refusal to the developer as it reads: it names the fix, and a missing migration is an apply for them to approve (`drizzle.md` §II), after which run the command again
+- The integration gate fails: the coverage check finds a changed exported function of a risky database shape that no primary-route or risk test calls, a changed integration test file that imports nothing from the app's source, or a changed `.execute()` with no `raw-sql:` reason; an integration test reaching a changed file fails; the integration tests' database is not ready — the harness refuses before any test connects when it is not set up for tests, cannot be reached, or lacks a migration this branch adds; or the repository has integration tests and no integration project runs here. Write the test, or make the test import and call the app's function (`testing-verification.md`). Put a refusal to the developer as it reads: it names the fix, and a missing migration is an apply for them to approve (`drizzle.md` §II), after which run the command again
 - The SQL review finds a table or column typed as text inside a changed `sql` template, or cannot run. Put each finding to the developer with the fix, and ask: fix it, or skip it. Skip: commit again with `SKIP_SQL_REVIEW=1`
 - The test judge judges the tests of the changed TypeScript and finds one to fix, or cannot run. Act on each finding by its kind: `missing` — write the test for the case it names; `reimplements` — rewrite the test to call the application's function instead of its own copy of the logic, or delete it when there is no application code for it to call; `superfluous` — delete the test, never rename it a development test; `misnamed` — rename or move it as the fix says. Then commit again. A finding the human judges wrong: they may commit with `SKIP_TEST_REVIEW=1`
 - The rule review finds history, justification or a counted list in a changed rule, skill, command or pattern reference, or cannot run. Fix the text; the human may override a wrong finding with `SKIP_RULE_REVIEW=1`

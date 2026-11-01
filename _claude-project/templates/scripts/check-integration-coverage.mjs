@@ -9,7 +9,7 @@
  * THREE RULES, each judged only on code changed since the base — the ratchet:
  *
  *   risky shape  An exported function that queries the database in a risky shape is
- *                called by a happy-path or risk test (*.happy.integration.test.ts,
+ *                called by a primary-route or risk test (*.primary.integration.test.ts,
  *                *.integration.test.ts). A development test (*.dev.integration.test.ts)
  *                is not in the full suite, so it does not count. The shapes: raw SQL (a
  *                Drizzle `sql` template, a handle's `.execute(…)` or `.query(…)`), a
@@ -36,7 +36,7 @@
  * origin/main. Without one, every function and test file is judged.
  *
  * --report-untested also counts the untouched exported functions of a risky shape with
- * no happy-path or risk test. The count never fails the check; it falls as each one is
+ * no primary-route or risk test. The count never fails the check; it falls as each one is
  * changed and therefore judged.
  *
  * --sql-templates prints, as JSON, every `sql` template on a changed line, for the
@@ -195,8 +195,9 @@ function tsconfigFor(file) {
 
 const DEFAULT_OPTIONS = { target: 9, module: 99, moduleResolution: 100, jsx: 1, strict: true, skipLibCheck: true, noEmit: true, allowImportingTsExtensions: true };
 
-/** One program per tsconfig, each rooted at the files it governs. */
-function programs(files) {
+/** One program per tsconfig, each rooted at the files it governs — built one at a time,
+ * so a whole-repository pass holds a single program in memory, never all of them. */
+function* programs(files) {
   const ts = loadTypeScript();
   const groups = new Map();
   for (const f of files) {
@@ -204,7 +205,6 @@ function programs(files) {
     if (!groups.has(config)) groups.set(config, []);
     groups.get(config).push(realpathSync(join(repo, f)));
   }
-  const out = [];
   for (const [config, roots] of groups) {
     let options = DEFAULT_OPTIONS;
     if (config) {
@@ -212,9 +212,8 @@ function programs(files) {
       if (read.error) fail(`${relative(repo, config)}: ${ts.flattenDiagnosticMessageText(read.error.messageText, " ")}`);
       options = ts.parseJsonConfigFileContent(read.config, ts.sys, dirname(config)).options;
     }
-    out.push(ts.createProgram(roots, { ...options, noEmit: true }));
+    yield ts.createProgram(roots, { ...options, noEmit: true });
   }
-  return out;
 }
 
 // --- reading source ---------------------------------------------------------------
@@ -381,7 +380,9 @@ function exportedFunctions(ts, program, sf) {
       const visit = (n) => {
         if (ts.isPropertyAccessExpression(n) && isHandleType(ts, checker.getTypeAtLocation(n.expression))) {
           queries = true;
-          if (n.name.text === "execute" && ts.isCallExpression(n.parent) && n.parent.expression === n) executes.push(n);
+          // Kept as a line and a verdict, never the node: a node holds its whole source file.
+          if (n.name.text === "execute" && ts.isCallExpression(n.parent) && n.parent.expression === n)
+            executes.push({ line: lineOf(sf, n.name.getStart()), reasoned: rawSqlReason(ts, n) });
         }
         ts.forEachChild(n, visit);
       };
@@ -538,7 +539,7 @@ for (const program of programs([...judged, ...tests])) {
     if (INTEGRATION_TEST.test(file)) {
       calledFrom(ts, program, sf, DEV_TEST.test(file) ? calledByDev : called);
       if (changedTests.includes(file) && !importsAppSource(ts, program, sf)) testsWithoutApp.push(file);
-    } else for (const fn of exportedFunctions(ts, program, sf)) functions.push({ ...fn, file, sf });
+    } else for (const fn of exportedFunctions(ts, program, sf)) functions.push({ ...fn, file });
   }
 }
 
@@ -558,11 +559,10 @@ for (const fn of functions) {
   inspected++;
   if (!fn.queries) continue;
   querying++;
-  for (const call of fn.executes) {
-    const line = lineOf(fn.sf, call.name.getStart());
+  for (const { line, reasoned } of fn.executes) {
     if (!touches(fn.file, line, line)) continue;
     executes++;
-    if (!rawSqlReason(ts, call))
+    if (!reasoned)
       problems.push(`${fn.file}:${line}  ${fn.name} — a whole query through .execute() with no reason — add \`// raw-sql: <what the query builder cannot express>\` above it, or write it with the query builder (drizzle.md §I)`);
   }
   if (!fn.shapes.length) continue;
@@ -571,16 +571,16 @@ for (const fn of functions) {
   else {
     const only = calledByDev.has(fn.key) ? " (only a development test calls it, and that is not in the full suite)" : "";
     problems.push(
-      `${fn.file}:${fn.start}  ${fn.name} — ${fn.shapes.join(", ")}, and no happy-path or risk test calls it${only} — call it from a *.integration.test.ts (testing-verification.md)`,
+      `${fn.file}:${fn.start}  ${fn.name} — ${fn.shapes.join(", ")}, and no primary-route or risk test calls it${only} — call it from a *.integration.test.ts (testing-verification.md)`,
     );
   }
 }
 for (const file of testsWithoutApp)
   problems.push(`${file} — imports nothing from the app's source, so it tests no app code — import the function it tests and call it (testing-verification.md)`);
 
-const summary = `${inspected} changed exported function(s) in ${changedSources.length} changed file(s) inspected ${since}; ${querying} query the database, ${risky} in a risky shape — ${covered} called by a happy-path or risk test; ${executes} changed .execute() call(s); ${changedTests.length} changed integration test file(s) checked for app code, of ${tests.length} read`;
+const summary = `${inspected} changed exported function(s) in ${changedSources.length} changed file(s) inspected ${since}; ${querying} query the database, ${risky} in a risky shape — ${covered} called by a primary-route or risk test; ${executes} changed .execute() call(s); ${changedTests.length} changed integration test file(s) checked for app code, of ${tests.length} read`;
 if (flag("--report-untested"))
-  console.log(`${NAME}: untouched code — ${untested} exported function(s) query the database in a risky shape with no happy-path or risk test. Each is judged when it next changes.`);
+  console.log(`${NAME}: untouched code — ${untested} exported function(s) query the database in a risky shape with no primary-route or risk test. Each is judged when it next changes.`);
 if (problems.length) {
   console.error(`✗ ${NAME}: ${summary}.\n${problems.map((p) => `  ${p}`).join("\n")}`);
   process.exit(1);

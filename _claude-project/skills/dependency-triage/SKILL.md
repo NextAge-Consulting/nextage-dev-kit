@@ -1,123 +1,126 @@
 ---
 name: dependency-triage
-description: The weekly dependency and vulnerability pass for kit-pipeline projects — clear dependency PRs by blast-radius tier, handle security advisories including ones with no fix, and check Node LTS, without re-deciding from scratch each time. Executes the procedure in project-documentation/dependency-policy.md. Assumes the kit pipeline (gitflow + /deploy + CI-does-NOT-build). Use when the user asks to "triage dependabot", "dependency triage", "clear the dependabot PRs", "do the weekly dependency cleanup", "weekly deps", "check vulnerabilities", or works through open Dependabot PRs or security advisories. Triggers: "triage dependabot", "dependency triage", "weekly deps", "clear dep PRs", "check advisories".
-allowed-tools: Bash(gh:*), Bash(git pull:*), Bash(git status:*), Bash(git log:*), Bash(git fetch:*), Bash(npm:*), Bash(docker:*), Bash(lsof:*), Bash(curl:*), Bash(jq:*), Bash(grep:*), Read, Glob, Grep
+description: The weekly dependency and vulnerability pass — find what is vulnerable (npm audit) and what is behind (npm outdated), decide each by blast-radius tier, take updates past their cooldown through gitflow like any other change, record exceptions for what cannot be fixed, and check Node LTS. Executes project-documentation/dependency-policy.md. Assumes the kit pipeline (gitflow + /deploy + CI-does-NOT-build). Use when the user asks for "dependency triage", "weekly deps", "check vulnerabilities", "update dependencies", "npm audit", or when /deploy names a vulnerability. Triggers: "dependency triage", "weekly deps", "check vulnerabilities", "check advisories", "update dependencies".
+allowed-tools: Bash(gh:*), Bash(git status:*), Bash(git log:*), Bash(git fetch:*), Bash(npm:*), Bash(docker:*), Bash(lsof:*), Bash(curl:*), Bash(jq:*), Bash(grep:*), Read, Glob, Grep
 ---
 
 # dependency-triage — the weekly dependency + vulnerability pass
 
-The repeatable process for clearing dependency PRs and security advisories without re-deciding from scratch each time. Run ~weekly. Claude does the analysis + verification; **the human authorizes every main-landing merge** (merging a Dependabot PR squashes to `main`).
+Claude does the analysis, the updates and the verification; the human decides each
+exception and lands the work through `/commit`. **Read
+`project-documentation/dependency-policy.md` first** — its timelines, its exceptions
+table, its build-graph additions and its project notes. If it is missing, say so: the
+project has not decided its timelines yet.
 
-**Read `project-documentation/dependency-policy.md` first.** It holds this project's timelines, who owns the pass, and where an exception is recorded. This skill executes that policy; it does not define it. If the file is missing, say so — the project has not decided its timelines yet.
+**No bot opens dependency PRs.** Every update this pass makes lands in the working tree
+of the branch the session is on and reaches `main` through `/commit`, `/open-pr` and
+`/merge` — the full suite, the build gate and review, like any other change. Never run
+`gh pr merge` on a dependency branch.
 
-**Pipeline assumption.** This skill assumes the project is on the **kit pipeline**: gitflow tooling, `/deploy` as the release boundary, and CI that does **not** build the app. A project that broke from that pipeline owns the subtraction — this skill's gating logic won't fit it (and such projects don't run dependabot triage anyway).
+## The one fact that drives the tiers
 
-## The one fact that drives everything
+**PR CI does not build the app.** `ci.yml` type-checks, lints and tests; the
+production build runs only in `/merge` and in the deploy image. So a build-graph update
+that type-checks and tests green can still break the build — and once on `main`, it
+fails every later `/merge` on damage it did not cause. Build-graph updates are built and
+run in the real deploy image before the PR opens. Leaf updates are not.
 
-**PR-CI does not build the app.** `ci.yml` runs `dep-alignment` + `check-types` + `biome` + `vitest` (+ `semgrep`) — never the production build. The only automated build gate is in `/merge`, and **Dependabot PRs never touch it** — they land via `gh pr merge` (step 3–5 below), not through gitflow. So a dep PR reaches `main` with nothing having built it. So:
-
-- **Green Dependabot CI ≠ build-safe** for anything in the bundler/SSR graph.
-- A toolchain bump that breaks the build can merge on green CI and **poisons `main`** — every subsequent `/merge` on any branch then fails its build gate on damage it did not cause, until someone fixes it.
-- Therefore: **toolchain bumps get a local prod build + app smoke before merge.** Leaf bumps don't.
-
-## Tiers — triage by blast radius, NOT CI color
-
-| Tier | What | Gate before merge |
+| Tier | What | Gate |
 |---|---|---|
-| **1 — CI/infra** | `github-actions`, `docker` (non-Node), `chore(ci)` | Green CI. Cannot touch the app build. |
-| **2 — Leaf libs** | runtime/util libs NOT in the bundler/SSR graph | Green CI (rebase first if stale). |
-| **3 — Toolchain** | bundler / React / framework / SSR adapter | Green CI **+ local prod build + app smoke**. One PR at a time, never batched. |
+| **Leaf** | runtime and dev libraries outside the build graph | the full suite |
+| **Build graph** | the policy's kit list, its project additions, and anything else in the bundler, framework, router, server adapter, CSS pipeline or database driver | the full suite **+** the deploy image built and run, with a real sign-in |
 
-**The Tier-3 set is exactly the `npm-toolchain` group in `.github/dependabot.yml`** (kept separate from `npm-patch` for precisely this reason). **Read that group to know what's Tier 3 in THIS project — do not hardcode a package list.** `postcss` and anything else in the CSS/build pipeline is Tier 3 even if it arrives in a leaf group.
+Update build-graph packages one family at a time — the TanStack set together, React
+with its types — so a failure names its cause.
 
-## Weekly procedure
-
-1. **List + status.**
-   ```bash
-   gh pr list --author "app/dependabot" --state open \
-     --json number,title,mergeable --jq '.[] | "#\(.number) \(.mergeable) \(.title)"'
-   gh pr view <N> --json statusCheckRollup \
-     --jq '.statusCheckRollup[] | select(.conclusion=="FAILURE") | .name'
-   ```
-   Old PRs failing on `check-types`/`biome` are almost always **stale base, not a broken dep** — rebase before trusting red.
-
-2. **Baseline.** Confirm `main` builds clean first: `git pull --ff-only origin main` then the project's build command (discover it from `package.json` scripts — typically `npm run build --workspaces --if-present`). If main is already red, fix that before touching deps.
-
-3. **Tier 1 — merge on green.** `gh pr merge <N> --squash --delete-branch`.
-
-4. **Tier 2 — rebase → merge green.** `gh pr comment <N> --body "@dependabot rebase"`, then merge when green. No build needed.
-
-5. **Tier 3 — apply to CURRENT MAIN, deploy-image verified, human-authorized.** NEVER test the PR's own branch (it's often weeks stale, missing current files; only the version bump matters, applied onto today's main). On clean main: `npm install <pkg>@<ver>` the target versions (regenerates the lockfile = current-main + bump), then **build + run the real deploy Docker image** and verify in a browser. **Discover the exact build/run commands and ports from the project's `Dockerfile.*` + deploy workflows** — do not assume. Verify the **heaviest / most-divergent app** (and any app whose config diverges, separately). Human authorizes commit+push to main; broken → fix or close.
-
-6. **Close superseded.** When a group PR already contains a package that also has a standalone PR, close the standalone with a note once the group lands.
-
-## Advisories — the other half of the pass
-
-Dependabot PRs cover what CAN be fixed by a version bump. Advisories cover what is
-KNOWN to be vulnerable. They overlap but are not the same list, and the gap between
-them is where the real risk sits.
+## 1. Find what needs doing
 
 ```bash
-gh api repos/:owner/:repo/dependabot/alerts --jq \
-  '.[] | select(.state=="open") |
-   "\(.security_advisory.severity)\t\(.dependency.package.name)\t\(.security_vulnerability.first_patched_version.identifier // "NO FIX")"'
+npm audit --json | jq -r '.vulnerabilities | to_entries[] |
+  "\(.value.severity)\t\(.key)\tdirect=\(.value.isDirect)\tfix=\(.value.fixAvailable | if type=="object" then "\(.name)@\(.version)\(if .isSemVerMajor then " MAJOR" else "" end)" else tostring end)"'
+npm outdated --all --json
 ```
 
-If that call 403s, read the repo's Security tab in a browser instead — the API is
-restricted on org-owned private repos, the web UI is not.
+`npm audit` is the vulnerability list whether or not the project turned GitHub's alerts
+on — read the alerts tab too when it did, since it carries the advisory's history. For
+each advisory, `npm audit --json`'s `via` gives the `GHSA-…` id the exceptions table uses,
+and `npm why <pkg>` names what pulls a transitive package in.
 
-For each open advisory, exactly one of:
-
-- **A patched version exists and a Dependabot PR is already open** — it is not a
-  separate piece of work. Handle it as the PR, by tier, above. Do not track it twice.
-- **A patched version exists but no PR opened** — usually a transitive dependency.
-  Bump the DIRECT dependency that pulls it in, not the transitive one; forcing a
-  transitive to a version its parent was not built against is how you destabilise an
-  app to fix a finding. `npm why <pkg>` shows what pulls it in.
-- **No patched version exists** — nobody can fix this, including us. Record an
-  exception per the policy: what it is, why it can't be fixed, who approved it, and
-  the date it gets reviewed again. Then move on. An advisory with no fix is not a
-  failure to remediate; leaving it unrecorded is.
-
-**Security PRs skip the cooldown.** Dependabot delays version updates (3d patch / 7d
-minor / 30d major) to sit out the window where a compromised release gets yanked —
-but security updates open immediately. So a security PR has had *less* soak than a
-routine one, not more. Read what actually changed before merging it; do not treat
-"security" as a reason to merge faster.
-
-## Node LTS — part of every pass
-
-`dependabot.yml` blocks Node major bumps because Dependabot cannot tell an LTS major
-from a non-LTS one, so nothing else will ever surface the transition. Two commands —
-run them every pass rather than making anyone remember a separate cadence:
+Then the project notes' own checks (a pinned release-candidate `npm outdated` cannot see,
+for example), and the Node LTS check:
 
 ```bash
-curl -s https://nodejs.org/download/release/index.json | \
-  jq -r '[.[] | select(.lts != false)][0].version'
-grep -hE '^FROM (public\.ecr\.aws/docker/library/)?node:' Dockerfile.* 2>/dev/null | \
-  sed -E 's#^FROM (public\.ecr\.aws/docker/library/)?node:([0-9]+).*#\2#' | sort -u
+curl -s https://raw.githubusercontent.com/nodejs/Release/main/schedule.json | jq -r --arg d "$(date +%F)" \
+  'to_entries[] | select(.value.lts != null and .value.lts <= $d and $d <= .value.maintenance) | .key | ltrimstr("v")'
+jq -r .node.major .claude/stack-manifest.json
 ```
 
-Empty output while `Dockerfile.*` exist means a `FROM` the pattern does not cover — read
-the Dockerfiles for the Node major rather than concluding there is none.
+The first names the Active LTS major; the second is the kit's. When they differ, the
+kit moves every project at once with a migration — report it, never change a
+project's Node major here.
 
-Almost every week this matches and there is nothing to do. When it doesn't, that is
-planned work — a tracked task, not a merge. Bump the Dockerfile `FROM` and the `node-version:` in
-`.github/workflows/*.yml` together, or CI and prod drift apart.
+## 2. Decide each
 
-## Verification standard (Tier 3)
+**A vulnerability with a fix:**
+- **In a direct dependency** — update it, by its tier.
+- **In a transitive one** — update the DIRECT dependency that pulls it in to a release
+  that carries the fix. Never force the transitive one with an override: a version its
+  parent was not built against is how fixing a finding breaks an app.
+- **Only reachable through a major** — a major is a build-graph-sized change whatever
+  the package; read its migration notes before taking it.
 
-"Solid" means **build the real prod image, run it on the app's native port, and complete a real login** — NOT "200 on a route" and NOT "server ready" in the log (crypto/auth often loads lazily per request, so a boot can succeed while every request 500s). Full standard: the kit's **`project-documentation/dependency-management.md` §5**.
+**A vulnerability with no fix** — none published, or the parent has not released one —
+gets a row in the policy's exceptions table: the `GHSA-…` id, the package, why it
+cannot be fixed now, who approved it (ask; never fill it yourself), and a review date
+inside the policy's window. `/deploy` reads that table.
 
-## Dependency discipline (read alongside)
+**An outdated package with no vulnerability** — take patches and minors that are past
+their cooldown; leave a major for when its migration notes have been read and the work
+is wanted, and say so.
 
-- **One version per shared dependency** is CI-gated by `dep-alignment` (`npm run check:deps`). When a shared dep updates, bump it to the same version in every workspace that declares it.
-- The deeper discipline — trust-but-verify on old workarounds/pins, solid-version philosophy, accepted-residuals handling — lives in the kit's **`project-documentation/dependency-management.md`**.
+**The cooldown, every time.** Take a version only once it has been published for 3 days
+(a patch), 7 (a minor) or 30 (a major):
+
+```bash
+npm view <pkg> time --json | jq -r --arg v <version> '.[$v]'
+```
+
+Younger than that: take the newest release that is past it, or leave the update for
+the next pass. A security fix gets the same cooldown — read what changed before taking
+it.
+
+## 3. Update and verify
+
+1. **Install from the lockfile first**, so the baseline is the project's: `npm ci`, then
+   the full suite. A red baseline is fixed before any update.
+2. **Make the updates**: `npm install --save-exact <pkg>@<version>` in every workspace
+   that declares the package — one version per shared dependency, which `dep-alignment`
+   enforces.
+3. **Leaf**: the full suite.
+4. **Build graph**: the full suite, then build the real deploy image for the heaviest
+   app and any app whose config diverges, run it on its native port, and complete a
+   real sign-in — never "200 on a route" or "server ready" in the log; auth and crypto
+   load lazily, so a boot can succeed while every request fails. The build and run
+   commands come from the project's `Dockerfile.*` and deploy workflows — discover them,
+   do not assume. Full standard: the kit's `project-documentation/dependency-management.md` §5.
+5. **Install scripts**: a new package or version that wants to run one is surfaced for
+   the human's approval (`dependencies.md` §III).
+
+## 4. Hand back
+
+- What was updated, by tier, and how each was verified.
+- What was left and why — a cooldown not yet passed, a major not yet wanted.
+- Each exception proposed, for the human to approve and name.
+- Under `ASSURANCE_LEVEL` `strict`, a row for the policy's pass log: the date, what was
+  found, what was decided, who decided it.
+- The work lands through `/commit`, on the human's word.
 
 ## Guardrails
 
-- **Never `/deploy` or `/ship-main` as part of triage** — those are the human's to trigger.
-- **Merges land on `main`** — the human authorizes each (or the batch) explicitly.
-- **Never merge a Tier-3 PR on green CI alone.** The build gate is the whole point.
-- **Never override the Node major ignore rule** in `dependabot.yml`. LTS transitions are handled by the quarterly check above.
-- `dependabot.yml` group definitions (the toolchain/leaf split) are kit-standard; cooldown / limits / ignore lists and pattern *extensions* are per-project tunables in its header.
+- **Never `/deploy`, `/ship-main` or `/commit` as part of the pass** — the human
+  triggers them.
+- **Never take a version inside its cooldown**, security fix or not.
+- **Never change the Node major or a kit-pinned version's floor here** — both are the
+  kit's (`.claude/stack-manifest.json`). A project may run a pinned package newer than
+  the kit's version; never older.
+- **Never approve an exception yourself.** Propose it; the human approves and is named.

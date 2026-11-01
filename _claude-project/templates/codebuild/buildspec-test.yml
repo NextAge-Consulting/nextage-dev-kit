@@ -14,6 +14,9 @@ version: 0.2
 
 env:
   shell: bash
+  variables:
+    # The Session Manager plugin the database tunnel runs on, pinned to an exact release.
+    SSM_PLUGIN_VERSION: "1.2.835.0"
   exported-variables:
     - FULL_SUITE_FP
     - FULL_SUITE_FROM
@@ -21,10 +24,48 @@ env:
 phases:
   install:
     runtime-versions:
-      nodejs: 24
+      nodejs: 26
     commands:
       - npm ci
   build:
     commands:
+      # A database on an instance the build cannot reach directly is reached through a
+      # Session Manager port-forward to DB_TUNNEL_INSTANCE, set on the CodeBuild project
+      # (infrastructure.md, "Reaching the database"). It forwards DB_PORT, 1433 when unset,
+      # to the same port here and points DB_SERVER at it. Unset: no tunnel.
+      - |
+        if [ -n "${DB_TUNNEL_INSTANCE:-}" ]; then
+          port="${DB_PORT:-1433}"
+          arch=$(dpkg --print-architecture); [ "$arch" = amd64 ] && arch=64bit
+          curl -fsSLo /tmp/ssm-plugin.deb "https://s3.amazonaws.com/session-manager-downloads/plugin/${SSM_PLUGIN_VERSION}/ubuntu_${arch}/session-manager-plugin.deb" \
+            && dpkg -i /tmp/ssm-plugin.deb >/dev/null
+          nohup aws ssm start-session --target "$DB_TUNNEL_INSTANCE" \
+            --document-name AWS-StartPortForwardingSession \
+            --parameters "{\"portNumber\":[\"$port\"],\"localPortNumber\":[\"$port\"]}" \
+            > /tmp/db-tunnel.log 2>&1 &
+          tunnel=$!
+          for _ in $(seq 1 30); do
+            grep -q 'Waiting for connections' /tmp/db-tunnel.log && break
+            kill -0 "$tunnel" 2>/dev/null || break
+            sleep 1
+          done
+          if grep -q 'Waiting for connections' /tmp/db-tunnel.log; then
+            export DB_SERVER=localhost DB_PORT="$port"
+          else
+            echo "The database tunnel to $DB_TUNNEL_INSTANCE did not open:"
+            cat /tmp/db-tunnel.log
+            false
+          fi
+        fi
       - bash .claude/skills/gitflow/scripts/codebuild-suite.sh --out /tmp/full-suite.env
       - . /tmp/full-suite.env
+  post_build:
+    commands:
+      # Session Manager keeps a session open until it idles out after the client is gone,
+      # so the build ends the tunnel's own session. A failure here never fails the build.
+      - |
+        if [ -f /tmp/db-tunnel.log ]; then
+          session=$(sed -n 's/^Starting session with SessionId: //p' /tmp/db-tunnel.log)
+          [ -z "$session" ] || aws ssm terminate-session --session-id "$session" >/dev/null \
+            || echo "Couldn't end the database tunnel's session $session; Session Manager ends it when it idles out."
+        fi

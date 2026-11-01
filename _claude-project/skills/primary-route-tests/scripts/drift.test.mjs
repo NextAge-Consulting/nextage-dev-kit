@@ -10,7 +10,7 @@ import { checkUnit, inventory, score, surface, THRESHOLD, unitOf, units, writeSn
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), 'drift.mjs')
 
 function repo(files) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'happy-drift-'))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'primary-drift-'))
   write(dir, files)
   return dir
 }
@@ -110,24 +110,24 @@ test('the score is items added plus items removed over the snapshot size, each w
   assert.equal(score({}, { routes: ['/x'] }).score, Number.POSITIVE_INFINITY)
 })
 
-test('an app with no happy-path tests is reported as such', () => {
+test('an app with no primary-route tests is reported as such', () => {
   const r = checkUnit(repo(MONOREPO), 'apps/shop')
   assert.equal(r.status, 'none')
-  assert.match(r.message, /apps\/shop has no happy-path tests — run \/happy-path apps\/shop/)
+  assert.match(r.message, /apps\/shop has no primary-route tests — run \/primary-route-audit apps\/shop/)
 })
 
-test('happy-path tests with no snapshot are reported, not passed', () => {
-  const dir = repo({ ...MONOREPO, 'apps/shop/test/happy-path/cart.happy.integration.test.ts': '' })
+test('primary-route tests with no snapshot are reported, not passed', () => {
+  const dir = repo({ ...MONOREPO, 'apps/shop/test/primary-routes/cart.primary.integration.test.ts': '' })
   assert.equal(checkUnit(dir, 'apps/shop').status, 'unsnapshotted')
 })
 
 test('a fresh snapshot is ok; drift past the threshold is reported with its share', () => {
-  const dir = repo({ ...MONOREPO, 'apps/shop/test/happy-path/cart.happy.integration.test.ts': '' })
-  assert.equal(writeSnapshot(dir, 'apps/shop'), 'apps/shop/test/happy-path/snapshot.json')
+  const dir = repo({ ...MONOREPO, 'apps/shop/test/primary-routes/cart.primary.integration.test.ts': '' })
+  assert.equal(writeSnapshot(dir, 'apps/shop'), 'apps/shop/test/primary-routes/snapshot.json')
   assert.equal(checkUnit(dir, 'apps/shop').status, 'ok')
   // One of four items added: exactly the threshold, not past it.
   write(dir, { 'apps/shop/src/routes/checkout.tsx': "createFileRoute('/checkout')\n" })
-  assert.equal(score(JSON.parse(fs.readFileSync(path.join(dir, 'apps/shop/test/happy-path/snapshot.json'), 'utf8')), surface(dir, 'apps/shop')).score, THRESHOLD)
+  assert.equal(score(JSON.parse(fs.readFileSync(path.join(dir, 'apps/shop/test/primary-routes/snapshot.json'), 'utf8')), surface(dir, 'apps/shop')).score, THRESHOLD)
   assert.equal(checkUnit(dir, 'apps/shop').status, 'ok')
   write(dir, { 'apps/shop/src/routes/account.tsx': "createFileRoute('/account')\n" })
   const r = checkUnit(dir, 'apps/shop')
@@ -135,8 +135,16 @@ test('a fresh snapshot is ok; drift past the threshold is reported with its shar
   assert.match(r.message, /moved 50%/)
 })
 
+test('a unit whose snapshot holds nothing the script recognises is unmeasured, never ok', () => {
+  const dir = repo({ ...MONOREPO, 'apps/svc/package.json': { name: 'svc' }, 'apps/svc/src/app.ts': 'export const app = 1\n', 'apps/svc/test/primary-routes/a.primary.integration.test.ts': '' })
+  writeSnapshot(dir, 'apps/svc')
+  const r = checkUnit(dir, 'apps/svc')
+  assert.equal(r.status, 'unmeasured')
+  assert.match(r.message, /staleness is not measured/)
+})
+
 test('a snapshot that is not JSON is reported as unreadable', () => {
-  const dir = repo({ ...MONOREPO, 'apps/shop/test/happy-path/a.happy.integration.test.ts': '', 'apps/shop/test/happy-path/snapshot.json': '{' })
+  const dir = repo({ ...MONOREPO, 'apps/shop/test/primary-routes/a.primary.integration.test.ts': '', 'apps/shop/test/primary-routes/snapshot.json': '{' })
   assert.equal(checkUnit(dir, 'apps/shop').status, 'unreadable')
 })
 
@@ -144,14 +152,14 @@ test('check --changed reports only the units the changed source files fall in', 
   const dir = repo(MONOREPO)
   const list = path.join(dir, 'changed.txt')
   fs.writeFileSync(list, 'apps/shop/src/server/cart.ts\napps/office/README.md\npackages/ui/src/x.ts\n')
-  assert.equal(cli(dir, 'check', '--changed', list), 'none\tapps/shop\tapps/shop has no happy-path tests — run /happy-path apps/shop\n')
+  assert.equal(cli(dir, 'check', '--changed', list), 'none\tapps/shop\tapps/shop has no primary-route tests — run /primary-route-audit apps/shop\n')
 })
 
 test('the command names the units, writes a snapshot, and refuses a folder that is not a unit', () => {
   const dir = repo(MONOREPO)
   assert.equal(cli(dir, 'units'), 'apps/shared\napps/office\napps/shop\n')
-  assert.equal(cli(dir, 'snapshot', 'apps/office'), 'apps/office/test/happy-path/snapshot.json\n')
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'apps/office/test/happy-path/snapshot.json'), 'utf8')), {
+  assert.equal(cli(dir, 'snapshot', 'apps/office'), 'apps/office/test/primary-routes/snapshot.json\n')
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'apps/office/test/primary-routes/snapshot.json'), 'utf8')), {
     unit: 'apps/office', routes: ['/'], serverFunctions: [], tables: [],
   })
   assert.throws(() => cli(dir, 'check', 'packages/ui'), /not an app or the shared module/)

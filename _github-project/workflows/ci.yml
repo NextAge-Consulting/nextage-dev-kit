@@ -162,12 +162,12 @@ jobs:
       - id: node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
-          node-version: '24'
+          node-version: '26'
           cache: npm
 
       # Monorepo invariant: every shared dependency is ONE version across all
-      # workspaces. Dependabot bumps each manifest independently and cannot see
-      # cross-app drift, so this gate is what screams the moment a dep diverges —
+      # workspaces. A bump in one workspace's manifest leaves the others behind
+      # unless someone remembers them, so this gate is what screams the moment a dep diverges —
       # the class of skew that causes "works in one app, breaks in another"
       # outages. It reads package.json files only, so it runs before the install.
       # On a single-package repo (no `workspaces`) it's a guaranteed pass.
@@ -438,7 +438,7 @@ jobs:
         if: steps.applies.outputs.run == 'true'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
-          node-version: '24'
+          node-version: '26'
           cache: npm
       # node_modules from the cache on an exact hit, as in node-checks.
       - id: modules
@@ -467,14 +467,10 @@ jobs:
       # dropped when it cannot reach its database — on PostgreSQL, when the Neon
       # secrets are absent — and the run still passes, so integration tests that
       # exist but never ran would read as green. They must run unless the
-      # project declares why CI cannot run them (INTEGRATION_CI_OFF). Dependabot PRs are the one exception: GitHub
-      # runs them without the repository's Actions secrets, and their unit tests
-      # are still real signal.
+      # project declares why CI cannot run them (INTEGRATION_CI_OFF).
       - id: integration
         name: must the integration tests run
         if: steps.applies.outputs.run == 'true' && steps.runner.outputs.runner != 'aws'
-        env:
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           set -euo pipefail
           subs=.claude/sync-substitutions.json
@@ -491,8 +487,6 @@ jobs:
             echo "::notice::DB_ENGINE is None, so the integration tests are not required."
           elif [ -n "$ci_off" ]; then
             echo "::notice::Integration tests are declared off in CI (INTEGRATION_CI_OFF): $ci_off"
-          elif [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
-            echo "::notice::Dependabot PRs run without the repository's secrets, so the integration tests are not required here."
           elif [ "$engine" = "PostgreSQL" ] && { [ -z "$NEON_API_KEY" ] || [ -z "$NEON_PROJECT_ID" ]; }; then
             echo "::error::This repository has integration tests, but the NEON_API_KEY or NEON_PROJECT_ID secret is empty, so they would be skipped. Add both under Settings → Secrets and variables → Actions (testing.md §1), or declare why CI cannot run them in INTEGRATION_CI_OFF."
             printf '%s\n' "$files"
@@ -567,24 +561,18 @@ jobs:
           fi
           echo "The integration project ran."
       # The record: `full-suite` on the PR's head commit, success or failure, carrying the
-      # fingerprint. Last, so a failure in any step above is a failure here. GitHub
-      # gives a Dependabot PR's run a read-only token, so its run records nothing; a
+      # fingerprint. Last, so a failure in any step above is a failure here. A
       # record that cannot be posted costs only a later reuse, so it warns.
       - name: record the full suite
         if: ${{ !cancelled() && steps.record.outputs.fp != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           JOB_STATUS: ${{ job.status }}
           FP: ${{ steps.record.outputs.fp }}
           FROM: ${{ steps.record.outputs.from }}
         run: |
           set -uo pipefail
-          if [ "$PR_AUTHOR" = "dependabot[bot]" ]; then
-            echo "::notice::Dependabot PRs run with a read-only token, so the full suite's result is not recorded."
-            exit 0
-          fi
           script=.claude/skills/gitflow/scripts/code-fingerprint.mjs
           state=failure
           [ "$JOB_STATUS" = success ] && state=success
@@ -719,17 +707,7 @@ jobs:
       image: semgrep/semgrep
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      # On Dependabot PRs, emit a notice and succeed (the check still reports a
-      # SUCCESS status so a `semgrep` required-check, if configured, is satisfied
-      # and the dep-bump PR can merge). Dependabot PRs only change
-      # `package.json` / lockfile — no application source for Semgrep to scan;
-      # Dependabot's own vulnerability alerts are the real gate for dep security.
-      - name: Skip scan for Dependabot PRs
-        if: github.actor == 'dependabot[bot]'
-        run: |
-          echo "::notice::Semgrep skipped for Dependabot PR — lockfile-only diff has no source for scanning."
-      # On every other PR, run the real scan. `--error` fails the job on any
-      # finding so CI blocks the merge.
+      # `--error` fails the job on any finding so CI blocks the merge.
       #
       # Project-specific `--exclude-rule` flags belong here when a finding is
       # addressed by a real config-level fix the rule's pattern matcher cannot
@@ -737,7 +715,6 @@ jobs:
       # site so the rule's concern can be re-verified. `.semgrepignore` (pipeline.md §3.2)
       # handles file-pattern excludes (binaries, design assets, lockfiles).
       - name: Run Semgrep
-        if: github.actor != 'dependabot[bot]'
         run: |
           semgrep scan --config auto --error
 

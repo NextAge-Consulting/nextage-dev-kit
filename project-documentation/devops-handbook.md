@@ -104,23 +104,26 @@ writes its test then, so the untested count CI prints falls as the code is worke
 **Where the whole suite runs is your setting too.** `TEST_RUNNER` is `github` by default:
 CI runs it on GitHub Actions. Set it to `aws` and it runs in a CodeBuild project in the
 project's own account instead — fewer GitHub minutes, and the one way to reach a database
-on a private network. You provision that project, its role and its PR webhook as
-Terraform, and give it the database credentials CI held (`infrastructure.md`, "The full
-suite in CodeBuild"). `/deploy` then reads its results, and starts a run there when `main`'s
+on a private network. A database on an EC2 instance needs no network change for it: the
+build opens a Session Manager tunnel to the instance. You provision that project, its role
+and its PR webhook as Terraform, and give it the database credentials CI held
+(`infrastructure.md`, "The full suite in CodeBuild"). `/deploy` then reads its results, and starts a run there when `main`'s
 code has none.
 
 **`ASSURANCE_LEVEL` `strict` is for a project that has to show evidence of its controls.**
 Under it `/ship-main` takes docs only, `/deploy` ships only code with a recorded full-suite
-pass, and `/open-pr` refuses an app with no current happy path. You also turn on a GitHub
+pass, and `/open-pr` refuses an app with no current primary-route tests. You also turn on a GitHub
 ruleset requiring the `full-suite` check (`new-project-setup.md` step 3a). The default,
 `assist`, warns where strict refuses. (`pipeline.md` §1.6)
 
 ## Keeping it healthy
 
-- **Dependencies.** Dependabot opens grouped PRs monthly, and waits a few days before
-  proposing a new version so a bad release gets pulled first. The `dependency-triage`
-  skill runs the weekly pass, and the project's `dependency-policy.md` sets the
-  timelines. In a monorepo, a CI gate keeps every app on the same version of each
+- **Dependencies.** No bot opens dependency PRs: the `dependency-triage` skill runs the
+  weekly pass, takes a new version only once it is a few days old so a bad release gets
+  pulled first, and lands the updates through the usual gitflow. The project's
+  `dependency-policy.md` sets the timelines, and `/deploy` names any serious
+  vulnerability with a fix that is past them — a warning under `assist`, a refusal under
+  `strict`. In a monorepo, a CI gate keeps every app on the same version of each
   shared dependency. (`pipeline.md` §3.3–§3.6, `dependency-management.md`)
 - **CI.** Every PR gets a PR-title check, type check, lint, security scan and tests.
   (§3.1–§3.2, `testing.md`)

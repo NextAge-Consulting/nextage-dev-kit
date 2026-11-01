@@ -1,6 +1,6 @@
 # Dependency Management — Transitive Overrides & Security Alerts
 
-How to handle Dependabot / `npm audit` / security alerts in a TanStack Start app **without breaking SSR.** This is the single most dangerous class of "routine" dependency change in a Start project.
+How to handle `npm audit` / GitHub's vulnerability alerts in a TanStack Start app **without breaking SSR.** This is the single most dangerous class of "routine" dependency change in a Start project.
 
 ## The warning
 
@@ -41,7 +41,7 @@ After adding the override:
 
 If any surface fails, revert the override; the version is not safe to force. Document any override you keep as a temporary workaround with the advisory it addresses and the Start version that will obsolete it.
 
-## Quick rule for Dependabot triage
+## Quick rule for the dependency pass
 
 - Alert's dependency chain runs through `@tanstack/*` or `vite` → **bump Start/Vite, never `overrides`.**
 - Alert is a leaf dev/tooling dep with no react-start/vite ancestry (e.g. a standalone CLI) → a normal override/bump is fine; the fragility above doesn't apply.

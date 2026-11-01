@@ -15,7 +15,7 @@ ok()  { echo "ok   $1"; }
 bad() { echo "FAIL $1"; fail=1; }
 
 bin="$tmp/scripts"; mkdir -p "$bin"
-cp "$D/deploy.sh" "$D/issue_helpers.sh" "$D/repo_kind.sh" "$D/gates.sh" "$D/code-fingerprint.mjs" "$D/settings.sh" "$bin/"
+cp "$D/deploy.sh" "$D/issue_helpers.sh" "$D/repo_kind.sh" "$D/gates.sh" "$D/code-fingerprint.mjs" "$D/vulnerability-check.mjs" "$D/settings.sh" "$bin/"
 printf '#!/bin/bash\necho "deploy-org ran: $*"\n' > "$bin/deploy-org.sh"
 chmod +x "$bin"/*.sh
 
@@ -77,6 +77,7 @@ Needs acme/acme-org#99"
 # set — a captured run is coloured too, whatever FORCE_COLOR says.
 cat > "$tmp/fake/npm" <<'NPM'
 #!/bin/bash
+case "$*" in audit*) if [ -n "${FAKE_AUDIT:-}" ]; then printf '%s\n' "$FAKE_AUDIT"; else echo '{"vulnerabilities":{}}'; fi; exit 0 ;; esac
 echo "npm $*"
 case "$*" in *test:preflight*) printf '%s\n' "${FAKE_PREFLIGHT_OUT:-}"; exit "${FAKE_PREFLIGHT_RC:-0}" ;; esac
 if [ -n "${NO_COLOR+set}" ]; then
@@ -161,6 +162,21 @@ head=$(git rev-parse HEAD); fp=$(fpof)
 subs ',"ASSURANCE_LEVEL":"strict","INTEGRATION_DEPLOY_OFF":"no database here"'
 [ "$(run)" = 26 ] && grep -q "does not run the suite on this machine" "$tmp/out" \
     && ok "strict: INTEGRATION_DEPLOY_OFF does not excuse the missing record" || bad "strict deploy off: $(cat "$tmp/out")"
+
+# ─── A vulnerability with a fix, past the policy's window ────────────────
+# The fake gh dates no advisory, so the one below is never shown to be inside its window.
+vuln='{"vulnerabilities":{"alpha":{"severity":"critical","fixAvailable":true,"via":[{"severity":"critical","title":"Alpha flaw","url":"https://github.com/advisories/GHSA-2222-3333-4444"}]}}}'
+printf '{}\n' > package-lock.json
+subs ''
+[ "$(FAKE_AUDIT="$vuln" FAKE_NPM_OUT=' ✓ |integration| test/a.integration.test.ts' run)" = 0 ] && grep -q "alpha  GHSA-2222-3333-4444" "$tmp/out" && grep -q "WARNING — deploying with the vulnerabilities above" "$tmp/out" \
+    && ok "assist: a vulnerability past its window is named, and the release goes on" || bad "assist vuln: $(cat "$tmp/out")"
+subs ',"ASSURANCE_LEVEL":"strict"'
+head=$(git rev-parse HEAD); fp=$(fpof)
+[ "$(FAKE_AUDIT="$vuln" FAKE_STATUS_SHA=$head FAKE_STATUS_DESC="fp $fp" run)" = 27 ] && grep -q "refused (ASSURANCE_LEVEL=strict) — the vulnerabilities above" "$tmp/out" \
+    && ok "strict: a vulnerability past its window refuses (27) before anything ships" || bad "strict vuln: $(cat "$tmp/out")"
+[ "$(FAKE_STATUS_SHA=$head FAKE_STATUS_DESC="fp $fp" run)" = 0 ] && grep -q "none past its window" "$tmp/out" \
+    && ok "strict: a clean audit passes, saying what it counted" || bad "strict clean: $(cat "$tmp/out")"
+rm package-lock.json
 subs ',"ASSURANCE_LEVEL":"high"'
 [ "$(run)" = 2 ] && grep -q "ASSURANCE_LEVEL is 'high' in .claude/sync-substitutions.json" "$tmp/out" \
     && ok "an invalid ASSURANCE_LEVEL stops /deploy (2), naming the key and the file" || bad "invalid level: $(cat "$tmp/out")"

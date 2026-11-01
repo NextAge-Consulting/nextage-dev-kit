@@ -108,7 +108,7 @@ EOF
 expect "thin code — a select by key, a plain insert — needs no test" "$r" 0 "2 query the database, 0 in a risky shape"
 
 r=$(repo join); risky "$r" joined "$JOINED"
-expect "a join with no test fails, naming the function and the shape" "$r" 1 "src/joined.ts:3  joined — a join, and no happy-path or risk test calls it"
+expect "a join with no test fails, naming the function and the shape" "$r" 1 "src/joined.ts:3  joined — a join, and no primary-route or risk test calls it"
 
 r=$(repo filter); risky "$r" filtered 'return db.select().from(orders).where(and(eq(orders.id, 1), eq(orders.customerid, 2)));'
 expect "a filter beyond a single equality is risky" "$r" 1 "filtered — a filter beyond a lookup by key"
@@ -135,13 +135,13 @@ r=$(repo writes); risky "$r" swapped 'await db.delete(orders).where(eq(orders.id
 expect "more than one write is risky" "$r" 1 "swapped — more than one write"
 
 r=$(repo raw-template); risky "$r" late 'return db.select().from(orders).where(sql`placedat < now()`);'
-expect "a sql template is raw SQL" "$r" 1 "raw SQL, and no happy-path or risk test calls it"
+expect "a sql template is raw SQL" "$r" 1 "raw SQL, and no primary-route or risk test calls it"
 
 r=$(repo risk-tested); risky "$r" joined "$JOINED"; tested "$r" joined.integration.test.ts joined
-expect "a risk test calling it passes" "$r" 0 "1 in a risky shape — 1 called by a happy-path or risk test"
+expect "a risk test calling it passes" "$r" 0 "1 in a risky shape — 1 called by a primary-route or risk test"
 
-r=$(repo happy-tested); risky "$r" joined "$JOINED"; tested "$r" joined.happy.integration.test.ts joined
-expect "a happy-path test calling it passes" "$r" 0 "1 called by a happy-path or risk test"
+r=$(repo primary-route-tested); risky "$r" joined "$JOINED"; tested "$r" joined.primary.integration.test.ts joined
+expect "a primary-route test calling it passes" "$r" 0 "1 called by a primary-route or risk test"
 
 r=$(repo dev-only); risky "$r" joined "$JOINED"; tested "$r" joined.dev.integration.test.ts joined
 expect "a development test alone does not cover it" "$r" 1 "only a development test calls it"
@@ -180,7 +180,7 @@ expect "--report-untested counts it" "$r" 0 "untouched code — 1 exported funct
 
 r=$(repo edit-legacy)
 sed -i.bak 's/customer)));/customer))); \/\/ edited/' "$r/src/legacy.ts" && rm "$r/src/legacy.ts.bak"
-expect "editing an untested risky function requires its test" "$r" 1 "legacyRead — a filter beyond a lookup by key, and no happy-path or risk test calls it"
+expect "editing an untested risky function requires its test" "$r" 1 "legacyRead — a filter beyond a lookup by key, and no primary-route or risk test calls it"
 
 r=$(repo no-app-code)
 cat > "$r/test/copy.integration.test.ts" <<'EOF'

@@ -77,6 +77,10 @@
 #     PR merged, or a merged PR closes the org issue (org-repo-cheatsheet.md)
 #   - No UI awaiting the human's approval: the ui-patterns status check passes
 #     (rules/ui-design.md, "One app, one look and feel")
+#   - No high or critical npm vulnerability with a fix is past the dependency
+#     policy's window, unless an exception there covers it (vulnerability-check.mjs).
+#     A warning under ASSURANCE_LEVEL=assist; a refusal under strict, which also
+#     refuses when the check could not run
 #   - The full test suite passes, and integration tests that exist actually ran
 #     (testing.md §3) — unless INTEGRATION_DEPLOY_OFF declares why it cannot. Not run
 #     again when this exact code already has a full-suite pass recorded — on GitHub, or
@@ -194,6 +198,9 @@
 #      ASSURANCE_LEVEL=strict, main's code has no recorded pass and no CodeBuild runner;
 #      checked as the last state gate, before any mutation — or the integration
 #      preflight failed, checked as the first
+#  27  ASSURANCE_LEVEL=strict and a high or critical npm vulnerability with a fix is
+#      past the dependency policy's window with no current exception, or the check
+#      could not run — checked as a state gate before any mutation
 #
 # ─── Recovery ────────────────────────────────────────────────────────────
 # The bump commit and the push to main happen together (steps 3–4). If the
@@ -867,6 +874,33 @@ if [ -f "$UI_STATUS_CHECK" ]; then
         echo "deploy.sh: UI awaiting approval or out of step with the UI inventory. Refusing to deploy." >&2
         echo "  Walk the pending items with the human (the design-system skill's review), then deploy." >&2
         exit 22
+    fi
+fi
+
+# --- Vulnerabilities with a fix are taken inside the policy's window -----
+# vulnerability-check.mjs names every high or critical advisory with a fix that is
+# older than the dependency policy allows, unless an exception there covers it. assist
+# warns and goes on; strict refuses, and refuses when the check could not run, since it
+# ships nothing it could not verify (dependency-policy.md, "How updates happen here").
+VULN_CHECK="$(dirname "${BASH_SOURCE[0]}")/vulnerability-check.mjs"
+if [ -f package.json ]; then
+    if ! command -v node >/dev/null 2>&1; then
+        echo "deploy.sh: node is required to run the vulnerability check ($VULN_CHECK)" >&2
+        exit 9
+    fi
+    if [ -f "$VULN_CHECK" ]; then
+        VULN_RC=0
+        node "$VULN_CHECK" >&2 || VULN_RC=$?
+    else
+        echo "vulnerability check: could not run — $VULN_CHECK is not installed." >&2
+        VULN_RC=2
+    fi
+    if [ "$VULN_RC" -ne 0 ]; then
+        if [ "$ASSURANCE_LEVEL" = "strict" ]; then
+            echo "deploy.sh: refused (ASSURANCE_LEVEL=strict) — the vulnerabilities above must be updated or carry a current exception first. Nothing was bumped, built or migrated." >&2
+            exit 27
+        fi
+        echo "deploy.sh: WARNING — deploying with the vulnerabilities above; update them through the dependency pass, or record an exception." >&2
     fi
 fi
 
