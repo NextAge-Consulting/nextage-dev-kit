@@ -15,7 +15,7 @@
 
 A monorepo exists **because every workspace runs the same stack.** The entire value proposition is that there is never a "will this work in *this* app?" question. The moment a dependency is declared at two different versions across workspaces, that property is gone — you have "works in one app, breaks in another" failures that are brutal to diagnose because the symptom (a runtime crash in app B) is nowhere near the cause (a version bump in app A's manifest).
 
-**Dependabot makes this worse, not better.** It bumps each manifest independently and has no concept of cross-app consistency, so it *creates* skew rather than catching it.
+**A bump made in one manifest creates the skew.** Whoever updates a package in one workspace and not the others has split the stack, whether a person or a tool did it.
 
 **The gate:** `scripts/check-dep-alignment.mjs` fails if any dependency is declared at more than one version across the workspaces. It reads `package.json` files only (no install) and runs as the `dep-alignment` CI job on every PR.
 
@@ -84,24 +84,26 @@ A build is **NOT** proven until you:
 
 ## 6. Accepted security residuals — documented, not punted
 
-After `npm audit fix` (which clears the genuinely-reachable transitives, including all HIGH) and any pinned `overrides`, some advisories may remain that npm can only "fix" with a breaking major **downgrade**, or that have no fix yet. For each one that is **dev/build/export-time only with no production-bundle exposure**, the correct action is to **dismiss the GitHub alert with a specific, written reason** — not leave it perpetually red, and not pile on hacks.
+After `npm audit fix` (which clears the genuinely-reachable transitives, including all HIGH) and any pinned `overrides`, some advisories may remain that npm can only "fix" with a breaking major **downgrade**, or that have no fix yet. For each one that is **dev/build/export-time only with no production-bundle exposure**, the correct action is to **record it as an exception in `dependency-policy.md`, with a specific, written reason and a review date** — and, where the project has GitHub's alerts on, dismiss the alert with the same reason — not leave it perpetually red, and not pile on hacks.
 
 The discipline:
 - **Prove non-reachability**, don't assert it. Name *why* the vulnerable code path can't be hit (e.g. "we never run the tool's `serve` mode; we only use it as a bundler," "the ID it generates is internal, not attacker-controlled," "not deployed on the affected OS").
-- **Record the residual** in the project's dependency notes (and in a tracking issue if action is deferred), with the dismissal reason verbatim.
+- **Record the residual** in the policy's exceptions table — the advisory id, the package, the reason verbatim, who approved it, and the review date. `/deploy`'s vulnerability check reads that table.
 - **Revisit on update**, don't forget — if the residual exists only because an upstream hasn't shipped a patched transitive, note the trigger ("revisit when <pkg> updates").
 
 Dismissing with a specific reason is the audit trail. "False positive" / "safe" with no specifics is not (constitution §XIII).
 
-### Dependabot security updates are a separate toggle
+### GitHub's vulnerability alerts are a per-project choice
 
-A `dependabot.yml` group governs **version** updates. **Security** PRs are a *separate repo setting*: Settings → Code security → **Dependabot security updates**. A repo can have a perfectly good `dependabot.yml` and still open **zero** security PRs because that toggle is off. If an audit shows N auto-fixable advisories but no security PRs, check the toggle.
+**Dependabot alerts** (Settings → Code security) email the day an advisory is published and keep a list under the repository's Security tab; they open no PRs. A project that must show continuous monitoring turns them on and records it in its policy's `alerts` region; a small team leaves them off and relies on the weekly pass and `/deploy`'s vulnerability check. The vulnerability list itself is `npm audit`, which works either way.
+
+**Dependabot security updates stay off in every project.** They open a PR the day a fix publishes, skipping the cooldown that keeps a compromised release out (pipeline.md §3.3).
 
 ---
 
 ## 7. Cross-references
 
 - **pipeline.md §3.6** — the `dep-alignment` step + `scripts/check-dep-alignment.mjs` wiring and the `check:deps` convention.
-- **pipeline.md §3.3** — `dependabot.yml` (grouping / cooldown / monthly cadence).
+- **pipeline.md §3.3** — how dependency updates happen: the weekly pass, the cooldown, `/deploy`'s vulnerability check.
 - **pipeline.md §1.4** — quality + security tools (where the gate sits in the pipeline).
 - **constitution §X / §XIII** — fail-loud and suppression discipline (the gate fails loud; §6 residuals are the disciplined alternative to silent suppression).

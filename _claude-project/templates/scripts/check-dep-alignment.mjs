@@ -5,8 +5,8 @@
 // stack. When a dependency is declared at different versions across workspaces
 // (e.g. better-auth ^1.5.5 in one app but ^1.6.11 in another) you get "works in
 // one app, breaks in another" production failures that are brutal to diagnose.
-// Dependabot bumps each manifest independently and has no concept of cross-app
-// consistency, so it CREATES this skew rather than catching it. This gate is the
+// A bump made in one manifest and not the others CREATES this skew, whoever made
+// it. This gate is the
 // safety net: it fails the moment any shared dependency drifts to more than one
 // version across the workspaces.
 //
@@ -81,8 +81,8 @@ if (emptyGlobs.length > 0) {
 
 // Single-root-lockfile invariant. In an npm-workspaces monorepo the root
 // package-lock.json is authoritative; a stray per-workspace lockfile is dead
-// (npm installs from the root lockfile and ignores it) yet Dependabot still
-// scans it independently — resurfacing already-patched transitives as phantom
+// (npm installs from the root lockfile and ignores it) yet GitHub's
+// vulnerability alerts, where a project turns them on, still scan it independently — resurfacing already-patched transitives as phantom
 // security alerts against a manifest nothing installs from. Fail loud so an
 // incomplete unification (one app's lockfile left behind) is caught here, not
 // weeks later as a ghost CVE on the board.
@@ -92,7 +92,7 @@ const strayLockfiles = workspaceDirs
 if (strayLockfiles.length > 0) {
   console.error(
     `✗ lockfile hygiene: ${strayLockfiles.length} stray per-workspace lockfile(s) found. ` +
-      `Only the root package-lock.json is authoritative in a workspaces monorepo — delete these (they cause phantom Dependabot alerts):\n`,
+      `Only the root package-lock.json is authoritative in a workspaces monorepo — delete these (they cause phantom vulnerability alerts):\n`,
   );
   for (const rel of strayLockfiles) console.error(`      ${rel}`);
   process.exit(1);

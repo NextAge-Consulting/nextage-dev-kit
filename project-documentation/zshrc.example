@@ -27,13 +27,13 @@ export PATH="$HOME/.local/bin:$PATH"
 # libpq is keg-only: Homebrew never links psql and pg_dump, so its bin goes on PATH.
 export PATH="/opt/homebrew/opt/libpq/bin:$PATH"
 
-# A versioned keg (python@3.13, node@24) ships only VERSIONED command names in
+# A versioned keg (python@3.13, node@26) ships only VERSIONED command names in
 # its bin — python3.13, not python3. Adding its bin to PATH does not change what
 # `python3` resolves to; `brew link` does. Check what actually wins:
 #   ls -l "$(brew --prefix)/bin/python3"
 
 # ── Node ─────────────────────────────────────────────────────────────────────
-# Install the Active LTS major EXPLICITLY — `brew install node@24`, never bare
+# Install the Active LTS major EXPLICITLY — `brew install node@26`, never bare
 # `brew install node`, which tracks the latest Current release and will move you
 # off LTS at the next cut (project-documentation/../rules/dependencies.md §II).
 #
@@ -42,7 +42,7 @@ export PATH="/opt/homebrew/opt/libpq/bin:$PATH"
 # A major is Active LTS when its `lts` date has passed and `maintenance` has not.
 #
 # Homebrew keeps versioned formulae unlinked by default. Link the one you want:
-#   brew link --overwrite node@24
+#   brew link --overwrite node@26
 # Then confirm which formula is actually serving `node`:
 #   ls -l "$(brew --prefix)/bin/node"
 #

@@ -85,12 +85,13 @@ its schema only through migrations: `neon-branches.md`.
 ## Tests
 
 Write a test in the same change as the code it covers. Logic that lives in the code gets a
-unit test; anything whose answer comes from the database gets an integration test. On
+unit test; anything whose answer comes from outside the code — the database, a sandbox
+API — gets an integration test. On
 Postgres each run gets a throwaway copy of the real database; the engine rule says where
 other engines run theirs. Run `npm test` from the repo root.
 
-An integration test is one of three kinds, told apart by its file name. A happy-path test
-(`*.happy.integration.test.ts`) proves the main success case of a core function. A risk
+An integration test is one of three kinds, told apart by its file name. A primary-route test
+(`*.primary.integration.test.ts`) is a sanity test of a primary route, from the backend: the main success case of a function the route calls. A risk
 test (`*.integration.test.ts`) covers something a sensible later change could quietly
 break: money, dates and time zones, permissions, data integrity, locking, another
 system's contract, code many others depend on. A development test
@@ -98,14 +99,14 @@ system's contract, code many others depend on. A development test
 code changes and stays out of the full suite, so the suite grows only with tests that keep
 paying.
 
-Which functions are core is yours to decide, with Claude, in `/happy-path <app>`: it ranks
-the app's core, you correct the list, and it writes the missing happy-path tests and a
-snapshot of the app beside them. `/open-pr` warns when an app you touched has no happy
-path, or has changed too much since its snapshot to trust it, and names that command. On a
+Which routes are primary is yours to decide, with Claude, in `/primary-route-audit <app>`: it
+proposes them, you correct them, and it writes the missing primary-route tests and a snapshot
+of the app's routes, server functions and tables beside them. `/open-pr` warns when an app you touched has no primary-route
+tests, or has changed too much since its snapshot to trust it, and names that command. On a
 project at `ASSURANCE_LEVEL` `strict` it refuses the PR instead.
 
 Database code of a risky shape — raw SQL, a join, a real filter, an aggregate, a date
-range, an upsert, a transaction, more than one write — needs a happy-path or risk test
+range, an upsert, a transaction, more than one write — needs a primary-route or risk test
 that calls it, and `/commit` checks: it names the function and the shapes, and stops. The
 shape only means one test is kept: when nothing about the function is on the risk list, its
 main success case, filed as a risk test, is enough, and its other cases are development

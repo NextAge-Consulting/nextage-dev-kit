@@ -250,51 +250,52 @@ ${BODY}"
     fi
 fi
 
-# ─── Happy path: every app the PR touches has one, and it is current ──────
-# The happy-path skill's drift.mjs reports each app (and the shared module) the
-# branch changes: no happy-path tests, no snapshot, or moved past the kit's drift
-# threshold since the snapshot. Under the assist assurance level (the default) that
-# is a warning naming /happy-path <app>, and the PR opens.
+# ─── Primary routes: every app the PR touches has one, and it is current ──────
+# The primary-route-tests skill's drift.mjs reports each app (and the shared module) the
+# branch changes: no primary-route tests, no snapshot, or moved past the kit's drift
+# threshold since the snapshot. A unit it cannot measure is named, and neither warned
+# about nor passed silently. Under the assist assurance level (the default) that
+# is a warning naming /primary-route-audit <app>, and the PR opens.
 #
 # Under ASSURANCE_LEVEL=strict (settings.sh) a warning here refuses the PR (exit 16)
 # before anything is pushed — a check that could not run included, since strict
 # opens nothing it could not verify. An invalid level fails the same way.
-happy_path_refuses() {
+primary_route_refuses() {
     local level
     level=$(kit_setting ASSURANCE_LEVEL) || return 0
     [ "$level" = "strict" ]
 }
-happy_path_check() {
-    local drift=".claude/skills/happy-path/scripts/drift.mjs" engine fork list out warned=0 status msg checked=0
+primary_route_check() {
+    local drift=".claude/skills/primary-route-tests/scripts/drift.mjs" engine fork list out warned=0 status msg checked=0
     if ! repo_holds_app; then
         return 0
     fi
     if [ ! -f "$drift" ]; then
-        echo "gitflow: happy-path check does not apply: $drift is not installed here." >&2
+        echo "gitflow: primary-route check does not apply: $drift is not installed here." >&2
         return 0
     fi
     engine=$(jq -r '.DB_ENGINE // ""' .claude/sync-substitutions.json 2>/dev/null || true)
     if [ "$engine" = "None" ]; then
-        echo "gitflow: happy-path check does not apply: DB_ENGINE is None, so there are no integration tests." >&2
+        echo "gitflow: primary-route check does not apply: DB_ENGINE is None, so there are no integration tests." >&2
         return 0
     fi
     if ! command -v node >/dev/null 2>&1; then
-        echo "open-pr.sh: WARNING — node is not installed, so the happy-path check could not run." >&2
+        echo "open-pr.sh: WARNING — node is not installed, so the primary-route check could not run." >&2
         return 2
     fi
     if ! fork=$(git merge-base "$BASE" HEAD 2>/dev/null); then
-        echo "open-pr.sh: WARNING — cannot find where this branch left $BASE, so the happy-path check could not run." >&2
+        echo "open-pr.sh: WARNING — cannot find where this branch left $BASE, so the primary-route check could not run." >&2
         return 2
     fi
     list=$(mktemp)
     if ! git diff --name-only "$fork" HEAD > "$list"; then
         rm -f "$list"
-        echo "open-pr.sh: WARNING — git could not list the branch's changes, so the happy-path check could not run." >&2
+        echo "open-pr.sh: WARNING — git could not list the branch's changes, so the primary-route check could not run." >&2
         return 2
     fi
     if ! out=$(node "$drift" check --changed "$list" 2>&1); then
         rm -f "$list"
-        echo "open-pr.sh: WARNING — the happy-path check could not run:" >&2
+        echo "open-pr.sh: WARNING — the primary-route check could not run:" >&2
         printf '%s\n' "$out" | sed 's/^/  /' >&2
         return 2
     fi
@@ -302,21 +303,23 @@ happy_path_check() {
     while IFS=$'\t' read -r status _ msg; do
         [ -z "$status" ] && continue
         checked=$((checked + 1))
-        if [ "$status" != "ok" ]; then
+        if [ "$status" = "unmeasured" ]; then
+            echo "gitflow: primary-route check: $msg" >&2
+        elif [ "$status" != "ok" ]; then
             echo "open-pr.sh: WARNING — $msg" >&2
             warned=1
         fi
     done <<< "$out"
     if [ "$checked" -eq 0 ]; then
-        echo "gitflow: happy-path check: this branch changes no app's source." >&2
+        echo "gitflow: primary-route check: this branch changes no app's source." >&2
     elif [ "$warned" -eq 0 ]; then
-        echo "gitflow: happy-path check: $checked app(s) touched, each with a current happy path." >&2
+        echo "gitflow: primary-route check: $checked app(s) touched, each with current primary-route tests." >&2
     fi
     [ "$warned" -eq 0 ] && return 0
     return 1
 }
-if ! happy_path_check && happy_path_refuses; then
-    echo "open-pr.sh: refused (ASSURANCE_LEVEL=strict) — fix the happy path above first: run /happy-path for each app named. Nothing was pushed." >&2
+if ! primary_route_check && primary_route_refuses; then
+    echo "open-pr.sh: refused (ASSURANCE_LEVEL=strict) — fix the primary-route tests above first: run /primary-route-audit for each app named. Nothing was pushed." >&2
     exit 16
 fi
 

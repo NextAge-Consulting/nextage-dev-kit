@@ -480,9 +480,16 @@ resource "aws_codebuild_project" "test" {
       value = "/<project>/test/NEON_PROJECT_ID"
     }
     # SQL Server: the DB_* keys sqlserver-drizzle.md names, the same way.
+
+    # Only for a database reached through a tunnel (below): the instance it opens to.
+    # An instance id, not a credential.
+    # environment_variable {
+    #   name  = "DB_TUNNEL_INSTANCE"
+    #   value = "<instance id>"
+    # }
   }
 
-  # Only when the database is on a private network (below).
+  # Only for a database neither the internet nor a tunnel reaches (below).
   # vpc_config {
   #   vpc_id             = <vpc>
   #   subnets            = [<private subnet ids>]
@@ -513,7 +520,7 @@ pull request from a fork otherwise runs with the project's database secrets.
 
 **Its own service role, `<project>-codebuild-test` — not the shared deploy role.** The one
 shared role is settled because every deploy build runs code its authors already reviewed;
-a PR build runs code nobody has reviewed yet, a Dependabot PR's dependency install scripts
+a PR build runs code nobody has reviewed yet, a new dependency's install scripts
 included, so it gets a role that can reach nothing a deploy can. It holds only:
 
 ```json
@@ -542,23 +549,53 @@ included, so it gets a role that can reach nothing a deploy can. It holds only:
 }
 ```
 
+With a tunnel (below), two statements more — open a port-forward to that one instance, and
+end the build's own session:
+
+```json
+    { "Sid": "OpenTheDatabaseTunnel", "Effect": "Allow",
+      "Action": "ssm:StartSession",
+      "Resource": ["arn:aws:ec2:<region>:<account>:instance/<DB_TUNNEL_INSTANCE>",
+                   "arn:aws:ssm:<region>::document/AWS-StartPortForwardingSession"],
+      "Condition": { "BoolIfExists": { "ssm:SessionDocumentAccessCheck": "true" } } },
+
+    { "Sid": "EndTheDatabaseTunnel", "Effect": "Allow",
+      "Action": "ssm:TerminateSession",
+      "Resource": "arn:aws:ssm:<region>:<account>:session/*",
+      "Condition": { "StringLike": { "ssm:resourceTag/aws:ssmmessages:session-id": ["${aws:userid}*"] } } }
+```
+
 A `SecureString` parameter also needs `kms:Decrypt` conditioned on
-`kms:ViaService` = `ssm.<region>.amazonaws.com`, as in the deploy role. With a `vpc_config`,
-the role also needs the network-interface actions CodeBuild's VPC documentation lists
+`kms:ViaService` = `ssm.<region>.amazonaws.com`, as in the deploy role. With a `vpc_config`
+(below), the role also needs the network-interface actions CodeBuild's VPC documentation lists
 (`ec2:CreateNetworkInterface`, `ec2:DescribeNetworkInterfaces`, `ec2:DeleteNetworkInterface`,
 `ec2:DescribeSubnets`, `ec2:DescribeSecurityGroups`, `ec2:DescribeDhcpOptions`,
 `ec2:DescribeVpcs`, and `ec2:CreateNetworkInterfacePermission` scoped to the subnets).
 
-**A VPC only when the database is on a private network.** A Neon database, or any database
-reachable over the internet, needs none: the build runs outside any VPC with internet
-access. A database inside the VPC needs the build in private subnets, a security group the
-database admits, and a NAT gateway for the clone and `npm ci` to reach out — and a NAT
-gateway bills by the hour whether or not a build runs — about $0.045 an hour in us-east-1, some $33 a month before data —
-so it is the cost of choosing `aws` for a private database, not a detail.
-
 **The deploy-trigger key gains three grants on the test project** —
 `codebuild:StartBuild`, `codebuild:BatchGetBuilds` and `codebuild:ListBuildsForProject` —
 so `/deploy` can find a pass and start a build (`new-project-setup.md` §7c).
+
+### Reaching the database
+
+**A database reachable over the internet** — Neon, or any public endpoint — needs nothing:
+the build runs outside any VPC, with internet access.
+
+**A database on an EC2 instance with no inbound route is reached through a Session Manager
+tunnel.** Set `DB_TUNNEL_INSTANCE` on the project to the instance's id. The buildspec opens a
+port-forward from `DB_PORT` (1433 when unset) on the build to the same port on the
+instance, points `DB_SERVER` at it, and ends the session after the suite; the project needs
+no `DB_SERVER` of its own. The instance runs the SSM agent with an instance profile that
+lets Systems Manager manage it — the access an operator's `aws ssm start-session` already
+uses — and the role carries the two statements above. No inbound rule, no VPC and no NAT
+gateway; Session Manager costs nothing. A suite whose tests each make many round trips runs
+as fast through it as directly: the tunnel adds milliseconds to each.
+
+**A VPC only for a database neither reaches** — a managed database inside a VPC, with no
+instance to tunnel through. The build then needs private subnets, a security group the
+database admits, and a NAT gateway for the clone and `npm ci` to reach out — and a NAT
+gateway bills by the hour whether or not a build runs — about $0.045 an hour in us-east-1, some $33 a month before data —
+so it is the cost of choosing `aws` for such a database, not a detail.
 
 ## Container resource limits
 

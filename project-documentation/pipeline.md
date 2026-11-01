@@ -6,7 +6,7 @@ production, the CI that gates it, and why it is built this way. The short versio
 
 - **Design rationale** → Part 1
 - **Deploy** → Part 2 — `/deploy`, versions, the changelog, the trigger contract, buildspecs, failures
-- **CI and repository config** → Part 3 — commitlint, Semgrep, Dependabot, dependency gates, Gemini, notification noise
+- **CI and repository config** → Part 3 — commitlint, Semgrep, dependency updates, dependency gates, Gemini, notification noise
 
 **No branch protection.** This pipeline does not use GitHub branch protection. `/merge` self-gates by reading the PR's CI check-runs directly — it never depends on GitHub's "required checks" config — so the gate behaves identically on every repo regardless of plan, including a brand-new one with nothing configured. The one hard requirement: **`main` must not require a PR**, or the direct-push paths (`/ship-main`, `/deploy`) get rejected. A fresh repo has require-PR off by default, so there is nothing to set up — just don't turn it on.
 
@@ -56,7 +56,7 @@ Git operations route exclusively through gitflow — slash commands backed by sc
 | `/checkpoint` | Local save point; folded into the next `/commit` or `/ship-main`, never pushed. |
 | `/commit` | Conventional commit (emoji + type), push, behind the local gates — typecheck, lint, Semgrep, the integration tests reaching the change, and the headless reviews run side by side, a passed review reused. The typecheck and integration gate skip on code unchanged but for comments and whitespace. Decides which linked issues are code complete, asking only when it cannot tell (status → Staged). |
 | `/catchup` | Pull `main` into the feature branch. |
-| `/open-pr` | Gate: every linked issue must be code complete, or named part of this PR. Push, open PR with `Closes #N` (status → Staged) — `Part of #N` for a part, which closes nothing — trigger advisory review. Warns when an app it touches has no current happy path (refuses under `ASSURANCE_LEVEL` `strict`). |
+| `/open-pr` | Gate: every linked issue must be code complete, or named part of this PR. Push, open PR with `Closes #N` (status → Staged) — `Part of #N` for a part, which closes nothing — trigger advisory review. Warns when an app it touches has no current primary-route tests (refuses under `ASSURANCE_LEVEL` `strict`). |
 | `/merge` | Refuse uncommitted changes, run the production build locally while waiting for CI and review, squash-merge, land on `main`. **Does not deploy.** |
 | `/deploy` | The release boundary — see §1.3. |
 
@@ -99,9 +99,9 @@ The migrate workflow body is project-owned and MUST exit 0 on a no-op and non-ze
 | **Biome** (CI lint) | Lint-only (formatter disabled), `recommended` preset. The kit owns `biome.base.json`; a project's `biome.json` extends it and adds its own plugins and settings. The base turns on `noConsole` for application code (tests, `scripts/`, `infra/`, config files, the server entry and the token checker's project checks exempt) and carries the kit's GritQL plugins in `biome-plugins/`: a server-function handler not wrapped in `logFailures`, an `innerHTML`/`outerHTML` assignment, `new Function`, an emoji used as an icon in JSX, and an iframe sandbox allowing scripts. | AI-authored JSX omits a11y patterns (training data omits them); `any` blinds the type info AI reasons from. Formatter off because a 100%-AI codebase has no human formatting concern and enabling it produces a giant normalization diff. Fix violations in source, suppress only as last resort (constitution §XIII). |
 | **Semgrep CE** (CI SAST) | `--config auto`, ~10s. Mandatory `.semgrepignore`. | Free, 1000+ rules. The ignore file is mandatory, not optional — generic secret-regex rules false-match base64 runs inside binary assets (PDF/EPS) and time out CI per file. Ship it with Semgrep, don't wait for the incident. §3.2. |
 | **Gemini Code Assist** (advisory PR review) | Inline + summary on every PR, free for private repos. Triage via `/triage`. | Independent model family (most distinct second opinion from Claude). Reads `.claude/rules/*.md` + `.gemini/styleguide.md` as review context — cites constitution rules unprompted. Catches the structural-diff-defect class; complements (does not replace) tests. `/triage` walks its findings; config in §3.7. |
-| **Dependabot** | Version + security PRs, monthly + cooldown + grouping. | Monthly batching (not weekly) because weekly is noise-dominant for a small shop. Cooldown (patch 3d / minor 7d / major 30d) dodges the 48–72h window where supply-chain attacks get caught and the bad version yanked; security fixes skip cooldown automatically. §3.3. |
-| **Dependency policy** (`project-documentation/dependency-policy.md`) | One page: severity→timeline table, who owns it, exceptions with review dates, and the weekly triage runbook. | The kit shipped Dependabot config and a triage skill but never the operating procedure — so nobody knew what to do with the output, and nobody did anything. Synced `merge` mode: the owners, timelines and project-notes regions are each client's own. §3.5. |
-| **dep-alignment** (CI gate, Node-only) | Fails a PR if any shared dependency is declared at more than one version across workspaces. Node-gated in `ci.yml`, no-op on single-package / Python-only repos. | A monorepo runs ONE stack; cross-app version skew causes "works in one app, breaks in another" outages Dependabot *creates* (it bumps each manifest independently). Reads `package.json` only, no install. §3.6 / dependency-management.md. |
+| **Dependency pass** (`dependency-triage` skill) | `npm audit` + `npm outdated` on a fixed weekly day; updates made on a branch and landed through gitflow. No bot opens PRs. | Every update gets the full suite, the build gate and review like any other change. The pass takes a version only past its cooldown (patch 3d / minor 7d / major 30d), sitting out the 48–72h window where supply-chain attacks get caught and the bad version yanked — a security fix included. §3.3. |
+| **Dependency policy** (`project-documentation/dependency-policy.md`) | One page: severity→timeline table, who owns it, exceptions with review dates, the build-graph list, and the weekly pass. | A pass with no written timelines and owners has no answer to "who acts on this, and by when". Synced `merge` mode: the owners, alerts, timelines, exceptions, build-graph, pass-log and project-notes regions are each client's own. §3.5. |
+| **dep-alignment** (CI gate, Node-only) | Fails a PR if any shared dependency is declared at more than one version across workspaces. Node-gated in `ci.yml`, no-op on single-package / Python-only repos. | A monorepo runs ONE stack; cross-app version skew causes "works in one app, breaks in another" outages a bump to one workspace's manifest creates when the others are left behind. Reads `package.json` only, no install. §3.6 / dependency-management.md. |
 | **knip** (CI gate, Node-only, per project) | Fails a PR on unused files, exports, types and dependencies, and on imports of packages a workspace never declares. One kit-owned `knip.config.ts`; the project turns the gate on with `KNIP_GATE`. | AI-written code accretes exports, files and dependencies nothing uses, and every one is context the next change reads as live. Neither the type-checker nor Biome sees across workspaces. §3.9. |
 
 **Rejected, and why** (terse — empirical, not theoretical):
@@ -109,13 +109,13 @@ The migrate workflow body is project-owned and MUST exit 0 on a no-op and non-ze
 | Rejected | Why |
 |----------|-----|
 | CodeRabbit (Pro or free-CLI) | Pro's one paid-worthy feature (cross-file code-graph) is made redundant by constitution §XIV (every signature change updates all callers in the same edit). Free tier degrades to summary-only post-trial + manual CLI invocation. |
-| Sourcery | Paid, yet missed defects the free options caught; high false-positive rate; broken-on-push re-review; bundled security scan duplicates Dependabot. |
-| Snyk | Redundant with Dependabot + surfacing + Semgrep at small-shop scale. Upgrade path is a 5-seat-minimum cliff. |
-| Socket.dev | Zero unique signal above Dependabot on a clean codebase; free tier truncates the dep tree; adds per-release triage cost. |
+| Sourcery | Paid, yet missed defects the free options caught; high false-positive rate; broken-on-push re-review; bundled security scan duplicates `npm audit`. |
+| Snyk | Redundant with `npm audit` + the dependency pass + `/deploy`'s vulnerability check + Semgrep at small-shop scale. Upgrade path is a 5-seat-minimum cliff. |
+| Socket.dev | Zero unique signal above `npm audit` on a clean codebase; free tier truncates the dep tree; adds per-release triage cost. |
 
-**CI (`ci.yml`) runs every check that can tell, and fails rather than passing unlooked.** A `detect` job names the stacks present and notes the ones it skips. GitHub bills each job by the minute, rounded up, so the Node checks that finish in seconds run as steps of one `node-checks` job — `dep-alignment`, `workspace-tiers`, `stack-standard`, `check-types`, `biome`, the design checks and `knip`. Each step runs even when an earlier one failed, so one run reports every failure, and any failed step fails the job. Both Node jobs cache the installed `node_modules` — the root's and each workspace's — keyed on the runner's OS and architecture, the exact Node version, `package-lock.json` and every `package.json`; an exact hit skips `npm ci` but still runs the project's own install scripts (`preinstall`, `install`, `postinstall`, `prepare`, in the root and every workspace), since what they generate can live outside `node_modules`; a miss runs `npm ci` and saves the result. The `check-types` step applies when `package.json` declares `check-types` or the repository has TypeScript sources (`.ts`, `.tsx`, `.mts`, `.cts` outside `node_modules`, `.claude` and `dist`; the kit's `knip.config.ts` does not count) — then a missing script fails it; otherwise it passes saying check-types does not apply, and the commit gate does the same. In a repository that declares workspaces, the root script is `"check-types": "node scripts/check-types.mjs"`: it runs each workspace's own `check-types` script concurrently, one per CPU at most, prints a failing workspace's output whole, says how many workspaces it checked, and fails when any failed — or when none declares the script, a declared workspace's `package.json` cannot be read, or a workspace glob matches nothing. The design-checks step runs `lint:tokens` and `lint:design` whenever `design.md` exists at the repository root, and a missing script fails it. The `vitest` job always runs a declared `test` script; without one it fails when the root package or a workspace holds a vitest config or a `*.test.*` / `*.spec.*` file, and otherwise passes saying it does not apply — tests inside a nested directory with its own `package.json` that is no workspace belong to that package. It also fails when the repository has `*.integration.test.ts` files other than development tests (`*.dev.integration.test.ts`, never in the full suite) and the `NEON_API_KEY` or `NEON_PROJECT_ID` secret is empty, because the integration project would otherwise drop out and the run pass green; Dependabot PRs, which GitHub runs without secrets, are the exception. The full suite runs once per code fingerprint (`code-fingerprint.mjs` in the gitflow skill — the tree with comments and whitespace left out of TypeScript and JavaScript, every other file byte for byte), taken of the checked-out commit: the PR merged into `main`, the code the suite tests. Every run records its result on the PR's head commit as the `full-suite` commit status, success or failure, whose description carries that fingerprint; when an earlier commit of the same PR has a `full-suite` success on the same fingerprint, the job skips `npm test` and posts a success "carried forward from <sha>". A commit that only rewords comments re-runs nothing, and a PR whose `main` moved has a new merge result, so a new fingerprint, and runs again. The job needs `statuses: write`; a Dependabot PR's read-only token records nothing, and a record that cannot be posted warns. Under `TEST_RUNNER` `aws` the job runs `npm test -- --project unit` instead, requires no Neon secrets, records nothing, and says so: the project's CodeBuild test project runs the full suite and reports `full-suite` (§1.6). The `python` job typechecks from the repository root whenever a root `pyproject.toml` or `pyrightconfig.json` exists, with the commit gate's choice of checker — pyright, else mypy — and fails on any error. Pyright is the stack manifest's pin (`pyright`, `installedBy: ci`), installed over any version the project declares; the commit gate runs the pyright installed locally and warns when it differs from the pin. The `knip` step runs knip when `KNIP_GATE` is `"true"`, passes with a notice when the project has decided against the gate, passes with a warning while the key is undecided, and fails on any other value (§3.9). The `project` job holds the repository's own CI steps in its `project-steps` region, which sync carries across kit updates; `detect` skips it while the region holds only the kit's placeholder step.
+**CI (`ci.yml`) runs every check that can tell, and fails rather than passing unlooked.** A `detect` job names the stacks present and notes the ones it skips. GitHub bills each job by the minute, rounded up, so the Node checks that finish in seconds run as steps of one `node-checks` job — `dep-alignment`, `workspace-tiers`, `stack-standard`, `check-types`, `biome`, the design checks and `knip`. Each step runs even when an earlier one failed, so one run reports every failure, and any failed step fails the job. Both Node jobs cache the installed `node_modules` — the root's and each workspace's — keyed on the runner's OS and architecture, the exact Node version, `package-lock.json` and every `package.json`; an exact hit skips `npm ci` but still runs the project's own install scripts (`preinstall`, `install`, `postinstall`, `prepare`, in the root and every workspace), since what they generate can live outside `node_modules`; a miss runs `npm ci` and saves the result. The `check-types` step applies when `package.json` declares `check-types` or the repository has TypeScript sources (`.ts`, `.tsx`, `.mts`, `.cts` outside `node_modules`, `.claude` and `dist`; the kit's `knip.config.ts` does not count) — then a missing script fails it; otherwise it passes saying check-types does not apply, and the commit gate does the same. In a repository that declares workspaces, the root script is `"check-types": "node scripts/check-types.mjs"`: it runs each workspace's own `check-types` script concurrently, one per CPU at most, prints a failing workspace's output whole, says how many workspaces it checked, and fails when any failed — or when none declares the script, a declared workspace's `package.json` cannot be read, or a workspace glob matches nothing. The design-checks step runs `lint:tokens` and `lint:design` whenever `design.md` exists at the repository root, and a missing script fails it. The `vitest` job always runs a declared `test` script; without one it fails when the root package or a workspace holds a vitest config or a `*.test.*` / `*.spec.*` file, and otherwise passes saying it does not apply — tests inside a nested directory with its own `package.json` that is no workspace belong to that package. It also fails when the repository has `*.integration.test.ts` files other than development tests (`*.dev.integration.test.ts`, never in the full suite) and the `NEON_API_KEY` or `NEON_PROJECT_ID` secret is empty, because the integration project would otherwise drop out and the run pass green. The full suite runs once per code fingerprint (`code-fingerprint.mjs` in the gitflow skill — the tree with comments and whitespace left out of TypeScript and JavaScript, every other file byte for byte), taken of the checked-out commit: the PR merged into `main`, the code the suite tests. Every run records its result on the PR's head commit as the `full-suite` commit status, success or failure, whose description carries that fingerprint; when an earlier commit of the same PR has a `full-suite` success on the same fingerprint, the job skips `npm test` and posts a success "carried forward from <sha>". A commit that only rewords comments re-runs nothing, and a PR whose `main` moved has a new merge result, so a new fingerprint, and runs again. The job needs `statuses: write`; a record that cannot be posted warns. Under `TEST_RUNNER` `aws` the job runs `npm test -- --project unit` instead, requires no Neon secrets, records nothing, and says so: the project's CodeBuild test project runs the full suite and reports `full-suite` (§1.6). The `python` job typechecks from the repository root whenever a root `pyproject.toml` or `pyrightconfig.json` exists, with the commit gate's choice of checker — pyright, else mypy — and fails on any error. Pyright is the stack manifest's pin (`pyright`, `installedBy: ci`), installed over any version the project declares; the commit gate runs the pyright installed locally and warns when it differs from the pin. The `knip` step runs knip when `KNIP_GATE` is `"true"`, passes with a notice when the project has decided against the gate, passes with a warning while the key is undecided, and fails on any other value (§3.9). The `project` job holds the repository's own CI steps in its `project-steps` region, which sync carries across kit updates; `detect` skips it while the region holds only the kit's placeholder step.
 
-**Revisit threshold for the rejected dep-security tools:** a real supply-chain incident slipping through Dependabot + cooldown + surfacing + Semgrep. The kit's cross-file caller analysis (what paid review vendors charge for) is handled in-house by constitution §XIV at edit time.
+**Revisit threshold for the rejected dep-security tools:** a real supply-chain incident slipping through the dependency pass + cooldown + `/deploy`'s vulnerability check + Semgrep. The kit's cross-file caller analysis (what paid review vendors charge for) is handled in-house by constitution §XIV at edit time.
 
 ## 1.5 Testing model
 
@@ -124,7 +124,7 @@ The migrate workflow body is project-owned and MUST exit 0 on a no-op and non-ze
 | Tier | Tooling | What | Gate |
 |------|---------|------|------|
 | Unit | Vitest | Pure functions with complex, predictable output (pricing math, packing algorithms, financial totals). Synthetic fixtures, in-memory. | CI hard gate |
-| Integration | Vitest (`integration` project) | Real server functions against a real database — on PostgreSQL an **ephemeral branch**, one per run, forked copy-on-write from production and deleted after; on SQL Server the development database. Each test runs in an always-rolled-back transaction (`dbTest`), so tests run in parallel. Three kinds, told apart by file name: happy-path and risk tests make up the full suite; development tests run only at `/commit` and `/ship-main`, while their code changes (testing.md §3). | CI hard gate (CodeBuild under `TEST_RUNNER` `aws`, §1.6) |
+| Integration | Vitest (`integration` project) | Real server functions against a real database — on PostgreSQL an **ephemeral branch**, one per run, forked copy-on-write from production and deleted after; on SQL Server the development database. Each test runs in an always-rolled-back transaction (`dbTest`), so tests run in parallel. Three kinds, told apart by file name: primary-route and risk tests make up the full suite; development tests run only at `/commit` and `/ship-main`, while their code changes (testing.md §3). | CI hard gate (CodeBuild under `TEST_RUNNER` `aws`, §1.6) |
 | Migration-during-PR | drizzle-kit in `globalSetup.ts` | A PR's pending migration runs once against the prod-schema branch before tests — the same drizzle-kit migrate that the deploy's migration build runs against production, validated in the same CI pass. | CI hard gate |
 | E2E | Claude + `agent-browser` | Standalone `/e2e` **manual verification** — see below. | NOT a hard gate |
 
@@ -168,7 +168,7 @@ Under `aws`, `/deploy` finds a pass by reading the test project's newest 100 bui
 |---|---|---|
 | `/ship-main` | Any change, behind the local gates | Docs only — `project-documentation/` and Markdown; anything else refused (exit 16) |
 | `/deploy` | No recorded pass → the suite runs where `TEST_RUNNER` points; `INTEGRATION_DEPLOY_OFF` can excuse it | No recorded pass → a CodeBuild test build under `aws`, a refusal under `github` (exit 26); the suite never runs on the deploying machine, and `INTEGRATION_DEPLOY_OFF` excuses nothing |
-| `/open-pr` | An app with no current happy path is a warning | The same is a refusal (exit 16), and so is a check that could not run |
+| `/open-pr` | An app with no current primary-route tests is a warning | The same is a refusal (exit 16), and so is a check that could not run |
 | GitHub | Nothing required (§1.1) | A ruleset on `main` requiring the `full-suite` check (§1.1, `new-project-setup.md` step 3) |
 
 ---
@@ -191,6 +191,7 @@ File: `.claude/skills/gitflow/scripts/deploy.sh`. Slash command spec: `.claude/c
    - Local `main` == `origin/main` (no stale local; nothing un-pushed)
    - HEAD's required check-runs are not `failure` / `timed_out` / `cancelled`
    - At least one commit since the last `v*.*.*` tag
+   - No high or critical npm vulnerability with a fix past `dependency-policy.md`'s window without a current exception (`vulnerability-check.mjs`) — a warning under `ASSURANCE_LEVEL` `assist`, a refusal (exit 27) under `strict`, which also refuses when the check could not run (§3.3)
    - The full test suite passes on the exact code on `main` — run only when that code has no passing record. `deploy.sh` takes `HEAD`'s code fingerprint and looks for a `full-suite` success carrying it: on `HEAD`, on every commit since the last tag, and on the head commit of every PR merged since then (`commits/<sha>/pulls`). Under `TEST_RUNNER` `aws` it reads the CodeBuild test project's builds first (§1.6). Found → it names the pass it trusts and runs neither the suite nor the integration preflight. Not found, or the record unreadable → it runs the suite where `TEST_RUNNER` points: on the deploying machine, or a CodeBuild test build on `HEAD` it waits for. The question is only "has this exact code passed the full suite"; how the code reached `main` — a `/ship-main` commit, a merge after `main` moved — changes the answer only by changing the code. `INTEGRATION_DEPLOY_OFF` still turns the run off, except under `ASSURANCE_LEVEL` `strict`, where no pass and no CodeBuild runner is a refusal
 
 2. **Bump-level inference** (Claude does this in `/deploy` Step 2 before invoking the script):
@@ -478,6 +479,7 @@ deploy buildspec. Checklist row: E67.
 - `24`: `promote` succeeded and Prod is on the new version, but the GitHub Release was not created → run the `gh release create` the script printed
 - `25`: a commit in the release names `Needs <org-repo>#N` and that change is not live → `/deploy` it in the org repo first; caught before anything mutated
 - `26`: the test suite failed, could not run, or ran without the integration tests the repository has → fix it on a branch and ship the fix; caught before anything mutated (`testing.md` §3)
+- `27`: under `ASSURANCE_LEVEL` `strict`, a high or critical vulnerability with a fix is past the dependency policy's window with no current exception, or the check could not run → run the dependency pass, or record an exception the human approves; caught before anything mutated (§3.3)
 
 A deploy build that fails after the migration ran leaves the new schema under the old code. Read the build log first: a failure outside the code — a registry rate limit, a transient network error — is fixed by re-dispatching the same builds, with no new bump and no second migration.
 
@@ -521,77 +523,87 @@ Fires on `pull_request: opened/edited/synchronize/reopened`. Pipes the PR title 
 
 Semgrep walks every tracked path by default. In any repo with design assets, reference documents, or other binaries under version control, generic secret-regex rules (`detected-private-key`, `detected-github-token`) match base64-ish noise inside EPS/PDF/PSD binary streams and fire per-file timeouts. A repo carrying a few hundred PDF/EPS brand assets times out on every Semgrep CI run until `.semgrepignore` excludes them.
 
-The kit seeds `/.semgrepignore` when a project is set up. Scope includes `project-documentation/`, `docs/`, design binaries (pdf/eps/ai/psd/indd/sketch/fig/xd), raster/vector images, video/audio, archives, fonts, build outputs, and lockfiles. Lockfiles excluded because Dependabot owns dep security — Semgrep scanning them is noise.
+The kit seeds `/.semgrepignore` when a project is set up. Scope includes `project-documentation/`, `docs/`, design binaries (pdf/eps/ai/psd/indd/sketch/fig/xd), raster/vector images, video/audio, archives, fonts, build outputs, and lockfiles. Lockfiles excluded because `npm audit` and the dependency pass own dep security — Semgrep scanning them is noise.
 
 Ship this as part of Semgrep adoption. Do NOT wait for a timeout-warning incident to discover the need.
 
-## 3.3 `dependabot.yml` (monthly + cooldown + grouping)
+## 3.3 Dependency updates (no bot PRs)
 
-`dependabot.yml` schedules the PRs that Dependabot opens for version + security updates. Acting on those PRs is the `dependency-triage` pass (§3.4), under the policy in §3.5.
+**No bot opens dependency PRs.** Every update is
+made by the weekly dependency pass (§3.4) on a branch and lands through `/commit`,
+`/open-pr` and `/merge` like any other change, so it gets the full suite — in CodeBuild
+under `TEST_RUNNER` `aws` — the build gate and review. A machine PR gets none of that
+without help: a PR from outside the team runs without the repository's secrets, and
+merging one with `gh pr merge` skips `/merge`'s build gate.
 
-**Lives at** `.github/dependabot.yml`, arriving with the kit.
+**Three things say an update is due:**
 
-**Ecosystem coverage out of the box:**
+| Signal | When | What it costs |
+|---|---|---|
+| The dependency pass (`npm audit`, `npm outdated`, the Node LTS check) | A fixed weekly day | Minutes when there is nothing to do |
+| `/deploy`'s vulnerability check (§2.1) | Every release | Seconds; it names each high or critical advisory with a fix past the policy's window |
+| GitHub's vulnerability alerts | The day an advisory is published | An email per alert — a per-project choice (§3.5) |
 
-| Ecosystem | Directory | Cadence | Cooldown (patch/minor/major days) | Grouping |
-|---|---|---|---|---|
-| `npm` | `/` (workspaces auto-detected) | monthly Monday | 3 / 7 / 30 | `npm-patch` + `npm-dev-minor` + `npm-security` — runtime majors open individually |
-| `github-actions` | `/` (scans `.github/workflows/*.yml`) | monthly Monday | 7 (one cooldown for every bump) | `actions-minor-patch` |
-| `docker` | `/` (scans root for `Dockerfile*`) | monthly Monday | 3 / 7 / 30 | `docker-minor-patch` |
+**The cooldown.** The pass takes a version only once it has been published for 3 days
+(a patch), 7 (a minor) or 30 (a major) — `npm view <pkg> time`, or `npm install
+--before=<date>` to apply one cutoff to everything an install resolves, transitive
+versions included. A security fix gets the same cooldown: a compromised release is
+caught and yanked inside that window far more often than not
+(Shai-Hulud / tinycolor; Phoenix Security recommends 48–72h).
 
-**Why monthly + cooldown** (design rationale — critical for a 2–10 engineer shop to understand before tuning):
+**Why weekly, by hand, and no bot.** A bot on a weekly cadence produces waves of ~9 PRs a
+day (majors, dev-majors, grouped batches, framework-track minors) — unsurvivable for a
+2-person shop:
 
-Weekly cadence produces waves of ~9 PRs in a single day (majors, dev-majors, grouped batches, framework-track minors) — unsurvivable for a 2-person shop. Research evidence:
+- **Matthew Hou (6-engineer team) — dev.to case**: weekly bot PRs = 40–60 PRs/week → turned it off, switched to batched review + quarterly major audits. Post-change: dep incidents 3→0, review time 8hr/wk → 4hr/mo.
+- **HN 647-pt thread** on Filippo's "Turn Dependabot off": mainline sentiment is "merge relentlessly OR turn off + do quarterly audits."
 
-- **Matthew Hou (6-engineer team) — dev.to case**: weekly Dependabot = 40–60 PRs/week → turned it off, switched to monthly batched review + quarterly major audits. Post-change: dep incidents 3→0, review time 8hr/wk → 4hr/mo.
-- **HN 647-pt thread** on Filippo's "Turn Dependabot off": mainline sentiment is "merge relentlessly OR turn off + do quarterly audits." Weekly is the worst of both.
-- **GitHub's own `cooldown` feature** (introduced 2025): explicitly designed to delay PRs N days after a version ships so supply-chain attacks get caught and attacked versions get yanked before you merge them (Shai-Hulud / tinycolor incidents). Phoenix Security recommends 48–72h post-tinycolor. `semver-patch-days: 3, semver-minor-days: 7, semver-major-days: 30` is a defensible default.
+And a bot PR is the wrong unit anyway: a build-graph update has to be applied to today's
+`main` and built in the deploy image, so the PR's own branch is only ever a reminder.
 
-Result: one monthly grouped wave per ecosystem + majors individually after 30-day cooldown. Review burden ~1 defined session/month, security-fix lane still fires immediately (Dependabot security updates skip cooldown automatically).
+**GitHub's security-update PRs stay off** in every project: they open the day a fix
+publishes and skip the cooldown. A project that wants the notice turns on *alerts* only
+(§3.5).
 
-**Commit-message prefix discipline** (unchanged):
-- `chore(deps)` / `chore(deps-dev)` / `chore(ci)` / `chore(docker)` are subject-only `chore` types — `deploy.sh`'s bump-level inference (§2.1 Step 2) treats them as patch under Option B (chore counts as a release-worthy bump).
-- `include: scope` is INTENTIONALLY ABSENT from all three blocks. With it set, Dependabot appends its own `(deps)` scope on top of the prefix — titles render as `chore(deps)(deps): bump foo`. The prefix already carries the scope; don't double it.
+**Action pins and the Node image need no bot.** The kit's monthly pin watch raises
+action pins in the kit's workflows, and `/sync-dev-kit` raises a project's pins to the
+kit's wherever they are older, keeping any that are newer. Dockerfiles name the Node
+major as a floating tag (`node:26-bookworm-slim`), so a rebuild takes the newest patch;
+the major itself is the kit's (`.claude/stack-manifest.json`) and moves every project
+at once with a migration.
 
-**Interaction with `/deploy` (§2.1)**: dep PRs land on main via `/merge` like any other PR, but do not fire deploys on their own. They ride the next `/deploy` invocation alongside whatever else has accumulated. The monthly cadence + cooldown limits the dep-PR wave per ecosystem; whether a wave triggers a release is the maintainer's call at `/deploy` time. Cadence solves review burden; `/deploy` solves "when does it ship."
-
-**An action PR is safe to merge into a kit workflow.** `/sync-dev-kit` keeps a project's action pin wherever it is newer than the kit's, and raises it to the kit's wherever it is older, so a merged Dependabot action PR is never reverted. A project that never merges them still moves forward at every sync.
-
-**Ignore rules — one ships by default:**
-
-- `update-types: ["version-update:semver-major"]` for Node in the docker block, listed under both names Dependabot gives the image: `node` (Docker Hub) and `docker/library/node` (the ECR Public mirror, `public.ecr.aws/docker/library/node`). An image matching neither name is not held back. **Why:** Dependabot doesn't understand Node's LTS policy. Odd-numbered Node releases (25, 27, …) never become LTS; even-numbered ones enter Active LTS ~6 months after release. Without this ignore, every 6 months we'd get a wave of Node-major PRs we don't want to merge. Patches (24.x.y security fixes) still flow through. The ONE major bump we DO care about — the Active-LTS transition — is checked during the `dependency-triage` pass (§3.4), not by Dependabot.
-
-If a project adds other framework-specific holds (pinned transitive dep, known-broken major), add them in the consumer's `.github/dependabot.yml` as `locally-modified` overrides. Document the hold reason as a comment in the consumer's `.github/dependabot.yml`.
-
-**Auto-review skip coordination**: dep PR prefixes (`chore(deps):` etc.) are the same prefixes used by other pipeline-generated PRs. Gemini Code Assist (§3.7) does not have a built-in `ignore_title_keywords` equivalent at the consumer-config tier; if review noise on dep PRs becomes an issue, switch the dependabot prefix or open a Gemini config feature request.
+**Commit-message prefix**: a dependency update is a `chore(deps)` / `chore(deps-dev)`
+commit — a subject-only `chore` type, which `deploy.sh`'s bump-level inference (§2.1
+Step 2) treats as a patch. It ships at the next `/deploy` with whatever else has
+accumulated.
 
 ## 3.4 `dependency-triage` skill (the weekly dependency + vulnerability pass)
 
-The weekly dependency **process** is a kit skill (`.claude/skills/dependency-triage/`); the per-project **policy** — timelines, owner, exceptions — is `dependency-policy.md` (§3.5). Claude runs the analysis + verification; the human authorizes every main-landing merge.
+The weekly dependency **process** is a kit skill (`.claude/skills/dependency-triage/`); the per-project **policy** — timelines, owner, exceptions, the build-graph list — is `dependency-policy.md` (§3.5). Claude runs the analysis, the updates and the verification; the human approves each exception and lands the work through `/commit`.
 
 **Why a skill, not a doc:** you want Claude to *execute* the same triage everywhere, identically — reading prose and re-deriving the process each time is exactly what drifts. The skill encodes the load-bearing facts so they don't have to be re-argued per project.
 
-**The pipeline assumption is the simplification.** The skill *assumes* the kit pipeline (gitflow + `/deploy` + CI-does-not-build) rather than parameterizing a build-gate — because if you're triaging Dependabot you're on the full pipeline by definition (the build-runs-at-`/deploy`, PR-CI-doesn't-build property is uniform across consumers; testing.md §1 "Wiring CI" + §2.1). A project that broke from the pipeline owns the subtraction.
+**The pipeline assumption is the simplification.** The skill *assumes* the kit pipeline (gitflow + `/deploy` + CI-does-not-build) rather than parameterizing a build-gate — because a project running the pass is on the full pipeline by definition (the build-runs-at-`/deploy`, PR-CI-doesn't-build property is uniform across consumers; testing.md §1 "Wiring CI" + §2.1). A project that broke from the pipeline owns the subtraction.
 
 **What's universal (in the skill) vs project-specific (discovered):**
-- Universal: the "PR-CI doesn't build" fact; the three blast-radius tiers; rebase-before-trusting-red; toolchain-build-before-merge; the verification standard; the guardrails.
-- Project-specific, **discovered at runtime** (not configured): which packages are Tier 3 (read the `npm-toolchain` group in `dependabot.yml` — §3.3); the build/run commands and app ports (read the project's `Dockerfile.*` + deploy workflows). This is deliberate — the values vary and AI reads them from the repo; a config surface would be over-engineering.
+- Universal: the "PR-CI doesn't build" fact; the two blast-radius tiers (leaf, build graph); the cooldown; fixing a transitive advisory through its direct parent; build-graph-built-before-the-PR; the verification standard; the guardrails.
+- Project-specific, **discovered at runtime** (not configured): which packages are build graph (the kit's list plus the `build-graph` region in `dependency-policy.md` — §3.5); the build/run commands and app ports (read the project's `Dockerfile.*` + deploy workflows). This is deliberate — the values vary and AI reads them from the repo; a config surface would be over-engineering.
 
-**Pairs with** the `npm-toolchain` / `npm-patch` split in `dependabot.yml` (§3.3, now kit-standard) and the `dep-alignment` gate (§3.6). Deeper dependency discipline: `dependency-management.md`.
+**Pairs with** the build-graph list in `dependency-policy.md` (§3.5), `/deploy`'s vulnerability check (§3.3) and the `dep-alignment` gate (§3.6). Deeper dependency discipline: `dependency-management.md`.
 
 ## 3.5 `dependency-policy.md` (synced as `merge` mode)
 
-The operating procedure for dependency and vulnerability work — what to do with what
-Dependabot produces. The kit long shipped the configuration (§3.3) and the triage
-skill (§3.4) but never the procedure, so the answer to "who acts on this, and by
-when" was undefined in every consumer.
+The operating procedure for dependency and vulnerability work: who runs the pass, how
+long a known issue may stay open, what counts as the build graph, and every exception
+with its review date. The triage skill (§3.4) executes it; `/deploy`'s vulnerability
+check reads its timelines and exceptions.
 
 **Lives at** `project-documentation/dependency-policy.md`, seeded by the kit. It lands in the project's
 docs rather than `.claude/` because it is read by a human on a cadence, not loaded as
 a rule on every turn.
 
-**Mode `merge`.** The `owners`, `timelines` and `project-notes` regions are each
-client's own; the kit owns every line around them. A consumer tunes its regions freely,
+**Mode `merge`.** The `owners`, `alerts`, `timelines`, `exceptions`, `build-graph`,
+`pass-log` and `project-notes` regions are each client's own; the kit owns every line around them. A consumer tunes its regions freely,
 and a kit change to the surrounding text applies without touching them
 (kitmaintainer-handbook.md §9.10).
 
@@ -602,15 +614,23 @@ a sign-off, not writing a different document. A 8.8 does not require zero
 vulnerabilities; it requires them managed deliberately and defensibly, which is what
 the exceptions-with-expiry-dates section provides.
 
-**Why there is no enforcing gate.** A gate assumes whoever hits it can resolve it.
-Build-graph updates can cost hours and the person holding the keys after handover has
-less context than the person who built it, so a gate either stops them shipping or
-teaches them to bypass it. The cadence is honour-system by design; the document's job
-is to make "did we do it" answerable, not enforced.
+**Two shapes, one policy, set by `ASSURANCE_LEVEL`.** A gate assumes whoever hits it can
+resolve it, and a build-graph update can cost hours, so how hard the kit insists is the
+project's choice:
+
+| | `assist` (small team) | `strict` (audited — ISO 27001, a client's security review) |
+|---|---|---|
+| `/deploy`'s vulnerability check | Names each high or critical advisory with a fix past its window, and deploys | Refuses (exit 27) until it is updated or a current exception covers it, and when the check could not run |
+| GitHub vulnerability alerts | Usually off | On — continuous monitoring with its own history |
+| Pass log | — | Every pass recorded: date, findings, decisions, who decided |
+
+Either way the weekly cadence is the project's habit, not an enforced schedule; the
+check at `/deploy` is what makes a fixable serious vulnerability impossible to ship
+silently.
 
 ## 3.6 `dep-alignment` check + `scripts/check-dep-alignment.mjs` (cross-workspace dependency-version gate)
 
-Monorepo invariant enforcement: every shared dependency is declared at **one** version across all workspaces. Version skew across apps produces runtime failures no other check catches, and Dependabot *creates* that skew because it bumps each manifest independently. This gate is the safety net. Full discipline (trust-but-verify, solid-version philosophy, the "logged-in not 200" verification standard, accepted-residuals handling) lives in **`dependency-management.md`**.
+Monorepo invariant enforcement: every shared dependency is declared at **one** version across all workspaces. Version skew across apps produces runtime failures no other check catches, and a bump made to one workspace's manifest creates that skew when the others are left behind. This gate is the safety net. Full discipline (trust-but-verify, solid-version philosophy, the "logged-in not 200" verification standard, accepted-residuals handling) lives in **`dependency-management.md`**.
 
 **The script.** `scripts/check-dep-alignment.mjs` reads the root `package.json`, expands `workspaces` (literal dirs and trailing-glob `apps/*`; also the `{ packages: [...] }` form), and fails (exit 1) if any dependency name is declared at more than one version-range across the manifests. No install — it reads `package.json` files only. A single-package repo (no `workspaces`) has one manifest, so it's a guaranteed pass: **safe to run on any Node repo.** Fails loud on an unreadable *declared* workspace manifest (never reports "aligned" while a manifest is broken — constitution §X).
 
@@ -665,8 +685,6 @@ The kit's text assumes the kit's stack (TanStack Start). A rule that does not fi
 
 **Why Gemini and not a paid alternative**: see `pipeline.md` §1.4 (rejected tools). Short version: Gemini's consumer / free tier matches CR Pro's catch quality on the bake-off seed defects, reads in-repo `.claude/rules/*.md` as review context out of the box, and runs at $0/seat. The 33 PR/day quota is far above typical 2-dev-shop cadence.
 
-**Pairs with `.github/dependabot.yml` (§3.3):** Gemini's `include_drafts: false` plus dependabot's commit-prefix conventions keep mechanical PRs from triggering review cycles.
-
 ### 3.7.1 Comment-driven Gemini triggers (2026-05-28 redesign)
 
 Prior model (pre-2026-05-28): Gemini auto-reviewed on PR open + `commit.sh` posted `/gemini review` on every push. `wait-for-pr-ready.sh` blocked until Gemini reviewed the current HEAD on every call. Problems: (a) deploy.sh's release PR triggered Gemini despite having no code to review — wasted quota + hung merge; (b) late-triage commits re-triggered Gemini reviews the user had already decided to ship without; (c) the trigger side and wait side operated in separate vacuums — a silently-failed `gh pr comment` left `/merge` hanging forever waiting for a review that was never coming.
@@ -718,7 +736,6 @@ Each dev's noise tolerance differs. This section maps every email GitHub sends o
 | GitHub Actions workflow succeeded after failing | Account: Actions | Same. Setting also controls this. |
 | GitHub Actions workflow first-time failure / restored success | Account: Actions | Same setting; granular sub-options in the same panel. |
 | Dependabot security alert opened | Account: Dependabot alerts | Account → Notifications → Dependabot alerts → toggle Email/Web. Repo-level kill switch: Settings → Code security → Dependabot alerts. |
-| Dependabot version-update PR opened | Repo Watch (it's a PR) | Repo Watch → Custom → uncheck Pull requests, OR drop to Participating. Dependabot PRs you don't review never fire Participating. |
 | Gemini PR summary / code review | Repo Watch | Posted as PR comments — Repo Watch / Participating. Gemini does not have a separate noise-suppression knob like CR's `review_status`. |
 | Gemini replied to your inline comment | Account: Participating | Same as any reply. |
 | Vulnerability alert (org-wide) | Org settings | `https://github.com/organizations/<org>/settings/security_analysis` — owner only. |

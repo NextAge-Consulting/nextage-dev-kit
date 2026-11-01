@@ -91,7 +91,7 @@ Next.js; do not bring those assumptions.
 | Build output, the Hono server, static files, runtime assets | `deployment.md` |
 | Content-Security-Policy and security headers, opt-in: the module, its wiring, allowing a third-party host | `security-headers.md` |
 | Hydration mismatches, CJS/ESM, stale caches, testing server functions | `debugging.md` |
-| Dependabot triage, `overrides` safety | `dependency-management.md` |
+| Vulnerability alerts in the dependency pass, `overrides` safety | `dependency-management.md` |
 
 These are **distilled** — our subset in our words, not copies of upstream. They
 cover what business applications need. Query and Form 1.x have no published

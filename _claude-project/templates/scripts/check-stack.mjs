@@ -9,8 +9,8 @@
  *
  *     THE KIT PINS WHAT THE KIT SHIPS, OR WHAT THE KIT'S CHOICES DRAG IN.
  *
- * Anything the kit says nothing about stays the project's call — Dependabot and
- * the dependency-triage pass own those.
+ * Anything the kit says nothing about stays the project's call — the
+ * dependency-triage pass owns those.
  *
  * EACH ENTRY CARRIES ITS OWN TRIGGER, which is what keeps the kit opinionated
  * without blocking a project the opinion does not apply to:
@@ -46,7 +46,9 @@
  *
  * NODE: the manifest's `node.major` is the one Node major every project runs. Its
  * .nvmrc names that major, its root engines.node allows nothing older, and every
- * Dockerfile `node:` image and CI `node-version` names it.
+ * Dockerfile `node:` image, CI `node-version` and CodeBuild buildspec names it. A
+ * buildspec that runs Node without `runtime-versions: nodejs:` gets the image's
+ * default, which AWS moves on its own schedule, so it fails too.
  *
  * HERMETIC: reads package.json files, the lockfile, the manifest, CI workflow
  * text and sync-substitutions.json. Never the network, so it is safe in CI and
@@ -512,14 +514,16 @@ if (nodeMajor !== undefined) {
   if (!engines) failures.push(`package.json: no engines.node — set it to ">=${nodeMajor}" or a ${nodeMajor}.x floor`);
   else if (majorOf(engines) !== nodeMajor || !/^\s*>=/.test(engines))
     failures.push(`package.json: engines.node is "${engines}" — its floor must be Node ${nodeMajor}, as ">=${nodeMajor}" or a ${nodeMajor}.x version`);
-  // Every Dockerfile in the repository, never descending into installed or built trees.
+  // Every Dockerfile and buildspec in the repository, never descending into installed or built trees.
   const images = [];
+  const buildspecs = [];
   const walk = (dir) => {
     for (const entry of readdirSync(resolve(repoRoot, dir), { withFileTypes: true })) {
       const rel = dir ? `${dir}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
         if (!["node_modules", ".git", "dist", ".output", "build"].includes(entry.name)) walk(rel);
       } else if (/^Dockerfile/.test(entry.name)) images.push(rel);
+      else if (/^buildspec.*\.ya?ml$/.test(entry.name)) buildspecs.push(rel);
     }
   };
   walk("");
@@ -528,6 +532,15 @@ if (nodeMajor !== undefined) {
       if (majorOf(m[1]) !== nodeMajor) failures.push(`${f}: FROM node:${m[1]} — the kit's Node major is ${nodeMajor}`);
     }
   }
+  for (const f of buildspecs) {
+    const text = readFileSync(resolve(repoRoot, f), "utf8").replace(/^\s*#.*$/gm, "");
+    const pinned = [...text.matchAll(/^\s*nodejs:\s*['"]?([\w.]+)/gm)];
+    for (const m of pinned) {
+      if (majorOf(m[1]) !== nodeMajor) failures.push(`${f}: runtime-versions nodejs ${m[1]} — the kit's Node major is ${nodeMajor}`);
+    }
+    if (!pinned.length && /(^|[\s;&|(])(npm|npx|node)\s/m.test(text))
+      failures.push(`${f}: runs Node with no runtime-versions nodejs, so it gets the image's default — add nodejs: ${nodeMajor} to the install phase`);
+  }
   const workflowDir = resolve(repoRoot, ".github/workflows");
   const workflows = existsSync(workflowDir) ? readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f)) : [];
   for (const f of workflows) {
@@ -535,7 +548,7 @@ if (nodeMajor !== undefined) {
       if (majorOf(m[1]) !== nodeMajor) failures.push(`.github/workflows/${f}: node-version ${m[1]} — the kit's Node major is ${nodeMajor}`);
     }
   }
-  nodePin = `Node ${nodeMajor} in .nvmrc, engines, ${images.length} Dockerfile(s) and ${workflows.length} workflow(s)`;
+  nodePin = `Node ${nodeMajor} in .nvmrc, engines, ${images.length} Dockerfile(s), ${buildspecs.length} buildspec(s) and ${workflows.length} workflow(s)`;
 }
 
 // --- report ----------------------------------------------------------------

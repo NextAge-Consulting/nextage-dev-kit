@@ -165,11 +165,11 @@ The author keeps it unless a taker is named:
 
 Optional: `--draft` to open as draft PR, `--base <branch>` if targeting something other than main.
 
-If the script warns about an app's happy path — none, no snapshot, or moved past the kit's
-drift threshold — relay each warning as it printed it and offer `/happy-path <app>`; under
+If the script warns about an app's primary-route tests — none, no snapshot, or moved past the kit's
+drift threshold — relay each warning as it printed it and offer `/primary-route-audit <app>`; under
 the default assurance level (`ASSURANCE_LEVEL` `assist`) the PR opens regardless. Under
 `strict` the same warnings — or a check that could not run — refuse the PR (exit 16)
-before anything is pushed: run `/happy-path <app>` for each app named, then `/open-pr`
+before anything is pushed: run `/primary-route-audit <app>` for each app named, then `/open-pr`
 again.
 
 If the script reports `main has moved`, relay the commits behind and the files changed on
@@ -186,11 +186,14 @@ on this branch — their next `/commit` stacks a new branch on it.
 
 Invoke the readiness wait — blocks until CI required checks pass AND (unless `GEMINI_NOT_INSTALLED="true"` in `.claude/sync-substitutions.json`) Gemini has posted a review against the current HEAD — and, when the project's `TEST_RUNNER` is `aws`, the `full-suite` status from the CodeBuild test project has reported. The wait reads the trigger-comment history to decide whether a Gemini review is expected; for `/open-pr` it always is, because the script just posted the trigger.
 
-```bash
-.claude/skills/gitflow/scripts/wait-for-pr-ready.sh
+**Run it with the Monitor tool, never Bash:**
+
+```
+command:    .claude/skills/gitflow/scripts/wait-for-pr-ready.sh 2>&1
+timeout_ms: 1800000
 ```
 
-Status updates print every poll cycle (~30s). The user is sitting at the keyboard during this — that's the point of the wait, no other infra needed.
+Each status line (~30s) arrives as it prints. **The moment a check fails, start fixing it** in the tree, uncommitted, by `2` below — read its log and fix the cause while the review is still due. Never wait for the watch to end or for the human to ask.
 
 Exit handling:
 - `0` → PR is ready. Continue to Step 9.
@@ -241,7 +244,7 @@ Post-merge, **nothing fires automatically**. To ship to production, run `/deploy
 - No remote configured: add `origin` remote
 - Neither `gh` nor `$GITHUB_TOKEN` available: auth setup needed
 - A linked issue is not code complete and was not confirmed: exit 12, nothing pushed
-- `ASSURANCE_LEVEL` is `strict` and an app the branch touches has no current happy path: exit 16, nothing pushed
+- `ASSURANCE_LEVEL` is `strict` and an app the branch touches has no current primary-route tests: exit 16, nothing pushed
 - The PR opened but the board update failed: exit 11 — set the status on the board once the cause is fixed
 - A linked issue has no Staged comment in `--notes`: exit 2, nothing pushed
 - The PR opened and the board updated but a Staged comment did not post: exit 13 — the script prints the exact `gh issue comment` to run

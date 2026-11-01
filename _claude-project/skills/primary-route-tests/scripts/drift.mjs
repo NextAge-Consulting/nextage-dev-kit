@@ -1,19 +1,21 @@
 #!/usr/bin/env node
 /**
  * What an app is made of — its routes, server functions and tables — and how far that has
- * moved since its happy path was last decided.
+ * moved since its primary routes were last agreed.
  *
- *   node .claude/skills/happy-path/scripts/drift.mjs units [--repo <dir>]
+ *   node .claude/skills/primary-route-tests/scripts/drift.mjs units [--repo <dir>]
  *        every app and the shared module, one per line
- *   node .claude/skills/happy-path/scripts/drift.mjs inventory <unit> [--repo <dir>]
- *        the unit's routes, server functions and tables as JSON, each with what the audit
- *        ranks by: the files that use it, the foreign keys pointing at a table, and the
- *        fix commits that touched the file declaring it
- *   node .claude/skills/happy-path/scripts/drift.mjs snapshot <unit> [--repo <dir>]
+ *   node .claude/skills/primary-route-tests/scripts/drift.mjs inventory <unit> [--repo <dir>]
+ *        the unit's routes, server functions and tables as JSON, each with what
+ *        /primary-route-audit weighs them by: the files that use it, the foreign keys pointing
+ *        at a table, and the fix commits that touched the file declaring it
+ *   node .claude/skills/primary-route-tests/scripts/drift.mjs snapshot <unit> [--repo <dir>]
  *        writes the unit's snapshot (SNAPSHOT below), the record drift is measured from
- *   node .claude/skills/happy-path/scripts/drift.mjs check [<unit>…] [--changed <file>] [--repo <dir>]
+ *   node .claude/skills/primary-route-tests/scripts/drift.mjs check [<unit>…] [--changed <file>] [--repo <dir>]
  *        one line per unit: `<status>\t<unit>\t<what it means>`, status one of
- *        ok, none (no happy-path tests), unsnapshotted, drifted, unreadable. With --changed,
+ *        ok, none (no primary-route tests), unsnapshotted, drifted, unreadable, or unmeasured
+ *        (a snapshot holding nothing this script recognises, so staleness cannot be measured).
+ *        With --changed,
  *        the units are those the listed paths (one per line, `-` for stdin) fall in; with
  *        neither, every unit. Exits 1 only when it cannot work out the units at all.
  *
@@ -27,7 +29,7 @@
  *   table            `<dialect>Table('name', …)` and `<schema>.table('name', …)`
  *
  * The score is (items added + items removed) / items in the snapshot, every item weighted
- * the same. Past THRESHOLD the core the developer chose was chosen from a different app.
+ * the same. Past THRESHOLD the app has moved far enough that its primary routes need agreeing again.
  */
 
 import { execFileSync } from 'node:child_process'
@@ -37,16 +39,16 @@ import { fileURLToPath } from 'node:url'
 
 /**
  * The kit's drift threshold: a quarter of the app's routes, server functions and tables
- * added or removed since the audit. Below it the app is the one the core was chosen from,
- * grown at the edges; past it, one item in four is new or gone, and what is core may have
- * moved with them. A kit constant: no project or developer setting changes it.
+ * added or removed since its primary routes were agreed. Below it the app is the one they
+ * were agreed for, grown at the edges; past it, one item in four is new or gone, and the
+ * primary routes may have moved with them. A kit constant: no project or developer setting changes it.
  */
 export const THRESHOLD = 0.25
 
-/** Where a unit's happy-path tests live, from the unit, and the snapshot beside them. */
-export const HAPPY_DIR = 'test/happy-path'
-export const SNAPSHOT = `${HAPPY_DIR}/snapshot.json`
-const HAPPY_TEST = /\.happy\.integration\.test\.tsx?$/
+/** Where a unit's primary-route tests live, from the unit, and the snapshot beside them. */
+export const PRIMARY_DIR = 'test/primary-routes'
+export const SNAPSHOT = `${PRIMARY_DIR}/snapshot.json`
+const PRIMARY_TEST = /\.primary\.integration\.test\.tsx?$/
 
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'build', 'coverage', '.output', '.vinxi', '.tanstack', '.wxt', '.git', '.turbo', '.next'])
 const SOURCE = /\.(ts|tsx|mts|cts)$/
@@ -181,9 +183,9 @@ export function score(snapshot, now) {
   return { score: changed / size, changed, size }
 }
 
-function hasHappyTests(repo, unit, all) {
+function hasPrimaryTests(repo, unit, all) {
   const others = all.filter((u) => u !== unit && within(u, unit))
-  for (const file of walk(repo, unit, others)) if (HAPPY_TEST.test(file)) return true
+  for (const file of walk(repo, unit, others)) if (PRIMARY_TEST.test(file)) return true
   return false
 }
 
@@ -191,10 +193,10 @@ const snapshotPath = (repo, unit) => path.join(repo, unit === '.' ? SNAPSHOT : `
 
 /** One unit's standing: { status, unit, message }. */
 export function checkUnit(repo, unit, all = units(repo).units) {
-  const fix = `run /happy-path ${unit}`
-  if (!hasHappyTests(repo, unit, all)) return { status: 'none', unit, message: `${unit} has no happy-path tests — ${fix}` }
+  const fix = `run /primary-route-audit ${unit}`
+  if (!hasPrimaryTests(repo, unit, all)) return { status: 'none', unit, message: `${unit} has no primary-route tests — ${fix}` }
   const file = snapshotPath(repo, unit)
-  if (!existsSync(file)) return { status: 'unsnapshotted', unit, message: `${unit} has happy-path tests but no ${SNAPSHOT}, so how far it has moved is unknown — ${fix}` }
+  if (!existsSync(file)) return { status: 'unsnapshotted', unit, message: `${unit} has primary-route tests but no ${SNAPSHOT}, so how far it has moved is unknown — ${fix}` }
   let snap
   try {
     snap = readJson(file)
@@ -202,11 +204,14 @@ export function checkUnit(repo, unit, all = units(repo).units) {
     return { status: 'unreadable', unit, message: `${unit}/${SNAPSHOT} is not valid JSON (${e.message}) — ${fix}` }
   }
   const { score: s, changed, size } = score(snap, surface(repo, unit))
+  if (size === 0 && changed === 0) {
+    return { status: 'unmeasured', unit, message: `${unit}: staleness is not measured — it has no routes, server functions or tables this check recognises (TanStack routes, createServerFn, Drizzle tables); run /primary-route-audit ${unit} again when the jobs it does change` }
+  }
   const pct = Number.isFinite(s) ? `${Math.round(s * 100)}%` : 'all of it'
   if (s > THRESHOLD) {
-    return { status: 'drifted', unit, message: `${unit} has moved ${pct} since its happy path was decided (${changed} routes, server functions and tables added or removed, against ${size}; the kit's limit is ${THRESHOLD * 100}%) — ${fix}` }
+    return { status: 'drifted', unit, message: `${unit} has moved ${pct} since its primary routes were agreed (${changed} routes, server functions and tables added or removed, against ${size}; the kit's limit is ${THRESHOLD * 100}%) — ${fix}` }
   }
-  return { status: 'ok', unit, message: `${unit}: ${changed} of ${size} items changed since its happy path was decided (${pct})` }
+  return { status: 'ok', unit, message: `${unit}: ${changed} of ${size} items changed since its primary routes were agreed (${pct})` }
 }
 
 /** Fix commits per file, from the repository's history. Empty outside a git repository. */
@@ -238,7 +243,7 @@ const REFERENCE = /\.references\(\s*\(\)\s*(?::[^=]+)?=>\s*([\w$]+)\./g
 /** How many foreign keys in `text` point at the table named `symbol`. */
 const referencesTo = (text, symbol) => [...text.matchAll(REFERENCE)].filter((match) => match[1] === symbol).length
 
-/** The unit's declarations with what the audit ranks them by. */
+/** The unit's declarations with what /primary-route-audit weighs them by. */
 export function inventory(repo, unit) {
   const { units: all, problems } = units(repo)
   if (problems.length) throw new Error(problems.join('\n'))
@@ -282,7 +287,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const changed = take('--changed')
   const [mode, ...rest] = args
   const fail = (msg) => {
-    console.error(`happy-path drift: ${msg}`)
+    console.error(`primary-route drift: ${msg}`)
     process.exit(1)
   }
   const { units: all, problems } = units(repo)

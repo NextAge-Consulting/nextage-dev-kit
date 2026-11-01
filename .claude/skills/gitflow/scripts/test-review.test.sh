@@ -31,7 +31,7 @@ new_repo(){
   printf 'export const fmt = (n: number) => String(n)\n' > "$repo/src/lib/format.ts"
   printf "import { monthTotal } from './billing'\nimport { dbTest } from '../test/define'\ndbTest('totals', () => monthTotal([1]))\n" > "$repo/src/billing.integration.test.ts"
   printf "import { fmt } from '@/lib/format.js'\ntest('fmt', () => fmt(1))\n" > "$repo/src/format.test.ts"
-  printf "import { monthTotal } from './billing'\ntest('happy', () => monthTotal([2]))\n" > "$repo/src/billing.happy.integration.test.ts"
+  printf "import { monthTotal } from './billing'\ntest('primary route', () => monthTotal([2]))\n" > "$repo/src/billing.primary.integration.test.ts"
   printf 'export const dbTest = () => null\n' > "$repo/test/define.ts"
   printf '# notes\n' > "$repo/README.md"
   git -C "$repo" init -q; git -C "$repo" config user.email t@example.com; git -C "$repo" config user.name t
@@ -68,7 +68,7 @@ has "$tmp/log" 'export function monthTotal' '…with the declaration the change 
 has "$tmp/log" '    1  export function monthTotal' '…numbered as in the file'
 hasnt "$tmp/log" '    5  export const other' '…and not a declaration it does not touch'
 has "$tmp/log" '(risk test): src/billing.integration.test.ts' 'a risk test importing it is sent, labelled'
-has "$tmp/log" '(happy-path test): src/billing.happy.integration.test.ts' 'a happy-path test importing it is sent, labelled'
+has "$tmp/log" '(primary-route test): src/billing.primary.integration.test.ts' 'a primary-route test importing it is sent, labelled'
 hasnt "$tmp/log" 'src/format.test.ts' 'a test that does not import it is not sent'
 has "$tmp/err" 'test review clean — reviewed 1 changed source file(s) and 0 changed test file(s), 2 test file(s) importing a changed file' 'a clean review counts what it reviewed'
 top=$(git -C "$repo" rev-parse --show-toplevel)
@@ -133,7 +133,7 @@ gate clean >/dev/null; gate clean >/dev/null
 [ "$(calls)" = 1 ] && grep -q 'reusing the earlier pass' "$tmp/err" && echo "  ✓ the same input again: no call, and it says it reused the pass" || { echo "  ✗ FAIL — calls=$(calls): $(cat "$tmp/err")"; fail=1; }
 printf 'export const w = 1\n' >> "$repo/src/billing.ts"; gate clean >/dev/null
 [ "$(calls)" = 2 ] && echo "  ✓ changed source: reviewed again" || { echo "  ✗ FAIL — changed source reused (calls=$(calls))"; fail=1; }
-printf "test('x', () => 1)\n" >> "$repo/src/billing.happy.integration.test.ts"; gate clean >/dev/null
+printf "test('x', () => 1)\n" >> "$repo/src/billing.primary.integration.test.ts"; gate clean >/dev/null
 [ "$(calls)" = 3 ] && echo "  ✓ a changed covering test: reviewed again" || { echo "  ✗ FAIL — changed test reused (calls=$(calls))"; fail=1; }
 gate clean >/dev/null; [ "$(calls)" = 3 ] || { echo "  ✗ FAIL — not reused before the unrelated test change (calls=$(calls))"; fail=1; }
 cp "$tmp/log" "$tmp/log.before"

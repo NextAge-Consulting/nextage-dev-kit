@@ -31,10 +31,11 @@ integration test, never whether one is kept.
 
 - **No — the answer is in the code.** Unit test. Formatting, parsing, validation, a
   branch, a calculation, which of two paths a value takes.
-- **Yes — the answer comes from the database.** Integration test. Collation, column
-  types and widths, `NULL` against empty string, defaults, unique and foreign-key
-  constraints, generated ids, what a real join returns over real data shapes, what a
-  stored timezone does.
+- **Yes — the answer comes from something outside the code:** the database, a sandbox
+  API, another real system. Integration test. From the database: collation, column types
+  and widths, `NULL` against empty string, defaults, unique and foreign-key constraints,
+  generated ids, what a real join returns over real data shapes, what a stored timezone
+  does. From a sandbox API: what it accepts, what it refuses, and what it sends back.
 
 **"It saved the row" and "it read back what I wrote" are the ORM working.** Neither is a
 test of your code, and asserting them costs a database round trip to learn nothing. If you
@@ -53,15 +54,15 @@ that writes nothing) is a development test, unless a fixed bug rests on it.
 - A value written into a legacy fixed-width column comes back trimmed.
 - A timestamp is stored in the zone every other row uses, not the server's.
 
-### Happy-path, risk and development tests
+### Primary-route, risk and development tests
 
-**In a TypeScript project, every integration test is a happy-path, risk or development
+**In a TypeScript project, every integration test is a primary-route, risk or development
 test, named by its file:**
 
-- **`*.happy.integration.test.ts` — a happy-path test:** the main success case of a core
-  function, whatever it touches — a money function's happy-path test asserts the plain
-  amount. The happy-path audit (`/happy-path`) decides which functions are core and writes
-  these.
+- **`*.primary.integration.test.ts` — a primary-route test:** a sanity test of one of the app's
+  primary routes, from the backend — the main success case of a function the route calls,
+  whatever it touches; a money function's primary-route test asserts the plain amount.
+  `/primary-route-audit` agrees the primary routes with the developer and writes these.
 - **`*.integration.test.ts` — a risk test:** a case that touches the risk list below — one
   a sensible later change could break without anyone noticing — and the one main success
   case a function of a risky shape keeps when none of its other cases is a risk test (below).
@@ -73,7 +74,7 @@ test, named by its file:**
 **A Python project keeps one integration tier**, every test in it judged by the same
 criteria as below.
 
-**The full suite is the happy-path tests and the risk tests.** CI runs it on every PR —
+**The full suite is the primary-route tests and the risk tests.** CI runs it on every PR —
 on GitHub Actions, or in the project's CodeBuild test project when `TEST_RUNNER` is `aws` —
 and `/deploy` on `main`, each skipping when the code has the same fingerprint as at a pass.
 A development test runs at `/commit` when the change reaches it. Run one by name with
@@ -99,7 +100,7 @@ behaviour, not one per conceivable input:
 
 A filter, a join, an aggregate or a date range alone puts nothing on the list — a case
 that asserts a period boundary itself is on it. Every other integration test written
-outside `/happy-path` is a development test, except the one main success case below.
+outside `/primary-route-audit` is a development test, except the one main success case below.
 
 **A fixed bug gets a risk test only when a competent developer making a sensible later
 change could plausibly bring it back** — the fix rests on a database quirk, a protocol
@@ -116,7 +117,7 @@ its own inputs, checks or output shape — is judged on its own.
 
 ### Which database code needs a test
 
-**Database code of a risky shape needs at least one happy-path or risk test that calls
+**Database code of a risky shape needs at least one primary-route or risk test that calls
 it,** whenever `DB_ENGINE` is anything but `None`, undeclared included, unless every gate
 below is declared off. The risky shapes: raw SQL, a join, a filter beyond a lookup by key, an
 aggregate or grouping, a date range, an upsert, a transaction, more than one write. Thin
@@ -124,17 +125,17 @@ code — a plain insert, a select by key — needs none. A development test does
 it is not in the full suite.
 
 **The shape decides only that one test is kept, never the kind of any other case.** When no
-happy-path test calls a risky-shape function and none of its cases touches the risk list,
+primary-route test calls a risky-shape function and none of its cases touches the risk list,
 its main success case is that test:
-filed as a risk test, it counts as one until `/happy-path` decides whether the function is
-core. One case per function, no more — the function's other cases follow the risk list.
+filed as a risk test, it counts as one until `/primary-route-audit` decides whether a primary route
+calls the function. One case per function, no more — the function's other cases follow the risk list.
 
 **A test calls the app's code.** It imports the function it tests from the app's source and
 calls it. A test that imports nothing from the app's source, or runs its own copy of the
 logic it claims to test, is rewritten to call the app's function — the case was worth
 testing, the test was wrong. Delete it only when there is no app code for it to call.
 
-An integration test:
+An integration test that uses the database:
 
 - runs inside a transaction the harness always rolls back (`dbTest`);
 - inserts the rows its assertions depend on, with ids reserved for tests, except stable
@@ -156,7 +157,7 @@ test in the same change. Untouched code is counted, never failed.
 **Who checks what:**
 
 - `scripts/check-integration-coverage.mjs`, at `/commit` and `/ship-main`: a changed
-  function of a risky shape that no happy-path or risk test calls, and a changed
+  function of a risky shape that no primary-route or risk test calls, and a changed
   integration test file that imports nothing from the app's source.
 - The test judge — a headless review `/commit` and `/ship-main` run (`test-review.sh`),
   not you. Its findings stop the commit, and the developer acts on each by its kind:
@@ -168,7 +169,7 @@ test in the same change. Untouched code is counted, never failed.
     development test.
   - `misnamed` — a test of the wrong kind for its file name: rename or move it as the
     fix says.
-- The happy-path audit: which tests are happy path.
+- `/primary-route-audit`, with the developer: which routes are primary, and their primary-route tests.
 
 **The gates:** `/commit` and `/ship-main` run the coverage check and the integration tests
 whose imports reach the change (`vitest related`), development tests included. CI runs

@@ -297,8 +297,8 @@ run --apply-file _github-project/workflows/ci.yml >/dev/null 2>&1
 pin "$PROJ/$CI" actions/checkout ffff v7.1.0
 [ "$(state "$CI")" = "clean-converged" ] && ok "pins: a merge workflow's newer pin is not a project edit" || bad "pins: merge ahead: $(state "$CI")"
 
-# A skeleton recorded with the refs in reads as no skeleton, so a project whose
-# Dependabot raised a pin under it is matched afresh rather than taken for an edit.
+# A skeleton recorded with the refs in reads as no skeleton, so a project that
+# raised a pin under it is matched afresh rather than taken for an edit.
 jq --arg d "$CI" '.files[$d] |= del(.skeletonPins)' "$PROJ/.claude/.kit-sync.json" > "$tmp/l" && mv "$tmp/l" "$PROJ/.claude/.kit-sync.json"
 [ "$(state "$CI")" = "clean-first" ] && ok "pins: an old skeleton is not compared, so a newer pin is no edit" || bad "pins: legacy skeleton: $(state "$CI")"
 pin "$KIT/_github-project/workflows/ci.yml" actions/checkout gggg v7.2.0; kit_commit "ci checkout up"

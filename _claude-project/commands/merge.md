@@ -25,6 +25,8 @@ Keeping it adds `--deploy-from-worktree` to the script.
 .claude/skills/gitflow/scripts/merge.sh [--pr <number>] [--carry-uncommitted] [--deploy-from-worktree]
 ```
 
+Run it with the Monitor tool, exactly as `/open-pr` Step 8 runs the readiness wait.
+
 The script:
 - Refuses on uncommitted changes FIRST (exit 26), before any build and before anything
   reaches GitHub — Step 2a.

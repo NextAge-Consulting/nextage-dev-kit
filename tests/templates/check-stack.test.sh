@@ -93,7 +93,23 @@ node_repo() {
 }
 
 r=$(node_repo node-ok 24.18.0 ">=24.18.0 <25")
-expect "Node pinned and everything on its major passes" "$r" 0 "Node 24 in .nvmrc, engines, 1 Dockerfile(s) and 1 workflow(s)"
+expect "Node pinned and everything on its major passes" "$r" 0 "Node 24 in .nvmrc, engines, 1 Dockerfile(s), 0 buildspec(s) and 1 workflow(s)"
+
+r=$(node_repo node-buildspec-ok 24.18.0 ">=24"); mkdir -p "$r/infra/codebuild"
+printf "phases:\n  install:\n    runtime-versions:\n      nodejs: 24\n    commands:\n      - npm ci\n" > "$r/infra/codebuild/buildspec-test.yml"
+expect "a buildspec on the major passes" "$r" 0 "1 buildspec(s)"
+
+r=$(node_repo node-buildspec-old 24.18.0 ">=24"); mkdir -p "$r/infra/codebuild"
+printf "phases:\n  install:\n    runtime-versions:\n      nodejs: 22\n" > "$r/infra/codebuild/buildspec.yml"
+expect "a buildspec on another major fails" "$r" 1 "infra/codebuild/buildspec.yml: runtime-versions nodejs 22"
+
+r=$(node_repo node-buildspec-unpinned 24.18.0 ">=24"); mkdir -p "$r/infra/codebuild"
+printf "phases:\n  build:\n    commands:\n      - npm run db:migrate\n" > "$r/infra/codebuild/buildspec-migrate.yml"
+expect "a buildspec running Node with no nodejs runtime fails" "$r" 1 "buildspec-migrate.yml: runs Node with no runtime-versions nodejs"
+
+r=$(node_repo node-buildspec-docker 24.18.0 ">=24"); mkdir -p "$r/infra/codebuild"
+printf "phases:\n  build:\n    commands:\n      # npm runs inside the image\n      - docker buildx build --target production .\n" > "$r/infra/codebuild/buildspec.yml"
+expect "a buildspec that only builds images needs no nodejs runtime" "$r" 0 "1 buildspec(s)"
 
 r=$(node_repo node-nvmrc 22.22.1 ">=24")
 expect "an .nvmrc on another major fails" "$r" 1 '.nvmrc: "22.22.1"'

@@ -107,15 +107,15 @@ steps you want done.
 ## 5. Core command-line tools
 
 ```bash
-brew install git gh node@24 jq ripgrep shellcheck uv pipx libpq
-brew link --overwrite node@24
+brew install git gh node@26 jq ripgrep shellcheck uv pipx libpq
+brew link --overwrite node@26
 ```
 
 | Tool | Why |
 |---|---|
 | `git` | Homebrew's is newer than Apple's. |
 | `gh` | The gitflow commands use it for every PR, issue and review operation. Run `gh auth login` after installing. |
-| `node@24` | **Install the versioned formula, never bare `brew install node`** — that tracks the latest Current release and moves you off LTS at the next cut. Confirm the Active LTS major from <https://raw.githubusercontent.com/nodejs/Release/main/schedule.json> before installing; a major is Active LTS when its `lts` date has passed and `maintenance` has not. |
+| `node@26` | **Install the versioned formula, never bare `brew install node`** — that tracks the latest Current release and moves you off LTS at the next cut. Confirm the Active LTS major from <https://raw.githubusercontent.com/nodejs/Release/main/schedule.json> before installing; a major is Active LTS when its `lts` date has passed and `maintenance` has not. |
 | `jq` | Every kit hook parses its input with it. Non-negotiable. |
 | `ripgrep` | Backs the editor's and Claude's text search. |
 | `shellcheck` | Required before committing any shell change. |

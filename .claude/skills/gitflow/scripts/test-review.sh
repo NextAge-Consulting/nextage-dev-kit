@@ -5,13 +5,13 @@
 # the working tree and untracked files alike — is judged by a headless Claude against the
 # kit's criteria for what earns a test: risky behaviour with no test proving it, a test
 # that imports nothing from the application or re-implements its logic, a superfluous test
-# (ORM-only, or a duplicate of another, happy-path tests included, a shared function
+# (ORM-only, or a duplicate of another, primary-route tests included, a shared function
 # re-tested through an app's pass-through wrapper among them) and a test of the wrong
 # kind for its file name. A finding fails the gate.
 #
 # Source is a .ts or .tsx outside node_modules, .claude, a test/, tests/ or __tests__
 # folder, and not a .d.ts or a test. A test is a *.test.* or *.spec.* in any TypeScript or JavaScript extension; its kind
-# is in its name — *.happy.integration.test.ts (happy-path), *.dev.integration.test.ts
+# is in its name — *.primary.integration.test.ts (primary-route), *.dev.integration.test.ts
 # (development), any other *.integration.test.ts (risk), the rest unit tests.
 #
 # The reviewer's input inlines, in this order until MAX_BYTES is spent: each changed source
@@ -155,7 +155,7 @@ def read(path):
 
 def test_kind(path):
     name = os.path.basename(path)
-    if re.search(r"\.happy\.integration\.(test|spec)\.(tsx?|mts|cts|jsx?|mjs|cjs)$", name): return "happy-path test"
+    if re.search(r"\.primary\.integration\.(test|spec)\.(tsx?|mts|cts|jsx?|mjs|cjs)$", name): return "primary-route test"
     if re.search(r"\.dev\.integration\.(test|spec)\.(tsx?|mts|cts|jsx?|mjs|cjs)$", name): return "development test"
     if re.search(r"\.integration\.(test|spec)\.(tsx?|mts|cts|jsx?|mjs|cjs)$", name): return "risk test"
     return "unit test"
@@ -309,17 +309,17 @@ read -r -d '' SYSTEM <<'EOF'
 You judge the tests of one change to a TypeScript business application. The input opens with the repository root. It inlines, as far as its size allows, each changed source file's diff and the top-level declarations the change touches, numbered as they are now; every test file the change adds or edits; every test file that imports a changed source file; and, for context, the application code the changed tests import. Each test file is headed by its kind. Anything that did not fit is listed under "NOT INLINED", by path relative to the repository root: read every file listed there with the Read tool before judging. You can read the whole repository with Read, Grep and Glob, and nothing else; you change nothing.
 
 The kinds of test, told apart by file name:
-- Happy-path test (`*.happy.integration.test.ts`): the main success case of a core function. The happy-path audit writes these; never report one as superfluous or misnamed.
-- Risk test (`*.integration.test.ts`): proves a case that touches risky behaviour, as defined below, against the real database — a period boundary, money math, a permission denial. It may also hold one main success case per function when no other case of that function is a risk test: a function that queries the database in a risky shape — raw SQL, a join, a filter beyond a lookup by key, an aggregate or grouping, a date range, an upsert, a transaction, more than one write — must keep one test in the full suite, and that case is it until the happy-path audit decides whether the function is core. Happy-path and risk tests together are the full suite.
+- Primary-route test (`*.primary.integration.test.ts`): a sanity test of one of the app's primary routes — the main success case of a function the route calls. `/primary-route-audit` writes these; never report one as superfluous or misnamed.
+- Risk test (`*.integration.test.ts`): proves a case that touches risky behaviour, as defined below, against the real database or a sandbox API — a period boundary, money math, a permission denial. It may also hold one main success case per function when no other case of that function is a risk test: a function that queries the database in a risky shape — raw SQL, a join, a filter beyond a lookup by key, an aggregate or grouping, a date range, an upsert, a transaction, more than one write — must keep one test in the full suite, and that case is it until `/primary-route-audit` decides whether a primary route calls the function. Primary-route and risk tests together are the full suite.
 - Development test (`*.dev.integration.test.ts`): helped while the code was being written; runs only when its code changes, never in the full suite.
-- Unit test (any other test file): the answer is in the code — formatting, parsing, validation, a branch, a calculation — and needs no database.
+- Unit test (any other test file): the answer is in the code — formatting, parsing, validation, a branch, a calculation — and reaches nothing outside it: no database, no sandbox API.
 
 Code is risky when it handles: money math — an amount the code computes: a sum, a fee rate, rounding, proration; a zero or a missing amount is not money math; dates, time zones and period boundaries; permissions and access; data integrity — a write that could corrupt, duplicate or orphan data that other code or another application reads: a duplicate where one must be unique, a write left half-done, a write landing on the wrong record; a function that writes nothing when it refuses, or leaves other columns alone, is checking its own logic, not data integrity; concurrency — two writers, retries, idempotency; a contract with another system — the shape, protocol or encoding the other system requires, asserted against its real format; a case where that system is mocked tests a branch, not the contract; or code many other parts depend on. A bug fixed there before makes code risky only when a competent developer making a sensible later change could plausibly reintroduce it, because the fix rests on a database quirk, a protocol detail, a boundary or an external contract. A plain mistake — a typo, a misread requirement, a wrong variable — does not. A filter, a join, an aggregate or a date range on its own is not risky behaviour; a case asserting a period boundary itself is. A database quirk on its own — collation, trimming, NULL handling, a column's type, a fallback that writes nothing — is not risky behaviour either, unless a fixed bug rests on it.
 
 Report a finding of one of these kinds:
 - missing: a changed function has risky behaviour that no test in the repository proves. Name the function and the case that needs a test — the period boundary, the permission denial, the rounding. Thin code — a plain read or write with no condition, calculation or boundary — needs no test.
 - reimplements: a test that does not call the application's code — it imports nothing from the application, or runs its own copy of the logic or the SQL and asserts on that copy, so it passes with the application broken. The case was worth testing; the fix is to rewrite the test to call the application's function.
-- superfluous: a risk, development or unit test that proves nothing the application's code decides — it only shows the ORM saved a row or read back what was written (ORM-only) — or that repeats a case another test already proves, a happy-path test included (duplicate). Shared code is tested once, in the shared module: an app test of an app function whose body only passes the call through to a shared-module function — forwarding it, perhaps reshaping the arguments — is a duplicate when it asserts nothing the shared module's test of that function does not; what the app adds on top — its own inputs, checks or output shape — is judged on its own.
+- superfluous: a risk, development or unit test that proves nothing the application's code decides — it only shows the ORM saved a row or read back what was written (ORM-only) — or that repeats a case another test already proves, a primary-route test included (duplicate). Shared code is tested once, in the shared module: an app test of an app function whose body only passes the call through to a shared-module function — forwarding it, perhaps reshaping the arguments — is a duplicate when it asserts nothing the shared module's test of that function does not; what the app adds on top — its own inputs, checks or output shape — is judged on its own.
 - misnamed: a test filed as the wrong kind — a risk test of nothing risky, other than the one main success case a risky-shape function keeps (it belongs in a `.dev.integration.test.ts` file), a development test that proves risky behaviour (it belongs in a risk test), an integration test that needs no database (it belongs in a unit test).
 
 Judge the changed code and every test that bears on it, wherever it lives. Before reporting a function's case missing, or a test superfluous as a duplicate, search the repository's test files (`*.test.*` and `*.spec.*` in any TypeScript or JavaScript extension — `.ts`, `.tsx`, `.mts`, `.js`, `.mjs` and the rest) with Grep for the function's name and read every test that names it or imports its file: a test anywhere in the repository counts, inlined or not. Report only clear cases; when unsure, do not report. A clean change returns {"findings": []}.

@@ -38,7 +38,7 @@ for (const key of ["NEON_API_KEY", "NEON_PROJECT_ID", "NEON_DATABASE_NAME", "NEO
 }
 // The integration tier is per engine: /sync-dev-kit ships the DB_ENGINE's globalSetup.ts
 // and integration-helpers.ts. On PostgreSQL it needs a live Neon project; without one (a
-// fork, a fresh clone, a Dependabot PR) only the unit tests run, and they stay real signal
+// fork, a fresh clone, a PR from outside the team) only the unit tests run, and they stay real signal
 // everywhere. On SQL Server it always runs, so globalSetup.ts's checks say what is missing
 // — except in CI when INTEGRATION_CI_OFF declares CI cannot reach the database.
 const settings = JSON.parse(readFileSync(resolve(repoRoot, ".claude/sync-substitutions.json"), "utf8"));
@@ -104,8 +104,8 @@ export default defineConfig(async () => {
         }
       : {};
 
-  // The include covers all three kinds of integration test: happy-path tests
-  // (*.happy.integration.test.ts), risk tests (*.integration.test.ts) and development tests
+  // The include covers all three kinds of integration test: primary-route tests
+  // (*.primary.integration.test.ts), risk tests (*.integration.test.ts) and development tests
   // (*.dev.integration.test.ts). The full suite is the first two; a development test runs only
   // when INTEGRATION_DEV_TESTS=1 is set, as /commit's run of the tests reaching a change sets it.
   const integrationInclude = project.integrationInclude ?? [inShared("test/**/*.integration.test.ts")];
