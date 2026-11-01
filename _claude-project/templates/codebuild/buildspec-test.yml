@@ -57,6 +57,8 @@ phases:
             false
           fi
         fi
+      # Buildspec 0.2 runs a phase's commands in one shell, so DB_SERVER and DB_PORT
+      # exported above reach the suite.
       - bash .claude/skills/gitflow/scripts/codebuild-suite.sh --out /tmp/full-suite.env
       - . /tmp/full-suite.env
   post_build:
