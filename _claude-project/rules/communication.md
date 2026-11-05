@@ -14,6 +14,8 @@ A claim you asserted but did not verify. A `TODO`, stub, or hardcoded value you 
 
 ## Instructions the human must act on
 
+**Hand the human only what needs their own hands** — their sign-in, their account, their decision. A rule that says something must happen without naming who does it means you: do it when its time comes, and leave it off their list.
+
 **When you hand the human something to do and keep working, run the rest in a background agent.** If the work cannot go to the background, finish it first and hand over the instructions last.
 
 ## Handing over a decision

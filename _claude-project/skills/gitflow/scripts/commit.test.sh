@@ -126,17 +126,16 @@ printf '{"name":"app","scripts":{"test:preflight":"check"}}\n' > package.json
 printf 'x\n' > test/a.integration.test.ts
 touch scripts/check-integration-coverage.mjs
 git add -A; git commit -qm "chore: integration setup"
-printf '#!/bin/bash\ncase "$*" in *test:preflight*) echo ran >> "%s/preflight.ran"; exit 1 ;; esac\nexit 0\n' "$tmp" > "$tmp/bin/npm"
+printf '#!/bin/bash\ncase "$*" in *test:preflight*) echo ran >> "%s/preflight.ran"; exit 1 ;; *test:related*) echo ran >> "%s/related.ran"; exit 1 ;; esac\nexit 0\n' "$tmp" "$tmp" > "$tmp/bin/npm"
 printf '#!/bin/bash\necho "check-integration-coverage: 0 changed exported function(s)"\n' > "$tmp/bin/node"
-printf '#!/bin/bash\necho npx ran >> "%s/npx.ran"; exit 1\n' "$tmp" > "$tmp/bin/npx"
-chmod +x "$tmp/bin/npm" "$tmp/bin/node" "$tmp/bin/npx"
+chmod +x "$tmp/bin/npm" "$tmp/bin/node"
 printf 'docs\n' > notes.md
 commit "docs: notes"; rc=$?
 { [ "$rc" -eq 0 ] && [ ! -f "$tmp/preflight.ran" ] && ! grep -q 'integration preflight' "$tmp/out"; } \
     && ok "/commit runs no integration preflight" || bad "preflight at commit (rc=$rc): $(cat "$tmp/out")"
-{ [ ! -f "$tmp/npx.ran" ] && grep -q 'no TypeScript changed' "$tmp/out"; } \
-    && ok "…and with no TypeScript changed, no test run touches the database" || bad "npx at commit: $(cat "$tmp/out")"
-rm -f "$tmp/bin/npm" "$tmp/bin/node" "$tmp/bin/npx"
+{ [ ! -f "$tmp/related.ran" ] && grep -q 'no TypeScript changed' "$tmp/out"; } \
+    && ok "…and with no TypeScript changed, no test run touches the database" || bad "test:related at commit: $(cat "$tmp/out")"
+rm -f "$tmp/bin/npm" "$tmp/bin/node"
 
 # ─── Unchanged code: the type-check runs once per code fingerprint ──────────
 # The kit copy's fake reviews, the real fingerprint (TypeScript linked into the repo),
@@ -184,6 +183,7 @@ case "$*" in
   "repo view"*) echo acme/app; exit 0 ;;
   "pr view 7 --json headRefOid"*) echo "$HEAD7"; exit 0 ;;
   "pr comment 7"*) cat >> "$FX/pr-comments.log"; exit 0 ;;
+  "api repos/acme/app/commits/"*"/check-suites"*) f="$FX/suites.json" ;;
   "api repos/acme/app/commits/"*) f="$FX/commit.json" ;;
   "api repos/acme/app/issues/7/comments"*) f="$FX/issue-comments.json" ;;
   "api repos/acme/app/pulls/7/reviews"*) f="$FX/reviews.json" ;;
@@ -194,6 +194,7 @@ if [ -n "$q" ]; then jq -r "$q" "$f"; else cat "$f"; fi
 GH
 chmod +x "$tmp/bin3/gh"
 printf '{"commit":{"committer":{"date":"2026-10-30T10:00:00Z"}}}\n' > "$tmp/fx/commit.json"
+printf '{"check_suites":[]}\n' > "$tmp/fx/suites.json"
 thread(){ printf '{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false},"nodes":[{"isResolved":%s,"comments":{"totalCount":%s,"nodes":[{"author":{"login":"gemini-code-assist"}}]}}]}}}}}\n' "$1" "$2"; }
 fx3(){ printf '%s\n' "$1" > "$tmp/fx/issue-comments.json"; printf '%s\n' "$2" > "$tmp/fx/reviews.json"; printf '%s\n' "$3" > "$tmp/fx/threads.json"; }
 TRIGGER3='[{"body":"/gemini review","created_at":"2026-10-30T10:05:00Z","user":{"login":"alice"}}]'
@@ -228,5 +229,13 @@ fx3 "$TRIGGER3" "$REVIEWED3" "$(thread true 1)"
 printf 'resolved\n' > resolved.txt
 rcommit --message "fix: resolved"; rc=$?
 [ "$rc" -eq 0 ] && ok "a finding resolved without a reply counts as answered" || bad "resolved (rc=$rc): $(cat "$tmp/out")"
+
+# The committer date (10:00) is the committing machine's clock, behind GitHub's: the
+# trigger (10:05) was posted for an earlier commit, before GitHub saw this one at 11:00.
+printf '{"check_suites":[{"created_at":"2026-10-30T11:00:00Z"}]}\n' > "$tmp/fx/suites.json"
+fx3 "$TRIGGER3" '[]' '{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}}'
+printf 'skew\n' > skew.txt
+rcommit --message "fix: skew" --no-review; rc=$?
+[ "$rc" -eq 0 ] && ok "a trigger GitHub logged before it saw the head commit owes no review, whatever the committer date" || bad "clock skew (rc=$rc): $(cat "$tmp/out")"
 
 exit "$fail"

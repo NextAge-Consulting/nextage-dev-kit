@@ -43,6 +43,7 @@ is never the same as safe.
 **The integration tests' database is a Neon branch per run**, forked from
 production by the kit's `globalSetup.ts` and deleted in teardown, with every test
 in a rolled-back transaction (`dbTest`, testing.md §1). It needs `NEON_API_KEY` and
-`NEON_PROJECT_ID` in `.env` locally and in the repository's Actions secrets.
+`NEON_PROJECT_ID` locally — in `.env`, or from a loader in front of the project's test
+scripts — and in the repository's Actions secrets.
 
 The id is UUID v7 in the native `uuid` column type (constitution §V).

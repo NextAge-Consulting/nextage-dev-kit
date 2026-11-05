@@ -172,7 +172,8 @@ test in the same change. Untouched code is counted, never failed.
 - `/primary-route-audit`, with the developer: which routes are primary, and their primary-route tests.
 
 **The gates:** `/commit` and `/ship-main` run the coverage check and the integration tests
-whose imports reach the change (`vitest related`), development tests included. CI runs
+whose imports reach the change, through the project's `test:related` script (`vitest
+related`), development tests included. CI runs
 the full suite and fails when integration tests exist and did not run — development tests
 do not count as existing for that check. `/deploy` runs the full suite before it bumps, where
 `TEST_RUNNER` points. Under `ASSURANCE_LEVEL` `strict` it never runs the suite on the
@@ -221,7 +222,7 @@ Discovering this at test-writing time means a refactor. Write it this way first.
 
 These apply whenever you DO run tests, on either path above. They do not authorize a run.
 
-**Run `npm test` from the repository root.** The standard shape is a root `test` script delegating to the shared vitest config, with `npm test -- --project unit` when you want unit only. Config, fixtures and tooling paths resolve relative to the root — notably the Drizzle config file, which the integration `globalSetup` shells out to. Run `npx vitest` from inside a workspace and it dies in setup hunting a config that is not at that path, which looks like a broken suite when it is only mis-invoked.
+**Run tests through the project's npm scripts from the repository root — `npm test`, never vitest directly.** The standard shape is a root `test` script delegating to the shared vitest config, with `npm test -- --project unit` when you want unit only. Config, fixtures and tooling paths resolve relative to the root — notably the Drizzle config file, which the integration `globalSetup` shells out to. Run `npx vitest` from inside a workspace and it dies in setup hunting a config that is not at that path, which looks like a broken suite when it is only mis-invoked.
 
 A project on a different stack runs whatever its own `package.json` or Makefile declares. The root-invocation rule never changes.
 
@@ -238,7 +239,8 @@ jq -r '.DB_ENGINE // ""' .claude/sync-substitutions.json
 
 **Confirm the integration project actually ran.** On PostgreSQL it is dropped when it
 cannot reach its database — when `NEON_API_KEY` or `NEON_PROJECT_ID` is missing from `.env`
-— and `npm test` still exits green. On SQL Server it is dropped only in CI with
+and from any loader the project's test scripts run through — and `npm test` still exits
+green. On SQL Server it is dropped only in CI with
 `INTEGRATION_CI_OFF` declared: a missing `DB_*` key makes the harness refuse and the run
 fail, saying which keys to set. Run it as `NO_COLOR=1 npm test` and read the per-file
 output for `|integration|` labels — with colour on, vitest prints each label as a badge

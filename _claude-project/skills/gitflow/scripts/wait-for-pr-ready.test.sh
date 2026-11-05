@@ -65,6 +65,7 @@ case "$*" in
   "repo view"*) echo acme/app; exit 0 ;;
   *"--json headRefOid"*) echo "$HEAD_SHA"; exit 0 ;;
   *"--json statusCheckRollup"*) printf '%s\n' "$FAKE_ROLLUP"; exit 0 ;;
+  "api repos/acme/app/commits/"*"/check-suites"*) f="$FX/suites.json" ;;
   "api repos/acme/app/commits/"*) f="$FX/commit.json" ;;
   "api repos/acme/app/issues/7/comments"*) f="$FX/issue-comments.json" ;;
   "api repos/acme/app/pulls/7/reviews"*) f="$FX/reviews.json" ;;
@@ -75,6 +76,7 @@ if [ -n "$q" ]; then jq -r "$q" "$f"; else cat "$f"; fi
 GH
 chmod +x "$tmp/bin2/gh"
 printf '{"commit":{"committer":{"date":"2026-10-30T10:00:00Z"}}}\n' > "$tmp/fx/commit.json"
+printf '{"check_suites":[]}\n' > "$tmp/fx/suites.json"
 TRIGGER='[{"body":"/gemini review","created_at":"2026-10-30T10:05:00Z","user":{"login":"dev"}}]'
 REVIEWED="[{\"user\":{\"login\":\"gemini-code-assist[bot]\"},\"commit_id\":\"$HEAD_SHA\"}]"
 TWO_FINDINGS="[{\"user\":{\"login\":\"gemini-code-assist[bot]\"},\"original_commit_id\":\"$HEAD_SHA\"},{\"user\":{\"login\":\"gemini-code-assist[bot]\"},\"original_commit_id\":\"$HEAD_SHA\"}]"
@@ -107,5 +109,18 @@ fx "$TRIGGER" "$REVIEWED" '[]'
 wait2 "$RED_CI" --review-only; rc=$?
 { [ "$rc" -eq 0 ] && grep -q 'Commit the fix' "$tmp/out"; } \
     && ok "--review-only: a clean review hands to /commit" || bad "rejoin clean (rc=$rc): $(cat "$tmp/out")"
+
+# ─── Which commit a trigger belongs to is decided on GitHub's clock ─────
+# The committing machine's clock is behind GitHub's: its committer date (10:00) is
+# before a trigger posted for the previous commit (10:05), but GitHub first saw this
+# commit at 11:00, after it. Nobody asked for a review of this commit.
+printf '{"check_suites":[{"created_at":"2026-10-30T11:00:00Z"},{"created_at":"2026-10-30T11:00:05Z"}]}\n' > "$tmp/fx/suites.json"
+fx "$TRIGGER" '[]' '[]'
+wait2 "$GREEN_CI"; rc=$?
+{ [ "$rc" -eq 0 ] && grep -q 'no-trigger-for-HEAD' "$tmp/out"; } \
+    && ok "a trigger GitHub logged before it saw the commit is not for it, whatever the committer date" || bad "clock skew (rc=$rc): $(cat "$tmp/out")"
+printf '{"check_suites":[]}\n' > "$tmp/fx/suites.json"
+wait2 "$GREEN_CI"; rc=$?
+[ "$rc" -eq 3 ] && ok "a commit with no check suite falls back to its committer date" || bad "no suites (rc=$rc): $(cat "$tmp/out")"
 
 exit "$fail"

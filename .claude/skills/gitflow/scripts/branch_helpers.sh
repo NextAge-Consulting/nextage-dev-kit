@@ -10,10 +10,25 @@ post_gemini_review() {
     printf '%s' "/gemini review" | gh pr comment "$1" --body-file -
 }
 
+# commit_seen_date <repo> <sha> — when GitHub first saw the commit, on GitHub's clock:
+# its earliest check suite, created when the commit was pushed. Comments are timed on
+# GitHub's clock, so "was this comment posted after the commit?" compares against this,
+# never the committer date, which is the committing machine's clock — a machine behind
+# GitHub's would order a comment posted before the commit after it. A commit with no
+# check suite falls back to its committer date. Prints nothing and returns 1 when gh
+# cannot say.
+commit_seen_date() {
+    local seen
+    seen=$(gh api "repos/$1/commits/$2/check-suites" --jq '[.check_suites[]?.created_at] | min // ""' 2>/dev/null) || return 1
+    [ -n "$seen" ] || seen=$(gh api "repos/$1/commits/$2" --jq '.commit.committer.date' 2>/dev/null) || return 1
+    [ -n "$seen" ] || return 1
+    echo "$seen"
+}
+
 # review_owed <pr_number> — whether a Gemini review on the PR is still owed. Prints one
 # line saying why and returns 0 when one is; returns 1 when none is; returns 2, printing
 # nothing, when gh cannot say. Owed means either:
-#   - a `/gemini review` was posted after the PR's head commit, and no review (or
+#   - a `/gemini review` was posted after GitHub saw the PR's head commit, and no review (or
 #     decline) of that commit has come back;
 #   - a Gemini finding is unanswered: its thread has no reply and is not resolved.
 #     /triage replies to every finding it handles, fixed or declined.
@@ -24,8 +39,7 @@ review_owed() {
     owner="${repo%%/*}"; name="${repo#*/}"
     head=$(gh pr view "$pr" --json headRefOid -q .headRefOid 2>/dev/null) || return 2
     [ -n "$head" ] || return 2
-    head_date=$(gh api "repos/$repo/commits/$head" --jq '.commit.committer.date' 2>/dev/null) || return 2
-    [ -n "$head_date" ] || return 2
+    head_date=$(commit_seen_date "$repo" "$head") || return 2
 
     out=$(gh api "repos/$repo/issues/$pr/comments" --paginate 2>/dev/null) || return 2
     triggered=$(jq -s --arg d "$head_date" '[add // [] | .[]

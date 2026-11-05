@@ -313,28 +313,46 @@ printf 'export const a = 1;\n' > src/a.ts
 t 0 "$(gate run_integration_gate "$BASE" committing)" 'no integration tests yet passes'
 has 'no integration tests yet' '…and says so'
 printf 'x\n' > test/a.integration.test.ts
-touch vitest.config.ts
-stub npx 1 'echo "Error: No projects matched the filter \"integration\"."'
-t 4 "$(gate run_integration_gate "$BASE" committing)" 'integration tests with no integration project fail'
+printf '{"DB_ENGINE":"PostgreSQL","SHARED_MODULE_DIR":"apps/shared"}\n' > .claude/sync-substitutions.json
+stub npm 0
+t 4 "$(gate run_integration_gate "$BASE" committing)" 'integration tests and no test:related script fail'
+has 'declares no "test:related" script' '…naming the missing script'
+has '"test:related": "vitest related -c apps/shared/vitest.config.ts"' '…with the line to add, on the shared module'"'"'s config'
+[ ! -f "$tmp/npm.args" ] && echo "  ✓ …before running anything" || { echo "  ✗ FAIL — npm ran: $(cat "$tmp/npm.args")"; fail=1; }
+printf '{"DB_ENGINE":"PostgreSQL","SHARED_MODULE_DIR":"."}\n' > .claude/sync-substitutions.json
+t 4 "$(gate run_integration_gate "$BASE" committing)" 'a flat project gets the same refusal'
+has '"test:related": "vitest related -c vitest.config.ts"' '…with the root config'
+printf '{"name":"app","scripts":{"test:related":"wrap -- vitest related -c vitest.config.ts"}}\n' > package.json
+unstub npm
+t 4 "$(gate run_integration_gate "$BASE" committing)" 'npm missing fails'
+has 'runs npm run test:related, and npm is not installed here' '…and says so'
+stub npm 1 'echo "Error: No projects matched the filter \"integration\"."'
+t 4 "$(gate run_integration_gate "$BASE" committing)" 'integration tests with no integration project fail (vitest 4 wording)'
 has 'no integration project runs here' '…and says why'
-grep -qx -- '-c' "$tmp/npx.args" && grep -qx './vitest.config.ts' "$tmp/npx.args" \
-  && echo "  ✓ …running the shared module's vitest config" || { echo "  ✗ FAIL — config not passed: $(cat "$tmp/npx.args")"; fail=1; }
-grep -qx 'src/a.ts' "$tmp/npx.args" && echo "  ✓ …on the changed files" || { echo "  ✗ FAIL — changed file not passed"; fail=1; }
-stub npx 1 'echo "FAIL |integration| test/a.integration.test.ts"'
+has 'through the wrapper on the project'"'"'s test scripts' '…naming a wrapper as a place the credentials can come from'
+t "run --silent test:related -- --run --project integration src/a.ts test/a.integration.test.ts" "$(tr '\n' ' ' < "$tmp/npm.args" | sed 's/ $//')" '…running the project'"'"'s test:related on the changed files'
+stub npm 1 'printf "Startup Error\nError: No projects were found. Make sure your configuration is correct. The filter matched no projects: integration. The projects definition: [\n"'
+t 4 "$(gate run_integration_gate "$BASE" committing)" 'integration tests with no integration project fail (vitest 5 wording)'
+has 'no integration project runs here' '…and says why, not only that the tests failed'
+INT_DEV=$(printf '#!/bin/bash\necho "$INTEGRATION_DEV_TESTS" > "%s/devtests"\nexit 0\n' "$tmp")
+printf '%s\n' "$INT_DEV" > "$STUBS/npm"; chmod +x "$STUBS/npm"
+gate run_integration_gate "$BASE" committing >/dev/null
+t 1 "$(cat "$tmp/devtests")" '…with the development tests brought in (INTEGRATION_DEV_TESTS=1)'
+stub npm 1 'echo "FAIL |integration| test/a.integration.test.ts"'
 t 4 "$(gate run_integration_gate "$BASE" committing)" 'a failing integration test fails'
 has 'integration tests failed' '…and says so'
-stub npx 1 'printf "Unhandled Error\nIntegration tests%s database not ready: dev on db1 is missing migrations this branch adds:\n  - 0007_add_notes\nTo apply them:\n  npm run db:migrate\n" "'"'"'"'
+stub npm 1 'printf "Unhandled Error\nIntegration tests%s database not ready: dev on db1 is missing migrations this branch adds:\n  - 0007_add_notes\nTo apply them:\n  npm run db:migrate\n" "'"'"'"'
 t 4 "$(gate run_integration_gate "$BASE" committing)" 'a database the harness refuses fails the gate'
 has 'missing migrations this branch adds' '…replaying the refusal'
 has 'npm run db:migrate' '…with the fix it names'
 has 'or their database is not ready' '…and says the database may be why'
-stub npx 0 'echo "No test files found, exiting with code 0"'
+stub npm 0 'echo "No test files found, exiting with code 0"'
 t 0 "$(gate run_integration_gate "$BASE" committing)" 'no test reaching the change passes'
 has 'no integration test reaches the' '…and says so'
-stub npx 0 'echo "No affected test files found, exiting with code 0"'
+stub npm 0 'echo "No affected test files found, exiting with code 0"'
 t 0 "$(gate run_integration_gate "$BASE" committing)" 'no test reaching the change passes on vitest 5'
 has 'no integration test reaches the' '…and says so, not that the tests pass'
-stub npx 0 'echo " ✓ |integration| test/a.integration.test.ts"'
+stub npm 0 'echo " ✓ |integration| test/a.integration.test.ts"'
 t 0 "$(gate run_integration_gate "$BASE" committing)" 'passing integration tests pass'
 has 'the tests reaching the' '…and says so'
 
@@ -415,25 +433,26 @@ else
   printf '{"DB_ENGINE":"PostgreSQL"}\n' > .claude/sync-substitutions.json
   printf 'console.log("✓ check-integration-coverage: 1 changed exported function(s)");\n' > scripts/check-integration-coverage.mjs
   printf 'x\n' > test/a.integration.test.ts
-  stub npx 0 'echo " ✓ |integration| test/a.integration.test.ts"'
+  printf '{"name":"app","scripts":{"check-types":"tsc --noEmit -p .","test:related":"vitest related"}}\n' > package.json
+  stub npm 0 'echo " ✓ |integration| test/a.integration.test.ts"'
   t 0 "$(fgate run_integration_gate "$BASE" committing)" 'integration: the first pass runs'
-  ran npx '…running vitest related'
+  ran npm '…running npm run test:related'
   t 0 "$(fgate run_integration_gate "$BASE" committing)" 'integration: the same code again passes'
-  skipped npx '…without running'
+  skipped npm '…without running'
   printf '// reworded\nexport const a =    3;\n' > src/a.ts
   t 0 "$(fgate run_integration_gate "$BASE" committing)" 'integration: comments and whitespace changed'
-  skipped npx '…still skips'
+  skipped npm '…still skips'
   # A commit made and stepped back from: another base, the same working tree.
   printf 'y\n' > other.txt; git add other.txt; git commit -qm other; OTHER=$(git rev-parse HEAD); git reset -q --soft HEAD~1; git rm -q --cached other.txt; rm -f other.txt
   t 0 "$(fgate run_integration_gate "$OTHER" committing)" 'integration: the same code measured from another base runs'
-  ran npx '…having run'
+  ran npm '…having run'
   printf 'export const a = 4;\n' > src/a.ts
-  stub npx 1 'echo "FAIL |integration| test/a.integration.test.ts"'
+  stub npm 1 'echo "FAIL |integration| test/a.integration.test.ts"'
   t 4 "$(fgate run_integration_gate "$BASE" committing)" 'integration: changed code runs, and its failure fails'
-  ran npx '…having run'
-  stub npx 0 'echo " ✓ |integration| test/a.integration.test.ts"'
+  ran npm '…having run'
+  stub npm 0 'echo " ✓ |integration| test/a.integration.test.ts"'
   t 0 "$(fgate run_integration_gate "$BASE" committing)" 'integration: a failure is never recorded — the same code runs again'
-  ran npx '…having run'
+  ran npm '…having run'
 
   # The build gate, in a repository of its own.
   new_repo

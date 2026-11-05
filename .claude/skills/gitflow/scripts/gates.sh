@@ -489,8 +489,10 @@ run_integration_preflight() {
 #
 # The integration tier at the commit (testing-verification.md). The coverage check
 # judges the exported functions this change touched (scripts/check-integration-coverage.mjs),
-# then the integration tests whose import graph reaches a changed file run, through
-# `vitest related`. It applies to a repository with a root package.json; DB_ENGINE
+# then the integration tests whose import graph reaches a changed file run, through the
+# project's own `test:related` script (`vitest related` with the shared vitest config), so
+# whatever the project wraps around its scripts — a secrets loader, an environment — wraps
+# this run too. It applies to a repository with a root package.json; DB_ENGINE
 # "None" and a declared INTEGRATION_COMMIT_OFF stand it down, saying why. A repository
 # with integration tests whose integration project does not run here fails: the tests
 # exist, so a pass would be one they never earned. A database the tests cannot use is
@@ -548,7 +550,6 @@ run_integration_gate() {
         gate_record_pass . integration "$key"
         return 0
     fi
-
     list=$(mktemp)
     err=$(mktemp)
     if ! { git diff -z --name-only --diff-filter=d "$base" -- '*.ts' '*.tsx' '*.mts' '*.cts' \
@@ -571,19 +572,32 @@ run_integration_gate() {
         gate_record_pass . integration "$key"
         return 0
     fi
-
-    local config=()
-    if [ -n "$shared" ] && [ -f "${shared%/}/vitest.config.ts" ]; then
-        config=(-c "${shared%/}/vitest.config.ts")
+    if ! jq -e '.scripts["test:related"] | strings' package.json >/dev/null 2>&1; then
+        local cfg="vitest.config.ts"
+        case "${shared%/}" in ""|.) ;; *) cfg="${shared%/}/vitest.config.ts" ;; esac
+        echo "" >&2
+        echo "gitflow: the repository has integration tests, and package.json declares no \"test:related\" script, so the tests that reach this change cannot run." >&2
+        echo "  Add it beside \"test\", with the same config and any wrapper \"test\" has (testing.md, \"Required scripts\"):" >&2
+        echo "    \"test:related\": \"vitest related -c $cfg\"" >&2
+        echo "  Fix before $action." >&2
+        return 4
     fi
-    echo "gitflow: running the integration tests that reach ${#files[@]} changed file(s)..." >&2
+    if ! command -v npm >/dev/null 2>&1; then
+        echo "" >&2
+        echo "gitflow: the integration gate runs npm run test:related, and npm is not installed here." >&2
+        echo "  A gate that cannot run must not report success, so this is a failure." >&2
+        return 4
+    fi
+    echo "gitflow: running the integration tests that reach ${#files[@]} changed file(s), through npm run test:related..." >&2
     # INTEGRATION_DEV_TESTS=1 brings the development tests (*.dev.integration.test.ts) into
     # this run, the one place they run outside a developer naming them (vitest.config.ts).
-    out=$(INTEGRATION_DEV_TESTS=1 npx --no-install vitest related --run --project integration ${config[@]+"${config[@]}"} "${files[@]}" 2>&1) || rc=$?
-    if printf '%s\n' "$out" | grep -qF 'No projects matched the filter "integration"'; then
+    out=$(INTEGRATION_DEV_TESTS=1 npm run --silent test:related -- --run --project integration "${files[@]}" 2>&1) || rc=$?
+    # vitest 4 says 'No projects matched the filter "integration"'; vitest 5 says
+    # 'The filter matched no projects: integration'.
+    if printf '%s\n' "$out" | grep -qE 'No projects matched the filter "integration"|The filter matched no projects: integration'; then
         echo "" >&2
         echo "gitflow: the repository has integration tests, but no integration project runs here, so they cannot." >&2
-        echo "  On PostgreSQL: set NEON_API_KEY and NEON_PROJECT_ID in .env (testing.md §1)." >&2
+        echo "  On PostgreSQL: set NEON_API_KEY and NEON_PROJECT_ID — in .env, or through the wrapper on the project's test scripts (testing.md, \"Credentials kept outside .env\")." >&2
         echo "  On another engine: register the project's integration project in test/project.ts (the engine rule says how)." >&2
         echo "  Fix before $action." >&2
         return 4

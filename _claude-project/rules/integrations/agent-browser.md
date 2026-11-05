@@ -76,7 +76,7 @@ agent-browser trace stop trace.zip
 
 ## Auth
 
-Log in through email/password form fields, and check `.env` for test credentials before asking the user. Google OAuth is blocked by Playwright's bot detection — don't attempt it. Within a live session, cookies and `localStorage` persist across commands on their own — no `state` call needed. A `close` discards them, so to reuse a login across the teardown, `state save <file>` before closing, then `state load <file>` **while the browser is closed** and open afterwards. Loading with a browser running is refused.
+Log in through email/password form fields, with the test login whose `.env` keys the project names in `rules/project/`. When it names none, ask the user which keys to use and record them there. Google OAuth is blocked by Playwright's bot detection — don't attempt it. Within a live session, cookies and `localStorage` persist across commands on their own — no `state` call needed. A `close` discards them, so to reuse a login across the teardown, `state save <file>` before closing, then `state load <file>` **while the browser is closed** and open afterwards. Loading with a browser running is refused.
 
 ## Cross-origin iframes (Stripe, reCAPTCHA)
 
