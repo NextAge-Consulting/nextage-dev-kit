@@ -297,6 +297,7 @@ is_app_only() {
         _claude-project/templates/knip.config.ts|_claude-project/templates/scripts/*) return 0 ;;
         _claude-project/templates/dependency-policy.md|_claude-project/templates/ui-inventory.md) return 0 ;;
         _claude-project/templates/design-system/*|_claude-project/templates/testing/*) return 0 ;;
+        _claude-project/templates/build/*) return 0 ;;
         _claude-project/templates/codebuild/*|_claude-project/skills/gitflow/scripts/codebuild-suite*) return 0 ;;
     esac
     return 1
@@ -859,6 +860,15 @@ dest_for_kit_path() {
             subst_intentionally_empty "DESIGN_FEED_BARREL" && { echo ""; return; }
             echo "${ui_pkg%/}/design-system/${kit_rel#_claude-project/templates/design-system/}"
             ;;
+        _claude-project/templates/build/*)
+            # Build configuration every app's Vite config takes — the colour-token
+            # fallbacks. It lands beside the shared module's other build config
+            # (vitest.config.ts), which SHARED_MODULE_DIR names; empty skips it.
+            local build_dir
+            build_dir=$(subst_value "SHARED_MODULE_DIR")
+            [ -z "$build_dir" ] && { echo ""; return; }
+            echo "${build_dir}/${kit_rel#_claude-project/templates/build/}"
+            ;;
         _claude-project/templates/codebuild/buildspec-test.yml)
             # The full suite in CodeBuild, for a project whose TEST_RUNNER is aws. The
             # same in every project, so kit-owned; it lands beside the project's own
@@ -962,6 +972,7 @@ dest_key_for_kit_path() {
         _claude-project/templates/testing/globalSetup.ts|_claude-project/templates/testing/integration-helpers.ts|_claude-project/templates/testing/harness.integration.test.ts|_claude-project/templates/testing/sqlserver/*)
             if [ -z "$(subst_value SHARED_MODULE_DIR)" ]; then echo "SHARED_MODULE_DIR"; else echo "DB_ENGINE"; fi ;;
         _claude-project/templates/testing/*)       echo "SHARED_MODULE_DIR" ;;
+        _claude-project/templates/build/*)         echo "SHARED_MODULE_DIR" ;;
         _claude-project/templates/codebuild/*)     echo "TEST_RUNNER" ;;
         _claude-project/templates/design-system/*)
             if [ -z "$(subst_value DESIGN_UI_PACKAGE)" ]; then echo "DESIGN_UI_PACKAGE"; else echo "DESIGN_FEED_BARREL"; fi ;;

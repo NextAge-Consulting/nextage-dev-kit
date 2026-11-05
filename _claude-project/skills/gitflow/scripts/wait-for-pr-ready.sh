@@ -15,7 +15,7 @@
 # accepts the prompt); /deploy never on release PRs (no code).
 #
 # The wait gate reads that comment history. If a `/gemini review` comment
-# exists with `created_at` > HEAD's committer date, a review IS expected
+# exists with `created_at` after GitHub first saw HEAD, a review IS expected
 # for this HEAD and we wait for it. If no such comment exists, no review
 # is coming and we proceed on CI alone.
 #
@@ -100,6 +100,8 @@ SUBS_FILE="${PROJECT_ROOT}/.claude/sync-substitutions.json"
 # or a merge could land before the suite ran. The project's value only: the PR's CI shape
 # is the project's, not the developer's.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=branch_helpers.sh
+source "$SCRIPT_DIR/branch_helpers.sh"
 REQUIRED_STATUS=""
 if ! TEST_RUNNER=$(bash "$SCRIPT_DIR/settings.sh" TEST_RUNNER --no-env); then
     echo "wait-for-pr-ready: TEST_RUNNER is not valid (above) — cannot tell which checks the PR needs." >&2
@@ -224,18 +226,8 @@ ci_state() {
     echo "pass"
 }
 
-# Returns ISO-8601 timestamp of the HEAD commit's committer date.
-# Used to scope trigger-comment lookups: only comments posted AFTER this
-# timestamp count as triggers for the current HEAD. Older /gemini review
-# comments (e.g. from prior triage rounds) MUST NOT arm the gate for a
-# newer HEAD that nobody triggered.
-head_committer_date() {
-    local head=$1
-    gh api "repos/$REPO/commits/$head" --jq '.commit.committer.date' 2>/dev/null || echo ""
-}
-
 # Returns: "yes" if a `/gemini review` PR comment exists with created_at >
-# committer-date-of-HEAD; "no" otherwise. PR top-level comments live under
+# the time GitHub first saw HEAD (commit_seen_date); "no" otherwise. PR top-level comments live under
 # the issues API (PRs are issues for comment-attachment purposes). Inline
 # review comments use a different endpoint and are not the trigger surface.
 #
@@ -246,9 +238,9 @@ head_committer_date() {
 gemini_trigger_for_head() {
     local head=$1
     local head_date
-    head_date=$(head_committer_date "$head")
-    # Empty head_date means head_committer_date's gh api call failed (any real
-    # commit has a committer date). Return "error" so the poll loop retries
+    head_date=$(commit_seen_date "$REPO" "$head")
+    # Empty head_date means commit_seen_date's gh api call failed. Return
+    # "error" so the poll loop retries
     # instead of falling through to the "no trigger → CI-only ready" path.
     [ -z "$head_date" ] && { echo "error"; return; }
     local count
@@ -300,11 +292,11 @@ gemini_review_for_head() {
 # involved not being currently supported." That lands as an ISSUE COMMENT, not
 # a review object, so the review wait would poll to TIMEOUT (observed on
 # e.g. a small .github/workflows-only diff). A
-# decline comment newer than HEAD's committer date is terminal for this HEAD —
+# decline comment newer than the time GitHub saw HEAD is terminal for this HEAD —
 # the gate treats it as reviewed-with-zero-findings. Returns: yes | no | error.
 gemini_declined_for_head() {
     local head_date
-    if ! head_date=$(gh api "repos/$REPO/commits/$1" --jq '.commit.committer.date' 2>/dev/null); then
+    if ! head_date=$(commit_seen_date "$REPO" "$1"); then
         echo "error"; return
     fi
     local count

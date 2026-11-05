@@ -63,8 +63,9 @@ jq '.SHARED_MODULE_DIR = "apps/shared"' .claude/sync-substitutions.json > tmp &&
 #    the timezone, and the schema import if it is not ../src/db/schema.
 
 # 4. Wire npm scripts in root package.json:
-#      "test":       "vitest run -c <shared-module>/vitest.config.ts"
-#      "test:watch": "vitest -c <shared-module>/vitest.config.ts"
+#      "test":         "vitest run -c <shared-module>/vitest.config.ts"
+#      "test:related": "vitest related -c <shared-module>/vitest.config.ts"
+#      "test:watch":   "vitest -c <shared-module>/vitest.config.ts"
 ```
 
 **On SQL Server**, step 1 installs `mssql` and the exact `drizzle-orm` 1.0 release candidate in place of `@neondatabase/api-client` and `pg` (`sqlserver-drizzle.md` §I), and the project adds:
@@ -106,6 +107,21 @@ Cost: ~1s per run when a migration is applied (Drizzle is fast on small migratio
 
 **Required scripts** (root `package.json`):
 - `"test": "vitest run -c <vitest-config-path>"` — single command for both the unit and integration projects; the per-run branch + transaction-per-test (`dbTest`) handle isolation.
+- `"test:related": "vitest related -c <vitest-config-path>"` — what `/commit` and `/ship-main` run to test only what a change reaches: `npm run test:related -- --run --project integration <changed files>`, with `INTEGRATION_DEV_TESTS=1` set. A repository with integration tests and no `test:related` has its commit refused the first time TypeScript changes, with the line to add.
+
+**Gitflow runs every test through these scripts, never vitest directly** — `/commit` and `/ship-main` through `test:related`; `/deploy`, CI and the CodeBuild test project through `test`. So whatever a project puts in front of vitest in them applies to every gitflow command.
+
+**Credentials kept outside `.env`.** A project that keeps `NEON_API_KEY` (or any test credential) in the OS keychain, a password manager or a secrets service puts its loader in front of vitest in both scripts. Any loader shaped `<loader> -- <command>` works — the 1Password CLI's `op run`, `doppler run`, `dotenvx run`, or a script of the project's own:
+
+```json
+"test":         "op run --env-file=.env.op -- vitest run -c apps/shared/vitest.config.ts",
+"test:related": "op run --env-file=.env.op -- vitest related -c apps/shared/vitest.config.ts"
+```
+
+- **Wrap both the same.** One wrapped and one not means the full suite sees the key and the commit gate does not, or the reverse.
+- **The loader passes the environment and the arguments through.** The gate appends `--run --project integration <files>` and sets `INTEGRATION_DEV_TESTS=1`; a loader that drops either runs the wrong tests.
+- **CI runs the same `test` script.** The loader has to work there too: give it the service token its CLI takes in CI, or have a script of the project's own run the command unchanged when the keys are already in the environment, as they are from Actions secrets.
+- **`.env` can keep an empty `NEON_API_KEY=`.** `vitest.config.ts` takes a key from `.env` only when the environment has none, so the loader's value wins.
 
 Integration tests use the `*.integration.test.ts` filename convention as the `integration` project's include glob (the `unit` project excludes it); `npm test` runs both projects in one command. That glob covers all three kinds — primary-route (`*.primary.integration.test.ts`), risk (`*.integration.test.ts`) and development (`*.dev.integration.test.ts`) — and the integration project leaves the development tests out unless `INTEGRATION_DEV_TESTS=1` is set. A project's own `integrationInclude` gets the same exclusion. To run one development test by hand: `INTEGRATION_DEV_TESTS=1 npm test -- --project integration <file>`.
 
@@ -185,7 +201,7 @@ The shared module is a declared npm workspace with its own name, and every consu
 
 | Where | What runs | Fails when |
 |---|---|---|
-| `/commit`, `/ship-main` | The coverage check, then `vitest related --project integration` on the changed files with `INTEGRATION_DEV_TESTS=1`: only the integration tests whose imports reach the change, development tests included. With none reached, nothing touches the database | A changed risky function lacks a primary-route or risk test; a changed test imports no app code; a reached test fails; the harness refuses the database — not set up for tests, unreachable, or lacking a migration the branch adds; integration tests exist but no integration project runs here |
+| `/commit`, `/ship-main` | The coverage check, then the project's `test:related` script — `vitest related` — on the changed files with `--project integration` and `INTEGRATION_DEV_TESTS=1`: only the integration tests whose imports reach the change, development tests included. With none reached, nothing touches the database | A changed risky function lacks a primary-route or risk test; a changed test imports no app code; a reached test fails; the harness refuses the database — not set up for tests, unreachable, or lacking a migration the branch adds; integration tests exist but no integration project runs here; integration tests exist, TypeScript changed, and there is no `test:related` script |
 | CI (`node-checks`, `vitest`) | The coverage check with the untouched count, then the full suite — primary-route and risk tests — unless an earlier commit of the PR passed it on the same code fingerprint, whose pass is carried forward. Every run records the `full-suite` status. Under `TEST_RUNNER` `aws` the `vitest` job runs the unit tests only, and the full suite runs in the project's CodeBuild test project instead (below) | The coverage check fails; integration tests exist and the `integration` project did not run |
 | CodeBuild test project — under `TEST_RUNNER` `aws` only | On every PR, the full suite (`infra/codebuild/buildspec-test.yml`, `codebuild-suite.sh`), unless an earlier build of the project passed on the same code fingerprint. The project reports `full-suite` to the PR; the fingerprint is the build's `FULL_SUITE_FP` | The suite fails; integration tests exist and the `integration` project did not run |
 | `/deploy` — first, before every other gate | The project's `test:preflight`, when it declares one: whether the integration tests' database is ready | The database is not set up for tests, cannot be reached, or lacks a migration the branch adds — asked before the release work starts |

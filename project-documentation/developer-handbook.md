@@ -90,6 +90,11 @@ API — gets an integration test. On
 Postgres each run gets a throwaway copy of the real database; the engine rule says where
 other engines run theirs. Run `npm test` from the repo root.
 
+Every gitflow command runs tests through the project's `test` and `test:related` scripts.
+If the project keeps the database key outside `.env` — the keychain, a password manager —
+put its loader in front of vitest in both, and every command picks it up (`testing.md`,
+"Credentials kept outside .env").
+
 An integration test is one of three kinds, told apart by its file name. A primary-route test
 (`*.primary.integration.test.ts`) is a sanity test of a primary route, from the backend: the main success case of a function the route calls. A risk
 test (`*.integration.test.ts`) covers something a sensible later change could quietly
@@ -210,6 +215,11 @@ changed: risky code with no test (write it), a test running its own copy of the 
 test filed as the wrong kind (rename it). It searches the whole repository's tests before
 calling one missing or a duplicate, and judges a change of any size. Have Claude
 act on each and commit again. If you judge a finding wrong, commit with `SKIP_TEST_REVIEW=1`.
+
+**`/commit` says no integration project runs here.** The integration tests could not
+reach their database, so vitest left them out. On Postgres, `NEON_API_KEY` and
+`NEON_PROJECT_ID` are missing — from `.env`, or from the loader in front of the
+`test:related` script (`testing.md`, "Credentials kept outside .env").
 
 **`/commit` stopped on the project gate.** The project has a `.claude/project-gate.sh`,
 which `/commit` and `/ship-main` run after the kit's own checks, passing the commit it

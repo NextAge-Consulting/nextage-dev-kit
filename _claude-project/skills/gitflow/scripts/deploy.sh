@@ -969,7 +969,7 @@ elif [ "$NPM_SUITE" -eq 1 ]; then
     if [ -n "$INTEGRATION_FILES" ] && [ "$TESTS_ENGINE" != "None" ] \
         && ! printf '%s\n' "$TEST_OUT" | grep -qF '|integration|'; then
         echo "deploy.sh: the repository has integration tests, but the integration project did not run, so the suite has not passed." >&2
-        echo "  On PostgreSQL: set NEON_API_KEY and NEON_PROJECT_ID in .env (testing.md §1)." >&2
+        echo "  On PostgreSQL: set NEON_API_KEY and NEON_PROJECT_ID — in .env, or through the loader on the project's test scripts (testing.md, \"Credentials kept outside .env\")." >&2
         echo "  If deploys cannot reach the test database, declare why in INTEGRATION_DEPLOY_OFF (testing.md §3)." >&2
         exit 26
     fi
