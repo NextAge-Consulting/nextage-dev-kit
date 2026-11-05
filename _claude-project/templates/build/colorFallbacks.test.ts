@@ -40,6 +40,14 @@ describe('colour fallbacks', () => {
     expect(plainValue('0 4px 8px oklch(0 0 0 / 50%)', new Map())).toBe('0 4px 8px #00000080')
   })
 
+  it("resolves a var() from its token, never reaching a fallback that names an unset one", () => {
+    expect(plainValue('oklch(1 0 var(--hue, var(--unset)))', new Map([['--hue', '0']]))).toBe('#ffffff')
+  })
+
+  it('reads the alpha of a comma-separated rgb() as it does for rgba()', () => {
+    expect(plainValue('color-mix(in oklab, rgb(0, 0, 0, 0.5) 100%, transparent)', new Map())).toBe('#00000080')
+  })
+
   it('matches the browser on a saturated colour', () => {
     // Chrome draws oklch(0.6279 0.2577 29.23) as rgb(255, 0, 0).
     expect(plainValue('oklch(0.6279 0.2577 29.23)', new Map())).toBe('#ff0000')

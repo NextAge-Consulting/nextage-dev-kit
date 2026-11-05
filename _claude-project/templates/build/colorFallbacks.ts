@@ -127,14 +127,18 @@ function args(text: string): string[] {
 /** Every `var()` in a run of numbers replaced by its value. */
 function substituteVars(text: string, scope: Map<string, string>, depth: number): string | null {
   if (depth > 20) return null
-  const v = /var\(\s*(--[\w-]+)\s*(?:,([^()]*))?\)/
   let out = text
-  for (let m = v.exec(out); m; m = v.exec(out)) {
-    const value = scope.get(m[1] as string) ?? m[2]?.trim()
+  for (let start = out.indexOf('var('); start !== -1; start = out.indexOf('var(')) {
+    const end = closingParen(out, start + 3)
+    if (end === -1) return null
+    // The name, then the fallback after the first top-level comma, which may hold
+    // parentheses of its own: var(--l, calc(0.5 + 0.1)).
+    const [name = '', ...rest] = args(out.slice(start, end + 1))
+    const value = scope.get(name) ?? (rest.length > 0 ? rest.join(',') : undefined)
     if (value === undefined) return null
     const resolved = substituteVars(value, scope, depth + 1)
     if (resolved === null) return null
-    out = out.replace(m[0], resolved)
+    out = out.slice(0, start) + resolved + out.slice(end + 1)
   }
   return out
 }
@@ -160,7 +164,8 @@ function resolveColor(text: string, scope: Map<string, string>, depth: number): 
   const [channels = '', alphaText] = inner.includes('/') ? inner.split('/') : [inner.replaceAll(',', ' '), undefined]
   const n = channels.trim().split(/\s+/)
   if (n.length < 3) return null
-  const alpha = alphaText === undefined ? (fn === 'rgba' && n[3] ? number(n[3], 1) : 1) : number(alphaText.trim(), 1)
+  // rgb() and rgba() are one function (CSS Color 4): either takes a fourth, alpha, value.
+  const alpha = alphaText === undefined ? ((fn === 'rgb' || fn === 'rgba') && n[3] ? number(n[3], 1) : 1) : number(alphaText.trim(), 1)
   if (alpha === null) return null
   if (fn === 'rgb' || fn === 'rgba') {
     const [r, g, b] = n.slice(0, 3).map((x) => number(x, 255))
