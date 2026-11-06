@@ -290,7 +290,7 @@ Any of:
 6. The command calls `skills/gitflow/scripts/commit.sh` with the message
 7. Script picks the branch: on `main` it cuts `<type>/<slug>` from the message; on a branch whose PR is assigned to someone else (`pr_handed_off`) it cuts one stacked on it, records the parent, and carries only the issue links added since the hand-off; anywhere else it commits in place. Then it stages all changes, commits with `--no-verify`, and pushes.
 8. `git-guard.sh` never fires on that commit — the script's `git commit` is a subprocess, not a top-level tool call (§3.1). No token is involved.
-9. Before staging, the script runs the gates that MIRROR CI so a failure costs a second here rather than a round trip after the PR is open: typecheck, Biome lint, and Semgrep over the files this commit touches (gated on CI declaring a `semgrep` job, and scoped to changed files so it stays seconds — CI still scans everything). Then the project gate: when `.claude/project-gate.sh` exists it runs with the fold base, and a failure exits 4 — the kit's own is §9.11. Then the integration gate (`run_integration_gate`): the coverage check, then the project's `test:related` script (`vitest related`) with `--run --project integration` on the changed TypeScript — through the project's script, so a credentials loader in front of vitest applies; integration tests, changed TypeScript and no `test:related` fail. That run is also where a database the tests cannot use is reported — the harness's globalSetup refuses before any test connects, naming the fix, and the gate prints its output whole; when no integration test reaches the change, no globalSetup runs and nothing touches the database. The separate `test:preflight` runs only at `/deploy`. The typecheck and the integration gate skip on unchanged code: each pass records the code fingerprint it passed on under the git dir (`gitflow-pass/<gate>`, via `gate_fingerprint` / `gate_unchanged` / `gate_record_pass` in `gates.sh`), and the next run on the same fingerprint says "code unchanged since the last pass (comments and whitespace only)" and does not run. The fingerprint is `code-fingerprint.mjs`, beside the gitflow scripts: one hash of the working tree (tracked and unignored files), TypeScript and JavaScript read by TypeScript's parser — the syntax tree and every token's text, with comments and whitespace dropped, except tool-directive comments, the line distances in a file holding one, and JSDoc in JavaScript — and every other file by its git blob id. A file the parser cannot read cleanly, or a tree without TypeScript to load, is hashed byte for byte. The integration gate's record adds the fold base, since its coverage check and its `vitest related` measure from there. Only a pass is recorded, `--skip-typecheck` records nothing, and without node the gates run every time. Then the fit checks (`check-ui-status.mjs --fit-only`, local, no Claude call): a pending component whose inventory line has no Fit check, or names a fingerprint other than its file's, exits 4 — the component was added or changed without the fit check approving it as it stands (the design-system skill's `references/fit-check.md`). Then the five headless reviews, run side by side by `run_headless_reviews` in `gates.sh`, so the gate takes as long as the slowest; each one's output is captured and printed whole, in a fixed order, once all five finish, and any one failing fails the gate. The rule review (`rule-review.sh`): every rule-prose file changed since the fold base — the set `hooks/rule-prose.sh` defines — goes to a headless `claude -p` with no tools, no settings and no CLAUDE.md, which reports history, justification and counted lists in added lines only. The part review (`part-review.sh`): every part added since the fold base — a `.tsx` under `components/` outside `features/` and the vendored atoms, new rather than moved — goes to a headless `claude -p` with the UI inventory, the block-type list and the path of every component source file (each `.tsx` under a `components/` folder), which reports a part that duplicates one that already exists, backed by reading that part's source since the inventory may be stale — never a part the inventory lists and no source defines; the human decides, and a "different" answer is recorded on the new part's inventory line. The design review (`design-review.sh`): the lines added since the fold base in the UI source, the token stylesheets and `design.md` go to a headless `claude -p` with the role list, the inventory and the block-type list, which reports the design judgements the token checker leaves to it (§12a.8); the developer fixes each finding or commits with `SKIP_DESIGN_REVIEW=1`. The SQL review (`sql-review.sh`): every Drizzle `sql` template on a changed line goes to a headless `claude -p` with the project's drizzle configs and its Drizzle schema files — found by content, every file that defines a table with a Drizzle table function, so introspected tables outside every config's `schema` count — which reports a table or column typed as text where the schema's object belongs, and only a name the schema confirms; the templates, then the configs and schema files, are inlined until 300,000 bytes (`SQL_REVIEW_MAX_BYTES`) are spent and the rest listed for the reviewer to read, so no change is too big to review; the developer fixes each finding or commits with `SKIP_SQL_REVIEW=1`. The part, SQL and test reviews can read the repository with Read, Grep and Glob — the only tools they have, pre-approved, with the repository added by `--add-dir` while each runs from a temp dir so no project settings or CLAUDE.md load; the rule and design reviews have no tools. The test judge (`test-review.sh`): when a TypeScript source or test file changed since the fold base, a headless `claude -p` receives each changed source file's diff and the top-level declarations it touches, every changed test, every test that imports a changed file, and the application code a changed test imports, and can read the rest of the repository, with the kit's criteria for what earns a test embedded in its prompt — what makes code risky, the primary-route, risk, development and unit kinds told apart by file name, ORM-only and duplicate tests, and that a test must call the application's code. It reports four kinds of finding: `missing` (risky behaviour no test proves), `reimplements` (a test running its own copy of the logic), `superfluous` (ORM-only, or a duplicate of another test, primary-route tests included) and `misnamed` (a test filed as the wrong kind); every finding fails the gate, as in the other reviews, and the developer fixes it or the human commits with `SKIP_TEST_REVIEW=1`. No change is too big to review: the input inlines, in that order, the changed sources' diffs, the changed tests, the covering tests and the context until 300,000 bytes (`TEST_REVIEW_MAX_BYTES`) are spent, and lists every file that did not fit by path under "NOT INLINED — read with the Read tool"; the gate prints what it listed and counts both in its summary. Before reporting a test `missing` or a duplicate, the reviewer greps the repository's tests for the function's name, so a test anywhere counts. All five run on the developer's Claude subscription; a missing CLI or a failed call fails the gate, which exits 4. A review that passes records a key under the git dir (`gitflow-review-cache/<review>`, via `review-cache.sh`): a hash of the review script, its system prompt and schema, and the whole input it sent — the content under review and every reference file folded into it; a review that can read the repository adds the path and content hash of every file it is pointed at — the test judge every test file, the SQL review every drizzle config and schema file, the part review every component source file — so a change to one re-asks the review even when the input sent is unchanged. The next run with the same key says it is reusing that pass and makes no call, so re-running `/commit` after fixing something else does not pay for the same review again. A finding, or a review that could not run, is never recorded. commitlint is the one gate that remains CI-only, because it validates the PR title, which does not exist yet at commit time.
+9. Before staging, the script runs the gates that MIRROR CI so a failure costs a second here rather than a round trip after the PR is open: typecheck, Biome lint, and Semgrep over the files this commit touches (gated on CI declaring a `semgrep` job, and scoped to changed files so it stays seconds — CI still scans everything). Then the project gate: when `.claude/project-gate.sh` exists it runs with the fold base, and a failure exits 4 — the kit's own is §9.11. Then the integration gate (`run_integration_gate`): the coverage check, then the project's `test:related` script (`vitest related`) with `--run --project integration` on the changed TypeScript — through the project's script, so a credentials loader in front of vitest applies; integration tests, changed TypeScript and no `test:related` fail. That run is also where a database the tests cannot use is reported — the harness's globalSetup refuses before any test connects, naming the fix, and the gate prints its output whole; when no integration test reaches the change, no globalSetup runs and nothing touches the database. The separate `test:preflight` runs only at `/deploy`. The typecheck and the integration gate skip on unchanged code: each pass records the code fingerprint it passed on under the git dir (`gitflow-pass/<gate>`, via `gate_fingerprint` / `gate_unchanged` / `gate_record_pass` in `gates.sh`), and the next run on the same fingerprint says "code unchanged since the last pass (comments and whitespace only)" and does not run. The fingerprint is `code-fingerprint.mjs`, beside the gitflow scripts: one hash of the working tree (tracked and unignored files), TypeScript and JavaScript read by TypeScript's parser — the syntax tree and every token's text, with comments and whitespace dropped, except tool-directive comments, the line distances in a file holding one, and JSDoc in JavaScript — and every other file by its git blob id. A file the parser cannot read cleanly, or a tree without TypeScript to load, is hashed byte for byte. The integration gate's record adds the fold base, since its coverage check and its `vitest related` measure from there. Only a pass is recorded, `--skip-typecheck` records nothing, and without node the gates run every time. Then the headless reviews and the design judge, run side by side by `run_headless_reviews` in `gates.sh`, so the gate takes as long as the slowest; each one's output is captured and printed whole, in a fixed order, once all finish, and a review failing fails the gate. The rule review (`rule-review.sh`): every rule-prose file changed since the fold base — the set `hooks/rule-prose.sh` defines — goes to a headless `claude -p` with no tools, no settings and no CLAUDE.md, which reports history, justification and counted lists in added lines only. The design judge (`design-judge.sh`, §12a.7): the locator finds every candidate in the change and the judge answers one yes/no question per candidate; a yes is a pending item in `.claude/ui-pending.json` for the human's walk-through, and the commit goes ahead. The SQL review (`sql-review.sh`): every Drizzle `sql` template on a changed line goes to a headless `claude -p` with the project's drizzle configs and its Drizzle schema files — found by content, every file that defines a table with a Drizzle table function, so introspected tables outside every config's `schema` count — which reports a table or column typed as text where the schema's object belongs, and only a name the schema confirms; the templates, then the configs and schema files, are inlined until 300,000 bytes (`SQL_REVIEW_MAX_BYTES`) are spent and the rest listed for the reviewer to read, so no change is too big to review; the developer fixes each finding or commits with `SKIP_SQL_REVIEW=1`. The SQL and test reviews can read the repository with Read, Grep and Glob — the only tools they have, pre-approved, with the repository added by `--add-dir` while each runs from a temp dir so no project settings or CLAUDE.md load; the rule review and the judge have no tools. The test judge (`test-review.sh`): when a TypeScript source or test file changed since the fold base, a headless `claude -p` receives each changed source file's diff and the top-level declarations it touches, every changed test, every test that imports a changed file, and the application code a changed test imports, and can read the rest of the repository, with the kit's criteria for what earns a test embedded in its prompt — what makes code risky, the primary-route, risk, development and unit kinds told apart by file name, ORM-only and duplicate tests, and that a test must call the application's code. It reports four kinds of finding: `missing` (risky behaviour no test proves), `reimplements` (a test running its own copy of the logic), `superfluous` (ORM-only, or a duplicate of another test, primary-route tests included) and `misnamed` (a test filed as the wrong kind); every finding fails the gate, as in the other reviews, and the developer fixes it or the human commits with `SKIP_TEST_REVIEW=1`. No change is too big to review: the input inlines, in that order, the changed sources' diffs, the changed tests, the covering tests and the context until 300,000 bytes (`TEST_REVIEW_MAX_BYTES`) are spent, and lists every file that did not fit by path under "NOT INLINED — read with the Read tool"; the gate prints what it listed and counts both in its summary. Before reporting a test `missing` or a duplicate, the reviewer greps the repository's tests for the function's name, so a test anywhere counts. All of them run on the developer's Claude subscription; a missing CLI or a failed call fails the gate, which exits 4. A review that passes records a key under the git dir (`gitflow-review-cache/<review>`, via `review-cache.sh`): a hash of the review script, its system prompt and schema, and the whole input it sent — the content under review and every reference file folded into it; a review that can read the repository adds the path and content hash of every file it is pointed at — the test judge every test file, the SQL review every drizzle config and schema file — so a change to one re-asks the review even when the input sent is unchanged. The next run with the same key says it is reusing that pass and makes no call, so re-running `/commit` after fixing something else does not pay for the same review again. A finding, or a review that could not run, is never recorded. commitlint is the one gate that remains CI-only, because it validates the PR title, which does not exist yet at commit time.
 
 ### 4.3. What the script does NOT do
 
@@ -499,7 +499,7 @@ See `commands/triage.md` for the full procedure and edge cases.
 
 **Never inferred.** Being on dirty `main` is often *accidental* — work started before `/work` — so a bare `/commit` on `main` still auto-branches — that's the safety. `/ship-main` is the opposite, on purpose, and only when invoked by name.
 
-- **Validation stays.** The script runs `check-types`, `biome lint`, `knip` (when `KNIP_GATE` is on), `semgrep`, the project gate, the integration gate, the fit checks and the headless reviews over the files the commit touches — the same gates as `/commit` (§4.2 step 9), and they matter more here: a finding that slips through does not sit on a branch awaiting review, it lands on the default branch and breaks CI for everyone. `--skip-typecheck` is a true-emergency override for the TYPECHECK alone; every other gate sits outside that guard, and only a review has its own human-authorized `SKIP_*_REVIEW=1`.
+- **Validation stays.** The script runs `check-types`, `biome lint`, `knip` (when `KNIP_GATE` is on), `semgrep`, the project gate, the integration gate, the headless reviews and the design judge over the files the commit touches — the same gates as `/commit` (§4.2 step 9), and they matter more here: a finding that slips through does not sit on a branch awaiting review, it lands on the default branch and breaks CI for everyone. `--skip-typecheck` is a true-emergency override for the TYPECHECK alone; every other gate sits outside that guard, and only a review has its own human-authorized `SKIP_*_REVIEW=1`.
 - **Pushes straight to main.** If `origin/main` advanced, it rebases the commit onto it and re-pushes; conflict → stop and resolve.
 - **Feeds `/deploy` like any main commit.** `/ship-main` commits land on `main` and are read by the next `/deploy` (commit subjects since the last tag) to compute the bump level + changelog, exactly like a merged-PR squash commit. Conventional format is therefore required, not optional.
 - **Requires require-PR off** (the default — pipeline.md §1.1). With require-PR set, GitHub rejects the direct push.
@@ -741,7 +741,7 @@ Current kit-referenced placeholders (authoritative list is in `_claude-project/s
 | `DEPLOY_BACKEND`, `DEPLOY_WORKFLOWS`, `MIGRATE_WORKFLOW`, `MIGRATE_PATHS`, `CODEBUILD_PROJECT_PREFIX`, `CODEBUILD_MIGRATE_PROJECT`, `CODEBUILD_PROMOTE_PREFIX` | `deploy.sh` (runtime-read) | The release path `/deploy` dispatches to, its services, its gated migration phase, and — for a project with a separate Prod — the promote projects `/deploy promote` starts — DevOps reference, `pipeline.md` §2.1 |
 | `FORM_LIB_EXEMPT_APPS` | `scripts/check-stack.mjs` (runtime-read) | Front-end apps that deliberately use no form library. An app neither declaring the library nor listed here fails the check until someone answers the question |
 | `SHARED_MODULE_DIR` | sync's destination mapping for `templates/testing/*` | The workspace holding the shared module and its test scaffolding, e.g. `apps/shared`. Empty → the testing templates are skipped (`skipped_unconfigured`). The integration harness also needs `DB_ENGINE`: `globalSetup.ts`, `integration-helpers.ts` and `harness.integration.test.ts` land from the PostgreSQL files on `PostgreSQL` and from `testing/sqlserver/` on `SQLServer`; any other engine gets them reported under `DB_ENGINE` instead. `testing.md` §1 |
-| `DESIGN_UI_PACKAGE` | sync's destination mapping for `templates/design-system/*`; the `claude-design` engine, `check-design-tokens.mjs` and `check-stack.mjs`, which also expands the manifest's `$DESIGN_UI_PACKAGE` trigger (runtime-read) | The UI package holding the design system, from the repository root, e.g. `packages/ui`. Its config sits at `<DESIGN_UI_PACKAGE>/design-system/design-system.config.mjs`. Empty → the project publishes no design system: the templates are skipped and the engine refuses to run. The UI source the token checker, the design review and `/design-audit` read is found from it, never listed: this package and every workspace whose `package.json` depends on it by name (`ui-sources.mjs`) |
+| `DESIGN_UI_PACKAGE` | sync's destination mapping for `templates/design-system/*`; the `claude-design` engine, `check-design-tokens.mjs` and `check-stack.mjs`, which also expands the manifest's `$DESIGN_UI_PACKAGE` trigger (runtime-read) | The UI package holding the design system, from the repository root, e.g. `packages/ui`. Its config sits at `<DESIGN_UI_PACKAGE>/design-system/design-system.config.mjs`. Empty → the project publishes no design system: the templates are skipped and the engine refuses to run. The UI source the token checker, the design judge and `/design-audit` read is found from it, never listed: this package and every workspace whose `package.json` depends on it by name (`ui-sources.mjs`) |
 | `DESIGN_FEED_BARREL` | `templates/design-system/tsconfig.types.json` (substituted); the engine (runtime-read) | The module exporting every component a design may mount, relative to the UI package. Required whenever `DESIGN_UI_PACKAGE` is set |
 | `DESIGN_TOKEN_FILES` | the engine and the token checker (runtime-read) | Stylesheets declaring the tokens in light and dark blocks, relative to the UI package. Required whenever `DESIGN_UI_PACKAGE` is set |
 | `DESIGN_TYPE_FILE` | the engine and the token checker (runtime-read) | The stylesheet defining the `@utility type-*` roles. Empty → no type roles |
@@ -1109,15 +1109,15 @@ Kit ships a placeholder template at `_claude-project/gitflow-project.conf` with 
 
 ### 11.3. UI inventory rule (synced as `merge` mode)
 
-**What it is.** A per-project rule at `.claude/rules/project/ui-inventory.md`, path-targeted to `{**/*.tsx,**/*.jsx}` so it auto-loads on every UI edit. It enumerates, as content rather than as references: the project's list/detail patterns and which to use when, every pattern reference file and what it governs, the parts that already exist with each one's block type, and the standing prohibitions. A screen's content in its feature folder is never on it.
+**What it is.** A per-project rule at `.claude/rules/project/ui-inventory.md`, path-targeted to `{**/*.tsx,**/*.jsx}` so it auto-loads on every UI edit. It enumerates, as content rather than as references: every recipe and behaviour rule and what it governs, the components that exist with each one's block type and status, the hooks, and the standing prohibitions. A screen's content in its feature folder is never on it.
 
-**Why it is not just another pointer.** `rules/ui-patterns.md` and `rules/ui-design.md` already auto-load on the same globs, and both tell the reader to go and open a skill. Following a pointer is a separate act, taken at the moment you already feel ready to write — so it is the step that gets skipped, and a screen ships that reinvents a list pattern and hand-rolls a submit control whose component was one import away. The inventory carries the names themselves, in the forced read, which is what removes "I did not know it existed" as a possibility.
+**Why it is not just another pointer.** `rules/ui-patterns.md` and `rules/ui-design.md` already auto-load on the same globs, and both tell the reader to go and open a skill. Following a pointer is a separate act, taken at the moment you already feel ready to write — so it is the step that gets skipped, and a screen ships that reinvents a browse recipe and hand-rolls a submit control whose block was one import away. The inventory carries the names themselves, in the forced read, which is what removes "I did not know it existed" as a possibility.
 
 **Why it ships from `templates/`.** `is_skipped` excludes `_claude-project/rules/project/*` from the scan entirely — that tree is the consumer's own, and the kit never compares against it. So a seed placed there would reach nobody. `_claude-project/templates/ui-inventory.md` plus an explicit `dest_for_kit_path` entry is what lets the kit put one file into a directory it otherwise never writes to.
 
-**Mode is `merge`.** Every enumeration — the list patterns, the pattern references, the components, the hooks, the prohibitions — is a project region; the headings, the instructions and "Keeping this file true" are the kit's. It arrives once as `new-kit`, the project fills its regions, and later kit changes to the text around them arrive as `kit-only` and apply without touching the project's lists (§9.10).
+**Mode is `merge`.** Every enumeration — the recipes, the behaviour rules, the components, the hooks, the prohibitions — is a project region; the headings, the instructions and "Keeping this file true" are the kit's. It arrives once as `new-kit`, the project fills its regions, and later kit changes to the text around them arrive as `kit-only` and apply without touching the project's lists (§9.10).
 
-**How it stays true.** Not by a note asking nicely — through the two skills that already gate on human sign-off. The `ui-patterns` skill's write-once step adds a pattern's line in the same pass that writes its reference; the `design-system` skill's reconciliation pass adds a component's line in the same pass that documents it in `design.md`. An inventory that lags is worse than none, because it is read as complete.
+**How it stays true.** Not by a note asking nicely — through the two skills that already gate on human sign-off. The `ui-patterns` skill adds a recipe's or rule's line in the same pass that writes its reference; the `design-system` skill adds a component's line in the same pass that builds it, and `check-ui-status.mjs` fails while the list and the files disagree. An inventory that lags is worse than none, because it is read as complete.
 
 **Kit does not dogfood it** — no UI here, nothing to enumerate. Listed in the dogfood manifest in `.claude/rules/project/dev-kit-workflow.md`.
 
@@ -1285,228 +1285,185 @@ No per-project zshrc helpers. No project-specific shell aliases. The kit is the 
 
 ---
 
-## 12a. The design-system subsystem
+## 12a. The User Experience System subsystem
 
-Sibling to gitflow (§3) and dev-server (§12). Owns one concern: applying a project's design system consistently and refusing UI work in a project that has no design system spec.
+Sibling to gitflow (§3) and dev-server (§12). It owns one concern: how a project's User
+Experience System — its tokens, atoms, blocks, recipes, behaviour rules and screens — is
+built from, kept true and approved. The kit holds no opinion on how anything looks or
+behaves. Every look and every behaviour is the project's, decided by the human; the kit
+provides the kinds, the words, the checks, the judge and the publishing. Opinion arrives
+in a project through a Design Pack (`project-documentation/temporary/uxes-design-packs.md`
+while the first pack is unbuilt) or through the human.
 
-### 12a.1. The split between universal skill and per-project spec
+`uxes-layers.svg`, beside this handbook, draws the whole subsystem on one page: each layer,
+what it holds, who owns it, which check judges it and when. Open it before reading on.
 
-The kit ships a project-agnostic `design-system` skill that knows the **discipline** of using a design system (semantic-over-primitive, no inline styles, no raw hex, no `space-y-*`, hover-via-Tailwind, `cn()` for conditionals). It does NOT carry any project-specific tokens or class names — those live in a per-project `design.md` at the project root, conformant with the [google-labs-code `design.md` spec](https://github.com/google-labs-code/design.md).
+### 12a.1. The kinds, and where each lives
 
-The contract:
+The vocabulary is the `design-system` skill's ("The kinds"): token (base and role), atom,
+block (one block type each, from `references/block-types.md`), recipe (a page type's
+frame in code plus its instructions in prose), behaviour rule (prose listing its code),
+behaviour code, screen. A component is an atom or a block, with variants, props, slots and
+guarantees. Three words cover "a little different": a variant, an option, or a human's
+exception on one screen. Every file names what governs it in its first lines, and
+`check-ui-status.mjs` fails a pointer that names nothing.
+
+Several apps on one system: the tokens, atoms and shared blocks are one system; an app's
+own blocks carry the human's reason on their inventory lines; a recipe or rule that holds
+for some apps names them on its `apps:` line (workspaces as the root `package.json`
+declares them; absent means every app). `check-ui-status.mjs` fails an `apps:` naming no
+workspace, and `locate.mjs` pairs references for the conflict question, reaches blocks for
+the reach question and holds screens to rules only within a shared app.
 
 | Concern | Lives in |
 |---|---|
-| Brand voice, color tokens, typography tokens, spacing scale, atom property tokens | Per-project `<project-root>/design.md` |
-| Universal discipline (semantic-over-primitive, no inline style, etc.) | Kit-canonical `_claude-project/skills/design-system/SKILL.md` |
-| Runtime token values consumed by the browser | Per-project CSS `@theme` block (typically `src/styles.css` or `apps/shared/src/styles.css`) |
-| Accessibility patterns | Kit-canonical `_claude-project/rules/a11y-baseline.md` (auto-loaded on JSX/TSX) |
+| The kinds, naming, pointers, status words, the procedure | Kit-canonical `_claude-project/skills/design-system/SKILL.md` |
+| The block-type vocabulary | `_claude-project/skills/design-system/references/block-types.md` |
+| How a recipe or behaviour rule is written | `_claude-project/skills/ui-patterns/SKILL.md` |
+| The judge's questions | `_claude-project/skills/design-system/references/judge-questions.md` |
+| Base tokens, role tokens, type roles | The project's stylesheets named by `DESIGN_TOKEN_FILES`, `DESIGN_TYPE_FILE`, `DESIGN_STYLES_FILE` |
+| Components, recipes' frames | The project's UI package (`DESIGN_UI_PACKAGE`) |
+| Recipes' instructions, behaviour rules | The project's `.claude/skills/ui-patterns/references/` |
+| The inventory | The project's `rules/project/ui-inventory.md` (synced `merge`, §11.3) |
+| `design.md` | Generated from the stylesheet (`claude-design/scripts/design-md.mjs`); its prose hand-written |
+| Accessibility floors | Kit-canonical `_claude-project/rules/a11y-baseline.md`, auto-loaded on JSX |
 
-If the CSS `@theme` block and `design.md` diverge on a value, CSS wins (the browser sees CSS), and `design.md` should be updated to match.
+The stylesheet and the components are the system. `design.md` and the Claude Design
+system are published views of it and never diverge from it.
 
-### 12a.2. Skill invocation via path-targeted rule
+### 12a.2. Skill invocation via path-targeted rules
 
-The kit ships a path-targeted rule at `_claude-project/rules/ui-design.md` with frontmatter:
+`_claude-project/rules/ui-design.md` auto-loads on `{design.md,**/*.tsx,**/*.jsx,**/*.css,**/*.scss}`
+and tells Claude to invoke the `design-system` skill; `_claude-project/rules/ui-patterns.md`
+auto-loads on JSX and tells it to invoke the `ui-patterns` skill and read the recipe and
+rules that govern the block types it touches. Neither rule restates the skill.
 
-```yaml
----
-paths: "{design.md,**/*.tsx,**/*.jsx,**/*.css,**/*.scss}"
----
-```
+### 12a.3. No system yet: build one, pending
 
-When Claude edits a matching file in a consumer project, the rule auto-loads and instructs Claude to invoke the `design-system` skill via `Skill({skill: "design-system"})`. The rule fires on:
+A project with no system halts nothing. The first UI task puts the base theme's tokens in
+the token stylesheet, names the roles the screen needs over them, builds the first blocks
+from the atoms, and marks all of it pending for the human's review. A project arriving
+with a Design Pack installs it instead.
 
-- JSX/TSX files (component styling)
-- CSS/SCSS files (token definitions)
-- `design.md` at project root (the spec itself — edits should pass through the skill so the linting expectation is surfaced)
+### 12a.4. `design.md` is generated
 
-The skill then reads the project's `design.md` and applies the universal discipline against the project's tokens.
+`design.md` follows the open DESIGN.md format, which the design tools read. Its token
+frontmatter — colors, typography, rounded, spacing — is written from the token stylesheet
+by `skills/claude-design/scripts/design-md.mjs`, run by `npm run build:design-system` and
+by `generate.mjs`; the stylesheet's `publish: off` / `publish: on` markers decide what it
+carries, exactly as they decide what Claude Design carries. Its `components:` block, which
+has no source in code, and its prose body are hand-written and kept across regenerations.
+The token checker fails when the token section on disk differs from what the stylesheet
+generates. A project with no `design.md` gets one with the format's sections as empty
+headings.
 
-### 12a.3. Hard stop when `design.md` is missing
+`npm run lint:design` (the format's own linter, `@google/design.md` in `devDependencies`)
+still runs in CI's `node-checks` job beside `lint:tokens` whenever `design.md` exists. A
+project that arrives with a `design.md` in hand and no stylesheet imports it once: the
+format's command-line tool exports a document's tokens as Tailwind CSS, that export becomes
+the base tokens in the token stylesheet, and `design.md` is regenerated from there. The
+stylesheet is built first.
 
-The skill REFUSES to proceed if `<project-root>/design.md` is not present. It surfaces the gap to the user verbatim and offers to **generate `design.md`** from the codebase — a one-time bootstrap per project. The CSS `@theme` block is the source data; the resulting `design.md` is its documented superset.
+### 12a.5. Status: pending, approved, deferred
 
-The hard stop exists because ad-hoc styling without a design system spec is how token drift starts. There is no per-task opt-out.
+Every component, recipe, behaviour rule and token carries one of three words, and so does
+a line a judge's finding names. `pending` blocks `/deploy` and nothing else; `approved` is
+the human's word alone; `deferred` is the human choosing not to look, blocks nothing, needs
+no reason, carries the file's or line's fingerprint, and is pending again when the code
+changes. `check-ui-status.mjs` decides status, the inventory, the block types, every
+pointer and the judge's ledger, and prints what it inspected. No commit is refused on a
+matter of judgement.
 
-### 12a.4. Spec-compliance validation
+### 12a.6. The checks
 
-`design.md` MUST conform to the google-labs-code spec. The skill instructs Claude to run the linter whenever `design.md` is modified:
+**The token checker** (`skills/design-system/scripts/check-design-tokens.mjs`,
+`npm run lint:tokens`) decides everything mechanical from the `DESIGN_*` keys: classes off
+a role, arbitrary values, roles named by size, a fixed height or a colour at a call site, a
+faded colour or a frame atom in a screen, bare scroll areas, raw fields, token resolution
+and reach, light and dark parity, every text pair's contrast, a reference naming what does
+not exist, the generated files and `design.md` current. The screen rules judge changed
+lines only (`--base`, `DESIGN_TOKENS_BASE`, or where the work left `origin/main`), so an
+untouched screen is never blocked. The spacing scale is the project's own, from its
+design-system config; without one, a step between steps is not judged. A project's own
+checks are `*.mjs` under `<UI package>/design-system/checks/`.
 
-```bash
-npm run lint:design
-```
+**The status check** (`skills/ui-patterns/scripts/check-ui-status.mjs`) is §12a.5's. Its
+`--maturity` prints, per commit that added a screen, how many inventory lines the system
+gained: a maturing system trends to zero.
 
-The linter is wired as a **declared** dev tool, not run ad-hoc: each consumer adds `@google/design.md` to `devDependencies` and a `"lint:design": "design.md lint design.md"` script. Declaring it (rather than `npx @google/design.md …`) keeps the lint reproducible and avoids agent sandboxes blocking an undeclared external download. `package.json` is consumer-owned (not a kit-synced file), so this dep + script are added per project at setup.
+**`compare-ui-values.mjs`** proves a change leaves every visible value the same, through
+the project's own Tailwind build, light and dark, moved styles told apart from changed.
 
-Lint must pass before the change is committed. In CI the design-checks step of the `node-checks` job runs `lint:tokens` and `lint:design` whenever a `design.md` exists at the repository root, and a missing script fails the job. The spec defines: optional YAML frontmatter token block (`colors`, `typography`, `rounded`, `spacing`, `components`), markdown body with required-order sections (Overview, Colors, Typography, Layout, Elevation & Depth, Shapes, Components, Do's and Don'ts), atom-level component definitions with property tokens.
+### 12a.7. The judge
 
-### 12a.5. Scope: atoms only
+Code locates, the judge decides, the human approves. `scripts/locate.mjs` finds every
+candidate in a change (`--base`) or a layer (`--all --layer`) using nothing a project
+tunes: a class added at a call site, a new block and its neighbours, a changed screen
+against the rules that govern it, pairs of rules sharing a surface, roles with their
+purposes. `scripts/judge.mjs` asks one question per candidate from
+`references/judge-questions.md` — one narrow yes/no with the evidence quoted, a fresh
+headless Claude given that candidate and nothing else, three times, majority wins; a
+quote not in the candidate discards the answer. The three answers, and the candidates
+themselves, are asked at once, `JUDGE_CONCURRENCY` calls in flight (default 8). A second
+block of one type is code's own finding and is never asked.
 
-Per the spec, `design.md` covers **atom-level styling** — buttons, chips, lists, tooltips, checkboxes, radios, input fields, plus any domain-specific atoms the project defines. Property tokens: `backgroundColor`, `textColor`, `typography`, `rounded`, `padding`, `size`, `height`, `width`.
+Every question ships with invented cases of both answers under
+`scripts/judge-fixtures/<QUESTION>/`, and `node scripts/judge.mjs --test` runs them; a
+question that does not give the known answer on nearly every run is rewritten or dropped.
+The kit's gate runs the cases before a release (§9.11).
 
-`design.md` does NOT cover:
+`skills/gitflow/scripts/design-judge.sh` runs at `/commit` and `/ship-main` beside the
+rule, SQL and test reviews. Every yes is written to `.claude/ui-pending.json` with the
+fingerprint of the line it names, and the status check lists it as pending until the human
+approves the line (`design-accepted — <reason>`), defers it (`design-deferred
+<fingerprint>`) or the line changes, when it is re-judged. The judge never fails a commit,
+and a judge that cannot run says so and exits clean: it is advice, and `/deploy` still
+waits on whatever the ledger holds. `/design-audit` asks the same questions over a whole
+layer when the human asks.
 
-- Composite layouts (modal scaffolds, dashboard widget composition)
-- Interaction patterns (loading states, optimistic UI, error recovery)
-- User flow patterns (auth flows, multi-step wizards)
-- Code organization conventions
+### 12a.8. Block types
 
-When the task is at one of those layers, the project's own codebase is the cookbook — find a similar production component, adapt the pattern. The design-system skill does not duplicate the cookbook content; it directs Claude to read existing code, after naming the composite's block type (§12a.9).
+`skills/design-system/references/block-types.md` is the kit-owned vocabulary — overlays,
+screen frames, record, collections, filtering, feedback and status — each with a
+definition, how it ends, the neighbours it is not to be confused with, and for a frame the
+atom it wraps. It names kinds, never looks. A page type's block is a recipe's frame:
+slots and the behaviour every screen of that type shares, no content. Nothing is typed as
+untyped: a piece that fits no type is an atom, a variant of an existing block, or a new
+type.
 
-### 12a.6. Bootstrap for new projects
+The status check fails an inventory line whose Type is not on the list and a reference
+whose `block-types:` names an unknown type; the token check reads the Wraps column as the
+frame atoms a screen may not import; the locator reads the neighbours for the duplicate
+question. A type joins the list when it appears in two consumer projects or two
+reference design systems, and only as a kind a business application has. Renaming or
+removing one ships with the migration that renames its inventory lines.
 
-A new kit consumer needs to author `design.md` once before any UI work proceeds. A new project starts its design system from a theme: pick one at [tweakcn](https://tweakcn.com), adjust it, and bring its export in as the project's token stylesheet. An existing project's system is extracted from what its application already shows, sometimes merged with a tweakcn theme as the path forward. Then:
+### 12a.9. Claude Design
 
-1. Build out the CSS `@theme` block in `src/styles.css` (or the project's equivalent) with the project's tokens.
-2. Generate `design.md` by documenting the `@theme` content per the google spec — section order, YAML token frontmatter, atom definitions for the components that exist.
-3. Add `@google/design.md` to `devDependencies` + a `"lint:design": "design.md lint design.md"` script, then run `npm run lint:design` until clean.
-4. Commit. First subsequent UI edit triggers the path-targeted rule, which invokes the skill, which reads the now-present `design.md`.
+The `claude-design` skill and `/ui-design` carry a design's life — `start`,
+`create-design`, `work`, `feedback`, `implement` — and the system's publishing,
+`publish-system` and `apply-system`. The engine (`scripts/build.mjs` from a per-project
+`design-system/design-system.config.mjs`) reads the same stylesheet the token checker and
+`design-md.mjs` read, so the three never disagree about what the system holds; it
+resolves every token per theme, fails on anything the format would drop, bundles the feed
+barrel for React 18 on the design page, writes the generated safelist and class-merge
+files the UI package commits, numbers each publish as a release, and
+`scripts/render-check.mjs` mounts every preview in light, dark and canvas mounting. A gap
+a design needs is a tweak on the page the human flips to approve or reject; the AI
+recommends no option. Two rules follow and live in the `design-system` skill: every token
+resolvable and commented, and components kept inside what React 18 and 19 share.
 
-The rest of the system fills in as work reaches it, through the kit's design opinions (§12a.10).
+Project-specific values live in the `DESIGN_*` substitution keys (§9.7), the config, and
+each design's `project-documentation/temporary/design-<name>/` folder while it is in
+progress. `references/config-example.mjs` documents every key the engine reads.
 
-### 12a.7. Kit does not dogfood the skill
+### 12a.10. Kit does not dogfood it
 
-The kit itself has no UI — no JSX/TSX, no `design.md`. The skill and its companion rule live only in `_claude-project/` (kit canonical for consumer sync) and NOT in the kit's own `.claude/` working copy. Consumer projects DO install both, automatically via `/sync-dev-kit`.
-
-The design-system skill is one entry in a larger set of template-only (not-dogfooded) items. The authoritative list — what the kit excludes from its own `.claude/` and why — is the **"Kit dogfood manifest" table in `.claude/rules/project/dev-kit-workflow.md`**, which also carries the mandate that every new kit item gets an explicit dogfood decision. This section is illustrative; that table is the single source of truth.
-
-### 12a.8. Claude Design — the `claude-design` skill
-
-Claude Design is a prototyping tool a project reaches for, from Claude Code or claude.ai,
-whenever a screen is worth working out visually first. The design system wires it in:
-the system is published from code, a design is built from the project's own components,
-and the design comes back into code as the reference the real screens are built from.
-The `claude-design` skill is AI reference, and `/ui-design` is that skill invoked
-directly, the way the gitflow commands are the gitflow skill's. The skill carries the
-engine that builds a Claude Design "Design System" from the UI package
-(`scripts/build.mjs`, driven by a per-project `design-system.config.mjs`), the render
-check that mounts every component the way a design page and a canvas do, and the
-actions of a design's life: `start` (a folder under
-`project-documentation/temporary/design-<name>/` and the design conversation),
-`create-design` (the brief, then the design — once), `work` (pick a design back up from its
-folder and keep changing it in conversation), `feedback` (`work` with the reviewers'
-comments as its agenda, the way `/work <N>` is `/work` with an issue), `implement` (gated
-on every design-system gap being landed or rejected — `check-design.mjs --implement` —
-then the design exported into its folder and built into screens, its link kept in
-permanent docs),
-`publish-system` (build, verify, publish the design system) and `apply-system` (bring
-designs onto the current system). Every action that opens an existing design takes its
-address from the folder's `README.md`, so nobody pastes a link, and first checks the
-design's copy of the system against the published version, asking whether to apply the current
-one when it is behind. Every change settled in `work` or `feedback` is appended to `brief.md`'s
-`## Decisions`: the design's history, which lives only as long as the transient folder.
-The config's required `timeZone` dates each sync in the project's zone.
-
-Two rules follow from it and live in the `design-system` skill: every token resolvable
-and commented ("Tokens must survive the trip to Claude Design"), and design-system
-components kept inside what React 18 and 19 share, because design pages run React 18.
-
-Project-specific values live in three places only. The project's paths are the ten
-`DESIGN_*` substitution keys (§9.7). The content — title, namespace, the Design System
-artifact's address, components and previews, cover — is the UI package's
-`design-system/design-system.config.mjs`, which `scripts/config.mjs` validates on every
-run: an unknown key, a missing required key or an unset substitution fails by name, and
-a path key that belongs in the substitutions names the key it moved to. Each design's
-`project-documentation/temporary/design-<name>/` folder holds it while it is in progress.
-The engine's scripts hold nothing project-specific; `references/config-example.mjs`
-documents every key the engine reads, and a project's config carries a one-line pointer
-to it rather than a copied header.
-
-**The engine generates two files the UI package commits:**
-`design-system/safelist.generated.css`, which the feed stylesheet imports so Tailwind
-ships every class the README promises a design, and `src/lib/design-tokens.generated.ts`,
-whose `designClassGroups` the package's `cn()` passes to `extendTailwindMerge` so two
-classes of one role merge to the later one. The token checker fails while either is out
-of date or not imported.
-
-**Releases.** `publish-system` numbers each publish: the number after the one the
-system's `lastChange.note` opens with, or 1. `build.mjs --release <n>` stamps
-`Release <n> · built <date> from <sha>` on the system's README, on its cover where the
-cover marks `<!-- ds-stamp -->`, and in `lastChange.note`. Claude Design's own version
-ids are opaque, so this line is what a design's folder `README.md` records as the
-release it uses, and what tells a reader whether a design is behind the system.
-
-**The token checker** is kit-owned: `skills/design-system/scripts/check-design-tokens.mjs`,
-run as `npm run lint:tokens`. It reads its paths from the `DESIGN_*` keys, checks
-classes, call sites that fix a component's height (through class constants too), screen
-and feature files that fade a colour or import a frame atom on a line the change touched
-(§12a.9), role names that are t-shirt sizes, token resolution and light/dark parity,
-`design.md`'s references, and the generated files, prints how many files and classes it
-inspected, and fails when that is nothing. It also checks that every type role, token and
-component a UI pattern reference names in code exists. The judgements a script cannot
-make are the design checks, `skills/design-system/references/design-checks.md`, one list
-by layer — tokens, parts, patterns, screens. The design review
-(`skills/gitflow/scripts/design-review.sh`, run by `/commit` and `/ship-main` after the part
-review, local only) applies them to the lines a change adds: it hands a headless Claude the
-numbered diff of the UI source, stylesheets, `design.md` and pattern references, the checks,
-the roles and what each is for (`check-design-tokens.mjs --roles` and `--purposes`), the
-UI inventory, the patterns, the block-type list and the design opinions. `/design-audit`
-applies the same checks to everything. Each review finding goes to the developer, who fixes
-it, marks the line `design-accepted` with a reason, or commits with `SKIP_DESIGN_REVIEW=1`. A project's own extra checks go in
-`<DESIGN_UI_PACKAGE>/design-system/checks/*.mjs`, each a default-exported function the
-checker runs with the API its header documents.
-
-`skills/claude-design/references/working-with-claude-design.md` is the reference the
-skill reads before any design work: what Claude Design is for, what a design is (an
-interactive prototype), how a design is driven and shared — from Claude Code or its
-chat, by anyone with edit access — what the
-engine handles, and the
-review and two-person processes.
-
-`project-documentation/designer-handbook.md` is the human introduction, and
-`project-documentation/ui-design-cheatsheet.md` the one-page user reference, the
-companion to `gitflow-cheatsheet.md`.
-
-Template-only, like the rest of this subsystem.
-
-### 12a.9. Block types
-
-`skills/design-system/references/block-types.md` is the kit-owned vocabulary of building
-blocks a business app is made of — overlays, screen frames, record, collection, filtering
-and feedback types — each with a definition, how it ends or how you recognise it, the
-neighbour it is not, and for a frame the atom it wraps. It names kinds, never looks: each
-app designs its own part for each type, the first time a screen needs one.
-
-Three things read it. The design-system skill's Step 2 sorts every frame by its type
-before building. The UI status check fails an inventory line whose Type is neither on the
-list nor `<none>`, and a pattern reference whose `block-types:` names an unknown type
-(`cross-cutting` is the value for a pattern that governs every type). The token check reads
-the Wraps column as the frame atoms, which a screen or feature file may not import.
-
-The split it rests on: a part is a `.tsx` under a `components/` folder outside
-`features/`; everything else a source tree holds is a screen or a feature file. A screen
-places and arranges, and styles its own text from the semantic roles; it draws no box
-(background, border, radius, shadow, padding) and fades no colour — those come from
-parts. The token check fails a faded colour and a frame atom import; the design review
-judges a drawn box. These screen rules judge only lines changed since the base — `--base`,
-`DESIGN_TOKENS_BASE` (CI passes the PR's base branch), or where the work left
-`origin/main` — and a moved file is judged by its edits, so a screen nobody touches is
-left alone and copied drawing fails where it is written. `--all` judges every line. A
-component's inventory line is written only once the fit check approves it, and a commit
-refuses one whose file changed since; a commit that adds a part also runs the part review (§4). Screen content lives in the app's `src/features/<feature>/` — `apps/<app>/src/features/<feature>/` in a monorepo.
-
-**A type joins the list when it appears in two consumer apps or two primary-source design
-systems** (Fiori, Salesforce Lightning, PatternFly, Carbon, Primer, Pajamas, Polaris,
-Atlassian, Fluent), and only as a kind a business app has — never a website section, an
-atom, a field or a chart. A part typed `<none>` in two consumer apps is the signal to
-consider one. Adding a type is a kit change like any other; renaming or removing one
-breaks every inventory line that names it, so it ships with the migration that renames
-them.
-
-### 12a.10. The kit's design opinions and the design audit
-
-`_claude-project/skills/design-system/references/design-opinion.md` holds the kit's opinions on the small building blocks: spacing, type, colour, radius, lines and elevation, motion, icons, controls and focus, dark mode, badges. It is the kit's "opinionated" made concrete for design, and every value is decided through one chain: the project's design system answers first; when it is silent, the opinion file; an opinion found there is adopted into the project's own tokens and parts in the same change, so the system answers the question from then on; when both are silent, the human decides and the decision is locked into the system.
-
-Each opinion is one of two kinds: guidance a working designer would agree with, where the project picks the values and the file sets the shape (elevation, motion), or a side the kit picked in a debate with two legitimate camps, marked *(the kit's side)* (toasts, icon-only standard actions, a soft focus ring). A project overrides either with a reason written where its own system holds the value. The file carries no project's palette or look; colour opinions are about how colours feed the system, never which colours.
-
-The token checker enforces the spacing scale: on changed lines, a padding, margin or gap between the scale's steps fails. The steps are the project's `spacing.steps` in its claude-design config, else the kit's 0, 4, 8, 12, 16, 24, 32, 48px.
-
-Two things read it:
-
-- **The design review** (`design-review.sh`, at `/commit` and `/ship-main`) receives it with the diff and applies the design checks that judge against it, such as `DUPLICATE-ROLE` and `OPINION`. Changed lines only.
-- **`/design-audit`**, run only when a project's owner asks for it, never in CI. It applies every design check, including those that need a whole layer, one layer per pass from the bottom up — `tokens`, `parts`, `patterns`, then `screens [path]` or `design <name>` — and settles each pass before the next; `system` is the first three. Where an opinion is guidance, the project's own value is never a finding — the difference is listed apart as "worth a look", and keeping the project's value marks the line `design-choice` with no reason needed. Each pass runs in a fresh agent given only the checks, its layer and the material beneath it. Findings go to the human one at a time; each lands as a fix in its layer, a change in a layer beneath, or a line marked `design-accepted — <reason>`, which later audits and reviews skip.
-
----
+The kit has no UI. The whole subsystem is template-only, listed in the dogfood manifest in
+`.claude/rules/project/dev-kit-workflow.md`; only `design-judge.sh`, a gitflow script, is
+dogfooded, and in the kit it says the design-system skill is not installed and exits clean.
+`project-documentation/designer-handbook.md` is the human's introduction and
+`ui-design-cheatsheet.md` the one-page reference.
 
 ## 12b. Autonomous mode
 

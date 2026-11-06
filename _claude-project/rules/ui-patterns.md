@@ -2,9 +2,14 @@
 paths: "{**/*.tsx,**/*.jsx}"
 ---
 
-# UI Patterns Rule
+# Recipes and Behaviour Rules
 
-**Invoke the `ui-patterns` skill before building or changing how a surface is composed or how it behaves** — screen and toolbar layout, pagination, filtering, autosave, optimistic updates, loading / empty / error states, inline edit, multi-step flows. Then read the reference for the pattern you are using, from `.claude/skills/ui-patterns/references/`, named for that pattern.
+**Invoke the `ui-patterns` skill before composing a screen or changing how the app
+behaves** — a screen's arrangement, saving, cancelling, errors, loading, confirming,
+feedback, paging, filtering, inline edit, multi-step flows. Then read the recipe for the
+page type and every behaviour rule whose `block-types:` names the block types you touch
+and whose `apps:` line, when it has one, names the app you are in, in
+`.claude/skills/ui-patterns/references/`.
 
 ```
 Skill({skill: "ui-patterns"})
@@ -12,33 +17,29 @@ Skill({skill: "ui-patterns"})
 
 ## Sibling to the design rule
 
-`ui-design.md` routes to the `design-system` skill and owns what a thing is made of — tokens, atoms, `design.md`. This rule owns how things are assembled and how they act. Where a change could belong to either, the skill's boundary test decides.
+`ui-design.md` routes to the `design-system` skill and owns the kinds, the tokens and the
+components. This rule owns the two kinds of reference: a **recipe** says how one page type
+is put together; a **behaviour rule** says how the app acts on one topic. The skill says
+how each is written.
 
 ## The project keeps an inventory
 
-Every project maintains `rules/project/ui-inventory.md`, with the same `paths:` frontmatter as this file: the list of every pattern, part and hook the project has, one line each, with each part's block type and each pattern's and part's status. Screen content in a feature folder is not on it. Read it before composing a screen, and update it in the same change that adds a pattern or a part.
+Every project maintains `rules/project/ui-inventory.md`: every recipe, behaviour rule,
+component and hook the project has, one line each, with each component's block type and
+each recipe's, rule's and component's status. Read it before composing a screen, and update it in the same change
+that adds a piece.
 
-## Name the pattern while agreeing the work
+## Name the recipe while agreeing the work
 
-**Name a screen's block type and pattern in the plan document, in the sentence that agrees the screen.** A plan deliverable that produces a screen, dialog, panel or report names both.
+A plan deliverable that produces a screen, dialog, panel or report names its page type
+and its recipe in the sentence that agrees it. A screen step with neither gets them before
+it starts: an existing recipe, or one written pending.
 
-- **Writing a plan** → name the pattern in the same sentence that agrees the screen.
-- **Reading a plan before executing it** → a screen step with no named block type or pattern gets them before it starts: an existing part and pattern, or new ones built pending.
+## A rule with no reference yet is researched, never improvised
 
-## Is it even a pattern?
+Research primary sources — the published guidelines of a major system, or the docs of the
+library you build on — build it, and write its reference marked pending. The human
+approves it at the review. The kit holds no view on what the rule should say.
 
-It is a pattern if another competent developer would plausibly have built it differently and the difference would show to the user as inconsistency. Otherwise it is craft — build it and move on. The skill carries the test and the examples.
-
-**A pattern with no reference yet is researched, never improvised from training data.** Research primary design-system sources — the published guidelines of a major system such as Material, Apple's HIG, or the docs of the library you are building on — build it, and write its reference marked pending. The human approves it at the review (the `design-system` skill's Step 2).
-
-**Patterns are project-owned.** The kit ships this rule and the skill; `references/` arrives empty and a sync never writes into it. To use another project's pattern, copy it across by hand or re-decide it here.
-
-## Feedback in context, never a toast
-
-Show the result of an action where the user is looking: success as an inline state change or optimistic update, an error as an inline message, form-level error or dialog, a warning as an inline indicator, progress as a spinner in the component. Clipboard-copy confirmation is the one exception.
-
-When you edit a file that still has toasts, migrate them.
-
-## The one carve-out
-
-A purely presentational component — no state, no mutations, no transitions, no layout decisions of its own — does not need this.
+**References are project-owned.** The kit ships this rule and the skill; `references/`
+arrives empty and a sync never writes into it.

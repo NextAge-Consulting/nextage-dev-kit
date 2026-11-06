@@ -176,7 +176,18 @@ function fixture(files = {}, { keys = KEYS } = {}) {
   return dir
 }
 
-const run = async (files, opts) => checkDesignTokens(fixture(files, opts))
+const { writeDesignMd } = await import(path.join(ENGINE, 'design-md.mjs'))
+/** A fixture whose design.md token section is generated, unless the test wrote its own. */
+async function prepared(files = {}, opts) {
+  const dir = fixture(files, opts)
+  if (!('design.md' in files) && !(opts?.keys && !opts.keys.DESIGN_TOKEN_FILES) && fs.existsSync(path.join(dir, 'packages/ui/src/tokens.css'))) {
+    try {
+      await writeDesignMd(dir)
+    } catch {}
+  }
+  return dir
+}
+const run = async (files, opts) => checkDesignTokens(await prepared(files, opts))
 const PIECE = 'apps/web/src/components/piece.tsx'
 const screen = (body, imports = '') => ({ [PIECE]: `${imports}\nexport function S() {\n  return ${body}\n}\n` })
 
@@ -252,24 +263,25 @@ test('roles the CSS defines pass: a leading token, a radius corner, a colour wit
   assert.deepEqual(problems, [])
 })
 
-test('spacing between the steps of the scale fails: the kit default has no 20px, no 40px and no 2px', async () => {
+test('spacing between steps is judged only against the project\'s own scale; with no config none is judged', async () => {
   const { problems, notes } = await run(screen('<div className="p-5 gap-10 mt-0.5 px-6 gap-2" />'))
-  assert.deepEqual(problems.map((p) => p.split('  ')[1]).sort(), ['gap-10', 'mt-0.5', 'p-5'])
-  assert.match(problems.join('\n'), /not a step of the spacing scale \(0, 4, 8, 12, 16, 24, 32, 48px\)/)
-  assert.ok(notes.some((n) => /spacing scale: .* from the kit's default/.test(n)))
+  assert.deepEqual(problems, [])
+  assert.ok(notes.some((n) => /spacing scale: the project declares none/.test(n)))
 })
 
 test("a project's own spacing steps replace the kit's", async () => {
   const dir = await withConfig({ 'packages/ui/design-system/design-system.config.mjs': CONFIG.replace('steps: [0, 1, 2, 3, 4, 6, 8, 12]', 'steps: [0, 1, 2, 3, 4, 5, 6, 8, 12]'), ...screen('<div className="p-5 gap-10" />') })
   const { problems, notes } = await checkDesignTokens(dir)
   assert.deepEqual(problems.filter((p) => /spacing scale/.test(p)).map((p) => p.split('  ')[1]), ['gap-10'])
+  assert.match(problems.join('\n'), /not a step of the spacing scale \(0, 4, 8, 12, 16, 20, 24, 32, 48px\)/)
   assert.ok(notes.some((n) => /from packages\/ui\/design-system\/design-system\.config\.mjs/.test(n)))
 })
 
 test('spacing between the steps on an untouched line is left alone; the changed line is judged', async () => {
-  const dir = fixture({ 'apps/web/src/routes/orders.tsx': 'export const S = () => <>\n  <div className="p-5" />\n</>\n' })
+  const dir = fixture({ 'packages/ui/design-system/design-system.config.mjs': CONFIG, 'apps/web/src/routes/orders.tsx': 'export const S = () => <>\n  <div className="p-5" />\n</>\n' })
   const git = (...args) => execFileSync('git', ['-C', dir, '-c', 'user.email=t@example.com', '-c', 'user.name=t', ...args])
   git('init', '-q')
+  await writeDesignMd(dir)
   git('add', '-A')
   git('commit', '-qm', 'base')
   const base = String(git('rev-parse', 'HEAD')).trim()
@@ -480,7 +492,7 @@ test('a token nothing reaches fails, unless it is marked not-yet-built', async (
 
 test('a breakpoint used only through its variant prefix or an @variant block is reached; one used nowhere still fails', async () => {
   const { problems } = await run({
-    'packages/ui/src/tokens.css': `${TOKENS.replace(':root {', ':root {\n  --breakpoint-phone: 30rem;\n  --breakpoint-tablet: 48rem;\n  --breakpoint-wide: 80rem;\n  --breakpoint-later: 96rem;')}\n@utility sheet {\n  bottom: 0;\n  @variant phone {\n    bottom: auto;\n  }\n}\n`,
+    'packages/ui/src/tokens.css': `${TOKENS.replace(':root {', ':root {\n  /* publish: off */\n  /* the phone breakpoint */\n  --breakpoint-phone: 30rem;\n  /* the tablet breakpoint */\n  --breakpoint-tablet: 48rem;\n  /* the wide breakpoint */\n  --breakpoint-wide: 80rem;\n  /* a breakpoint for later */\n  --breakpoint-later: 96rem;\n  /* publish: on */')}\n@utility sheet {\n  bottom: 0;\n  @variant phone {\n    bottom: auto;\n  }\n}\n`,
     'packages/ui/src/components/bar.tsx': 'export const bar = "grid tablet:grid-cols-2 max-wide:hidden"\n',
   })
   assert.ok(!problems.some((p) => /--breakpoint-(phone|tablet|wide)/.test(p)), problems.join('\n'))
@@ -489,7 +501,7 @@ test('a breakpoint used only through its variant prefix or an @variant block is 
 
 test('a token named by Tailwind\'s variable shorthand is reached; one used nowhere still fails', async () => {
   const { problems } = await run({
-    'packages/ui/src/tokens.css': TOKENS.replace(':root {', ':root {\n  --tall: 40px;\n  --hint: #00ff00;\n  --later: #ff0000;'),
+    'packages/ui/src/tokens.css': TOKENS.replace(':root {', ':root {\n  /* publish: off */\n  /* a tall control */\n  --tall: 40px;\n  /* publish: on */\n  /* a hint fill */\n  --hint: #00ff00;\n  /* a colour for later */\n  --later: #ff0000;'),
     'packages/ui/src/components/bar.tsx': 'export const bar = "min-h-(--tall) hover:bg-(color:--hint)"\n',
   })
   assert.ok(!problems.some((p) => /--tall|--hint/.test(p)), problems.join('\n'))
@@ -531,23 +543,18 @@ test('a token file that does not parse fails, and is not reported as having no d
   assert.doesNotMatch(notes.join(' '), /no dark theme/)
 })
 
-test('design.md: a missing frontmatter key, a role without an entry, an unknown quoted class, an off-grid frontmatter pixel', async () => {
-  const design = DESIGN.replace('  formControl:\n    fontSize: 14px\n', '').replace('  panel: 8px\n', '  panel: 8px\n  card: 15px\n').replace('a 14px body.', 'a 14px body, `rounded.huge`, {colors.secondary}, `type-caption`, and a 375px phone.')
-  const { problems } = await run({ 'design.md': design })
-  const text = problems.join('\n')
-  assert.match(text, /type-form-control {2}— a type role with no typography entry/)
-  assert.match(text, /rounded\.huge {2}— no such key in the frontmatter/)
-  assert.match(text, /\{colors\.secondary\} {2}— no such key/)
-  assert.match(text, /type-caption {2}— no such type role/)
-  assert.match(text, /15px {2}— off the grid/)
-  assert.doesNotMatch(text, /375px/, 'a pixel value in the prose is the judge\'s')
-  assert.ok(problems.length >= 5)
-})
-
-test('design.md: a `---` inside a frontmatter comment does not end the frontmatter', async () => {
-  const design = DESIGN.replace('---\n', '---\n# --- the ramp: raw values ---\n')
-  const { problems } = await run({ 'design.md': design })
-  assert.deepEqual(problems, [])
+test('design.md: a token section the stylesheet would not generate is out of date; the generated one is current', async () => {
+  const stale = await run({ 'design.md': DESIGN })
+  assert.ok(stale.problems.some((p) => /design\.md {2}token section out of date/.test(p)), stale.problems.join('\n'))
+  const dir = await prepared()
+  const fresh = await checkDesignTokens(dir)
+  assert.deepEqual(fresh.problems, [])
+  assert.equal(fresh.counts.designCurrent, true)
+  fs.writeFileSync(path.join(dir, 'packages/ui/src/tokens.css'), TOKENS.replace('--radius-panel: 8px;', '--radius-panel: 10px;'))
+  const changed = await checkDesignTokens(dir)
+  assert.ok(changed.problems.some((p) => /token section out of date/.test(p)))
+  await writeDesignMd(dir)
+  assert.deepEqual((await checkDesignTokens(dir)).problems, [])
 })
 
 test("the project slot runs every check in the UI package's design-system/checks/", async () => {
@@ -584,6 +591,7 @@ async function withConfig(extra = {}) {
     ...extra,
   })
   execFileSync('git', ['init', '-q'], { cwd: dir })
+  await writeDesignMd(dir)
   return dir
 }
 
@@ -738,7 +746,7 @@ test('the arguments of a helper that returns classes are values, not classes; a 
 })
 
 test('the screen rules judge only lines changed since the base; untouched lines pass, all: true judges every line', async () => {
-  const dir = fixture({ 'apps/web/src/routes/orders.tsx': 'export const S = () => <>\n  <div className="text-foreground/50" />\n</>\n' })
+  const dir = await prepared({ 'apps/web/src/routes/orders.tsx': 'export const S = () => <>\n  <div className="text-foreground/50" />\n</>\n' })
   const git = (...args) => execFileSync('git', ['-C', dir, '-c', 'user.email=t@example.com', '-c', 'user.name=t', ...args])
   git('init', '-q')
   git('add', '-A')
@@ -755,7 +763,7 @@ test('the screen rules judge only lines changed since the base; untouched lines 
 })
 
 test('a screen moved into a feature folder is judged by its edits, not as a new file', async () => {
-  const dir = fixture({ 'apps/web/src/components/Roles.tsx': 'export const R = () => <>\n  <div className="text-foreground/50" />\n</>\n' })
+  const dir = await prepared({ 'apps/web/src/components/Roles.tsx': 'export const R = () => <>\n  <div className="text-foreground/50" />\n</>\n' })
   const git = (...args) => execFileSync('git', ['-C', dir, '-c', 'user.email=t@example.com', '-c', 'user.name=t', ...args])
   git('init', '-q')
   git('add', '-A')
@@ -770,7 +778,7 @@ test('a screen moved into a feature folder is judged by its edits, not as a new 
 
 test('the role list names every role a screen may write, one family per line', async () => {
   const { roleList } = await import('./check-design-tokens.mjs')
-  const list = roleList(fixture())
+  const list = roleList(await prepared())
   assert.match(list, /^type roles: type-body type-form-control$/m)
   assert.match(list, /^radius: rounded-control rounded-panel$/m)
   assert.match(list, /^colours \(bg-, text-, border-\): .*\bprimary\b/m)

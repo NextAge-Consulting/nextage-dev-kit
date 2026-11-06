@@ -4,7 +4,12 @@ import { atomModule, parseBlockTypes, readBlockTypes } from './block-types.mjs'
 
 test('the shipped list parses: every type named, each frame atom with the types that wrap it', () => {
   const { names, frames } = readBlockTypes()
-  for (const t of ['ModalShell', 'ReviewDialog', 'BrowseScreen', 'SaveStatus']) assert.ok(names.has(t), t)
+  for (const t of ['ModalShell', 'ReviewDialog', 'BrowseScreen', 'SaveStatus', 'Chart', 'Breadcrumb', 'HelpPopover', 'FactList', 'SummaryList', 'AsideScreen']) assert.ok(names.has(t), t)
+  assert.deepEqual(frames.get('Popover'), ['FilterPopover', 'HelpPopover', 'ColumnChooser'])
+  const { neighbours, definitions } = readBlockTypes()
+  assert.deepEqual(neighbours.get('ConfirmDialog'), ['ReviewDialog', 'PromptDialog'])
+  assert.deepEqual(neighbours.get('FactList'), ['FieldGroup', 'SummaryList'])
+  assert.match(definitions.get('Chart'), /series/)
   assert.deepEqual(frames.get('AlertDialog'), ['ConfirmDialog'])
   assert.ok(frames.get('Dialog').includes('ReviewDialog'))
   assert.ok(frames.get('Sheet').includes('EditDrawer'))

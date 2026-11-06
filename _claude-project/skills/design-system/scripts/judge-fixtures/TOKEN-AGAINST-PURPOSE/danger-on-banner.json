@@ -1,0 +1,9 @@
+{
+  "answer": "yes",
+  "why": "banner is not a field error",
+  "token": "text-feedback-danger",
+  "purpose": "a field's error, under the field",
+  "line": "<PageBanner className=\"text-feedback-danger\">Saving failed. Try again.</PageBanner>",
+  "where": "screen apps/web/src/features/orders/order-record.tsx",
+  "context": "<FormShell>\n  <PageBanner className=\"text-feedback-danger\">Saving failed. Try again.</PageBanner>\n  <FieldGroup title=\"Details\">"
+}

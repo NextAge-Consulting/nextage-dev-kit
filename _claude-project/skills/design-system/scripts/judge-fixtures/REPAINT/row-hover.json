@@ -1,0 +1,9 @@
+{
+  "answer": "yes",
+  "why": "an interaction state",
+  "component": "Row",
+  "class": "hover:bg-accent",
+  "tag": "<Row className=\"hover:bg-accent\">",
+  "accepts": [],
+  "kind": "block"
+}

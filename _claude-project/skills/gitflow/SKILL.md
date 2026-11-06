@@ -213,7 +213,8 @@ The commands invoke these scripts in `skills/gitflow/scripts/`:
 | `worktree-remove.sh` | Remove a finished worktree and its local branch, from the primary checkout |
 | `deploy.sh`, `deploy-org.sh` | `/deploy`: release gates, bump, changelog, tag, dispatch; in a repo holding infrastructure, apply and merge a Terraform PR |
 | `gates.sh` | The gates `/commit`, `/ship-main`, `/merge` and `/deploy` run; the typecheck, integration and build gates skip on an unchanged code fingerprint |
-| `rule-review.sh`, `part-review.sh`, `design-review.sh`, `sql-review.sh`, `test-review.sh` | The headless reviews, run side by side by `gates.sh` |
+| `rule-review.sh`, `sql-review.sh`, `test-review.sh` | The headless reviews, run side by side by `gates.sh` |
+| `design-judge.sh` | The design judge: locates every candidate in the change and asks the judge one yes/no question each; a yes is a pending item in `.claude/ui-pending.json`, never a failed commit |
 | `review-cache.sh` | Remembers each review's last pass, so the same review over the same input is not called again |
 | `code-fingerprint.mjs` | One hash of the code, unchanged by comments and whitespace; the name and description of the `full-suite` status |
 | `settings.sh` | Resolves `TEST_RUNNER` and `ASSURANCE_LEVEL` — kit default, then the project's value, then (`TEST_RUNNER` only) `.env` |

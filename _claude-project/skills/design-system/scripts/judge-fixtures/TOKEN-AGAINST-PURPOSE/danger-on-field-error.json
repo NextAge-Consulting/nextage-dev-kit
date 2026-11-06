@@ -1,0 +1,9 @@
+{
+  "answer": "no",
+  "why": "the covered case",
+  "token": "text-feedback-danger",
+  "purpose": "a field's error, under the field",
+  "line": "<FieldError className=\"text-feedback-danger\">{error}</FieldError>",
+  "where": "block packages/ui/src/components/field.tsx",
+  "context": "<Field>\n  <Input />\n  <FieldError className=\"text-feedback-danger\">{error}</FieldError>\n</Field>"
+}

@@ -8,7 +8,7 @@ that render the same.
 
 **Group by what a thing is before building a page.** Two looks are a decision only when
 they draw the same thing — the same role, holding the same kind of content. Different
-things that happen to look alike are separate parts, and never share a page.
+things that happen to look alike are separate blocks, and never share a page.
 
 **Present a choice only when the options look different on screen.** Variants that differ
 in code but render the same are unified without asking; prove it with
@@ -19,11 +19,11 @@ in code but render the same are unified without asking; prove it with
 The human decides by using the options: hovering, tabbing, clicking, typing. A screenshot
 shows one state, so it is never the page.
 
-1. **One local page, the project's real parts.** Load the bundle `build:design-system`
+1. **One local page, the project's real components.** Load the bundle `build:design-system`
    writes — `components/lib/react.production.min.js`, `react-dom.production.min.js`,
-   `components/bundle.js` and `bundle.css` — and mount the parts from
+   `components/bundle.js` and `bundle.css` — and mount the components from
    `window.<namespace>`. Nothing on the page is styled by hand.
-2. **The options side by side, built from the same parts.** An option differs from today
+2. **The options side by side, built from the same components.** An option differs from today
    only in the value the decision is about, set as a CSS override on that option's column
    — a token, or the variable a class reads (`--tw-ring-color`).
 3. **A light/dark switch** that sets `data-theme` on `<html>`; the bundle's dark tokens
@@ -41,5 +41,5 @@ shows one state, so it is never the page.
 
 ## After the pick
 
-Move every use onto the picked look. The part carrying it is written `approved` — the
+Move every use onto the picked look. The component carrying it is written `approved` — the
 pick is the approval.

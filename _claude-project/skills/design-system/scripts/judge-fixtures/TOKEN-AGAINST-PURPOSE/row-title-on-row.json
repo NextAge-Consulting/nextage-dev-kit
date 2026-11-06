@@ -1,0 +1,9 @@
+{
+  "answer": "no",
+  "why": "covered",
+  "token": "type-row-title",
+  "purpose": "the first line of a row in a collection",
+  "line": "<span className=\"type-row-title\">{row.name}</span>",
+  "where": "block packages/ui/src/components/list-row.tsx",
+  "context": "<li>\n  <span className=\"type-row-title\">{row.name}</span>\n  <span className=\"type-metadata\">{row.updated}</span>\n</li>"
+}

@@ -1,0 +1,14 @@
+{
+  "answer": "no",
+  "why": "different places, same value",
+  "a": {
+    "name": "type-metadata",
+    "purpose": "a timestamp, an id, a count beside a title",
+    "value": "12px/16px 400"
+  },
+  "b": {
+    "name": "type-hint",
+    "purpose": "a line under a field saying how to fill it",
+    "value": "12px/16px 400"
+  }
+}

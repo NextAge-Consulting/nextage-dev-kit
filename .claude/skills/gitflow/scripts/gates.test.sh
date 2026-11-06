@@ -239,19 +239,6 @@ t 4 "$(gate run_project_gate "$BASE" "shipping to main")" 'a project gate that f
 has 'Fix before shipping to main' '…naming the action'
 rm -rf .claude
 
-echo "run_fit_check_gate:"
-new_repo
-t 0 "$(gate run_fit_check_gate committing)" 'no UI status check: passes'
-has "does not exist" 'no UI status check: says why it does not apply'
-mkdir -p .claude/skills/ui-patterns/scripts && : > .claude/skills/ui-patterns/scripts/check-ui-status.mjs
-t 4 "$(gate run_fit_check_gate committing)" 'node missing: fails'
-stub node 0
-t 0 "$(gate run_fit_check_gate committing)" 'fit checks in order: passes'
-t "--fit-only" "$(tail -1 "$tmp/node.args")" 'runs the check in its fit-only mode'
-stub node 1
-t 4 "$(gate run_fit_check_gate "shipping to main")" 'a missing or stale fit check: fails'
-has "Run the fit check before shipping to main" 'a failure says what to do'
-
 echo "build (real npm):"
 mono="$tmp/mono"; mkdir -p "$mono/packages/a" "$mono/packages/b"
 printf '{"name":"root","private":true,"workspaces":["packages/*"]}\n' > "$mono/package.json"

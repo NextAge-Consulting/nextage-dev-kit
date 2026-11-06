@@ -1,438 +1,279 @@
 ---
 name: design-system
-description: Project-agnostic UI/design-system discipline backed by a per-project `design.md` (google-labs-code spec). Use when creating or styling UI components, pages, forms, or any frontend work in any kit-enabled project. The skill enforces "read the project's design.md for tokens, ground the work in the project's real components for look-and-feel, then apply universal styling discipline" and refuses to proceed if `design.md` is missing at the project root.
+description: How a project's User Experience System is built, kept and approved — tokens, atoms, blocks, recipes, behaviour rules and screens, the words for status, the pointers every file carries, and the checks. Use when creating or styling UI components, composing a screen, changing how the app behaves, or touching the token stylesheets. The kit holds no opinion on how anything looks or behaves; every answer is the project's system's, and where the system is silent the gap is built pending and put to the human.
 user-invocable: false
 ---
 
 # Design System
 
-This skill is the universal layer of the design-system discipline shared across all kit-enabled projects. It is paired with a **per-project `design.md`** at the project root that defines the actual tokens, atom styling, and brand voice. The skill itself contains zero project-specific tokens — every concrete value comes from the project's `design.md`.
+A project's User Experience System is its token stylesheet and its components, with the
+recipes and behaviour rules that say how they combine and act. The stylesheet and the
+components are the source: `design.md` is generated from them, and the Claude Design
+system is published from them. This skill says how the system is built from and grown;
+the look and the behaviour are the project's.
 
-## The spec this skill depends on
+## The kinds
 
-The project's `design.md` MUST conform to the **google-labs-code `design.md` spec** (https://github.com/google-labs-code/design.md). The spec defines:
+| Kind | What it is | Where it lives |
+|---|---|---|
+| **Token** | A named value. A **base token** holds the raw palette or scale, usually a tweakcn theme's output. A **role token** names a job (`row-title`, `control`, `feedback-danger`). Only role tokens are used outside the token files. | the token stylesheets (`DESIGN_TOKEN_FILES`), the type roles (`DESIGN_TYPE_FILE`), the Tailwind entry (`DESIGN_STYLES_FILE`) |
+| **Atom** | One control or element that owns its look: a button, an input, a badge, a chart mark. | `components/ui/` (vendored, `DESIGN_VENDORED_DIR`) or `components/` |
+| **Block** | A component of one block type (`references/block-types.md`), built from atoms and blocks. Owns its look, its inner layout and its guarantees. | `components/` |
+| **Recipe** | How one page type is put together: a **frame** — the block of that page type, fixed ordered slots accepting named block types, no content, carrying the behaviour every screen of the type shares — and **instructions**, each a yes/no or a pick from a closed list, with one reference screen. | the frame in `components/`; the instructions in `.claude/skills/ui-patterns/references/` |
+| **Behaviour rule** | The project's decision on how the app acts on one topic: saving, cancelling, errors, loading, confirming, feedback. Prose, listing its code. | `.claude/skills/ui-patterns/references/` |
+| **Behaviour code** | The code that carries a rule out, inside a block or as a shared function. Names its rule. | wherever it sits |
+| **Screen** | A route that follows one recipe and fills its slots with content: wording, data, server calls. A feature file holds one screen's content. | `routes/`, `features/` |
 
-- An optional YAML frontmatter block of machine-readable design tokens: `colors`, `typography`, `rounded`, `spacing`, `components`
-- A markdown body with required-order sections: Overview, Colors, Typography, Layout, Elevation & Depth, Shapes, Components, Do's and Don'ts
-- Component definitions scoped to **atoms only** (buttons, chips, lists, tooltips, checkboxes, radios, input fields) with property tokens: `backgroundColor`, `textColor`, `typography`, `rounded`, `padding`, `size`, `height`, `width`
-- Token reference syntax: `{colors.primary}`, `{rounded.md}`, etc.
+**Component** means an atom or a block. A component carries **variants** (named complete
+looks), **props** (named for meaning), **slots** (declaring which components they accept)
+and **guarantees** (behaviour no use may break, written on the component and enforced in
+its code). Every kind is prose plus code, each pointing at the other.
 
-**This skill does not define those things.** It defines the workflow and discipline that uses them.
+**Content two apps share is still content.** It lives in a `features/` folder of the
+shared package, never in a `components/` folder, and keeps its business words there.
 
-## Procedure — apply on every UI task
+**Several apps on one system each have their own experience.** The tokens, the atoms and
+the shared blocks are one system; an app's own blocks live in its `components/`, with the
+human's reason on their inventory lines; a recipe or behaviour rule that holds for some
+apps names them on its `apps:` line (the `ui-patterns` skill).
 
-### Step 1: Read the project's `design.md`
+## Variant, option and exception
 
-Before writing or editing ANY UI / styling code, **read `design.md` at the project root**:
+| Word | What it is | Who decides |
+|---|---|---|
+| **Variant** | A named, complete look on a component: every visual property and every state. | Built by the AI, pending until the human approves. |
+| **Option** | A pick from a recipe's closed list, or a prop on a component named for its meaning. | A new option is pending; a pick from an existing list needs nothing. |
+| **Exception** | A deliberate departure on one screen from what the system says: an arrangement that differs from the recipe, with the human's reason written where it is made (`design-accepted — <reason>`). Never behaviour. | The human only. |
 
-```
-<project-root>/design.md
-```
+A new block or recipe is the answer only when the piece is a different kind of thing. The
+judge's duplicate question (`references/judge-questions.md`, DUPLICATE-BLOCK) tests that.
 
-If `design.md` is absent, **HARD STOP**:
+## Naming
 
-- Do not proceed with the UI task
-- Surface to the user verbatim: *"This project has no `design.md` at the project root, and UI work cannot proceed without a project-level design system spec. Shall I generate one from the codebase first?"*
-- Wait for direction
+- A role token names the job, never the size: `field-caption`, `row-title`, `control`,
+  `card-inset`. `sm`, `lg`, `label`, `micro` are sizes in token clothing.
+- A family is named at the level people decide at. A finer distinction is a member of the
+  family (`feedback-*`), each member carrying its meaning on its own token; no document
+  lists the members.
+- A block carries its block type's name. An approved second block of a type adds a word
+  for how it differs, never for its data.
+- A recipe carries its page type's name. A decision made at the level of "a list of
+  accounts" — the same columns and search on every such list — is a recipe.
+- Business words appear only in screens and content.
+- Test a name: can someone point at the element and name it without hesitating,
+  and does one name cover many values in the code? Collect every use of the name and list
+  the values: many values each used a few times means several things hide under one name,
+  split it; one value used by most with a few others means the name is right and the
+  others are drift, move them onto it.
+- Rename the moment a name proves wrong.
 
-Why hard-stop: ad-hoc styling without a design system spec is how token drift starts. The skill exists to prevent that.
+## Pointers
 
-### Step 2: Ground in the existing implementation (MANDATORY — this is where look-and-feel comes from)
-
-`design.md` gives you tokens and atom specs. It does **NOT** give you the project's *look and feel* — elevation, shadows, motion, hover behavior, border treatments, density, polish level. That lives **only in the parts** — the components on `rules/project/ui-inventory.md`. A prose description of "the vibe" cannot be executed reliably; a real part can. So before writing ANY composite UI (a card, a row, a panel, a form, a dashboard, a whole screen), **build from this app's parts.** Not a fallback — the primary source of fidelity.
-
-1. **Name the block type** of what you're building, from `references/block-types.md`.
-2. **Find this app's part of that type** on the inventory — its Type column — and read it in full, with every pattern reference whose `block-types:` names the type.
-3. **No part of that type yet → read the parts nearest in kind** and build the new part from their construction: the tokens, how a card, row or chip is assembled, the status language, the motion idioms.
-4. **A screen is never the analog.** Screens arrange parts; never copy a look a screen draws itself.
-
-**Split what you build into frame and content before writing it.** The frame — a dialog, a drawer, a header, a toolbar, a row, a screen's layout — is a part. The content is what this screen puts in it: wording, data, server calls, the arrangement of parts.
-
-**Sort every frame by its block type** — read `references/block-types.md` and follow its "Sort before you build". Name the type, use this app's part of that type, and when it has none, build that part now, from this first use. Parts are one per type, so a new screen usually adds none and nothing to approve.
-
-**Where the system covers the piece, use it as it is.** An improvement you would make to how it looks is a proposal to the human, never a local restyle at this one site.
-
-**Run the fit check on every new or changed component before writing its inventory line** — `references/fit-check.md`. A fresh agent, given a neutral description and the built file, approves it or sends changes; make them and send it back until it approves, then write the line it returns with its Fit check. `check-ui-status.mjs` fails a pending component with no Fit check, or one whose file changed since, and `/commit`, `/ship-main` and `/deploy` refuse while it does.
-
-**Where nothing fits, build the new piece and keep going.** Research how primary-source design systems handle it — never invent from `design.md` prose alone. Build it from the existing tokens and components as a real part — a token, a component or variant, a pattern reference — and mark it pending. Never stop the work to ask about each one; the review below is where the human sees them.
-
-**A screen or feature file draws no box.** It places and arranges what it holds — margin, width, its slot in a flex or grid, `gap` — and styles its own text freely from the semantic roles: a type role, a weight, a semantic text colour. A background, border, radius, shadow or padding is a box, and a box comes from a part: the part of its block type, or a part typed `<none>` when no type covers it. Colour in a screen is any colour role, brand colours included, and never faded with an opacity modifier. Approval is still one review at the end of the work, never a stop per screen.
-
-**Screen content lives in its feature's folder, the app's `src/features/<feature>/`** (`apps/<app>/src/features/<feature>/` in a monorepo), and a `components/` folder holds parts only. Content carries no status and no inventory line. A piece that fits no block type and draws no box stays in the feature folder; when a second screen needs it, it becomes a part typed `<none>`.
-
-**Changing how an approved part looks or behaves — a new variant included — sets it to pending**, unless the human asked for that change. A change `compare-ui-values.mjs` proves leaves every value the same stays approved.
-
-**A part is pending only when it brings a look the human has not seen.** A part extracted from screens that `compare-ui-values.mjs` proves draws exactly what they drew is written approved. So is a part carrying a look the human picked on a comparison page — the pick is the approval.
-
-**A commit that adds a part runs the part review** (`part-review.sh`, in `/commit` and `/ship-main`): a headless review compares it with the parts the inventory lists. When it suspects a duplicate the commit stops and the question goes to the human. Same thing: use the existing part and remove the new one. Different: write their reason on the new part's inventory line, which the next review reads.
-
-#### Each kind of work
-
-- **Converting a legacy screen** — rebuild what it does, not how it looked, from the parts that exist. Values come from the scale, never measured from the old app ("Converting a legacy app" below).
-- **Tweaking an existing screen** — change the part, never the screen. Tell the human what else uses it and make the change once they agree; their yes is the approval, so the part stays approved.
-- **A new screen or feature, in code or as a mockup in Claude Design** — the same work in a different medium: use what exists, build only what does not. In Claude Design a new piece is a gap shown on the page, settled through the `claude-design` skill.
-- **Bringing a Claude Design into the code** — each gap the human approved in the design lands approved. Anything else new the build needs is pending.
-
-#### Marking a part pending or approved
-
-The same words everywhere, so one search finds them all:
-
-- a component — `// ui-status: pending` as its first line;
-- a pattern reference — `ui-status: pending` in its frontmatter;
-- a token — in its comment: `/* a hover fill inside a card · ui-status: pending */`;
-- the UI inventory — the same status on a component's or pattern's line, with a component's block type, added in the same change as the part.
-
-Every component and pattern carries one, `approved`, `pending` or `unresolved`; an approved token carries none.
-
-#### The review
-
-**First prove what did not change.** `node .claude/skills/design-system/scripts/compare-ui-values.mjs [--base <ref>]` resolves the classes on every changed line, before and after, through the project's own Tailwind build, and lists only the values a user would see differently — grouped, with file and line — plus any line it could not compare. A line it proves identical needs no review. It resolves every value in light and dark mode, and lists a style that leaves one line and arrives unchanged on another — a shared look pulled into one place, a file moved or merged — as moved, not changed. A look handed to an existing component that already draws it, unchanged, lists as removed: nothing changed on the component's side to pair with. Confirm it against that component's classes.
-
-**At the end of a body of work — a feature, a conversion, a mockup session, and at the latest before `/deploy` — walk the human through every pending part and every change the comparison lists.** List them with `node .claude/skills/ui-patterns/scripts/check-ui-status.mjs`, each with the screens that use it. When it reports parts set aside, open the walk-through by asking whether to include them, with their count; on yes, list them with `--unresolved` and walk them with the rest. Two competing looks for the same thing go to them as a comparison page — `references/comparison-pages.md` — never in prose, and never with a recommendation. Each one the human approves becomes `approved`, in its file and on its inventory line. One they reject is replaced by an existing part, or changed until they approve it. One they choose not to decide yet becomes `unresolved` — only on their word, never on yours: in its file, and on its inventory line as `` unresolved `<fingerprint>` <their reason> ``, the fingerprint from `check-ui-status.mjs --fingerprint <file>`. It blocks nothing, the check reports only how many are set aside, and once its file changes it counts as pending again. `/deploy` refuses while anything is pending.
-
-### Step 3: Identify the right tokens for the task
-
-`design.md`'s YAML frontmatter is the normative source. From it:
-
-- **Colors**: identify the semantic color tokens the task needs (e.g. for a primary CTA, `colors.primary` + `colors.primary-foreground`; for a form error, the error-feedback group)
-- **Typography**: identify the typography level (e.g. `typography.body-md` for default body, `typography.h2` for a section header)
-- **Rounded**: identify the radius (`rounded.lg` is the most common; pill-shaped only when the design.md prose calls it out as a distinct shape token)
-- **Spacing**: use the project's spacing scale; never reach for raw px values when a scale token fits
-- **Component atoms**: if the task is adding/editing a button, card, input, alert, etc., copy the property tokens from the relevant `components.<name>` entry as your starting point
-
-**Never invent token values.** Every color, radius, padding number must trace back to a token in `design.md` or a Tailwind utility that maps to one of those tokens. When the system has no answer, read `references/design-opinion.md` before deciding anything: an opinion there is adopted into the project's tokens and parts, marked pending (Step 2); with none, the value is the human's to decide. Never a raw value.
-
-### Step 4: Apply universal styling discipline
-
-These rules are project-agnostic and apply on top of the project's tokens:
-
-- **Semantic over primitive.** When a semantic token exists for the role (`primary`, `card-title`, `action-primary-bg`), use it. Reach for primitive tokens (raw brand colors like `lg-navy`) only for one-off accents that have no semantic mapping. The token architecture is typically: primitive → semantic → shadcn → Tailwind utility — always grab the highest-level abstraction that fits the role.
-- **No inline `style={{}}` for colors.** All color comes from Tailwind utility classes mapped to the `@theme` tokens. Inline styles bypass the design system and are forbidden. The only common exception is SVG `fill="var(--color-...)"` because Tailwind cannot target SVG attributes.
-- **No raw hex values in components.** Every color reference in component code must resolve to a token. If a hex appears in a JSX/CSS file, it's a smell — either map it to a semantic token or add the token to `design.md`.
-- **Tailwind mechanics live in the `shadcn` skill's `rules/styling.md`** — `gap-*` over `space-y-*`, `size-N` over `w-N h-N`, `hover:` variants over JS handlers, `cn()` for conditional joins, `truncate`, no manual `dark:`, no manual `z-index`. That file carries them with Incorrect/Correct pairs; do not restate them here.
-- **Accessibility lives in `a11y-baseline.md`.** Icon-only buttons need accessible names; SVGs need `<title>` or `aria-hidden`; labels need `htmlFor` + `id`. That rule auto-loads on JSX/TSX edits and is the authoritative source for a11y patterns — don't duplicate its content here.
-
-### Step 5: Validate the result
-
-After making changes that affect tokens (added a color, added an atom variant, etc.), validate `design.md` is still spec-compliant:
-
-```bash
-npm run lint:design
-```
-
-This runs the `@google/design.md` spec linter. It must be wired as a project dev tool — `@google/design.md` in `devDependencies` plus a `"lint:design": "design.md lint design.md"` script (see kit kitmaintainer-handbook.md §12a.4). Use the declared script, **not** an ad-hoc `npx @google/design.md …`: declaring it keeps the lint reproducible and avoids agent sandboxes blocking an undeclared external download. If the script is missing, add the devDependency + script first, then run it.
-
-If `design.md` was not modified, skip this step. If it was, the lint MUST pass before changes are committed. Fix lint findings before declaring the task done.
-
-If the lint fails for a reason that isn't your edit (pre-existing issue), surface it explicitly — per the project constitution's "Own All Errors" rule, you fix it or document it; you don't step over it.
-
-**Stateful atoms and computed tokens go in prose, not the YAML.** The `components:` YAML accepts only the spec's fixed property set (`backgroundColor`, `textColor`, `typography`, `rounded`, `padding`, `size`, `height`, `width`). Stateful atoms (tone maps, rings, variant escalation) and computed tokens don't fit those and will fail `lint:design` — describe them in `design.md` prose instead.
-
-**Don't run checks during pre-approval UI iteration.** While iterating on layout, don't run tsc / biome / screenshots / `lint:design` after each tweak — the human inspects live via HMR. Do the reconciliation pass and run the checks once, when the iteration settles. The reconciliation pass is: tokenize raw values, document new patterns in `design.md`, **and if the work produced a reusable component, add it to `design.md`'s component section AND to the project's UI inventory rule, with its status — in that same pass,** with its block type, with the `rule-authoring` skill invoked for the inventory line.
-
-## The build-from gate (non-negotiable)
-
-Before delivering any composite UI, state — in your response to the user — the reference you built from:
+Every file names what governs it in its first lines, and `check-ui-status.mjs` confirms
+every pointer names something real:
 
 ```
-Built from: <path(s) to the part(s) you built from in Step 2>
+// ui-status: approved
+// ui-block: ReviewDialog
+// ui-behaviour: confirm-before-write.md
 ```
 
-- Built from a part → cite the exact path(s).
-- Built a new part → cite the analog and name the part with its block type: `Built from: <path> (new, pending: ReviewDialog <the part>)`.
-- Kept a piece in its feature folder → `Built from: <path> (content: <the piece>)`.
-- Nothing similar exists → `Built from: none — new, pending: <the part>`, naming the primary sources researched.
+- a block: `// ui-block: <Type>`, and `// ui-behaviour: <rule>.md, …` for the rules it
+  carries out;
+- an atom: `// ui-atom`;
+- behaviour code outside a block: `// ui-behaviour-code: <rule>.md`;
+- a screen: `// ui-recipe: <recipe>.md`; a feature file holding one screen's content:
+  `// ui-content`;
+- a recipe's frontmatter: `kind: recipe`, `frame: <component, as its inventory line names
+  it>`, `reference: <screen file>`, `block-types: [<page type>]`;
+- a behaviour rule's frontmatter: `kind: behaviour`, `code: [<files>]`, `block-types:`.
+  Every file in `code` points back.
 
-No citation means Step 2 didn't happen and the work is **incomplete** — the same standard as shipping a signature change without the caller scan. This gate exists because "ground in the real components" only sticks when it's *cited*, not merely encouraged: the constitution's caller-scan attestation (§XIV) works for exactly this reason. An uncited UI change is presumed to have been invented from prose, and prose produces off-brand output.
+## Status
 
-## Semantic tokens, or it is a design system in name only
+Status words, the same everywhere — a component's first line, a reference's frontmatter, a
+token's comment, an inventory line, a line in a screen:
 
-**A token names WHAT A THING IS, never how big it is.** `field-caption`,
-`row-title`, `card-inset`, `state-message` are tokens. `label`, `microlabel`,
-`sm`, `xs`, `lg` are sizes wearing token syntax, and they buy nothing: whoever
-builds the next screen still has to decide which one, and deciding per screen is
-the definition of drift.
+- **pending** — built, or found by a check, and not yet put to the human. `/deploy`
+  refuses while anything is pending. Nothing refuses a commit.
+- **approved** — the human looked and approved it. Wiring approved pieces together stays
+  approved. A later change the human asked for, that does not change the kind of thing it
+  is, keeps it approved. A new variant is pending; a behaviour change is pending even
+  with nothing new to see. On a line: `design-accepted — <reason>`.
+- **deferred** — the human chose not to look and trusts the work. It blocks nothing and
+  needs no reason. Its inventory line carries the file's fingerprint
+  (`check-ui-status.mjs --fingerprint <file>`); on a line, `design-deferred <fingerprint>`
+  with the line's (`--line-fingerprint <file> <n>`). Once the code changes it is pending
+  again.
 
-**This applies to every family, not just type** — spacing, radius, weight,
-elevation and sizing each need the same treatment. A project that fixed its type
-scale and left `px-[10px]`, `py-[9px]` and `rounded-[6px]` scattered through its
-components has fixed a fifth of the problem.
+Checks and judges say pass / fail or yes / no, never "approved": approving is the human's
+word alone.
 
-### Two tests for whether a name is right
+## Procedure — every UI task
 
-**Can someone point at the element and name it without hesitating?** That decides
-whether a name earns its place. Two names competing for one element means the
-naming is wrong. Convergent VALUES are irrelevant — two roles resolving to the
-same number today are still two roles if they answer different questions, because
-a component saying which one it is, is what lets them diverge later without
-hunting for every site.
+### 1. Read the system
 
-**Does one name cover many values?** Collect every instance of a name in the
-existing code and look at the spread. A flat spread across many values means the
-name is too coarse and several things are hiding in it — split it and re-test. A
-tight cluster with one or two outliers means the name is right and the outliers
-are drift — pick the cluster. This is the falsifiable half; the first test alone
-produces plausible names that do not survive contact with the code.
+Read `rules/project/ui-inventory.md`, then the recipe and every behaviour rule whose
+`block-types:` names the block types the task touches, then the components they name.
+The token stylesheets hold the roles; `check-design-tokens.mjs --roles` lists them.
 
-### Two layers, and collapsing them is the common failure
+**A project with no system yet builds one, pending, in the same pass**: the base theme's
+tokens go in the token stylesheet, the roles the first screen needs are named over them,
+and the first blocks are built from the atoms. Nothing halts. A project arriving with a
+Design Pack installs it instead (`uxes-design-packs.md` in the kit's docs).
 
-- **The ramp** — a short set of role names with variations, in `design.md` and the
-  token file. Every established system has one: Material's display / headline /
-  title / body / label, Carbon's productive set, Fluent's ramp.
-- **Component contracts** — "a column heading is `column-heading`". These live in
-  the COMPONENT, never in a document. No system's ramp names a column heading; the
-  component declares which ramp entry it uses.
+### 2. Build from the system
 
-Naming a ramp entry after one component's use of it — a `label` token because a
-label used it first — is how the two layers collapse and the ramp stops meaning
-anything.
+1. **Split what you build into frame and content.** The frame — a dialog, a drawer, a
+   toolbar, a row, a screen's layout — is a block. The content is this screen's: wording,
+   data, server calls, which blocks fill which slots.
+2. **Sort every frame by its block type** (`references/block-types.md`, "Sort before you
+   build") and use this project's block of that type. None yet: build it now, pending,
+   from the atoms and blocks nearest in kind, named for the kind.
+3. **A screen follows its recipe.** Its slots take the block types the recipe names; a
+   choice the recipe leaves open is a pick from its closed list. A screen draws no box —
+   no background, border, radius, shadow or padding of its own — and fades no colour; it
+   places and arranges, and styles its own text from the type and colour roles.
+4. **A screen never restyles a component.** Its `className` places the component: margin,
+   width, a bounded height, its flex or grid share, position, alignment, visibility. A
+   look the component lacks is a variant the component gains, pending.
+5. **Behaviour comes from the block that carries the rule.** A screen that saves uses the
+   block that owns saving; a screen never writes its own save, error or loading behaviour.
+6. **Where the system is silent, build the gap and keep going.** A token, a variant, an
+   option, a block, a recipe instruction or a behaviour rule, marked pending, with its
+   pointers and its inventory line, in the same change. Never stop to ask about each one.
 
-**A screen never names a raw value.** It uses a component; the component names the
-role. That is the difference between a design system and a naming convention, and
-it is the only version that survives contact with the twentieth screen.
+### 3. Values
 
-### Components carry variants; a call site only places them
+Every value is a role. A screen writes no raw value; a component picks a role. A new role
+is added when a thing exists that no role names, named for the job, with its purpose
+comment, pending. A raw `text-sm`, `px-[10px]` or `rounded-lg` fails `npm run lint:tokens`.
 
-Tokens stop drift in VALUES. They do nothing about drift in COMBINATIONS.
-`<Button variant="ghost" className="size-7 p-0">` uses only real tokens and is
-still a close button nobody named — and the next surface builds its own a
-different way. A shared component that takes style overrides at the call site
-turns every use into a one-off styling decision, which is the size-named-token
-failure one level up.
+### 4. Discipline the checks do not cover
 
-- **A variant is complete.** It carries every visual property — padding, size,
-  colour, type, radius, border — and every state: hover, disabled, selected,
-  read-only. It never expects a caller to finish it.
-- **A class held in a constant is the call site's class.** `className={DIVIDED}` is
-  read as the constant's classes, and the rules below apply through it.
-- **A call site's `className` places the component and nothing else**: margin,
-  width and height, its share of a flex or grid row, position, text alignment.
-  Padding, a fixed size, colour, type, border or radius at a call site is a variant
-  that does not exist yet. Add it to the component, named for what the thing is.
-- **Several overrides at one site is the signal.** Check the inventory first — as
-  often as not the right component or variant already exists and the wrong one was
-  picked. Otherwise it is a new variant.
-- **State belongs to the variant.** A selected cell, a filled filter box, a
-  read-only field: key it off an attribute or pseudo-class inside the variant
-  (`data-selected:`, `read-only:`, `not-placeholder-shown:`), so no caller can paint
-  it differently.
-- **A look shared by an atom and a composite is exported once.** When a composite
-  draws the same look around something else — a field shell holding an input and a
-  picker trigger — export the variant function (`fieldVariants()`, alongside
-  shadcn's own `buttonVariants()`) and build from it. Hand-copies of a look each
-  pick up their own focus and disabled treatment, and nothing notices.
-- **Restyle a vendored primitive once, at the source.** A shadcn atom left on its
-  registry defaults gets repainted by every caller. Restyle the vendored file to
-  `design.md` so callers never have to. Keep its focus mark: shadcn pairs
-  `outline-none` with a `focus-visible:` ring, and dropping the ring leaves no focus
-  at all (`a11y-baseline.md`, "Focus is always visible").
-- **A prop names meaning, never style.** `cols={2}`, `size="detail"`,
-  `inset="list"` — a small closed set the component interprets. Never
-  `radius="xl"` or `padding="…"`: an override prop does not track the variant, so
-  the day the variant changes, every call site using it silently falls out of step.
-- **Glyphs are the exception.** An icon paints in `currentColor`; its caller naming
-  the colour IS the design.
-- **A rule about a KIND of region is one named utility.** "Scroll areas hide their
-  bar" written as three classes per site is applied where someone remembered and
-  missing everywhere else — the first modal body to scroll shows it. Define it once
-  (a Tailwind `@utility` named for what the region is), use it in place of the
-  bare `overflow-y-auto`, and fail the bare one in the check.
+- **A variant is complete.** It carries every visual property and every state; it never
+  expects a caller to finish it. State is keyed inside the variant (`data-selected:`,
+  `read-only:`), so no caller paints it.
+- **A prop names meaning, never style:** `cols={2}`, `size="detail"`, never
+  `radius="xl"`. The token check fails a size prop by magnitude; every other style prop
+  is yours to refuse.
+- **A look shared by an atom and a block is exported once** (`fieldVariants()` beside
+  `buttonVariants()`) and built from.
+- **A vendored atom is restyled once, at the source**, keeping its focus ring.
+- **A rule about a kind of region is one named `@utility`** (a scroll area), never three
+  classes per site.
+- **Dark mode is the token file redefining values** under `prefers-color-scheme` unless
+  `<html>` carries `light`, with `dark` or `light` forcing it; never a `dark:` variant in
+  a component.
+- **Colour is the worked example**: a ramp plus role aliases, components naming only the
+  aliases. Every other family has the same shape.
+- Tailwind mechanics are the `shadcn` skill's `rules/styling.md`; accessibility is
+  `a11y-baseline.md`.
 
-### Colour is usually the family that is already right — copy it
+### 5. Prove, then put it to the human
 
-Most projects already have a colour ramp plus semantic aliases over it, with
-components referencing only the aliases. That is why dark mode works by redefining
-one layer and no component CSS changes. **It is the worked example of the shape
-every other family needs**, and pointing at it is the fastest way to explain what
-"done" looks like.
+**First prove what did not change:** `node .claude/skills/design-system/scripts/compare-ui-values.mjs [--base <ref>]`
+resolves every changed class through the project's own Tailwind build and lists only the
+values a user would see differently, in light and dark, with moved styles told apart from
+changed ones. A line it proves identical needs no review.
 
-### Dark mode follows the OS; a class only overrides it
+**At the end of a body of work, and at the latest before `/deploy`, walk the human
+through every pending item**: `node .claude/skills/ui-patterns/scripts/check-ui-status.mjs`
+lists them, each with the screens that use it. Open by asking whether to include what is
+deferred (`--deferred` lists it). Describe each item by what changed on screen or in
+behaviour, never by file or vocabulary, opening with "nothing new to look at" where that
+is true. Two competing looks for the same thing go to the human on a comparison page
+(`references/comparison-pages.md`), never in prose and never with a recommendation. Each
+item the human approves becomes `approved`; one they reject is replaced by an existing
+piece or changed until they approve it; one they set aside becomes `deferred`, with its
+fingerprint.
 
-**The stylesheet applies the dark values under `prefers-color-scheme: dark` unless
-`<html>` carries `light`, and a `dark` or `light` class on `<html>` forces a theme
-either way.** Following the OS is the design system's job, never a script an app has
-to run — shadcn's `.dark`-class-only default is not enough on its own.
+**Run the checks once, when the iteration settles**, never after each tweak the human is
+watching live: `npm run lint:tokens`, `node .claude/skills/ui-patterns/scripts/check-ui-status.mjs`,
+and `npm run build:design-system` when a token changed, which regenerates `design.md`'s
+token section and the files the token check compares; a project that publishes nothing to
+Claude Design regenerates `design.md` with `node .claude/skills/claude-design/scripts/design-md.mjs`.
 
-- **Write the dark values once.** On Tailwind v4, define the variant and put the dark
-  tokens in `:root { @variant dark { … } }` — the `claude-design` producer reads that
-  form:
+## The build-from gate
 
-  ```css
-  @custom-variant dark {
-    &:where(.dark, .dark *) { @slot; }
-    @media (prefers-color-scheme: dark) {
-      &:where(:root:not(.light), :root:not(.light) *) { @slot; }
-    }
-  }
-  ```
+State, in your response, what you built from:
 
-- **A theme toggle is optional.** It sets the class and saves the choice; toggling
-  back to the OS's theme clears both. An inline script in `<head>` applies a saved
-  choice before first paint — in React, with `suppressHydrationWarning` on `<html>`.
+```
+Built from: <path(s) to the block(s) or atom(s)>
+```
 
-### Converting a legacy app: do not derive values from it
+A new block: `Built from: <path> (new, pending: <Type> <name>)`. Content kept in its
+feature folder: `Built from: <path> (content)`. Nothing similar exists: `Built from: none
+— new, pending: <the piece>`. No citation means Step 2 did not happen and the work is
+incomplete.
 
-Measuring what the old app did most often canonises its drift with extra steps.
-Take the NAMES from what things are, take the VALUES from a scale with deliberate
-steps, and anchor that scale on one known-good value. Whole pixels — no shipped
-system uses half-pixels, and a 13.5 in a legacy stylesheet is a symptom, not a
-specification.
+## Tokens must survive the trip to Claude Design
 
-### Enforce it or it decays
+The token stylesheet is also the source the design system is published from, and the
+design tool reads a narrower language than a browser.
 
-A raw `text-sm` or `px-[10px]` is valid CSS and valid TSX, so no ordinary linter
-objects. A check that fails the build on any raw value outside the token layer is
-what makes the rule real; without one it is a preference.
+- **Every value resolves to a plain colour or length**: a literal, a `var()` reference to
+  another token, or a `color-mix()` whose operands are literals or tokens. The producer
+  fails the build on anything else.
+- **Every token carries a comment saying what it is for**, on its line or directly above
+  it, no blank line between. The sync copies it as the token's usage note, and the token
+  check fails a token without one. Group headers use the `/* ─── name ─── */` form.
+- **Wrap what the design system does not carry in `/* publish: off */` … `/* publish: on */`**:
+  raw palette colours, the sizes the type roles consume, layout measurements. The same
+  markers decide what `design.md` publishes.
+- **Say in words what the format has no field for**: a type role's size at a breakpoint,
+  tabular figures.
+- A user theme setting follows `references/custom-themes.md`.
 
-**The kit ships that check: `npm run lint:tokens` runs
-`.claude/skills/design-system/scripts/check-design-tokens.mjs`, and CI runs it whenever
-`design.md` exists.** It reads the roles live from the stylesheets and the project's
-paths and named sets from the design keys in `.claude/sync-substitutions.json`, and
-fails on a class off a role, a call site fixing a component's height (through a constant
-too), a screen or feature file fading a colour on a line the change touched, a frame
-atom imported outside a part, a raw field painting the field look, a role named with a
-t-shirt size, a token that resolves to nothing or that nothing reaches, a light/dark
-mismatch, `design.md` naming what does not exist, and a stale generated file.
+## Design-system components run on React 18 inside Claude Design
 
-**The judgements are `references/design-checks.md`, by layer — tokens, parts, patterns,
-screens.** The design review at `/commit` and `/ship-main` applies them to the lines a
-change adds, and `/design-audit` to everything. The review flags each with why and a fix,
-and the developer fixes it, marks the line `design-accepted` with a reason, or skips it.
-
-- **Name the exemptions in the keys, never in code.** Vendored atoms are
-  `DESIGN_VENDORED_DIR`, with `DESIGN_VENDORED_RESTYLED` saying whether they are on the
-  roles yet; headless primitives and glyphs are `DESIGN_EXEMPT_COMPONENTS`. A Radix
-  trigger renders an unstyled element, so the composite styling it is BUILDING a look,
-  and a spinner paints in `currentColor`, so its caller naming the colour is the design.
-  The exemption covers the vendored file's insides, never a call site passing it a
-  `className`.
-- **A rule only this project has is a project check:** a `*.mjs` in
-  `<UI package>/design-system/checks/` default-exporting a function. The checker runs
-  each one with its API — `repo`, `pkg`, `design`, `css`, `sources`, the `roles` it read,
-  and `add(at, what, why)` to report a finding.
-- **Every project with a UI package names it in `DESIGN_UI_PACKAGE`**, whether or not it publishes to Claude Design, and the check runs. Only a project with no UI package sets it to `""` and lists it in `_intentionally_empty`; the check then passes saying it does not apply, and fails while the key is missing or empty without that listing.
-- **A token for a screen not built yet says so on its line** —
-  `/* not-yet-built: <screen> */` — or the check reads it as one a rewrite left behind.
-- **Every text colour measures 4.5:1 on its background, in each theme.** The check
-  measures each `design.md` component's `textColor` on its `backgroundColor`, and each
-  `--<x>-foreground` on `--<x>`; declare a pair one of those two ways. A pair with a
-  `disabled` token is exempt. A failure kept on
-  purpose says so on the text token's line with its measured ratio —
-  `/* contrast-accepted: 3.8 — <reason> */` — and fails again if it measures lower.
-
-### Tokens must survive the trip to Claude Design
-
-The token file is also the source a design system is published from, and the
-design tool reads a narrower language than a browser. Write every token so a
-producer can translate it without losing anything.
-
-**Every value resolves to a plain colour or length.** Use a literal colour or
-length, a `var()` reference to another token, or a `color-mix()` in any colour
-space, its operands and percentages literals or tokens. The producer resolves each
-per theme exactly as the browser does. Keep the reference in the source: it is
-what makes a change to a light token carry into dark without anyone remembering
-which tokens were derived from it. The producer fails the sync on a construct it
-does not know, because the design tool never does: it drops what it cannot read,
-and a colour missing from the dark theme silently inherits the light one.
-
-**A user theme setting** — accent colour, colour-blind mode, text size, spacing — follows `references/custom-themes.md`.
-
-**Wrap what the design system does not carry in `/* publish: off */` …
-`/* publish: on */`** — raw palette colours, the sizes and weights the type roles
-consume, layout measurements. The pair wraps declarations inside a block, or whole
-blocks. Wrapped tokens still resolve the ones that use them.
-
-**Every token carries a comment saying what it is for.** One line, directly
-above the declaration or trailing it on the same line: "the border of a field",
-"a hover fill inside a card". No blank line between comment and token. Group
-headers use the `/* ─── name ─── */` form, which belongs to no token.
-The sync copies it as the token's usage note, so it is what the design agent
-reads when it picks a colour. It is also the context any reader gets at the
-point of use, where a separate design doc is one file too far away. A token with
-no comment reaches the design tool with no meaning attached.
-
-**Say in words what the format has no field for.** A type role that changes size
-at a breakpoint carries one size, so its comment names the other. Tabular
-figures, or any font feature, go in the role's comment the same way.
-
-### Design-system components run on React 18 inside Claude Design
-
-Design pages and canvases run React 18, whatever the app runs. A component in the
-design system's feed stays inside what React 18 and 19 share: no `use()`, no
-`<Context>` rendered as a provider, no `useActionState`, `useOptimistic`,
-`useFormStatus` or `useEffectEvent`, no form actions, no ref cleanup functions —
-each breaks inside a design, and the render check fails on it when the component
-has a preview. Ref as a prop is handled by the bundle.
-
-**A component's look never depends on its neighbours or on how its children are
-nested.** Inside a design every mounted component sits in its own wrapper, so no two
-are ever adjacent siblings, none is its parent's first or last child, and none is a
-direct child of the component it sits in. An adjacent-sibling, `:first-child`,
-`:last-child` or direct-child (`>`, `*:`) rule silently stops matching — a divider
-disappears, a row loses its line, an icon renders at full size. Reach content with a
-descendant rule (`[&_svg]`), draw a thing as an element of its own (a separator), or
-give it a slot of its own that places itself (`AlertIcon`). Direct-child rules are
-fine only on elements the component renders itself. The render check fails a
-component whose render inside those wrappers differs from its plain render by a single
-pixel.
-
-An app's own composites never enter the design system and may use anything. The
+A component in the design system's feed stays inside what React 18 and 19 share: no
+`use()`, no `<Context>` rendered as a provider, no `useActionState`, `useOptimistic`,
+`useFormStatus` or `useEffectEvent`, no form actions, no ref cleanup functions. **A
+component's look never depends on its neighbours or on how its children are nested**: no
+adjacent-sibling, `:first-child`, `:last-child` or direct-child rule, because every
+mounted component sits in its own wrapper on a canvas. The render check fails a
+component whose canvas render differs from its plain render by a pixel. The
 `claude-design` skill carries the bundle and the check.
 
-## What `design.md` covers vs what it doesn't
+## What checks what
 
-`design.md` is scoped to **atoms and tokens**, per the google spec. It does NOT cover:
+- **The token check** (`npm run lint:tokens`, `scripts/check-design-tokens.mjs`) decides
+  everything mechanical: a class off a role, an arbitrary value, a role named by size, a
+  fixed height or a colour at a call site, a faded colour or a frame atom in a screen, a
+  bare scroll area, a raw field painting the field look, a token that resolves to nothing
+  or that nothing reaches, light and dark disagreeing, every text pair at 4.5:1, a
+  reference naming what does not exist, the generated files current. It judges a screen's
+  changed lines only, so untouched screens are never blocked. Exemptions are named in the
+  `DESIGN_*` keys, never in code; a project's own check is a `*.mjs` in
+  `<UI package>/design-system/checks/`.
+- **The status check** (`.claude/skills/ui-patterns/scripts/check-ui-status.mjs`) decides
+  status, the inventory, the block types, every pointer and the judge's ledger; its
+  `--maturity` prints how many inventory lines each commit that added a screen brought, the
+  reading of whether the system is maturing.
+- **The judge** (`references/judge-questions.md`, `scripts/judge.mjs`) answers the
+  questions code cannot — a class that repaints, a screen drawing a frame, a token used
+  against its purpose, two rules in conflict, a screen departing from its rule, a new
+  block that is a variant of an existing one — one candidate at a time, yes or no, three
+  answers and the majority wins. It runs at `/commit` and `/ship-main`
+  (`skills/gitflow/scripts/design-judge.sh`); a yes is one more pending item for the
+  walk-through, held in `.claude/ui-pending.json`. It never stops a commit.
+- **`/design-audit`** asks the same questions over a whole layer, when the human asks.
 
-- Composite layout patterns (modal scaffold, dashboard widget composition)
-- Interaction patterns (loading states, optimistic UI, error recovery)
-- User flow patterns (auth flows, multi-step wizards)
-- Code organization (shared constants, file structure)
+## Converting a legacy app: do not derive values from it
 
-Everything on that list is exactly what **Step 2 (Ground in the existing implementation)** handles: the project's own codebase is the authoritative cookbook for composites, interaction, flows, and look-and-feel. That is not an optional fallback for "harder" tasks — it is the mandatory, cited step for *every* composite UI task (see the build-from gate above). `design.md` owns tokens and atoms; `references/block-types.md` names the kinds of composite; the real components own everything else. Find the analog and build from it; where none exists, Step 2 says how the new piece is built and approved.
-
-## Brand voice and tone
-
-`design.md`'s **Overview** section captures the brand voice (e.g. "trade-focused, utility-first" vs "playful and approachable"). Use it for **copy/wording tone** — the words in the UI — and as high-level interpretive context. Do **not** use it to resolve *visual* feel (density, elevation, emphasis, polish): prose cannot faithfully specify those, and reading them out of prose is what produces off-brand output. Visual feel comes from Step 2 (the real components), never from the Overview paragraph. The Overview is also the human-facing brand summary (marketing, onboarding) — so keep its prose accurate to the shipped product, but treat the components as the source of truth for how anything actually looks.
-
-## Common file locations
-
-These vary per project; check `design.md`'s prose for the actual paths. Typical layout:
-
-- `<project-root>/design.md` — the design system spec (this skill's authority)
-- `<project-root>/<ui-home>/src/styles.css` — Tailwind v4 `@theme` block where tokens are declared as CSS variables
-- `<project-root>/<ui-home>/src/components/ui/` — shadcn atoms (button, input, label, dialog, etc.)
-- `<project-root>/<ui-home>/src/lib/utils.ts` — `cn()` utility
-- `<app>/src/features/<feature>/` — a screen's content, beside the routes that use it
-
-`<ui-home>` is where the project keeps its **client-clean** UI — either **per-app** (`apps/<app>/`) or a **dedicated client-only UI workspace** (`packages/ui/`) consumed by every front-end app. Which one is a project choice; check `design.md` / the project's rules. Either way the client/server wall in `ui-design.md` is a hard rule: the UI home holds no server/DB code.
-
-The CSS `@theme` block is the **runtime source of truth for tokens** — what the browser actually sees. `design.md` documents intent; the CSS implements it. If they diverge, the CSS wins (and `design.md` should be updated to match).
-
-For **look-and-feel** (elevation, motion, composition, density) there is a second source of truth: the **real components** under `src/components/**` and the route tree. `design.md`'s prose about feel is descriptive only — if it disagrees with the components, the components win, and the prose should be corrected. This is why Step 2 reads components, not paragraphs.
-
-## When this skill applies
-
-- Creating any new UI component
-- Editing styling on an existing component
-- Adding a new page or route with visible UI
-- Refactoring to use the design system (replacing ad-hoc styles with semantic tokens)
-- Reviewing UI work for token compliance
-
-## When this skill does NOT apply
-
-- Backend / server function work
-- Build / config / CI changes
-- Documentation edits outside of `design.md` itself
-- Code with no user-visible surface
+Take the names from what things are, the values from the base theme's scale, and anchor
+on one known-good value.
+Whole pixels. A thing drawn several ways today is an inconsistency the human walks on a
+comparison page or defers; it is never averaged.
 
 ## Adjacent skills and rules
 
-This skill cooperates with — and never duplicates — the following:
-
-- **`references/design-opinion.md`** — the kit's opinions on spacing, type, colour, radius, elevation, motion, icons, controls, focus, dark mode and badges; read whenever the project's system is silent
-- **`references/design-checks.md`** — every judgement check on the design, by layer; what the design review and `/design-audit` apply, and what to build to
-
-- **`a11y-baseline.md` rule** — auto-loaded on every JSX/TSX edit; authoritative for accessibility patterns
-- **`ui-patterns.md` rule** — auto-loaded on JSX/TSX; authoritative for the no-toast policy
-- **`typescript-rules.md` rule** — auto-loaded on TS/TSX; authoritative for TS quality discipline
-- **`shadcn` skill** — invoked when adding new shadcn components or working with the registry
+- **`references/block-types.md`** — the block-type vocabulary and the sort.
+- **`references/judge-questions.md`** — what the judge is asked.
+- **`references/comparison-pages.md`** — how a visual decision is put to the human.
+- **`references/custom-themes.md`** — user theme settings on top of light and dark.
+- **`ui-patterns` skill** — the recipes and behaviour rules, how each is written.
+- **`claude-design` skill** — publishing the system and designing from it.
+- **`a11y-baseline.md`** — accessibility, authoritative, auto-loaded on JSX.
+- **`shadcn` skill** — Tailwind mechanics and the vendored atoms.

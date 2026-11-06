@@ -8,6 +8,7 @@
  *   an `@source inline(…)` line per family of the class vocabulary the design
  *   system promises a design. Tailwind emits only classes it finds in source, so
  *   the feed stylesheet imports this file to ship the classes no screen uses yet.
+ * - design.md's token section (design-md.mjs), from the same reading of the tokens.
  * - The class-merge registration (`generated.classMerge`, default
  *   src/lib/design-tokens.generated.ts): the role names per tailwind-merge class
  *   group. tailwind-merge has no access to the theme and files a word it does not
@@ -22,6 +23,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { loadConfig } from './config.mjs'
+import { writeDesignMd } from './design-md.mjs'
 import { buildModel, promisedClasses, SPACING_UTILITIES } from './model.mjs'
 
 const HEADER = (what) =>
@@ -122,5 +124,6 @@ if (import.meta.main) {
   }
   const changed = writeGenerated(ctx, model)
   const files = generatedFiles(ctx, model).map((f) => `${ctx.CONFIG.package}/${f.rel}`)
-  console.log(`generate: ${files.join(', ')} — ${changed.length ? `${changed.length} rewritten` : 'already current'}`)
+  const designChanged = await writeDesignMd(ctx.REPO)
+  console.log(`generate: ${files.join(', ')} — ${changed.length ? `${changed.length} rewritten` : 'already current'}; design.md ${designChanged ? 'rewritten' : 'current'}`)
 }

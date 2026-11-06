@@ -80,12 +80,12 @@ commit "feat: later work"; rc=$?
 { [ "$rc" -eq 0 ] && [ "$(git branch --show-current)" = wip/alice-pushed ]; } \
     && ok "a wip/ branch already on origin keeps its name" || bad "pushed wip (rc=$rc): $(cat "$tmp/out")"
 
-# ─── The five headless reviews run side by side, and any one failing fails the gate ──
-# A copy of the scripts whose five reviews are fakes: each takes 2 s, prints its name, and
+# ─── The headless reviews and the design judge run side by side, and a review failing fails the gate ──
+# A copy of the scripts whose reviews are fakes: each takes 2 s, prints its name, and
 # fails when FAKE_FAIL_REVIEW names it.
 kit="$tmp/kit/scripts"; mkdir -p "$kit"
 cp "$(dirname "$C")"/*.sh "$(dirname "$C")"/*.mjs "$kit/"
-for r in rule-review part-review design-review sql-review test-review; do
+for r in rule-review design-judge sql-review test-review; do
     cat > "$kit/$r.sh" <<FAKE
 #!/bin/bash
 sleep 2
@@ -100,17 +100,17 @@ kcommit(){ PATH="$tmp/bin:$PATH" SKIP_RULE_REVIEW=1 "$kit/commit.sh" --message "
 printf 'parallel\n' > j.txt
 start=$(date +%s); kcommit "feat: parallel reviews"; rc=$?; took=$(( $(date +%s) - start ))
 { [ "$rc" -eq 0 ] && [ "$took" -lt 6 ]; } \
-    && ok "the five reviews run side by side (${took}s for five 2 s reviews)" || bad "parallel (rc=$rc, ${took}s): $(cat "$tmp/out")"
-order=$(grep -o '^[a-z]*-review ran' "$tmp/out" | tr '\n' ' ')
-[ "$order" = "rule-review ran part-review ran design-review ran sql-review ran test-review ran " ] \
+    && ok "the reviews run side by side (${took}s for four 2 s reviews)" || bad "parallel (rc=$rc, ${took}s): $(cat "$tmp/out")"
+order=$(grep -o '^[a-z]*-\(review\|judge\) ran' "$tmp/out" | tr '\n' ' ')
+[ "$order" = "rule-review ran design-judge ran sql-review ran test-review ran " ] \
     && ok "…each review's output is printed whole, in a fixed order" || bad "order: $order"
 grep -q 'rule-review ran (skip=1)' "$tmp/out" && ok "…and a SKIP_*_REVIEW override reaches its review" || bad "override: $(cat "$tmp/out")"
 
 printf 'one fails\n' > k.txt
 head_before=$(git rev-parse HEAD)
-FAKE_FAIL_REVIEW=design-review kcommit "feat: a design finding"; rc=$?
-{ [ "$rc" -eq 4 ] && [ "$(git rev-parse HEAD)" = "$head_before" ] && grep -q 'design-review: a finding' "$tmp/out" \
-  && grep -q 'headless review failed: design-review' "$tmp/out" && grep -q 'test-review ran' "$tmp/out"; } \
+FAKE_FAIL_REVIEW=sql-review kcommit "feat: a sql finding"; rc=$?
+{ [ "$rc" -eq 4 ] && [ "$(git rev-parse HEAD)" = "$head_before" ] && grep -q 'sql-review: a finding' "$tmp/out" \
+  && grep -q 'headless review failed: sql-review' "$tmp/out" && grep -q 'test-review ran' "$tmp/out"; } \
     && ok "one review failing fails the gate (exit 4, nothing committed), its finding shown, the others' output too" \
     || bad "one failing (rc=$rc): $(cat "$tmp/out")"
 

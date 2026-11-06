@@ -1,7 +1,6 @@
 #!/bin/bash
 # review-cache.sh — a passed headless review, remembered so an identical re-run skips the
-# call. Sourced by rule-review.sh, part-review.sh, design-review.sh, sql-review.sh and
-# test-review.sh.
+# call. Sourced by rule-review.sh, design-judge.sh, sql-review.sh and test-review.sh.
 #
 # The key is a hash of everything that decides the reviewer's answer: the review script
 # itself (its prompt, schema, model and flags), the system prompt and schema as built, and
@@ -9,7 +8,7 @@
 # reference file folded into it. Change any of them and the key changes. A review whose
 # reviewer can read the repository adds to the keyed input the path and content hash of
 # every file it is pointed at: test-review.sh every test file, sql-review.sh every drizzle
-# config and schema file, part-review.sh every component source file.
+# config and schema file.
 #
 # Only a clean, parsed answer is recorded. A finding, or a review that could not run, is
 # never recorded, so it is asked again every time. The record is the last pass of each

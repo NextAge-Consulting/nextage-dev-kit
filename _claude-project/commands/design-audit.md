@@ -1,58 +1,67 @@
 ---
-description: Hand-run audit of the whole design, one layer at a time from the bottom up — tokens, parts, patterns, screens — against the same design checks the commit review applies to each change. Never a CI gate.
-argument-hint: "[system | tokens | parts | patterns | screens [path] | design <name or url>]"
+description: Hand-run audit of the whole User Experience System, one layer at a time from the bottom up — tokens, components, recipes and rules, screens — asking the judge's questions over everything, never a CI gate.
+argument-hint: "[system | tokens | components | references | screens [path] | design <name or url>]"
 ---
 
 # /design-audit
 
 $ARGUMENTS
 
-Run only when the human asks for it. The commit design review applies the same checks to
-every change as it lands; this audit applies them to everything, for a project whose owner
-has made time to bring an existing system or existing code into line.
+Run only when the human asks for it. The commit-time judge asks its questions of what a
+change touches; this audit asks them of everything, for a project whose owner has made
+time to bring an existing system or existing code into line.
 
-**The checks are `.claude/skills/design-system/references/design-checks.md`, every one of
-them, including those marked *Whole layer*.** Each pass applies that layer's section.
+**The questions are `.claude/skills/design-system/references/judge-questions.md`.** The
+locator finds every candidate in a layer and the judge answers one question per candidate:
+
+```bash
+node .claude/skills/design-system/scripts/locate.mjs --all --layer <layer> > candidates.jsonl
+node .claude/skills/design-system/scripts/judge.mjs --candidates candidates.jsonl
+```
+
+The mechanical checks run first: `npm run lint:tokens` passes, and
+`node .claude/skills/ui-patterns/scripts/check-ui-status.mjs` reports no problems. Pending
+items it lists are no bar; the audit adds to them.
 
 ## The passes
 
 Run them in this order. With no argument, run every pass from `tokens`; `system` runs
-`tokens`, `parts` and `patterns`; a named pass runs alone.
+`tokens`, `components` and `references`; a named pass runs alone.
 
-| Pass | Layer audited | Material beneath it |
+| Pass | Layer audited | Questions asked |
 |---|---|---|
-| `tokens` | `design.md`, and the token, type and styles files that `DESIGN_UI_PACKAGE`, `DESIGN_TOKEN_FILES`, `DESIGN_TYPE_FILE` and `DESIGN_STYLES_FILE` in `.claude/sync-substitutions.json` name | `.claude/skills/design-system/references/design-opinion.md` |
-| `parts` | `.claude/rules/project/ui-inventory.md`, and the source of every part it lists | the `tokens` layer, its purposes (`node .claude/skills/design-system/scripts/check-design-tokens.mjs --purposes`), and `references/block-types.md` |
-| `patterns` | every reference in `.claude/skills/ui-patterns/references/` | the `parts` material, and the `parts` layer |
-| `screens` | every UI source file in the folders `node .claude/skills/design-system/scripts/ui-sources.mjs` prints that is not a part — or only those under `[path]` | the `patterns` material, and the `patterns` layer |
-| `design` | a Claude Design design's pages, read through the Artifact tool, judged as the `screens` layer | the `patterns` material, and the `patterns` layer |
+| `tokens` | the token, type and styles files the `DESIGN_*` keys name | ROLE-NAME, DUPLICATE-ROLE |
+| `components` | every component the inventory lists | TOKEN-AGAINST-PURPOSE, VARIANT-INCOMPLETE, NAMED-FOR-DATA, DUPLICATE-BLOCK over every pair of the same or neighbouring type |
+| `references` | every recipe and behaviour rule | TOKEN-AGAINST-PURPOSE, RULE-REACH, RULE-CONFLICT over every pair sharing a surface and an app |
+| `screens` | every screen file the UI source holds that is not a component — or only those under `[path]` | TOKEN-AGAINST-PURPOSE, FOLLOWS-RULE, REPAINT, SCREEN-BOX |
+| `design` | a Claude Design design's pages, read through the Artifact tool; the session writes the candidates itself — each page against every rule that governs its page type (FOLLOWS-RULE, the page's markup as `screen`), each `class-name` on a mounted component (REPAINT), each plain element drawing a box (SCREEN-BOX) — as JSON lines for `judge.mjs --candidates` | the `screens` questions |
 
-**Each pass runs in a fresh agent** (the Agent tool, `general-purpose`) given only
-`design-checks.md`, its layer and the material beneath it — never this conversation. It
-reads every file it is given, states how many it inspected, and reports each finding under
-its check's name.
+**Settle a pass before starting the next.** A yes left open in a lower layer makes every
+layer above it unreliable.
 
-**Settle a pass before starting the next.** A finding left open in a lower layer makes every
-layer above it unreliable; take the open ones to the human first.
+## Settling a yes
 
-## Settling the findings
+Each yes goes to the human one at a time, by `asking-questions.md`: what it costs, what it
+risks, what it buys, and what carrying it would mean. Never a recommendation on how
+anything should look. Each answer lands in the same pass:
 
-Take each finding to the human one at a time, by `asking-questions.md`: what it costs,
-what it risks, what it buys, and your recommendation. Each answer lands in the same pass:
-- **A change to the layer's own file** — a token, a part, a pattern rule or a screen fixed
-  with what the layers beneath it already hold.
-- **A change beneath it** — the token, part or pattern that should answer the question
-  gains it, and everything that layer reaches is brought into line in the same pass.
-- **Accepted** — a comment on the line, `design-accepted — <the human's reason>`, or
-  `design-accepted(<reference file>) — <reason>` for a departure from one pattern:
-  `/* … */` in CSS, `{/* … */}` in JSX, `<!-- … -->` in Markdown. Every later audit and
-  review skips it.
+- **Fix the work** — the token, component, reference or screen is brought into line with
+  the layers beneath it.
+- **Add to the system** — the layer beneath gains what was missing, pending, and
+  everything it reaches is brought into line.
+- **Approve it as it is** — `design-accepted — <the human's reason>` on the line: `/* … */`
+  in CSS, `{/* … */}` in JSX, `<!-- … -->` in Markdown. No later audit or judge raises it.
+  Arrangement only: a behaviour that departs from its rule is fixed, or the rule is
+  changed for every screen — behaviour never differs by exception.
+- **Defer it** — `design-deferred <fingerprint>` on the line
+  (`check-ui-status.mjs --line-fingerprint <file> <n>`), or `ui-status: deferred` with the
+  file's fingerprint on its inventory line. It blocks nothing and comes back when the code
+  changes.
 
-A **worth a look** item goes to the human as a question, never as a violation: adopt the
-guideline, or keep their own value. Keeping it needs no reason — the line is marked
-`design-choice`, and nothing lists it again.
+Nothing changes without the human's answer. They may stop part-way; what is settled stays
+settled.
 
 ## Report
 
-How many files each pass inspected, each finding with its outcome, and anything left for
-the human.
+How many candidates each pass judged, each yes with its outcome, and anything left for the
+human.

@@ -1,0 +1,9 @@
+{
+  "answer": "yes",
+  "why": "a dialog is not a card",
+  "token": "p-card-inset",
+  "purpose": "the padding inside a card",
+  "line": "<DialogContent className=\"p-card-inset\">",
+  "where": "block packages/ui/src/components/review-dialog.tsx",
+  "context": "<Dialog>\n  <DialogContent className=\"p-card-inset\">\n    <DialogHeader>"
+}

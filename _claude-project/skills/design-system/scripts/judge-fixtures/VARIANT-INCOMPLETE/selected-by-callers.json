@@ -1,0 +1,12 @@
+{
+  "answer": "yes",
+  "why": "a state painted by two callers",
+  "component": "Row",
+  "variant": "default",
+  "definition": "flex items-center gap-related px-card-inset",
+  "callSites": [
+    "<Row className={cn(selected && \"bg-accent\")}>",
+    "<Row className={selected ? \"bg-accent\" : \"\"}>",
+    "<Row className=\"mt-2\">"
+  ]
+}

@@ -124,3 +124,47 @@ Give each barrel an explicit entry — a pattern maps `./billing` to `src/billin
 **A config module shared across workspaces resolves its paths from `import.meta.dirname`.** Vite loads a workspace package's module as native ESM, where `__dirname` is undefined, and `process.cwd()` is whichever app is building.
 
 **shadcn's `components.json` in a shared UI package names the package**: `"components": "@acme/ui/components"`, `"utils": "@acme/ui/lib/utils"`.
+
+## X. The client/server wall
+
+The design system's UI — tokens, atoms, blocks, `cn()`, display components — lives in a home with client dependencies only (react, radix, cva) and no server or DB imports. One front-end app puts it in that app's `src/components/ui/`; more than one puts it in a dedicated client-only workspace (`packages/ui`) they all consume.
+
+The wall is bidirectional. **The UI home holds no server code**, so a UI atom can never drag pg or drizzle into the client bundle. **The server-shared package holds no UI**, so a headless app — a REST API, a worker — can consume shared business logic with no path reaching a React import. Keep that true even with no headless app today.
+
+A component needing server data is an app-level composite wiring a server function to a UI atom, not the UI home reaching into the server.
+
+A project that cannot yet satisfy the wall — UI still living in its server-shared package — records the exception in a file under `rules/project/`, naming the migration path.
+
+### A third tier, only when something needs it
+
+Server-shared plus UI home covers most projects. A third appears when a project has shared code that is neither: reachable from browser code, used by more than one front-end app, and not presentational — a Stripe browser integration, a shared serverFn, a shipping-API client.
+
+"Reachable from browser code" is the test, not "executes in the browser". A serverFn runs on the server, but the client imports its reference to call it, so it cannot live in the browser-free server-shared package. It must not go in the UI home either, which stays clean presentation. So it earns its own workspace, conventionally `packages/web`, holding integrations and shared serverFns and never touching the database.
+
+Any front-end may import it — apps, and extension apps too.
+
+Create it when the code that belongs in it exists, never speculatively.
+
+### Browser extensions are all browser
+
+A browser-extension app is client code end to end. There is no server half, so nothing in it can justify a data-tier import — a stray one ships drizzle into the extension bundle.
+
+An extension app may consume the UI home like any other front-end. It must never import the server-shared package, and never import database code (`drizzle-orm`, `pg`, `postgres`, `@neondatabase/*`) directly.
+
+The guard identifies an extension app by a browser-extension builder in its dependencies — `wxt`, `plasmo`, `@plasmohq/parcel-config`, or `@crxjs/vite-plugin` — so a new extension is covered the moment its `package.json` names one, with nothing to configure. It is also excluded from headless-app detection: an extension has no `react` dependency and may have no `.tsx`, which would otherwise read as a server-only service, and the two have opposite rules about reaching the database.
+
+### The one sanctioned crossing: contract types
+
+Row and param shapes produced by server loaders and rendered by UI components are defined once, in the UI home under `contracts/`, and `import type`d back by the server module that produces them. Types erase at compile, so nothing crosses at runtime.
+
+This is the only way the server-shared package may reference the UI home, and it is types-only — a runtime import is a violation. Contract modules import nothing but sibling contract modules. Declaring the shape twice drifts; putting it in the server tier and importing it from UI breaches the wall.
+
+### The guard
+
+`scripts/check-workspace-tiers.mjs` (CI job `workspace-tiers`) enforces all of the above. It detects which tiers a repo has — server-shared, UI home, web tier, headless apps (an app workspace with no `react` dependency and no `.tsx`), and extension apps (an app workspace whose dependencies name an extension builder) — and checks only the walls that exist, so a repo with no shared workspace passes unconditionally.
+
+It also holds the rule every wall depends on: a tier is recognised by its package name, so a workspace reaches another only by that name, declared as a dependency (§IX). A relative import out of a workspace, or a tsconfig `paths` alias resolving outside one, fails.
+
+Read its success line: it names what it actually enforced. Fewer tiers listed than you expect means a tier was not detected, not that it was checked and found clean.
+
+It detects the UI home as the `packages/ui` workspace. A single-app UI home living in `apps/<app>/src/components/ui/` is a directory, not a workspace, so the guard does not see it and that wall is yours to hold by hand until the project grows a second front-end.

@@ -1,0 +1,12 @@
+{
+  "answer": "no",
+  "why": "one look change, once",
+  "component": "Badge",
+  "variant": "status",
+  "definition": "rounded-stamp px-related type-metadata",
+  "callSites": [
+    "<Badge variant=\"status\" className=\"ml-2\">",
+    "<Badge variant=\"status\" className=\"uppercase\">",
+    "<Badge variant=\"status\" className=\"shrink-0\">"
+  ]
+}

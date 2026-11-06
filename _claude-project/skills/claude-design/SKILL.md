@@ -81,15 +81,14 @@ guide wherever it lays screens out as fixed-size artboards per device on one can
   `CardContent`, `CardFooter`), not a wrapper the page draws with its own gaps.
 - **A piece the system lacks is a gap you raise, never one you draw.** The tell is a
   value you are about to set on the page: a padding, a gap, a height, a colour, a wrapper
-  that adds space, content set flush and padded back. Stop, and read the design-system
-  skill's `references/design-opinion.md`: an opinion there is the gap's proposal. A gap is
-  one change, built from the system's existing parts and scale — never a value off the
-  scale, never several changes under one tweak. SHOW the gap rather than
-  describe it — nobody can decide one from a list of pixel values. Build its options as a
-  tweak under the design's **Design system only** switch
-  (`references/working-with-claude-design.md`, Tweaks), each option's styling only in the
-  PREVIEW block, the markup marked `<!-- DESIGN-SYSTEM CANDIDATE: … -->`; record it in
-  `brief.md` and say which option you would take. The person approves or rejects each on
+  that adds space, content set flush and padded back. Stop. A gap is one change, built
+  from the system's existing blocks and scale — never a value off the scale, never several
+  changes under one tweak. SHOW the gap rather than describe it — nobody can decide one
+  from a list of pixel values. Build its options as a tweak under the design's **Design
+  system only** switch (`references/working-with-claude-design.md`, Tweaks), each option's
+  styling only in the PREVIEW block, the markup marked `<!-- DESIGN-SYSTEM CANDIDATE: … -->`;
+  record it in `brief.md`. Never say which option you would take. The person approves or
+  rejects each on
   the canvas; an approved option lands in the design system and a rejected one comes out,
   and every gap is settled that way before `implement`.
 - **`scripts/check-design.mjs` runs on every page before every publish to a design, and

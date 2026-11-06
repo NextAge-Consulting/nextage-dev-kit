@@ -13,21 +13,23 @@ components, and `implement` turns it into the real screens — prework, never th
 
 ## The layers
 
+The picture is `uxes-layers.svg` in this folder.
+
 | Layer | What it is | Decides | Example |
 |---|---|---|---|
-| 1. Token | A named value | What values exist | `type-body`, `text-error`, `rounded-notice` |
-| 2. Atom | One basic control or piece of text, built on tokens | How the smallest things look | Button, Input, Dialog, Heading, Text |
-| 3. Part | A building block made from atoms, with a block type (or `<none>`) | How a kind of thing looks | ErrorState, RecordHeader, ReviewDialog |
-| 4. Pattern | A written rule for how parts are assembled and behave | How screens of a kind work | browse layout, pagination |
-| 5. Screen | Arranges parts and fills them with content | Nothing visual | the orders screen |
+| 1. Token | A named value: a base from the theme, a role named for its job | What values exist | `type-body`, `text-feedback-danger`, `rounded-control` |
+| 2. Atom | One control or element, built on tokens | How the smallest things look | Button, Input, Badge |
+| 3. Block | A building block of one block type, with variants, props, slots and guarantees | How a kind of thing looks and acts | ReviewDialog, RecordHeader, BrowseToolbar |
+| 4. Recipe | How one page type is put together: its frame in code, its instructions in prose | How screens of a kind are arranged | the browse screen, the record screen |
+| 5. Behaviour rule | How the app acts on one topic, everywhere | How the app behaves | saving, loading, errors |
+| 6. Screen | Fills a recipe's slots with content | Nothing visual | the orders screen |
 
-Which layer a look belongs to:
+A small difference is a **variant** of a block, an **option** a recipe offers, or an
+**exception** you approve on one screen. Never a new block.
 
-- **Text styling only** — a type role and a text colour → an **atom**: a Heading or Text
-  variant named for what the text is.
-- **A surface around something** — background, border, padding, radius → a **part**; its
-  block type says which.
-- **How things are arranged or behave**, not how they look → a **pattern**.
+Several apps on one design system: a recipe or rule that holds for some of them names
+them on its `apps:` line; one with no `apps:` line holds everywhere. An app's own block
+carries your reason on its inventory line.
 
 ---
 
@@ -55,33 +57,37 @@ list. Nobody pastes a design's link — it comes from the folder.
 
 ## Starting a design system
 
-- **New project:** pick and adjust a theme at tweakcn, hand Claude its Tailwind v4 code,
-  then `/design-audit system`.
+- **New project:** pick and adjust a theme at tweakcn, hand Claude its Tailwind v4 code;
+  the roles and the first blocks are built pending as the first screens need them.
 - **Existing app:** Claude extracts the system the app already shows (optionally merged
-  with a tweakcn theme), then `/design-audit system`. Old screens are never blocked; audit
-  an area when you have time for it.
-- **After that:** a value the system lacks comes from the kit's design opinions, or from
-  you, and is built into the system so it stays decided.
+  with a tweakcn theme); each thing drawn several ways comes to you as a choice. Old
+  screens are never blocked; audit an area when you have time for it.
+- **Either way:** `design.md` is generated from the stylesheet, never hand-edited; the kit
+  has no opinion on how anything looks.
+
+## Status: three words
+
+`pending` waits for you and blocks `/deploy`. `approved` is your word. `deferred` is "I did
+not look; I trust it" — blocks nothing, needs no reason, pending again if the code changes.
+Nothing stops a commit; the judge's findings join the pending list.
 
 ## The design audit — only when you ask, never in CI
 
 ```
-/design-audit system                # tokens, then parts, then patterns — the design system
-/design-audit patterns              # the patterns alone, against the tokens and parts
+/design-audit system                # tokens, then components, then recipes and rules
+/design-audit references            # the recipes and rules alone
 /design-audit screens              # all of the project's screens against the system
 /design-audit screens <path>       # one area of them
 /design-audit design <name or url>  # a Claude Design design, before implementing it
 ```
 
-- **When:** after setting up or merging a system, after a kit update adds opinions, when an
-  area of an old app gets cleanup time, before implementing a design.
-- **What happens:** a fresh reviewer reads only the files audited and says how many. A code
-  or design audit runs the system pass first and settles it before judging screens.
-- **Each finding comes to you one at a time:** fix the work, add to the system, or accept
-  it with a reason (`design-accepted — <reason>`), which no later audit raises again.
-- **Guidance differences are a question, not a finding:** adopt the kit's guideline or keep
-  yours. Keeping yours needs no reason (`design-choice`).
-  Nothing changes without your answer, and you can stop part-way.
+- **When:** after setting up or merging a system, when an area of an old app gets cleanup
+  time, before implementing a design.
+- **What happens:** one yes-or-no question per place, answered by a fresh judge three
+  times; the system pass runs first.
+- **Each finding comes to you one at a time:** fix the work, add to the system, approve it
+  with a reason (`design-accepted — <reason>`), or defer it (`design-deferred`). Claude
+  never recommends a look. Nothing changes without your answer, and you can stop part-way.
 
 ---
 

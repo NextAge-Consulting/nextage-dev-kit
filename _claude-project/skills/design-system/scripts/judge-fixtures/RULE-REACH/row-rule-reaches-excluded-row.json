@@ -1,0 +1,12 @@
+{
+  "answer": "yes",
+  "why": "inventory excludes it",
+  "rule": "---\nui-status: approved\nblock-types: [Row]\n---\n# Row actions\n\nEvery row ends in a RowActions menu. Frequent actions sit on the row; the rest go in the menu. Delete is red.",
+  "blockTypes": "block-types: [Row]",
+  "block": {
+    "name": "ListRow",
+    "type": "Row",
+    "summary": "The card form of a row: title, subtitle, metadata line; no actions slot.",
+    "inventoryLine": "| `ListRow` | the card form of Row for the portal's bills; no actions, by the human's decision | Row | approved |"
+  }
+}

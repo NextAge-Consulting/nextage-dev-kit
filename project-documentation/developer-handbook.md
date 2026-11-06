@@ -163,6 +163,9 @@ own hooks.
 
 ## UI work
 
+`uxes-layers.svg`, beside this handbook, shows the six layers a screen is built from and
+which check runs on each at commit, at the end of a body of work and at deploy.
+
 Screens use the project's design system: tokens and rules in `design.md` at the repo
 root, and the components listed in the UI inventory rule. Claude loads both when you touch
 a component or a stylesheet. Every dialog, panel, header or toolbar is one of a short list
@@ -177,8 +180,8 @@ Anything new Claude adds to the design system is marked pending until a human ap
 and `/deploy` refuses while anything is pending — `designer-handbook.md`, "Nothing new ships
 until you approve it".
 
-When the system has no answer for a value, Claude takes the kit's design opinion
-(`design-opinion.md` in the design-system skill) into the system, or asks you. Existing
+When the system has no answer for a value, Claude builds the gap as pending and puts it
+to you at the review; the kit itself holds no opinion on how anything should look. Existing
 screens that predate the system are never blocked — the checks judge only the lines you
 change — and `/design-audit` brings an area into line when you have time for it:
 `designer-handbook.md`, "Starting and growing a design system".
@@ -208,6 +211,11 @@ either way.
 **`/commit` stopped on the rule review.** A change to a rule, skill, command or pattern
 reference carries history, a justification, or a counted list. Have Claude fix the text
 and commit again. If you judge a finding wrong, commit with `SKIP_RULE_REVIEW=1`.
+
+**The design judge printed a finding at `/commit`.** The commit went through: a finding is a
+pending item in `.claude/ui-pending.json`, listed by the UI status check and put to you at the
+next review, where you approve the line, defer it or have it fixed. `/deploy` waits for it;
+nothing else does.
 
 **`/commit` stopped on the test judge.** It judged the tests of the TypeScript you
 changed: risky code with no test (write it), a test running its own copy of the logic

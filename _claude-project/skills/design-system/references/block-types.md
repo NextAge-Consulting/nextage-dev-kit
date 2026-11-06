@@ -1,30 +1,34 @@
 # Block types
 
-The kinds of building block a business application is made of. Each app designs its
+The kinds of building block a business application is made of. Each project designs its
 own look for each one; this list is the vocabulary that tells you which one you are
-building.
+building. The kinds themselves — token, atom, block, recipe, behaviour rule, screen —
+are the `design-system` skill's.
 
 ## Sort before you build
 
 1. **Name the block type** of every frame you are about to build — a dialog, a panel, a
    header, a toolbar, a row, a whole screen's layout. Match it by what it is and how it
    ends, never by what it contains.
-2. **Find this app's part of that type** in `rules/project/ui-inventory.md` (its Type
-   column) and use it. Read every pattern reference whose `block-types:` names the type.
-3. **None yet → build the part now, from this first use,** pending, named for the kind
+2. **Find this project's block of that type** in `rules/project/ui-inventory.md` (its
+   Type column) and use it. Read every recipe and behaviour rule whose `block-types:`
+   names the type.
+3. **None yet → build the block now, from this first use,** pending, named for the kind
    (`ReviewDialog`, never `CustomerNotesDialog`). Its inventory line carries the type.
-4. **No type fits → it is this app's own.** Drawing no box, it stays in its screen's
-   feature folder until a second screen needs it, then becomes a part typed `<none>`.
-   Drawing a box, it is a part typed `<none>` from the start.
+4. **No type fits → sort it:** A single control or element that owns
+   its look is an atom. A piece that differs a little from an existing block is a variant
+   or option of that block. A kind of thing no type names is a new block type, which is a
+   kit change: a type joins the list when two projects or two reference design systems
+   have it. Nothing is typed as untyped.
 
-**One part per type is the norm.** A second part of the same type is a question for the
-human: same thing, and it folds into the first; different, and their reason goes on its
-inventory line.
+**One block per type is the norm.** A second block of the same type is a question for the
+human: same thing, and it folds into the first as a variant; different, and their reason
+goes on its inventory line.
 
 **Two overlays that end differently are two types.** A popup that ends Close is not a
 popup that ends Save.
 
-A frame atom — the atom a type's **Wraps** cell names — is imported only inside a part.
+A frame atom — the atom a type's **Wraps** cell names — is imported only inside a block.
 
 ## Overlays
 
@@ -39,10 +43,15 @@ A frame atom — the atom a type's **Wraps** cell names — is imported only ins
 | EditDrawer | Create or edit a record in a side panel while the page stays readable | Ends Save / Cancel | EntityModal (covers the page) | Sheet |
 | DetailDrawer | A read-only look at a record without leaving the screen | Ends ✕; offers the full record | EditDrawer (edits) | Sheet |
 | FilterPopover | A small anchored panel setting one or a few filters | Applies live or on Apply; closes on click-away | FilterPanel (always open) | Popover |
+| HelpPopover | A short read-only explanation of the thing beside it, opened on demand | Closes on click-away; no inputs, no actions | FilterPopover (sets filters); Tooltip (one line, on hover) | Popover |
 | ColumnChooser | Show, hide and order a table's columns | Applies live, or Apply / Reset | FilterPopover | Popover |
 | InlineEdit | Edit one value where it is shown | Enter saves, Esc cancels | EditDrawer | |
 
 ## Screen frames
+
+A page type's block is a recipe's frame: fixed, ordered slots that accept named block
+types, no content of its own, and the behaviour every screen of that type shares — the
+form element, the loading state, the error state — so no screen re-decides it.
 
 | Type | What it is | Not to be confused with |
 |---|---|---|
@@ -51,10 +60,12 @@ A frame atom — the atom a type's **Wraps** cell names — is imported only ins
 | AccountMenu | Who is signed in, and their account actions | |
 | AuthShell | The frame around signed-out screens: sign-in, reset, register | AppShell |
 | ScreenHeading | The title and screen-level actions of a screen that is not one record | RecordHeader |
+| Breadcrumb | The trail from the module to the screen, each step a link | RecordTabs; NavRail |
 | ModuleLanding | A module's entry screen: tiles or links to its screens | DashboardScreen |
 | BrowseScreen | Find and act on many records: heading, toolbar, collection, pager | ListDetailScreen |
 | RecordScreen | One record: header, then sections or tabs, then related lists | EntityModal |
-| ListDetailScreen | A list and one record side by side; selecting does not navigate | DetailDrawer |
+| ListDetailScreen | A list and one record side by side; selecting does not navigate | DetailDrawer; AsideScreen |
+| AsideScreen | A main column and a side column of related content; the aside neither navigates nor selects | ListDetailScreen (selecting fills the detail) |
 | DashboardScreen | A read-only overview of tiles and cards that click through | ModuleLanding |
 | SettingsScreen | Grouped preferences with one save behaviour | RecordScreen |
 | Wizard | A guided multi-step create, Next / Back, with a summary last | ReviewDialog |
@@ -65,7 +76,9 @@ A frame atom — the atom a type's **Wraps** cell names — is imported only ins
 |---|---|---|
 | RecordHeader | The identity, key facts, status and primary actions of one record | ScreenHeading |
 | RecordTabs | Moves between the sections of one record | NavRail |
-| FieldGroup | A titled group of a record's fields, read or edit | RecordScreen |
+| FieldGroup | A titled group of a record's fields, read or edit | RecordScreen; FactList |
+| FactList | Read-only facts as label and value pairs, each pair set closer together than to the next | FieldGroup (fields in a grid, read or edit); SummaryList |
+| SummaryList | Label and amount rows that add to a total line | FactList (no total) |
 | FormActions | The submit control of an edit surface: Save gated on changes, busy, and its status words | ConfirmDialog |
 | RelatedList | A record's child records, with their own add action | BrowseScreen |
 | ActivityTimeline | The append-only history of events on a record or account | Row |
@@ -102,4 +115,5 @@ A frame atom — the atom a type's **Wraps** cell names — is imported only ins
 | StatusBadge | A status word in its tone, from one vocabulary | |
 | StatTile | One headline figure, which may drill through | StatusBadge |
 | StatRow | A row of StatTiles | DashboardScreen |
+| Chart | A figure drawn from a series — bar and line are its variants — with its axes and legend | StatTile (one number) |
 | SaveStatus | Saving, saved or failed, on a surface that saves itself with no Save button | FormActions |

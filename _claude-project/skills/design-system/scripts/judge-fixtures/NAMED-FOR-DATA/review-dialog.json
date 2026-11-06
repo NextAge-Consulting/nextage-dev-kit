@@ -1,0 +1,11 @@
+{
+  "answer": "no",
+  "why": "named for its kind",
+  "name": "ReviewDialog",
+  "blockType": "ReviewDialog",
+  "summary": "A dialog with a report region, Continue and Cancel, busy state. Takes title, report, onContinue, onCancel.",
+  "screens": [
+    "rent roll import",
+    "bulk email"
+  ]
+}

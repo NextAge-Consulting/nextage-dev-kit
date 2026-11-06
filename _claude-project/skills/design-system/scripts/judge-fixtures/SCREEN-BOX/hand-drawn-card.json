@@ -1,0 +1,11 @@
+{
+  "answer": "yes",
+  "why": "a stat tile drawn by hand",
+  "tag": "<div className=\"rounded-container border bg-card p-card-inset shadow-card\">",
+  "children": "<h3 className=\"type-card-title\">Balance</h3>\n<p className=\"type-figure\">{balance}</p>",
+  "file": "apps/web/src/features/account/summary.tsx",
+  "blockTypes": "ModalShell: screen content in a popup, ends Close. ConfirmDialog: one short question. PageBanner: a standing message about the screen. ScreenHeading: the title and actions of a screen. BrowseToolbar: search, filters and add above a collection. Row: one record in a collection. FieldGroup: a titled group of fields. EmptyState: nothing to show, with the next action. StatTile: one headline figure.",
+  "blocks": [
+    "StatTile — `stat-tile` — one headline figure"
+  ]
+}

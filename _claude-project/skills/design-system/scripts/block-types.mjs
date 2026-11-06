@@ -13,15 +13,17 @@ import { fileURLToPath } from 'node:url'
 
 export const BLOCK_TYPES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../references/block-types.md')
 
-/** A part that fits no type on the list. */
-export const NO_TYPE = '<none>'
-/** A pattern that governs every type. */
+/** A recipe or behaviour rule that governs every type. */
 export const CROSS_CUTTING = 'cross-cutting'
 
-/** The types and frame atoms of a block-type list's text: every table whose first header is `Type`. */
+/** The types, frame atoms, definitions and neighbours of a block-type list's text: every
+ * table whose first header is `Type`. `neighbours` holds each type's "Not to be confused
+ * with" column as type names; `definitions` each type's "What it is". */
 export function parseBlockTypes(text) {
   const names = new Set()
   const frames = new Map()
+  const neighbours = new Map()
+  const definitions = new Map()
   let header = null
   for (const line of text.split('\n')) {
     if (!line.trimStart().startsWith('|')) {
@@ -38,8 +40,12 @@ export function parseBlockTypes(text) {
     names.add(cells[0])
     const wraps = cells[header.indexOf('Wraps')]
     if (header.includes('Wraps') && wraps) frames.set(wraps, [...(frames.get(wraps) ?? []), cells[0]])
+    const what = cells[header.indexOf('What it is')]
+    if (what) definitions.set(cells[0], what)
+    const confused = cells[header.indexOf('Not to be confused with')]
+    if (confused) neighbours.set(cells[0], confused.split(';').map((c) => c.replace(/\(.*?\)/g, '').trim()).filter(Boolean))
   }
-  return { names, frames }
+  return { names, frames, neighbours, definitions }
 }
 
 export function readBlockTypes(file = BLOCK_TYPES) {

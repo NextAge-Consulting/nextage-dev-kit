@@ -1,0 +1,6 @@
+{
+  "answer": "yes",
+  "why": "closes on failure",
+  "rule": "# Confirm\n\nA yes/no action that fails keeps its dialog open and replaces the description with the failure. The dialog closes only on success or Cancel.",
+  "screen": "const remove = useMutation({\n  mutationFn: removeProperty,\n  onSuccess: () => setOpen(false),\n  onError: (err) => { setOpen(false); setBanner(err.message) },\n})\nreturn <ConfirmDialog open={open} onConfirm={() => remove.mutate(id)} />"
+}

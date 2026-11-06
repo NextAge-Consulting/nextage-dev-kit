@@ -1,0 +1,9 @@
+{
+  "answer": "yes",
+  "why": "padding is the card's",
+  "component": "Card",
+  "class": "p-2",
+  "tag": "<Card className=\"p-2 rounded-none\">",
+  "accepts": [],
+  "kind": "block"
+}

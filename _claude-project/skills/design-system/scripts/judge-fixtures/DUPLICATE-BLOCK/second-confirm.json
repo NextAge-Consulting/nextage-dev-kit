@@ -1,0 +1,15 @@
+{
+  "answer": "yes",
+  "why": "a destructive variant of the same dialog",
+  "new": {
+    "name": "DeleteDialog",
+    "type": "ConfirmDialog",
+    "code": "export function DeleteDialog({ open, name, onDelete, onCancel }) {\n  return <AlertDialog open={open}><AlertDialogContent><AlertDialogTitle>Delete {name}?</AlertDialogTitle><AlertDialogFooter><Button variant=\"outline\" onClick={onCancel}>Cancel</Button><Button variant=\"destructive\" onClick={onDelete}>Delete</Button></AlertDialogFooter></AlertDialogContent></AlertDialog>\n}"
+  },
+  "existing": {
+    "name": "ConfirmDialog",
+    "type": "ConfirmDialog",
+    "code": "export function ConfirmDialog({ open, title, tone, confirmLabel, onConfirm, onCancel }) {\n  return <AlertDialog open={open}><AlertDialogContent><AlertDialogTitle>{title}</AlertDialogTitle><AlertDialogFooter><Button variant=\"outline\" onClick={onCancel}>Cancel</Button><Button variant={tone} onClick={onConfirm}>{confirmLabel}</Button></AlertDialogFooter></AlertDialogContent></AlertDialog>\n}",
+    "inventoryLine": "| `ConfirmDialog` | one short question about an action, destructive or not | ConfirmDialog | approved |"
+  }
+}

@@ -51,13 +51,11 @@
  *              --<x>-foreground on --<x> — measures 4.5:1 in each theme, or its text
  *              token's line marks the ratio accepted (contrast.mjs);
  *   patterns   every type role, token and component a pattern reference names in code exists;
- *   design.md  every token reference and quoted class exists, every type and radius
- *              role has its frontmatter entry, every pixel value in the frontmatter is
- *              on the grid;
+ *   design.md  its token section is the one the stylesheet generates (design-md.mjs);
  *
- * Whether a call site repaints a part, whether a screen draws a box a part should, and
- * whether a name says what a thing is for are judgements: the design review at /commit
- * (gitflow's design-review.sh) makes them.
+ * Whether a call site repaints a block, whether a screen draws a box a block should, and
+ * whether a name says what a thing is for are judgements: the judge (locate.mjs and
+ * judge.mjs, run by gitflow's design-judge.sh) answers them.
  *   generated  with a claude-design config, the safelist and class-merge files are
  *              current and imported;
  *   project    every `*.mjs` in <DESIGN_UI_PACKAGE>/design-system/checks/ — the
@@ -709,22 +707,22 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
     }
   }
   if (!screenScope) notes.push('screen rules: every line judged')
-  // The spacing scale: the project's own steps from its claude-design config, else the
-  // kit's (design-opinion.md — 0, 4, 8, 12, 16, 24, 32, 48px).
-  let spacingSteps = [0, 1, 2, 3, 4, 6, 8, 12]
-  let spacingFrom = "the kit's default"
+  // The spacing scale is the project's: its steps in its claude-design config. The kit has
+  // no scale of its own, so without a config the between-steps rule does not apply.
+  let spacingSteps = null
   const scaleConfig = path.join(pkg, 'design-system/design-system.config.mjs')
   if (existsSync(scaleConfig)) {
     const { readConfig } = await import(new URL('../../claude-design/scripts/config.mjs', import.meta.url).href)
     const { ctx } = await readConfig(scaleConfig)
-    if (ctx?.CONFIG?.spacing?.steps) {
-      spacingSteps = ctx.CONFIG.spacing.steps
-      spacingFrom = `${pkgRel}/design-system/design-system.config.mjs`
-    }
+    if (ctx?.CONFIG?.spacing?.steps) spacingSteps = ctx.CONFIG.spacing.steps
   }
-  const onScale = new Set(spacingSteps.map(String))
-  const scaleList = spacingSteps.map((n) => `${n * 4}`).join(', ')
-  notes.push(`spacing scale: ${scaleList}px, from ${spacingFrom}; judged on changed lines only`)
+  const onScale = new Set((spacingSteps ?? []).map(String))
+  const scaleList = (spacingSteps ?? []).map((n) => `${n * 4}`).join(', ')
+  notes.push(
+    spacingSteps
+      ? `spacing scale: ${scaleList}px, from ${pkgRel}/design-system/design-system.config.mjs; judged on changed lines only`
+      : 'spacing scale: the project declares none (no design-system config), so a step between steps is not judged',
+  )
   const touched = (file, from, to = from) => {
     if (!screenScope) return true
     const lines = screenScope.get(file)
@@ -810,7 +808,7 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
       })
       // A step between the scale's steps — judged on changed lines only, like the screen rules.
       each(new RegExp(`(?<![\\w-])-?(?:${SPACE_PROPS})-(\\d+(?:\\.5)?)(?![\\w-])`, 'g'), (m) => {
-        if (onScale.has(m[1]) || (m[1].endsWith('.5') && m[1] !== '0.5') || !touched(file, i + 1)) return
+        if (!spacingSteps || onScale.has(m[1]) || (m[1].endsWith('.5') && m[1] !== '0.5') || !touched(file, i + 1)) return
         add(at, m[0], `not a step of the spacing scale (${scaleList}px); space between things is a named gap`)
       })
     })
@@ -1044,53 +1042,18 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
     }
   }
 
-  // --- design.md describes what the code is ---------------------------------
+  // --- design.md's token section is generated from the stylesheet --------------
+  // The file is a published view of the system: its colors, typography, rounded and
+  // spacing groups are written by the claude-design engine's design-md.mjs, and a file
+  // whose groups differ from what the stylesheet would generate is out of date.
+  let designCurrent = null
   if (design !== null) {
-    const lineOf = (i) => design.slice(0, i).split('\n').length
-    const declared = {}
-    let group = null
-    // The frontmatter is what lies between the first two lines that are exactly `---`;
-    // a `---` inside a YAML comment or a value does not end it.
-    for (const line of (design.split(/^---$/m)[1] ?? '').split('\n')) {
-      const g = line.match(/^([a-z]+):\s*$/)
-      if (g) {
-        group = g[1]
-        declared[group] = new Set()
-        continue
-      }
-      const k = line.match(/^ {2}([A-Za-z0-9-]+):/)
-      if (k && group) declared[group].add(k[1])
-    }
-    const SPEC_GROUPS = new Set(['colors', 'typography', 'rounded', 'spacing', 'components'])
-    for (const m of design.matchAll(/\{([a-z]+)\.([A-Za-z0-9-]+)\}/g))
-      if (!declared[m[1]]?.has(m[2])) add(`${designPath}:${lineOf(m.index)}`, `{${m[1]}.${m[2]}}`, 'no such key in the frontmatter')
-    // The same reference written without braces, in prose.
-    for (const m of design.matchAll(/`([a-z]+)\.([A-Za-z0-9-]+)`/g))
-      if ((SPEC_GROUPS.has(m[1]) || declared[m[1]]) && !declared[m[1]]?.has(m[2])) add(`${designPath}:${lineOf(m.index)}`, `${m[1]}.${m[2]}`, 'no such key in the frontmatter')
-    // A frontmatter key names a role in either case: `rowTitle` and `row-title` are `type-row-title`.
-    const kebab = (k) => k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)
-    const typography = new Set([...(declared.typography ?? [])].map(kebab))
-    for (const r of typeRoles) if (!typography.has(r.slice(5))) add(designPath, r, 'a type role with no typography entry in the frontmatter')
-    // A `font-*` entry is a family, not a role.
-    for (const k of declared.typography ?? []) if (!kebab(k).startsWith('font-') && !typeRoles.has(`type-${kebab(k)}`)) add(designPath, `typography.${k}`, 'no such type role in the stylesheets')
-    for (const r of radiusRoles) if (!declared.rounded?.has(r)) add(designPath, `rounded-${r}`, 'a radius role with no rounded entry in the frontmatter')
-    for (const k of declared.rounded ?? []) if (k !== 'none' && !radiusRoles.has(k)) add(designPath, `rounded.${k}`, 'no such radius role in the stylesheets')
-    for (const m of design.matchAll(/`(type-[a-z0-9-]+)`/g)) if (!typeRoles.has(m[1])) add(`${designPath}:${lineOf(m.index)}`, m[1], 'no such type role')
-    for (const m of design.matchAll(/`rounded-([a-z0-9-]+)`/g)) if (!radiusRoles.has(m[1]) && m[1] !== 'none') add(`${designPath}:${lineOf(m.index)}`, `rounded-${m[1]}`, 'no such radius role')
-    for (const m of design.matchAll(/`font-([a-z0-9-]+)`/g))
-      if (!weightRoles.has(m[1]) && !fontFamilies.has(m[1])) add(`${designPath}:${lineOf(m.index)}`, `font-${m[1]}`, 'no such weight role or font family')
-    for (const m of design.matchAll(/`(scroll-[a-z-]+|[a-z]+-theme-only)`/g)) if (!utilities.has(m[1])) add(`${designPath}:${lineOf(m.index)}`, m[1], 'no such utility')
-    // A pixel value the frontmatter states is on the grid, unless the stylesheets declare
-    // it (an odd type step, a pill's 999) or it is a 1px hairline.
-    const declaredPx = new Set()
-    for (const [, s] of css) for (const m of s.matchAll(/(?<![\w.])(\d+(?:\.\d+)?)px/g)) declaredPx.add(m[1])
-    const fmStart = design.search(/^---$/m)
-    const fmEnd = fmStart < 0 ? -1 : design.slice(fmStart + 3).search(/^---$/m)
-    const frontmatter = fmEnd < 0 ? '' : design.slice(0, fmStart + 3 + fmEnd)
-    for (const m of frontmatter.matchAll(/(?<![\w.])(\d+(?:\.\d+)?)px/g)) {
-      const v = m[1]
-      if (v === '1' || declaredPx.has(v)) continue
-      if (v.includes('.') || Number(v) % 2 !== 0) add(`${designPath}:${lineOf(m.index)}`, `${v}px`, 'off the grid, and no token declares it')
+    const { generateDesignMd } = await import(new URL('../../claude-design/scripts/design-md.mjs', import.meta.url).href)
+    const gen = await generateDesignMd(repo)
+    if (gen.problems.length) for (const g of gen.problems) problems.push(`${designPath}  — cannot generate its token section: ${g}`)
+    else {
+      designCurrent = gen.current
+      if (!gen.current) add(designPath, 'token section out of date', 'differs from what the token stylesheets generate — run npm run build:design-system (or node .claude/skills/claude-design/scripts/design-md.mjs) and commit it')
     }
   }
 
@@ -1166,6 +1129,7 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
       contrastMeasured: contrast.measured,
       themes: contrast.themes,
       generated: generatedChecked,
+      designCurrent,
       projectChecks: projectChecks.length,
       patterns: patternFiles.length,
     },

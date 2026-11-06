@@ -5,7 +5,8 @@ paths: "{**/*.tsx,**/*.jsx}"
 # UI Inventory: What Already Exists (Zero Tolerance)
 
 **Read this list before composing a screen. Name the block type you need, use this
-app's part of that type, and never hand-roll anything listed here.**
+project's block of that type, follow the recipe for the page type, and never hand-roll
+anything listed here.**
 
 ---
 
@@ -17,66 +18,73 @@ app's part of that type, and never hand-roll anything listed here.**
 
 ## How this list works
 
-- **It lists the building blocks — every pattern, part and hook, one line each on what
-  it is for — and nothing else.** A screen's content in its feature folder is never
-  listed. A rule about how a kind of screen works goes in that pattern's reference.
-- **Each part carries its block type** from the `design-system` skill's
-  `references/block-types.md`, or `<none>` when no type fits; a vendored atom carries
-  none. A second part of one type carries, on its line, the human's reason it is not the first.
-- **Each pattern and component carries its status**, `approved`, `pending` or
-  `unresolved`, the same as the `ui-status` line in its file. Pending means built and
-  not yet approved by the human. Unresolved means the human chose not to decide yet:
-  its status cell reads `` unresolved `<fingerprint>` <their reason> ``, it blocks
-  nothing, the check reports how many there are (`--unresolved` lists them), and once
-  the file changes it counts as pending again.
-- **A pending component's line carries its Fit check**: the fingerprint of its file and
-  the verdict of the fit check that approved it (the `design-system` skill's
-  `references/fit-check.md`). Write the line only once the fit check approves it, and
-  run the check again when the file changes.
-- **Add a line in the same change that adds the thing**, enumerated from the
-  filesystem, never from memory. Invoke the `rule-authoring` skill before editing.
-- `node .claude/skills/ui-patterns/scripts/check-ui-status.mjs` fails while this list
-  and the files disagree or anything is pending, and `/deploy` refuses until it passes.
+- **It lists the pieces of the system — every recipe, behaviour rule, component and
+  hook, one line each on what it is for — and nothing else.** A screen's content is
+  never listed. A rule about how a kind of screen works goes in its recipe.
+- **Each component carries its block type** from the `design-system` skill's
+  `references/block-types.md`, agreeing with the `// ui-block:` line in its file. A
+  vendored atom carries none. A second block of one type carries, on its line, the
+  human's reason it is not the first.
+- **Each line carries its status**, `approved`, `pending` or `deferred`, the same as the
+  `ui-status` line in its file. Pending means built and not yet approved by the human.
+  Deferred means the human chose not to look: its cell reads `` deferred `<fingerprint>` ``
+  (`check-ui-status.mjs --fingerprint <file>`), it blocks nothing, and once the file
+  changes it is pending again.
+- **Add a line in the same change that adds the piece**, enumerated from the filesystem,
+  never from memory. Invoke the `rule-authoring` skill before editing.
+- `node .claude/skills/ui-patterns/scripts/check-ui-status.mjs` fails while this list and
+  the files disagree, a pointer names nothing, or anything is pending; `/deploy` refuses
+  until it passes.
 
-## Patterns
+## Recipes
 
-Read the matching reference IN FULL before composing that kind of surface.
-`.claude/skills/ui-patterns/references/`:
+How each page type is put together. Read the one for your page type in full before
+composing it. `.claude/skills/ui-patterns/references/`:
 
-<!-- project:begin pattern-references -->
+<!-- project:begin recipes -->
+| File | Page type | Frame | Status |
+|---|---|---|---|
+| _[`browse-screen.md`]_ | _[BrowseScreen]_ | _[`browse-screen`]_ | _[approved]_ |
+| _[…one row per recipe file…]_ | | | |
+<!-- project:end recipes -->
+
+## Behaviour rules
+
+How the app acts on one topic, everywhere. Read every rule whose block types you touch.
+
+<!-- project:begin behaviour-rules -->
 | File | Governs | Status |
 |---|---|---|
-| _[`browse-layout.md`]_ | _[one line: what surface it covers and the decisions it settles]_ | _[approved]_ |
-| _[`loading-states.md`]_ | _[skeleton vs spinner, when an indicator is gated, busy vs disabled]_ | _[pending]_ |
-| _[…one row per reference file that exists…]_ | | |
-<!-- project:end pattern-references -->
+| _[`saving.md`]_ | _[Save then Close on a page, Cancel first in a dialog; the dirty gate; where a failure shows]_ | _[approved]_ |
+| _[`loading.md`]_ | _[skeleton on rows, spinner on the pressed control, label never changes]_ | _[pending]_ |
+| _[…one row per rule file…]_ | | |
+<!-- project:end behaviour-rules -->
 
 ## Components
 
 <!-- project:begin components -->
-### _[`@acme/ui/components/` — the project's own display vocabulary]_
+### _[`@acme/ui/components/` — the project's blocks]_
 
-| Component | Use for | Type | Status | Fit check |
-|---|---|---|---|---|
-| _[`ModalShell`]_ | _[screen content in a popup that ends with Close]_ | _[ModalShell]_ | _[approved]_ | |
-| _[`IconButton`]_ | _[**every** icon-only button; its required label feeds both `aria-label` and the tooltip]_ | _[<none>]_ | _[approved]_ | |
-| _[`FacetChoice`]_ | _[one facet of a list's filter where exactly one option applies]_ | _[<none>]_ | _[pending]_ | _[`1a2b3c4d` new; the single-choice partner of FacetChecklist]_ |
-| _[…]_ | _[one line each: what it is for]_ | | | |
+| Component | Use for | Type | Status |
+|---|---|---|---|
+| _[`ModalShell`]_ | _[screen content in a popup that ends with Close]_ | _[ModalShell]_ | _[approved]_ |
+| _[`ReviewDialog`]_ | _[a pre-flight report of a write, then its result]_ | _[ReviewDialog]_ | _[approved]_ |
+| _[`FactList`]_ | _[read-only facts as label and value pairs]_ | _[FactList]_ | _[pending]_ |
+| _[…]_ | _[one line each: what it is for]_ | | |
 
-### _[`@acme/ui/components/ui/` — vendored atoms (shadcn or equivalent)]_
+### _[`@acme/ui/components/ui/` — the atoms (shadcn or equivalent)]_
 
 | Atom | Status |
 |---|---|
 | _[`button`]_ | _[approved]_ |
-| _[…one row per installed atom…]_ | |
+| _[…one row per atom…]_ | |
 
-### _[`@/components/` — app-level parts]_
+### _[`@/components/` — an app's own blocks, each with the human's reason]_
 
-| Component | Use for | Type | Status | Fit check |
-|---|---|---|---|---|
-| _[`form/FormActions`]_ | _[the submit control of every record form — gating, busy state and status wording in one place]_ | _[FormActions]_ | _[approved]_ | |
-| _[`form/fields`]_ | _[the bound field set: label, hint and error wired to the form library]_ | _[<none>]_ | _[approved]_ | |
-| _[…]_ | | | | |
+| Component | Use for | Type | Status |
+|---|---|---|---|
+| _[`PortalShell`]_ | _[the signed-in frame of the customer portal; differs from the shared AppShell by the human's decision: no module navigation]_ | _[AppShell]_ | _[approved]_ |
+| _[…]_ | | | |
 <!-- project:end components -->
 
 ## Hooks
@@ -90,9 +98,9 @@ Read the matching reference IN FULL before composing that kind of surface.
 
 ## Never hand-roll
 
-Each line names what to use instead.
+Each line names the block to use instead.
 
 <!-- project:begin prohibitions -->
-- _[**Never hand-roll a save/cancel pair.** Use the form-actions composite.]_
 - _[**Never a bare button with only an icon child.** Use the icon-button atom.]_
+- _[**Never a screen's own save row.** Use the FormActions block.]_
 <!-- project:end prohibitions -->

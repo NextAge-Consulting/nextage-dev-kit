@@ -8,93 +8,87 @@ never need to read it.
 
 ## The design system lives in code
 
-The project's look is defined once, in code, and everything else reads from it:
+The project's look and behaviour are defined once, in code, and everything else reads from
+it. `uxes-layers.svg`, beside this handbook, is the one-page picture: every layer, what it
+holds, and which check looks at it when.
 
-- **`design.md`** at the repo root is the spec: colours, type, spacing, radii, and how each
-  basic component looks. It follows a published format and is checked by a linter.
-- **The token stylesheet** holds the same values in the form the browser uses. If the two
-  disagree, the stylesheet wins, and `design.md` gets corrected.
-- **The components** in the project's UI package are the building blocks every screen is
-  made of. Each is one of a standard list of block types — a review dialog, a record
-  header, a browse toolbar — and an app has one per type, built the first time a screen
-  needs it. The UI inventory lists them with their type, and Claude reads it before
-  building any screen.
+- **The token stylesheet** holds the colours, type, spacing and corners in the form the
+  browser uses. Its base values come from a theme you pick, usually at tweakcn; the roles
+  the screens use are named over them.
+- **The components** in the project's UI package are what every screen is made of. An
+  **atom** is one control. A **block** is a building block of one standard type — a review
+  dialog, a record header, a browse toolbar — and the project has one block per type, built
+  the first time a screen needs it. A **recipe** says how one kind of page is put together,
+  and a **behaviour rule** says how the app acts on one topic: saving, errors, loading.
+- **`design.md`** at the repo root is generated from the stylesheet, in the open DESIGN.md
+  format other design tools read. Its prose is yours to write; its token section is never
+  edited by hand.
 
-Claude won't style a screen in a project that has no `design.md`. That refusal is what
-stops a design from drifting one screen at a time.
+The UI inventory lists every block, recipe and rule with its type and status, and Claude
+reads it before building any screen. When a screen needs something a little different,
+it is a **variant** of a block, an **option** a recipe offers, or an **exception** you
+approve on that one screen with your reason. Never a new block for a small difference.
 
-The design system has two themes, light and dark. Settings a user changes in the running
-app — an accent colour, a colour-blind mode, a text size — are covered in
-`custom-themes.md`; Claude Design shows light and dark only.
+The kit itself has no opinion on how anything should look or behave. Every answer is your
+project's; where your system has none yet, Claude builds the piece and marks it pending
+for you.
 
 Text stays readable by rule: the token check measures every text colour against the
-background it sits on, in light and in dark, and fails below WCAG's 4.5:1. It knows which
-colours go together from the components in `design.md` and from names like `card` and
-`card-foreground`. A colour you keep on purpose below the bar is marked accepted, with its
-ratio and the reason, on the token's line.
+background it sits on, in light and in dark, and fails below WCAG's 4.5:1. A colour you
+keep on purpose below the bar is marked accepted, with its ratio and the reason, on the
+token's line.
 
 ### Nothing new ships until you approve it
 
 Claude builds screens from what the system already has. When a screen needs something
-the system lacks (a component, a variant, a token, a pattern), Claude builds it and keeps
-going, marking it **pending** rather than stopping to ask. You review everything pending
-together, at the end of the work: each piece is approved, swapped for an existing part, or
-changed until you approve it.
+the system lacks — a block, a variant, a token, a recipe instruction, a rule — Claude
+builds it and keeps going, marking it **pending** rather than stopping to ask. The judge
+that runs at every commit adds its own findings to the same pile. You review everything
+pending together, at the end of the work, each item described by what changed on screen.
 
-- `/work` lists what is pending at the start of each session, and `/handoff` tells you how
-  many are left when you finish.
-- `/deploy` refuses while anything is pending, so pending UI can sit on `main` for days
-  but never reaches production.
-- A change you ask for in conversation ("make Save wider") is made to the part, with a
-  warning of what else it changes. Your yes is its approval.
+Every item takes one of three answers:
+
+- **Approve** — you looked, and it is right. It stays approved through later small changes
+  you ask for.
+- **Fix** — it is swapped for an existing piece, or changed until you approve it.
+- **Defer** — you did not look, and you trust it. It blocks nothing and needs no reason.
+  The moment that code changes it is pending again, because it never had your eyes on it.
+
+`/work` lists what is pending at the start of each session, `/handoff` tells you how many
+are left, and `/deploy` refuses while anything is pending, so pending UI can sit on `main`
+for days but never reaches production. Nothing stops a commit.
+
+A change you ask for in conversation ("make Save wider") is made to the block, with a
+warning of what else it changes. Your yes is its approval.
 
 ## Starting and growing a design system
 
-### A new project: start from a tweakcn theme
+### A new project: start from a theme
 
 1. **Pick a theme at [tweakcn](https://tweakcn.com) and make it yours** — colours for light
    and dark, fonts, the corner radius, shadows. This is the one place you choose a look by
    eye; everything else follows from it.
 2. **Hand Claude the theme's code** (the Tailwind v4 version). Claude puts it in the
-   project's token stylesheet and writes `design.md` from it.
-3. **Run `/design-audit system`.** Your theme covers colour, type and radius; it says
-   nothing about spacing roles, focus, motion, badges and the rest. The audit lists each
-   place the kit has an opinion your system lacks, and you adopt them one by one. It then
-   checks your parts and your patterns against the system, in that order.
-4. **Start building.** Anything still missing is filled in the first time a screen needs
-   it (below).
+   project's token stylesheet, names the first roles over it, and generates `design.md`.
+3. **Start building.** Anything missing is built the first time a screen needs it, pending
+   for your review.
 
-### An existing app: extract, then merge
+A project that starts from a Design Pack — another project's finished system, generalised
+— installs it instead of steps 2 and 3, and owns every file of it from then on.
+
+### An existing app: extract, then decide
 
 1. **Claude extracts the design system the app already has** — the colours, type sizes,
-   spacing and corners it actually uses — into a token stylesheet and `design.md`. When a
-   thing is drawn several ways, each one comes to you as a choice, not a guess.
+   spacing and corners it actually uses — into a token stylesheet, and generates
+   `design.md`. When a thing is drawn several ways, each one comes to you as a choice on a
+   page of the real screens, never a guess.
 2. **Optionally, merge a tweakcn theme as the path forward.** Pick one the way a new
    project does; Claude merges it over what was extracted, and every conflict between the
    two is your call.
-3. **Run `/design-audit system`**, as for a new project.
-4. **Leave the old screens alone until you have time for them.** The checks at every commit
+3. **Leave the old screens alone until you have time for them.** The checks at every commit
    judge only the lines that change, so existing screens never block your work, and nothing
    new can break the system. When you can spend time on an area, audit it
    (`/design-audit screens <path>`) and bring it into line.
-
-### Where a value comes from after that
-
-Everything the system doesn't yet cover is filled in as the work reaches it, always in the
-same order:
-
-1. **Your design system.** If it answers, that's the answer.
-2. **The kit's design opinions** (`design-opinion.md` in the design-system skill). The kit
-   is opinionated about the small building blocks — spacing, type, colour, radius,
-   elevation, motion, icons, controls, focus, dark mode, badges. An opinion found there is
-   built into your system, in your own names, so your system answers from then on.
-3. **You.** When neither has an answer, Claude puts the decision to you; once you decide,
-   it is built into the system and stays decided.
-
-Some opinions are guidance any designer would agree with: one consistent approach to
-shadows, quiet purposeful motion. Others are sides the kit has picked: no toasts, icon-only
-standard actions, a soft focus ring. Your project can differ from any of them; the reason
-is written where your system holds the value. The kit never chooses your colours.
 
 ### The design audit
 
@@ -102,32 +96,28 @@ is written where your system holds the value. The kit never chooses your colours
 
 | Run | When |
 |---|---|
-| `/design-audit system` | After you set up or merge a design system; after a kit update adds opinions; whenever the system feels like it has drifted. Checks the tokens, then the parts, then the patterns |
-| `/design-audit patterns` | After you write or change a UI pattern, to check it asks only for what the tokens and parts are for |
-| `/design-audit screens` | When you have time to bring the whole app into line with the system and its patterns |
+| `/design-audit system` | After you set up or merge a design system; whenever it feels like it has drifted. Checks the tokens, then the components, then the recipes and rules |
+| `/design-audit references` | After you write or change a recipe or rule, to check it asks only for what the tokens and blocks have, and does not contradict another |
+| `/design-audit screens` | When you have time to bring the whole app into line with the system |
 | `/design-audit screens <path>` | When you have time for one area of it — an app, a folder, a set of screens |
 | `/design-audit design <name or url>` | Before implementing a Claude Design design, to check it uses the system as it stands |
 
-The system audit checks three things only: whether your system is complete, whether it
-breaks one of the kit's picked sides or a floor such as contrast, and whether it
-contradicts itself. Where the kit only offers guidance and your system differs, the audit
-asks "are you sure?" separately from its findings. Keeping your own value needs no
-reason: it's marked as your choice, and no later audit asks again.
-
 **What to expect:**
 
-- **A fresh reviewer.** Each pass runs in a new agent that sees only the files it is
-  auditing — not the conversation — and tells you how many it read.
-- **The system first.** A code or design audit starts with the system pass. If the system
-  itself has open findings, those come first: screens are judged against a system that is
-  right.
-- **One finding at a time**, each with what fixing it costs, what it risks, and Claude's
-  recommendation. You answer each one:
+- **A fresh judge, one question at a time.** Each finding is one narrow yes-or-no question
+  about one place, answered by a fresh agent that sees only that place and the rule, three
+  times, majority wins. It tells you how many places it looked at.
+- **The system first.** A screen audit starts with the system. If the system itself has
+  open findings, those come first: screens are judged against a system that is right.
+- **One finding at a time**, each with what fixing it costs, what it risks, and what
+  carrying it would mean. Claude never recommends a look. You answer each one:
   - **Fix the work** — the screen or design is brought into line with the system.
   - **Add to the system** — the system was missing something; it gains it, and every
     screen can use it.
-  - **Accept it** — the line keeps its value with your reason beside it
-    (`design-accepted — <reason>`), and no later audit raises it again.
+  - **Approve it** — the line keeps its value with your reason beside it, and no later
+    audit or judge raises it again.
+  - **Defer it** — you did not look; it waits, blocks nothing, and comes back only if that
+    code changes.
 - **Nothing changes without your answer.** You can stop part-way; what you have settled
   stays settled, and the next run picks up the rest.
 
@@ -251,14 +241,13 @@ what it added, what the design system lacks, the tweak's name and the page it is
 added the account switcher's options with the address beneath; the system's select has
 no second line, so there's a new tweak, `acctList`, on the account page." Nothing appears
 in the panel without that. Before building it, Claude has a fresh agent — one that sees only
-a description, never the screen — say which existing part it extends or what generic name a
-new part takes, so a tweak is named for what it is (`fieldRow`), never for the screen that
-first needed it.
+a description, never the screen — say whether an existing block already draws it, so a
+tweak is named for what it is (`fieldRow`), never for the screen that first needed it.
 
 **Review with three windows side by side.** The design folder's `tweaks-to-approve.md`,
 open in your editor, defines every option: what it adds, what it is for, where it is on
 every page, the exact values it changes against the design system as it is, anything the
-page draws outside the tweak that approving it approves too, and the part it extends.
+page draws outside the tweak that approving it approves too, and the block it extends.
 The canvas's Tweaks panel is where you flip it; a second tab in Play shows the result. Ask
 Claude when something needs discussing.
 
@@ -289,8 +278,8 @@ see how much of a screen is still proposal.
 
 **What happens after you decide.**
 
-- **Approved:** Claude works out with you what it becomes (a new component, a variant of
-  an existing one, or a pattern), builds it into the design system, publishes the system
+- **Approved:** Claude works out with you what it becomes (a new block, a variant of
+  an existing one, or a recipe or rule), builds it into the design system, publishes the system
   and applies it to the design. The tweak then disappears, because it's no longer a gap.
   Every approval lands in the next batch, together with the others, so the system is
   published once rather than for every decision — and nothing approved waits for a later one.

@@ -1,0 +1,10 @@
+{
+  "answer": "yes",
+  "why": "generic shell with a customer name",
+  "name": "CustomerNotesDialog",
+  "blockType": "ModalShell",
+  "summary": "Draws a dialog with a title prop, a scrolling body of children, and a Close button. Takes title, open, onClose, children.",
+  "screens": [
+    "customer record"
+  ]
+}

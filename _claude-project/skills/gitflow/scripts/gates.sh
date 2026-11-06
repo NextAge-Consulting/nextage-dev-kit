@@ -638,51 +638,28 @@ run_project_gate() {
     fi
 }
 
-# run_fit_check_gate <action>
-#
-# Every pending component carries, on its inventory line, the fit check that approved
-# it as it stands (the design-system skill's references/fit-check.md). A component
-# added or changed without one stops the commit here, while it is still one change
-# away, not at the approval review.
-run_fit_check_gate() {
-    local action="$1" check=".claude/skills/ui-patterns/scripts/check-ui-status.mjs"
-    if [ ! -f "$check" ]; then
-        echo "gitflow: fit checks: not checked ($check does not exist)." >&2
-        return 0
-    fi
-    if ! command -v node >/dev/null 2>&1; then
-        echo "gitflow: fit checks cannot run: node is not installed. A gate that cannot run fails." >&2
-        return 4
-    fi
-    if ! node "$check" --fit-only; then
-        echo "" >&2
-        echo "gitflow: a pending component has no fit check, or changed after it. Run the fit check before $action." >&2
-        return 4
-    fi
-}
-
 # run_headless_reviews <fold_base> <action>
 #
-# The five headless reviews — rule prose (rule-review.sh), new parts (part-review.sh), the
-# design system (design-review.sh), hand-written SQL (sql-review.sh) and the tests of
-# changed TypeScript (test-review.sh) — each measured from <fold_base>. Each makes one
-# `claude -p` call only when its kind of file changed, and reuses its own earlier pass
-# when its input is unchanged (review-cache.sh), so they run side by side: the gate takes
-# as long as the slowest, not the sum.
+# The headless reviews — rule prose (rule-review.sh), hand-written SQL (sql-review.sh) and
+# the tests of changed TypeScript (test-review.sh) — and the design judge (design-judge.sh),
+# each measured from <fold_base>. Each calls `claude -p` only when its kind of file changed,
+# and reuses its own earlier pass when its input is unchanged (review-cache.sh), so they run
+# side by side: the gate takes as long as the slowest, not the sum.
 #
-# Each review's output is captured on its own and printed whole, in this fixed order,
-# once all five have finished. Any review that fails fails the gate, and every review's
-# output is still shown, so one run reports every finding. Each review's SKIP_*_REVIEW
-# override reaches it through the environment.
+# Each one's output is captured on its own and printed whole, in this fixed order, once all
+# have finished. A review that fails fails the gate, and every output is still shown, so one
+# run reports every finding. The design judge never fails: its yeses are pending items for
+# the human's walk-through, and /deploy waits for them. Each review's SKIP_* override
+# reaches it through the environment.
 run_headless_reviews() {
     local base="$1" action="$2" dir work name rc i=0 failed=""
-    local names=(rule-review part-review design-review sql-review test-review) pids=()
+    local names=(rule-review design-judge sql-review test-review) pids=()
     dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     if ! work=$(mktemp -d); then
         echo "gitflow: the headless reviews cannot run: no temporary directory. Fix before $action." >&2
         return 4
     fi
-    echo "gitflow: running the rule, part, design, SQL and test reviews side by side..." >&2
+    echo "gitflow: running the rule, SQL and test reviews and the design judge side by side..." >&2
     for name in "${names[@]}"; do
         "$dir/$name.sh" "$base" >"$work/$name.out" 2>&1 &
         pids+=("$!")

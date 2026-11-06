@@ -1,0 +1,11 @@
+{
+  "answer": "no",
+  "why": "declared accepted",
+  "component": "FieldStack",
+  "class": "gap-related",
+  "tag": "<FieldStack className=\"gap-related\">",
+  "accepts": [
+    "gap-*"
+  ],
+  "kind": "block"
+}

@@ -11,7 +11,7 @@ is yours. Read this once; after that, read only your own guide.
  │ /ui-design   │──►│ /work → /commit      │──►│ /merge ──► /deploy   │
  │ a prototype  │   │ → /open-pr → /triage │   │ squash     bump, tag,│
  │ built from   │   │ CI + AI review on    │   │ to main    migrate,  │
- │ real parts   │   │ every PR             │   │            release   │
+ │ real blocks  │   │ every PR             │   │            release   │
  └──────────────┘   └──────────────────────┘   └──────────────────────┘
      designer              developer                   devops
 ```
