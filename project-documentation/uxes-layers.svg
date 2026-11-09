@@ -1,10 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1420 1080" role="img" aria-label="The User Experience System: six layers from base tokens up to screens, each built only from the layer beneath, with what each holds, who owns it, and which check judges it and when; the stylesheet and components publish to design.md and Claude Design; a bottom band shows what runs at every edit, at commit, at the end of a body of work, at deploy, on request and at a kit release." font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="12">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1420 1188" role="img" aria-label="The User Experience System: seven layers from base tokens up to the app build, each built only from the layer beneath, with what each holds, who owns it, and which check judges it and when; the stylesheet and components publish to design.md and Claude Design; a bottom band shows what runs at every edit, at commit, at the end of a body of work, at deploy, on request and at a kit release." font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="12">
   <defs>
     <marker id="up" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#374151"/>
     </marker>
   </defs>
-  <rect x="0" y="0" width="1420" height="1080" fill="#ffffff"/>
+  <rect x="0" y="0" width="1420" height="1188" fill="#ffffff"/>
 
   <text x="40" y="36" font-size="20" font-weight="600" fill="#111827">The User Experience System — layers, owners, checks</text>
   <text x="40" y="58" fill="#4b5563">Each layer is made only from the layers beneath it. The kit owns the kinds, the words and the checks. The project owns every value, block, recipe and rule. The human approves what is new.</text>
@@ -13,88 +13,99 @@
   <text x="616" y="96" font-size="11" font-weight="600" fill="#6b7280" letter-spacing="1">OWNER</text>
   <text x="742" y="96" font-size="11" font-weight="600" fill="#6b7280" letter-spacing="1">CHECKED BY · WHEN</text>
 
-  <!-- Screens -->
+  <!-- App build -->
   <rect x="40" y="110" width="560" height="92" rx="6" fill="#f9fafb" stroke="#9ca3af"/>
-  <text x="56" y="132" font-weight="600" fill="#111827">Screens</text>
-  <text x="56" y="150" fill="#374151">routes/ and features/: a route follows one recipe and fills its slots with content:</text>
-  <text x="56" y="166" fill="#374151">wording, data, server calls. Draws no box, writes no raw value, owns no behaviour.</text>
-  <text x="56" y="188" fill="#6b7280" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11">// ui-recipe: &lt;recipe&gt;.md     // ui-content</text>
+  <text x="56" y="132" font-weight="600" fill="#111827">App build</text>
+  <text x="56" y="150" fill="#374151">Each app's entry stylesheet names the folders Tailwind reads; Tailwind writes CSS for the</text>
+  <text x="56" y="166" fill="#374151">classes it finds there and nothing else, and the bundle is what the browser gets.</text>
+  <text x="56" y="188" fill="#6b7280" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11">@import "tailwindcss" source("./")     @source "../../../packages/&lt;workspace&gt;/src/**/*.{ts,tsx}"</text>
   <rect x="616" y="110" width="110" height="92" rx="6" fill="#eef2ff" stroke="#9ca3af"/>
   <text x="671" y="160" text-anchor="middle" fill="#312e81" font-weight="600">project</text>
   <rect x="742" y="110" width="640" height="92" rx="6" fill="#ffffff" stroke="#9ca3af"/>
-  <text x="758" y="132" fill="#374151"><tspan font-weight="600">token check</tspan> · commit, CI, changed lines — no box, no raw value, no faded colour, no frame atom</text>
-  <text x="758" y="150" fill="#374151"><tspan font-weight="600">judge</tspan> · commit, advisory — FOLLOWS-RULE, REPAINT, SCREEN-BOX, TOKEN-AGAINST-PURPOSE</text>
-  <text x="758" y="168" fill="#374151"><tspan font-weight="600">status check</tspan> · commit, deploy — the header names a recipe that exists</text>
-  <text x="758" y="188" fill="#374151"><tspan font-weight="600">human</tspan> · end of work — an exception on one screen is theirs: design-accepted — reason</text>
-
-  <!-- Recipes and behaviour rules -->
+  <text x="758" y="132" fill="#374151"><tspan font-weight="600">token check</tspan> · CI, end of work — every class the app's code and its imported workspaces use is in the CSS it builds</text>
+  <text x="758" y="150" fill="#374151"><tspan font-weight="600">build step</tspan> · app build — plain-colour fallbacks added for browsers without oklch</text>
+  <text x="758" y="168" fill="#374151"><tspan font-weight="600">status check</tspan> · deploy, /work, /handoff — nothing pending ships</text>
+  <!-- Screens -->
   <rect x="40" y="218" width="560" height="92" rx="6" fill="#f9fafb" stroke="#9ca3af"/>
-  <text x="56" y="240" font-weight="600" fill="#111827">Recipes and behaviour rules</text>
-  <text x="56" y="258" fill="#374151">A recipe: how one page type is put together — its frame (a block) plus instructions,</text>
-  <text x="56" y="274" fill="#374151">each a closed pick. A behaviour rule: how the app acts on one topic, everywhere.</text>
-  <text x="56" y="296" fill="#6b7280" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11">kind: recipe · frame · reference    kind: behaviour · code: [...]    block-types:   apps:</text>
+  <text x="56" y="240" font-weight="600" fill="#111827">Screens</text>
+  <text x="56" y="258" fill="#374151">routes/ and features/: a route follows one recipe and fills its slots with content:</text>
+  <text x="56" y="274" fill="#374151">wording, data, server calls. Draws no box, writes no raw value, owns no behaviour.</text>
+  <text x="56" y="296" fill="#6b7280" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11">// ui-recipe: &lt;recipe&gt;.md     // ui-content</text>
   <rect x="616" y="218" width="110" height="92" rx="6" fill="#eef2ff" stroke="#9ca3af"/>
   <text x="671" y="268" text-anchor="middle" fill="#312e81" font-weight="600">project</text>
   <rect x="742" y="218" width="640" height="92" rx="6" fill="#ffffff" stroke="#9ca3af"/>
-  <text x="758" y="240" fill="#374151"><tspan font-weight="600">status check</tspan> · commit, deploy — a kind, a frame that exists, a reference screen, apps that exist</text>
-  <text x="758" y="258" fill="#374151"><tspan font-weight="600">token check</tspan> · commit, CI — every role, token and component a rule names exists</text>
-  <text x="758" y="276" fill="#374151"><tspan font-weight="600">judge</tspan> · commit, advisory — RULE-REACH, RULE-CONFLICT, TOKEN-AGAINST-PURPOSE</text>
-  <text x="758" y="296" fill="#374151"><tspan font-weight="600">human</tspan> · end of work — a new recipe or rule is pending until approved</text>
+  <text x="758" y="240" fill="#374151"><tspan font-weight="600">token check</tspan> · CI, end of work, changed lines — no box, no raw value, no faded colour, no frame atom</text>
+  <text x="758" y="258" fill="#374151"><tspan font-weight="600">judge</tspan> · commit, advisory — FOLLOWS-RULE, REPAINT, SCREEN-BOX, TOKEN-AGAINST-PURPOSE</text>
+  <text x="758" y="276" fill="#374151"><tspan font-weight="600">status check</tspan> · deploy, /work, /handoff — the header names a recipe that exists</text>
+  <text x="758" y="296" fill="#374151"><tspan font-weight="600">human</tspan> · end of work — an exception on one screen is theirs: design-accepted — reason</text>
+
+  <!-- Recipes and behaviour rules -->
+  <rect x="40" y="326" width="560" height="92" rx="6" fill="#f9fafb" stroke="#9ca3af"/>
+  <text x="56" y="348" font-weight="600" fill="#111827">Recipes and behaviour rules</text>
+  <text x="56" y="366" fill="#374151">A recipe: how one page type is put together — its frame (a block) plus instructions,</text>
+  <text x="56" y="382" fill="#374151">each a closed pick. A behaviour rule: how the app acts on one topic, everywhere.</text>
+  <text x="56" y="404" fill="#6b7280" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11">kind: recipe · frame · reference    kind: behaviour · code: [...]    block-types:   apps:</text>
+  <rect x="616" y="326" width="110" height="92" rx="6" fill="#eef2ff" stroke="#9ca3af"/>
+  <text x="671" y="376" text-anchor="middle" fill="#312e81" font-weight="600">project</text>
+  <rect x="742" y="326" width="640" height="92" rx="6" fill="#ffffff" stroke="#9ca3af"/>
+  <text x="758" y="348" fill="#374151"><tspan font-weight="600">status check</tspan> · deploy, /work, /handoff — a kind, a frame that exists, a reference screen, apps that exist</text>
+  <text x="758" y="366" fill="#374151"><tspan font-weight="600">token check</tspan> · CI, end of work — every role, token and component a rule names exists</text>
+  <text x="758" y="384" fill="#374151"><tspan font-weight="600">judge</tspan> · commit, advisory — RULE-REACH, RULE-CONFLICT, TOKEN-AGAINST-PURPOSE</text>
+  <text x="758" y="404" fill="#374151"><tspan font-weight="600">human</tspan> · end of work — a new recipe or rule is pending until approved</text>
 
   <!-- Blocks -->
-  <rect x="40" y="326" width="560" height="92" rx="6" fill="#f9fafb" stroke="#9ca3af"/>
-  <text x="56" y="348" font-weight="600" fill="#111827">Blocks</text>
-  <text x="56" y="366" fill="#374151">components/: one block per block type, built from atoms and blocks. Owns its look,</text>
-  <text x="56" y="382" fill="#374151">inner layout and guarantees; carries variants, props and slots. A page type's block is a frame.</text>
-  <text x="56" y="404" fill="#6b7280" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11">// ui-block: &lt;Type&gt;     // ui-behaviour: &lt;rule&gt;.md     (the type list is the kit's)</text>
-  <rect x="616" y="326" width="110" height="92" rx="6" fill="#eef2ff" stroke="#9ca3af"/>
-  <text x="671" y="366" text-anchor="middle" fill="#312e81" font-weight="600">project</text>
-  <text x="671" y="384" text-anchor="middle" fill="#6b7280" font-size="11">types: kit</text>
-  <rect x="742" y="326" width="640" height="92" rx="6" fill="#ffffff" stroke="#9ca3af"/>
-  <text x="758" y="348" fill="#374151"><tspan font-weight="600">status check</tspan> · commit, deploy — type on the list, header and inventory agree, one block per type</text>
-  <text x="758" y="366" fill="#374151"><tspan font-weight="600">judge</tspan> · commit, advisory — DUPLICATE-BLOCK, NAMED-FOR-DATA, VARIANT-INCOMPLETE</text>
-  <text x="758" y="384" fill="#374151"><tspan font-weight="600">compare-ui-values</tspan> · end of work — proves a change left every visible value the same</text>
-  <text x="758" y="404" fill="#374151"><tspan font-weight="600">human</tspan> · end of work — a new block or variant is pending until approved</text>
+  <rect x="40" y="434" width="560" height="92" rx="6" fill="#f9fafb" stroke="#9ca3af"/>
+  <text x="56" y="456" font-weight="600" fill="#111827">Blocks</text>
+  <text x="56" y="474" fill="#374151">components/: one block per block type, built from atoms and blocks. Owns its look,</text>
+  <text x="56" y="490" fill="#374151">inner layout and guarantees; carries variants, props and slots. A page type's block is a frame.</text>
+  <text x="56" y="512" fill="#6b7280" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11">// ui-block: &lt;Type&gt;     // ui-behaviour: &lt;rule&gt;.md     (the type list is the kit's)</text>
+  <rect x="616" y="434" width="110" height="92" rx="6" fill="#eef2ff" stroke="#9ca3af"/>
+  <text x="671" y="474" text-anchor="middle" fill="#312e81" font-weight="600">project</text>
+  <text x="671" y="492" text-anchor="middle" fill="#6b7280" font-size="11">types: kit</text>
+  <rect x="742" y="434" width="640" height="92" rx="6" fill="#ffffff" stroke="#9ca3af"/>
+  <text x="758" y="456" fill="#374151"><tspan font-weight="600">status check</tspan> · deploy, /work, /handoff — type on the list, header and inventory agree, one block per type</text>
+  <text x="758" y="474" fill="#374151"><tspan font-weight="600">judge</tspan> · commit, advisory — DUPLICATE-BLOCK, NAMED-FOR-DATA, VARIANT-INCOMPLETE</text>
+  <text x="758" y="492" fill="#374151"><tspan font-weight="600">compare-ui-values</tspan> · end of work — proves a change left every visible value the same</text>
+  <text x="758" y="512" fill="#374151"><tspan font-weight="600">human</tspan> · end of work — a new block or variant is pending until approved</text>
 
   <!-- Atoms -->
-  <rect x="40" y="434" width="560" height="92" rx="6" fill="#f9fafb" stroke="#9ca3af"/>
-  <text x="56" y="456" font-weight="600" fill="#111827">Atoms</text>
-  <text x="56" y="474" fill="#374151">components/ui/: one control or element that owns its look — a button, an input, a badge.</text>
-  <text x="56" y="490" fill="#374151">Vendored from shadcn and restyled once, at the source, onto the project's roles.</text>
-  <text x="56" y="512" fill="#6b7280" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11">// ui-atom</text>
-  <rect x="616" y="434" width="110" height="92" rx="6" fill="#eef2ff" stroke="#9ca3af"/>
-  <text x="671" y="484" text-anchor="middle" fill="#312e81" font-weight="600">project</text>
-  <rect x="742" y="434" width="640" height="92" rx="6" fill="#ffffff" stroke="#9ca3af"/>
-  <text x="758" y="456" fill="#374151"><tspan font-weight="600">token check</tspan> · commit, CI — every class a role, restyled once; arbitrary spacing never</text>
-  <text x="758" y="474" fill="#374151"><tspan font-weight="600">status check</tspan> · commit, deploy — listed in the inventory's atoms table</text>
-  <text x="758" y="492" fill="#374151"><tspan font-weight="600">a11y rules</tspan> · every edit, CI — type on buttons, names on icon buttons, focus visible</text>
-
-  <!-- Role tokens -->
   <rect x="40" y="542" width="560" height="92" rx="6" fill="#f9fafb" stroke="#9ca3af"/>
-  <text x="56" y="564" font-weight="600" fill="#111827">Role tokens</text>
-  <text x="56" y="582" fill="#374151">The stylesheets: a name for each job — row-title, control, feedback-danger — each with a</text>
-  <text x="56" y="598" fill="#374151">purpose comment. Only roles are used outside the token files. Named for the job, not the size.</text>
-  <text x="56" y="620" fill="#6b7280" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11">--color-*  --radius-*  --spacing-*  --shadow-*     @utility type-*</text>
+  <text x="56" y="564" font-weight="600" fill="#111827">Atoms</text>
+  <text x="56" y="582" fill="#374151">components/ui/: one control or element that owns its look — a button, an input, a badge.</text>
+  <text x="56" y="598" fill="#374151">Vendored from shadcn and restyled once, at the source, onto the project's roles.</text>
+  <text x="56" y="620" fill="#6b7280" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11">// ui-atom</text>
   <rect x="616" y="542" width="110" height="92" rx="6" fill="#eef2ff" stroke="#9ca3af"/>
   <text x="671" y="592" text-anchor="middle" fill="#312e81" font-weight="600">project</text>
   <rect x="742" y="542" width="640" height="92" rx="6" fill="#ffffff" stroke="#9ca3af"/>
-  <text x="758" y="564" fill="#374151"><tspan font-weight="600">token check</tspan> · commit, CI — resolves, is reached, light and dark agree, 4.5:1 contrast,</text>
-  <text x="758" y="580" fill="#374151">commented, never named by size, generated files current</text>
-  <text x="758" y="598" fill="#374151"><tspan font-weight="600">judge</tspan> · commit, advisory — ROLE-NAME, DUPLICATE-ROLE</text>
-  <text x="758" y="620" fill="#374151"><tspan font-weight="600">human</tspan> · end of work — a new role is pending until approved</text>
+  <text x="758" y="564" fill="#374151"><tspan font-weight="600">token check</tspan> · CI, end of work — every class a role, restyled once; arbitrary spacing never</text>
+  <text x="758" y="582" fill="#374151"><tspan font-weight="600">status check</tspan> · deploy, /work, /handoff — listed in the inventory's atoms table</text>
+  <text x="758" y="600" fill="#374151"><tspan font-weight="600">a11y rules</tspan> · every edit, CI — type on buttons, names on icon buttons, focus visible</text>
+
+  <!-- Role tokens -->
+  <rect x="40" y="650" width="560" height="92" rx="6" fill="#f9fafb" stroke="#9ca3af"/>
+  <text x="56" y="672" font-weight="600" fill="#111827">Role tokens</text>
+  <text x="56" y="690" fill="#374151">The stylesheets: a name for each job — row-title, control, feedback-danger — each with a</text>
+  <text x="56" y="706" fill="#374151">purpose comment. Only roles are used outside the token files. Named for the job, not the size.</text>
+  <text x="56" y="728" fill="#6b7280" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11">--color-*  --radius-*  --spacing-*  --shadow-*     @utility type-*</text>
+  <rect x="616" y="650" width="110" height="92" rx="6" fill="#eef2ff" stroke="#9ca3af"/>
+  <text x="671" y="700" text-anchor="middle" fill="#312e81" font-weight="600">project</text>
+  <rect x="742" y="650" width="640" height="92" rx="6" fill="#ffffff" stroke="#9ca3af"/>
+  <text x="758" y="672" fill="#374151"><tspan font-weight="600">token check</tspan> · CI, end of work — resolves, is reached, light and dark agree, 4.5:1 contrast,</text>
+  <text x="758" y="688" fill="#374151">commented, never named by size, generated files current</text>
+  <text x="758" y="706" fill="#374151"><tspan font-weight="600">judge</tspan> · commit, advisory — ROLE-NAME, DUPLICATE-ROLE</text>
+  <text x="758" y="728" fill="#374151"><tspan font-weight="600">human</tspan> · end of work — a new role is pending until approved</text>
 
   <!-- Base tokens -->
-  <rect x="40" y="650" width="560" height="92" rx="6" fill="#f9fafb" stroke="#9ca3af"/>
-  <text x="56" y="672" font-weight="600" fill="#111827">Base tokens</text>
-  <text x="56" y="690" fill="#374151">The theme's palette and scale, usually a tweakcn export: a light block and a dark block.</text>
-  <text x="56" y="706" fill="#374151">The one place a look is chosen by eye. Not published: wrapped in publish: off … publish: on.</text>
-  <text x="56" y="728" fill="#6b7280" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11">:root { … }     .dark { … }</text>
-  <rect x="616" y="650" width="110" height="92" rx="6" fill="#eef2ff" stroke="#9ca3af"/>
-  <text x="671" y="692" text-anchor="middle" fill="#312e81" font-weight="600">project</text>
-  <text x="671" y="710" text-anchor="middle" fill="#6b7280" font-size="11">or a Design Pack</text>
-  <rect x="742" y="650" width="640" height="92" rx="6" fill="#ffffff" stroke="#9ca3af"/>
-  <text x="758" y="672" fill="#374151"><tspan font-weight="600">token check</tspan> · commit, CI — every value resolves to a plain colour or length</text>
-  <text x="758" y="690" fill="#374151"><tspan font-weight="600">build step</tspan> · app build — plain-colour fallbacks added for browsers without oklch</text>
+  <rect x="40" y="758" width="560" height="92" rx="6" fill="#f9fafb" stroke="#9ca3af"/>
+  <text x="56" y="780" font-weight="600" fill="#111827">Base tokens</text>
+  <text x="56" y="798" fill="#374151">The theme's palette and scale, usually a tweakcn export: a light block and a dark block.</text>
+  <text x="56" y="814" fill="#374151">The one place a look is chosen by eye. Not published: wrapped in publish: off … publish: on.</text>
+  <text x="56" y="836" fill="#6b7280" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11">:root { … }     .dark { … }</text>
+  <rect x="616" y="758" width="110" height="92" rx="6" fill="#eef2ff" stroke="#9ca3af"/>
+  <text x="671" y="800" text-anchor="middle" fill="#312e81" font-weight="600">project</text>
+  <text x="671" y="818" text-anchor="middle" fill="#6b7280" font-size="11">or a Design Pack</text>
+  <rect x="742" y="758" width="640" height="92" rx="6" fill="#ffffff" stroke="#9ca3af"/>
+  <text x="758" y="780" fill="#374151"><tspan font-weight="600">token check</tspan> · CI, end of work — every value resolves to a plain colour or length</text>
 
   <!-- made-only-from arrows -->
   <line x1="320" y1="218" x2="320" y2="206" stroke="#374151" stroke-width="1.5" marker-end="url(#up)"/>
@@ -102,64 +113,65 @@
   <line x1="320" y1="434" x2="320" y2="422" stroke="#374151" stroke-width="1.5" marker-end="url(#up)"/>
   <line x1="320" y1="542" x2="320" y2="530" stroke="#374151" stroke-width="1.5" marker-end="url(#up)"/>
   <line x1="320" y1="650" x2="320" y2="638" stroke="#374151" stroke-width="1.5" marker-end="url(#up)"/>
+  <line x1="320" y1="758" x2="320" y2="746" stroke="#374151" stroke-width="1.5" marker-end="url(#up)"/>
   <text x="330" y="214" fill="#6b7280" font-size="10">made only from</text>
 
   <!-- published views -->
-  <text x="40" y="778" font-size="11" font-weight="600" fill="#6b7280" letter-spacing="1">PUBLISHED FROM THE STYLESHEET AND THE COMPONENTS · NEVER EDITED THERE</text>
-  <rect x="40" y="790" width="330" height="72" rx="6" fill="#fff7ed" stroke="#9ca3af"/>
-  <text x="56" y="812" font-weight="600" fill="#111827">design.md</text>
-  <text x="56" y="830" fill="#374151">token section generated between the publish</text>
-  <text x="56" y="846" fill="#374151">markers; the prose is hand-written</text>
-  <rect x="386" y="790" width="340" height="72" rx="6" fill="#fff7ed" stroke="#9ca3af"/>
-  <text x="402" y="812" font-weight="600" fill="#111827">Claude Design system</text>
-  <text x="402" y="830" fill="#374151">tokens, atoms and blocks bundled; a design</text>
-  <text x="402" y="846" fill="#374151">built on it comes back to the code as changes</text>
-  <rect x="742" y="790" width="640" height="72" rx="6" fill="#ffffff" stroke="#9ca3af"/>
-  <text x="758" y="812" fill="#374151"><tspan font-weight="600">token check</tspan> · commit, CI — design.md and the generated files are current</text>
-  <text x="758" y="830" fill="#374151"><tspan font-weight="600">render check</tspan> · publish — every component renders in light, dark and canvas mounting</text>
+  <text x="40" y="886" font-size="11" font-weight="600" fill="#6b7280" letter-spacing="1">PUBLISHED FROM THE STYLESHEET AND THE COMPONENTS · NEVER EDITED THERE</text>
+  <rect x="40" y="898" width="330" height="72" rx="6" fill="#fff7ed" stroke="#9ca3af"/>
+  <text x="56" y="920" font-weight="600" fill="#111827">design.md</text>
+  <text x="56" y="938" fill="#374151">token section generated between the publish</text>
+  <text x="56" y="954" fill="#374151">markers; the prose is hand-written</text>
+  <rect x="386" y="898" width="340" height="72" rx="6" fill="#fff7ed" stroke="#9ca3af"/>
+  <text x="402" y="920" font-weight="600" fill="#111827">Claude Design system</text>
+  <text x="402" y="938" fill="#374151">tokens, atoms and blocks bundled; a design</text>
+  <text x="402" y="954" fill="#374151">built on it comes back to the code as changes</text>
+  <rect x="742" y="898" width="640" height="72" rx="6" fill="#ffffff" stroke="#9ca3af"/>
+  <text x="758" y="920" fill="#374151"><tspan font-weight="600">token check</tspan> · CI, end of work — design.md and the generated files are current</text>
+  <text x="758" y="938" fill="#374151"><tspan font-weight="600">render check</tspan> · publish — every component renders in light, dark and canvas mounting</text>
 
   <!-- WHEN band: six boxes, 212 wide, 14 gap -->
-  <text x="40" y="890" font-size="11" font-weight="600" fill="#6b7280" letter-spacing="1">WHEN</text>
-  <rect x="40" y="902" width="212" height="118" rx="6" fill="#f3f4f6" stroke="#9ca3af"/>
-  <text x="52" y="922" font-weight="600" fill="#111827">every UI edit</text>
-  <text x="52" y="940" fill="#374151">the skill reads the inventory,</text>
-  <text x="52" y="956" fill="#374151">the recipe and the rules, and</text>
-  <text x="52" y="972" fill="#374151">builds from the system; a gap</text>
-  <text x="52" y="988" fill="#374151">is built pending, never</text>
-  <text x="52" y="1004" fill="#374151">asked about mid-build</text>
-  <rect x="266" y="902" width="212" height="118" rx="6" fill="#f3f4f6" stroke="#9ca3af"/>
-  <text x="278" y="922" font-weight="600" fill="#111827">/commit · /ship-main</text>
-  <text x="278" y="940" fill="#374151">token check and status check</text>
-  <text x="278" y="956" fill="#374151">gate; the judge answers one</text>
-  <text x="278" y="972" fill="#374151">yes/no per candidate, three</text>
-  <text x="278" y="988" fill="#374151">times; a yes is a pending item;</text>
-  <text x="278" y="1004" fill="#374151">no commit is refused on taste</text>
-  <rect x="492" y="902" width="212" height="118" rx="6" fill="#f3f4f6" stroke="#9ca3af"/>
-  <text x="504" y="922" font-weight="600" fill="#111827">end of a body of work</text>
-  <text x="504" y="940" fill="#374151">compare-ui-values proves what</text>
-  <text x="504" y="956" fill="#374151">did not change; the human sees</text>
-  <text x="504" y="972" fill="#374151">each pending item as the real</text>
-  <text x="504" y="988" fill="#374151">thing: <tspan fill="#b45309" font-weight="600">approve</tspan> · <tspan fill="#b45309" font-weight="600">defer</tspan> · fix;</text>
-  <text x="504" y="1004" fill="#374151">rivals go on a comparison page</text>
-  <rect x="718" y="902" width="212" height="118" rx="6" fill="#f3f4f6" stroke="#9ca3af"/>
-  <text x="730" y="922" font-weight="600" fill="#111827">/deploy</text>
-  <text x="730" y="940" fill="#374151">refuses while anything is</text>
-  <text x="730" y="956" fill="#374151"><tspan fill="#b45309" font-weight="600">pending</tspan>; deferred blocks</text>
-  <text x="730" y="972" fill="#374151">nothing, and is pending</text>
-  <text x="730" y="988" fill="#374151">again once its code changes</text>
-  <rect x="944" y="902" width="212" height="118" rx="6" fill="#f3f4f6" stroke="#9ca3af"/>
-  <text x="956" y="922" font-weight="600" fill="#111827">on request</text>
-  <text x="956" y="940" fill="#374151">/design-audit asks the same</text>
-  <text x="956" y="956" fill="#374151">questions over a whole layer,</text>
-  <text x="956" y="972" fill="#374151">bottom up; each yes is settled</text>
-  <text x="956" y="988" fill="#374151">with the human, one at a time</text>
-  <rect x="1170" y="902" width="212" height="118" rx="6" fill="#f3f4f6" stroke="#9ca3af"/>
-  <text x="1182" y="922" font-weight="600" fill="#111827">kit release</text>
-  <text x="1182" y="940" fill="#374151">every judge question runs its</text>
-  <text x="1182" y="956" fill="#374151">invented cases, three times</text>
-  <text x="1182" y="972" fill="#374151">each; one that drifts from the</text>
-  <text x="1182" y="988" fill="#374151">known answer is rewritten</text>
-  <text x="1182" y="1004" fill="#374151">or dropped</text>
+  <text x="40" y="998" font-size="11" font-weight="600" fill="#6b7280" letter-spacing="1">WHEN</text>
+  <rect x="40" y="1010" width="212" height="118" rx="6" fill="#f3f4f6" stroke="#9ca3af"/>
+  <text x="52" y="1030" font-weight="600" fill="#111827">every UI edit</text>
+  <text x="52" y="1048" fill="#374151">the skill reads the inventory,</text>
+  <text x="52" y="1064" fill="#374151">the recipe and the rules, and</text>
+  <text x="52" y="1080" fill="#374151">builds from the system; a gap</text>
+  <text x="52" y="1096" fill="#374151">is built pending, never</text>
+  <text x="52" y="1112" fill="#374151">asked about mid-build</text>
+  <rect x="266" y="1010" width="212" height="118" rx="6" fill="#f3f4f6" stroke="#9ca3af"/>
+  <text x="278" y="1030" font-weight="600" fill="#111827">/commit · /ship-main</text>
+  <text x="278" y="1048" fill="#374151">the judge answers one yes/no</text>
+  <text x="278" y="1064" fill="#374151">per candidate, three times; a</text>
+  <text x="278" y="1080" fill="#374151">yes is a pending item, put to</text>
+  <text x="278" y="1096" fill="#374151">the human in that turn; no</text>
+  <text x="278" y="1112" fill="#374151">commit is refused on taste</text>
+  <rect x="492" y="1010" width="212" height="118" rx="6" fill="#f3f4f6" stroke="#9ca3af"/>
+  <text x="504" y="1030" font-weight="600" fill="#111827">end of a body of work</text>
+  <text x="504" y="1048" fill="#374151">compare-ui-values proves what</text>
+  <text x="504" y="1064" fill="#374151">did not change; the human sees</text>
+  <text x="504" y="1080" fill="#374151">each pending item as the real</text>
+  <text x="504" y="1096" fill="#374151">thing: <tspan fill="#b45309" font-weight="600">approve</tspan> · <tspan fill="#b45309" font-weight="600">defer</tspan> · fix;</text>
+  <text x="504" y="1112" fill="#374151">rivals go on a comparison page</text>
+  <rect x="718" y="1010" width="212" height="118" rx="6" fill="#f3f4f6" stroke="#9ca3af"/>
+  <text x="730" y="1030" font-weight="600" fill="#111827">/deploy</text>
+  <text x="730" y="1048" fill="#374151">refuses while anything is</text>
+  <text x="730" y="1064" fill="#374151"><tspan fill="#b45309" font-weight="600">pending</tspan>; deferred blocks</text>
+  <text x="730" y="1080" fill="#374151">nothing, and is pending</text>
+  <text x="730" y="1096" fill="#374151">again once its code changes</text>
+  <rect x="944" y="1010" width="212" height="118" rx="6" fill="#f3f4f6" stroke="#9ca3af"/>
+  <text x="956" y="1030" font-weight="600" fill="#111827">on request</text>
+  <text x="956" y="1048" fill="#374151">/design-audit asks the same</text>
+  <text x="956" y="1064" fill="#374151">questions over a whole layer,</text>
+  <text x="956" y="1080" fill="#374151">bottom up; each yes is settled</text>
+  <text x="956" y="1096" fill="#374151">with the human, one at a time</text>
+  <rect x="1170" y="1010" width="212" height="118" rx="6" fill="#f3f4f6" stroke="#9ca3af"/>
+  <text x="1182" y="1030" font-weight="600" fill="#111827">kit release</text>
+  <text x="1182" y="1048" fill="#374151">every judge question runs its</text>
+  <text x="1182" y="1064" fill="#374151">invented cases, three times</text>
+  <text x="1182" y="1080" fill="#374151">each; one that drifts from the</text>
+  <text x="1182" y="1096" fill="#374151">known answer is rewritten</text>
+  <text x="1182" y="1112" fill="#374151">or dropped</text>
 
-  <text x="40" y="1050" fill="#6b7280" font-size="11">Status words, the same everywhere: <tspan fill="#b45309" font-weight="600">pending</tspan> waits for the human and blocks deploy · <tspan fill="#b45309" font-weight="600">approved</tspan> is the human's word alone · <tspan fill="#b45309" font-weight="600">deferred</tspan> is "not looked at, trusted": blocks nothing, pending again when the code changes.</text>
+  <text x="40" y="1158" fill="#6b7280" font-size="11">Status words, the same everywhere: <tspan fill="#b45309" font-weight="600">pending</tspan> waits for the human and blocks deploy · <tspan fill="#b45309" font-weight="600">approved</tspan> is the human's word alone · <tspan fill="#b45309" font-weight="600">deferred</tspan> is "not looked at, trusted": blocks nothing, pending again when the code changes.</text>
 </svg>

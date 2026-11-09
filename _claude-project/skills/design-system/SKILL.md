@@ -243,8 +243,11 @@ component whose canvas render differs from its plain render by a pixel. The
   fixed height or a colour at a call site, a faded colour or a frame atom in a screen, a
   bare scroll area, a raw field painting the field look, a token that resolves to nothing
   or that nothing reaches, light and dark disagreeing, every text pair at 4.5:1, a
-  reference naming what does not exist, the generated files current. It judges a screen's
-  changed lines only, so untouched screens are never blocked. Exemptions are named in the
+  reference naming what does not exist, the generated files current, and every class an
+  app's code and its imported workspaces use present in the CSS that app's stylesheet
+  builds — compiled with the same Tailwind and the same `source(…)` and `@source` scan the
+  build uses, so a workspace the stylesheet does not scan is found before a screen shows
+  it. It judges a screen's changed lines only, so untouched screens are never blocked. Exemptions are named in the
   `DESIGN_*` keys, never in code; a project's own check is a `*.mjs` in
   `<UI package>/design-system/checks/`.
 - **The status check** (`.claude/skills/ui-patterns/scripts/check-ui-status.mjs`) decides

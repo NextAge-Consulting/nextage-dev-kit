@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { checkDesignTokens, NOT_SET_UP, parityProblems, purposesOf } from './check-design-tokens.mjs'
+import { checkDesignTokens, hasRule, NOT_SET_UP, parityProblems, purposesOf } from './check-design-tokens.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ENGINE = path.resolve(HERE, '../../claude-design/scripts')
@@ -555,6 +555,69 @@ test('design.md: a token section the stylesheet would not generate is out of dat
   assert.ok(changed.problems.some((p) => /token section out of date/.test(p)))
   await writeDesignMd(dir)
   assert.deepEqual((await checkDesignTokens(dir)).problems, [])
+})
+
+// Tailwind for the ships check, from the global npm root, as TypeScript is found: the check
+// compiles an app's stylesheet with the project's own Tailwind, and a fixture has none.
+const TAILWIND_GLOBAL = (() => {
+  try {
+    const root = execFileSync('npm', ['root', '-g'], { encoding: 'utf8' }).trim()
+    const needed = ['tailwindcss', '@tailwindcss/node', '@tailwindcss/oxide']
+    return needed.every((p) => fs.existsSync(path.join(root, p))) ? root : null
+  } catch {
+    return null
+  }
+})()
+/** A fixture whose node_modules resolve Tailwind from the global root. */
+function withTailwind(dir) {
+  for (const p of ['tailwindcss', '@tailwindcss/node', '@tailwindcss/oxide']) {
+    const to = path.join(dir, 'node_modules', p)
+    fs.mkdirSync(path.dirname(to), { recursive: true })
+    fs.symlinkSync(path.join(TAILWIND_GLOBAL, p), to)
+  }
+  return dir
+}
+const SHIPS_SKIP = TAILWIND_GLOBAL ? false : 'the ships check needs Tailwind installed globally (npm i -g tailwindcss @tailwindcss/node @tailwindcss/oxide)'
+const SHARED = {
+  'packages/web/package.json': '{ "name": "@acme/web", "dependencies": { "@acme/ui": "*" } }\n',
+  'packages/web/src/components/shell.tsx': 'export function Shell({ children }: { children?: unknown }) {\n  return <section className="py-4 bg-background">{children}</section>\n}\n',
+  'apps/web/package.json': '{ "name": "web", "dependencies": { "@acme/ui": "*", "@acme/web": "*" } }\n',
+}
+const ENTRY_UI_ONLY = '@import "tailwindcss" source("./");\n@source "../../../packages/ui/src/**/*.{ts,tsx}";\n'
+
+test('ships: a class used only in a workspace the app imports but its stylesheet does not scan fails, naming the folder and the @source line to add', { skip: SHIPS_SKIP }, async () => {
+  const dir = withTailwind(await prepared({ ...SHARED, 'apps/web/src/styles.css': ENTRY_UI_ONLY }))
+  const { problems, counts, notes } = await checkDesignTokens(dir)
+  const ships = problems.filter((p) => p.startsWith('apps/web/src/styles.css'))
+  assert.equal(ships.length, 1, problems.join('\n'))
+  assert.match(ships[0], /^apps\/web\/src\/styles\.css {2}py-4 {2}— used in packages\/web\/src\/components\/shell\.tsx:2 but not in the CSS this app builds — its stylesheet does not scan packages\/web\/src; add @source "\.\.\/\.\.\/\.\.\/packages\/web\/src\/\*\*\/\*\.\{ts,tsx\}"$/)
+  assert.equal(counts.shipsEntries, 1)
+  assert.ok(counts.shipsClasses > 0)
+  assert.match(notes.join(' '), /ships: 1 app stylesheet\(s\) compiled/)
+})
+
+test('ships: the same app with the folder scanned passes, and a class Tailwind makes no rule of is never a finding', { skip: SHIPS_SKIP }, async () => {
+  const dir = withTailwind(await prepared({ ...SHARED, 'apps/web/src/styles.css': `${ENTRY_UI_ONLY}@source "../../../packages/web/src/**/*.{ts,tsx}";\n` }))
+  const { problems } = await checkDesignTokens(dir)
+  assert.deepEqual(problems.filter((p) => p.startsWith('apps/web/src/styles.css')), [], problems.join('\n'))
+})
+
+test('ships: with no app stylesheet importing tailwindcss it does not apply, and says so', async () => {
+  const { notes, counts } = await run()
+  assert.match(notes.join(' '), /ships: no app stylesheet imports tailwindcss — does not apply/)
+  assert.equal(counts.shipsEntries, 0)
+})
+
+test('ships: an entry stylesheet with no Tailwind installed from the root fails, never passes unbuilt', async () => {
+  const { problems } = await run({ 'apps/web/src/styles.css': ENTRY_UI_ONLY })
+  assert.ok(problems.some((p) => /^apps\/web\/src\/styles\.css {2}cannot be compiled {2}— @tailwindcss\/node and @tailwindcss\/oxide are not installed/.test(p)), problems.join('\n'))
+})
+
+test('hasRule finds a class by its own selector, escaped as Tailwind writes it, never a longer class', () => {
+  assert.equal(hasRule('.py-4 { padding-block: 1rem; }', 'py-4'), true)
+  assert.equal(hasRule('.py-4\\.5 { padding-block: 1.125rem; }', 'py-4'), false)
+  assert.equal(hasRule('.hover\\:bg-x:hover { color: red }', 'hover:bg-x'), true)
+  assert.equal(hasRule('.py-40 {}', 'py-4'), false)
 })
 
 test("the project slot runs every check in the UI package's design-system/checks/", async () => {

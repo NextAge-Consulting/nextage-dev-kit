@@ -52,6 +52,11 @@
  *              token's line marks the ratio accepted (contrast.mjs);
  *   patterns   every type role, token and component a pattern reference names in code exists;
  *   design.md  its token section is the one the stylesheet generates (design-md.mjs);
+ *   ships      every app's entry stylesheet, compiled as the app's build compiles it — the
+ *              same compiler, the same `source(…)` and `@source` scan — holds a rule for
+ *              every class the app's own code and its imported workspaces use; a class used
+ *              only in a workspace the stylesheet does not scan is in the code and absent
+ *              from the CSS, and no reading of the source can see that;
  *
  * Whether a call site repaints a block, whether a screen draws a box a block should, and
  * whether a name says what a thing is for are judgements: the judge (locate.mjs and
@@ -73,7 +78,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parseTokenBlocks } from '../../claude-design/scripts/resolve.mjs'
 import { atomModule, readBlockTypes } from './block-types.mjs'
 import { contrastProblems } from './contrast.mjs'
-import { uiSourceDirs } from './ui-sources.mjs'
+import { uiPackages, uiSourceDirs, workspaceImports } from './ui-sources.mjs'
 
 export const KEYS = [
   'DESIGN_UI_PACKAGE', 'DESIGN_TOKEN_FILES', 'DESIGN_TYPE_FILE', 'DESIGN_STYLES_FILE', 'DESIGN_VENDORED_DIR',
@@ -115,6 +120,17 @@ const MAGNITUDE_NAME = /^(?:\d*x[sl]|sm|md|lg)$/
 const MAGNITUDE_SIZE = /\ssize=(?:"((?:icon-)?(?:\d?xs|sm|md|lg|\d?xl))"|\{\s*["'`]((?:icon-)?(?:\d?xs|sm|md|lg|\d?xl))["'`]\s*\})/
 
 const posix = (p) => p.split(path.sep).join('/').replaceAll('\\', '/')
+/** An app's entry stylesheet: the one that imports Tailwind, so the one its build compiles. */
+const TAILWIND_ENTRY = /^\s*@import\s+["']tailwindcss["']/m
+/** Whether built CSS holds a rule for a class: its selector as Tailwind escapes it, not as the
+ * prefix of a longer class (`.py-2` is not `.py-2\.5`). */
+export function hasRule(css, cls) {
+  const selector = `.${cls.replace(/[^\w-]/g, (ch) => `\\${ch}`)}`
+  for (let i = css.indexOf(selector); i !== -1; i = css.indexOf(selector, i + 1)) {
+    if (!/[\w\\-]/.test(css[i + selector.length] ?? '')) return true
+  }
+  return false
+}
 const isComment = (line) => /^\s*(\/\/|\*|\/\*)/.test(line)
 const DECL = /^\s*(--[A-Za-z0-9-]+)\s*:\s*(.+?);(?:\s*\/\*.*)?\s*$/
 
@@ -1090,6 +1106,93 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
     }
   }
 
+  // --- every app ships the classes its code uses -----------------------------
+  // An app's entry stylesheet names the folders Tailwind scans (`source(…)`, `@source`), and
+  // Tailwind generates CSS for the classes it finds there and nothing else. A class used only
+  // in a workspace the app imports but does not scan is in the code and absent from the CSS,
+  // and no reading of the source can see it: the class is a real role, and the browser just
+  // gets no rule. So each app's stylesheet is compiled as its build compiles it — the same
+  // compiler, the same scan the Vite plugin sets up — and every class the app's own code and
+  // its imported workspaces use that the built CSS lacks is a finding, naming the folder the
+  // stylesheet leaves out and the @source line that scans it.
+  let shipsEntries = 0
+  let shipsClasses = 0
+  {
+    const { packages } = uiPackages(repo, pkgRel)
+    const apps = packages.filter((w) => w !== pkgRel && w !== '.')
+    const entries = []
+    for (const w of apps) {
+      for (const f of globSync('**/*.css', { cwd: path.join(repo, w), exclude: (p) => /node_modules|dist/.test(posix(p)) })) {
+        const file = posix(path.join(w, f))
+        if (TAILWIND_ENTRY.test(readFileSync(path.join(repo, file), 'utf8'))) entries.push({ app: w, file })
+      }
+    }
+    if (!entries.length) notes.push('ships: no app stylesheet imports tailwindcss — does not apply')
+    else {
+      let tw = null
+      let Scanner = null
+      try {
+        const req = createRequire(path.join(repo, 'package.json'))
+        tw = await import(pathToFileURL(req.resolve('@tailwindcss/node')).href)
+        ;({ Scanner } = await import(pathToFileURL(req.resolve('@tailwindcss/oxide')).href))
+      } catch (err) {
+        for (const e of entries) add(e.file, 'cannot be compiled', `@tailwindcss/node and @tailwindcss/oxide are not installed from the repository root (${err.message.split('\n')[0]}); the ships check builds the stylesheet with the Tailwind the app's build uses`)
+      }
+      if (tw && Scanner) {
+        for (const { app, file } of entries) {
+          const abs = path.join(repo, file)
+          const text = readFileSync(abs, 'utf8')
+          const fresh = () => tw.compile(text, { base: path.dirname(abs), onDependency() {} })
+          let compiled
+          try {
+            compiled = await fresh()
+          } catch (err) {
+            add(file, 'cannot be compiled', err.message.split('\n')[0])
+            continue
+          }
+          shipsEntries++
+          // The scan the build performs: the stylesheet's own `source(…)` root (the app folder
+          // when it names none) plus every `@source`, exactly as @tailwindcss/vite sets it up.
+          const roots = compiled.root === 'none' ? [] : compiled.root === null ? [{ base: path.join(repo, app), pattern: '**/*', negated: false }] : [{ ...compiled.root, negated: false }]
+          const scanned = new Set(new Scanner({ sources: [...roots, ...compiled.sources] }).scan())
+          // What the app bundles: the code of its own source and of every workspace it
+          // imports — never a test, a story or a stylesheet, which the build does not bundle.
+          const imports = workspaceImports(repo, app)
+          const files = imports.flatMap((d) => globSync(`${d}/**/*.{ts,tsx,js,jsx}`, { cwd: repo }).map(posix)).filter((f) => !/\.(test|spec|stories|d)\.[jt]sx?$/.test(f) && !/(^|\/)(node_modules|dist)\//.test(f))
+          const needed = new Scanner({ sources: [] })
+          // Only class lists count as classes the code uses — the same reading as every rule
+          // above, so a word in a comment or a prop value is never a missing class. The scanner
+          // reads the content it is handed.
+          const wanted = needed.scanFiles(files.map((f) => ({ content: classText(readFileSync(path.join(repo, f), 'utf8').replace(/\r\n/g, '\n'), { names: exported }), extension: path.extname(f).slice(1) })))
+          shipsClasses += wanted.length
+          const gaps = wanted.filter((c) => !scanned.has(c))
+          if (!gaps.length) continue
+          // A candidate is a class only when Tailwind makes a rule of it; a fresh compiler
+          // builds the gaps, since build() is cumulative.
+          const shipped = compiled.build([...scanned])
+          const built = (await fresh()).build(gaps)
+          const whereUsed = (cls) => {
+            for (const f of files) {
+              if (!existsSync(path.join(repo, f))) continue
+              const lines = readFileSync(path.join(repo, f), 'utf8').split('\n')
+              const n = lines.findIndex((l) => l.includes(cls) && new RegExp(`(?<![\\w-])${cls.replace(/[^\w-]/g, '\\$&')}(?![\\w-])`).test(l))
+              if (n !== -1) return `${f}:${n + 1}`
+            }
+            return null
+          }
+          for (const cls of gaps) {
+            if (!hasRule(built, cls) || hasRule(shipped, cls)) continue
+            const at = whereUsed(cls)
+            const folder = at ? imports.find((d) => at.startsWith(`${d}/`)) : null
+            const glob = folder ? `${posix(path.relative(path.dirname(abs), path.join(repo, folder)))}/**/*.{ts,tsx}` : null
+            add(file, cls, `used in ${at ?? 'the code this app bundles'} but not in the CSS this app builds — its stylesheet does not scan ${folder ?? 'that folder'}${glob ? `; add @source "${glob}"` : ''}`)
+          }
+        }
+        notes.push(`ships: ${shipsEntries} app stylesheet(s) compiled as their builds compile them; ${shipsClasses} class candidates checked against the CSS each app builds`)
+      }
+    }
+  }
+
   // --- the project's own checks ---------------------------------------------
   const checksDir = path.join(pkg, 'design-system/checks')
   const projectChecks = existsSync(checksDir) ? readdirSync(checksDir).filter((f) => f.endsWith('.mjs')).sort() : []
@@ -1130,6 +1233,8 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
       themes: contrast.themes,
       generated: generatedChecked,
       designCurrent,
+      shipsEntries,
+      shipsClasses,
       projectChecks: projectChecks.length,
       patterns: patternFiles.length,
     },
@@ -1168,7 +1273,7 @@ async function main() {
   console.log(
     `✓ design tokens: scanned ${counts.sourceFiles} source files (${counts.lines} lines), ${counts.stylesheets} stylesheets and design.md; ` +
       `${counts.classesChecked} classes checked against ${counts.typeRoles} type roles, ${counts.radius} radius, ${counts.weight} weight, ` +
-      `${counts.colours} colours; ${counts.tokens} tokens resolve; ${counts.contrastPairs} text pairs measured in ${counts.themes} theme(s) (${counts.contrastMeasured} measurements); ${counts.generated} generated files current; ${counts.projectChecks} project checks; ${counts.patterns} pattern references`,
+      `${counts.colours} colours; ${counts.tokens} tokens resolve; ${counts.contrastPairs} text pairs measured in ${counts.themes} theme(s) (${counts.contrastMeasured} measurements); ${counts.generated} generated files current; ${counts.shipsEntries} app stylesheet(s) ship every class their code uses; ${counts.projectChecks} project checks; ${counts.patterns} pattern references`,
   )
 }
 

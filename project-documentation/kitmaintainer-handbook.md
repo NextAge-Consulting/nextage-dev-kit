@@ -63,6 +63,16 @@ echo '@kit-maintainer.md' >> ~/.claude/CLAUDE.md   # makes the maintainer rule l
 touch ~/.claude/kitmaster                          # block-kit-edit.sh goes inert; /sync-dev-kit syncs the working tree
 ```
 
+The kit's own suites compile code the way a consumer's build does, and the kit has no
+`package.json` to install from, so they take two compilers from the global npm root:
+TypeScript for every suite that reads source, and Tailwind for the token checker's ships
+check, which compiles an app's stylesheet. Without them the suites that need them say so
+and skip, and the pre-ship gate passes them unrun.
+
+```bash
+npm i -g typescript tailwindcss @tailwindcss/node @tailwindcss/oxide
+```
+
 Both markers are required and they gate different things. The `@kit-maintainer.md` import is what makes the maintainer rules load; the `kitmaster` file is what makes `block-kit-edit.sh` stop blocking kit edits, and makes a project's `/sync-dev-kit` sync from the kit's working tree as it stands, uncommitted migrations included, instead of requiring a clean, current `main`. A machine with one and not the other is misconfigured — the rule without the marker tells you that you may edit kit files while the hook refuses, and the marker without the rule yields the hook while nothing tells you the routing rules.
 
 Verify:
@@ -1381,7 +1391,13 @@ matter of judgement.
 a role, arbitrary values, roles named by size, a fixed height or a colour at a call site, a
 faded colour or a frame atom in a screen, bare scroll areas, raw fields, token resolution
 and reach, light and dark parity, every text pair's contrast, a reference naming what does
-not exist, the generated files and `design.md` current. The screen rules judge changed
+not exist, the generated files and `design.md` current, and every app's entry stylesheet
+shipping the classes its code uses: each is compiled as the app's build compiles it, with
+`@tailwindcss/node` and the oxide scanner from the repository root and the stylesheet's own
+`source(…)` and `@source` lines, and a class used in the app's own source or a workspace it
+imports (`ui-sources.mjs`, `workspaceImports`) that the built CSS lacks is a finding naming
+the folder the stylesheet leaves out and the `@source` line that scans it. A class Tailwind
+makes no rule of is never a finding. The screen rules judge changed
 lines only (`--base`, `DESIGN_TOKENS_BASE`, or where the work left `origin/main`), so an
 untouched screen is never blocked. The spacing scale is the project's own, from its
 design-system config; without one, a step between steps is not judged. A project's own
