@@ -12,9 +12,11 @@
  *       prints each yes. A `finding` line is code's own yes and is not asked. With --ledger,
  *       every yes is written to that file as a pending item for the human's walk-through
  *       (check-ui-status.mjs reads it), keyed by question and place, with the fingerprint of
- *       the line it names; a no removes the item it would have been; an item whose line has
- *       changed, or carries design-accepted or design-deferred, is dropped. Exit 0 whether or
- *       not there were yeses: the judge never stops a commit. Exit 2 when it cannot run.
+ *       the line it names. An item leaves the ledger on the human's word alone — the line
+ *       carries design-accepted or design-deferred — or when the line's code changes; a later
+ *       no from the judge is a re-asked question, not an answer, and removes nothing. Exit 0
+ *       whether or not there were yeses: the judge never stops a commit. Exit 2 when it
+ *       cannot run.
  *   node judge.mjs --list
  *       Prints the questions the references file holds.
  *
@@ -274,14 +276,13 @@ export function readLedger(file) {
 
 /**
  * The ledger after a run: existing items kept while their line is unchanged and not
- * excepted and they were not re-judged no; each yes added or refreshed.
+ * excepted; each yes added or refreshed. A no removes nothing: only the human's word on
+ * the line, or a change to its code, settles an item.
  */
-export function mergeLedger(repo, items, { yes = [], no = [] }) {
+export function mergeLedger(repo, items, { yes = [] }) {
   const keyOf = (i) => `${i.question}\u0000${i.at}`
-  const dropped = new Set(no.map(keyOf))
   const out = new Map()
   for (const i of items) {
-    if (dropped.has(keyOf(i))) continue
     const now = placeFingerprint(repo, i.at)
     if (!now || now.excepted || now.fingerprint !== i.fingerprint) continue
     out.set(keyOf(i), i)
@@ -357,7 +358,7 @@ async function main() {
     const ledger = opt('--ledger')
     if (ledger) {
       const file = path.resolve(repo, ledger)
-      const next = mergeLedger(repo, readLedger(file), { yes, no })
+      const next = mergeLedger(repo, readLedger(file), { yes })
       mkdirSync(path.dirname(file), { recursive: true })
       writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`)
       console.log(`judge: ${yes.length} yes, ${no.length} no from ${asked} question(s) asked; ${next.length} pending item(s) in ${path.relative(repo, file)}; $${cost.toFixed(2)}`)

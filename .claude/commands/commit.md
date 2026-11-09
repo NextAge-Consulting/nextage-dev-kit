@@ -114,6 +114,11 @@ Pass `--skip-typecheck` ONLY if the user explicitly requested bypassing typechec
 ### Step 8: Report result
 
 - Commit succeeded: report the commit hash and branch, and any issues moved to Staged
+- The design judge printed `✗` lines: the commit landed, and each line is a pending item
+  `/deploy` refuses on. Report the commit as landed with those items awaiting the human,
+  then put them to the human in this turn, before `/open-pr`, by the `design-system`
+  skill's walk-through: each described by what changed on screen or in behaviour, and
+  settled on the human's word — approved, changed or deferred
 - `main has moved` in the output: relay the commits behind and the files changed on both
   sides, and recommend `/catchup` — before any further work when files overlap. It is a
   warning; the commit still landed. On `main` it fires BEFORE the branch is cut, so the new
@@ -138,7 +143,7 @@ The headless reviews — rule, SQL and the test judge — and the design judge r
 
 The integration gate runs the integration tests that reach a change through the project's `test:related` script — the development tests (`*.dev.integration.test.ts`) included, which the full suite leaves out. The separate integration preflight (`test:preflight`) is not run here; the gate's own run reports a database the tests cannot use, and `/deploy` runs the preflight.
 
-The typecheck and the integration gate each record the code fingerprint they passed on (`code-fingerprint.mjs`: the tree with comments and whitespace left out of TypeScript and JavaScript). On the same fingerprint they skip, printing "code unchanged since the last pass (comments and whitespace only)" — so a commit that only rewords comments, or a re-run after fixing a review finding in prose, does not type-check or test again. The integration gate's record also names the commit it measured from. A failure is never recorded.
+The typecheck, biome, knip and the integration gate each record the code fingerprint they passed on (`code-fingerprint.mjs`: the tree with comments and whitespace left out of TypeScript and JavaScript, and Markdown, `project-documentation/` and the design judge's ledger left out altogether). On the same fingerprint they skip, printing "code unchanged since the last pass (comments, whitespace and prose only)" — so a commit that only rewords comments, approves UI in the inventory, or fixes a review finding in prose, does not type-check, lint or test again. The integration gate's record also names the commit it measured from. A failure is never recorded.
 
 ## What this command does NOT do
 

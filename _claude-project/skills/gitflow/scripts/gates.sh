@@ -28,11 +28,12 @@ has_typescript_sources() {
 #
 # A gate that passed records the code fingerprint it passed on (code-fingerprint.mjs:
 # one hash of the tree, comments and whitespace left out of TypeScript and JavaScript,
-# every other file byte for byte). The next run on the same fingerprint skips the gate,
+# Markdown, project-documentation/ and the judge's ledger left out altogether, every
+# other file byte for byte). The next run on the same fingerprint skips the gate,
 # saying so: nothing a check can see has changed since it passed. Only a pass is
 # recorded, so a failure runs again every time. The record is the last pass of each
-# gate, kept under the worktree's git dir (gitflow-pass/typecheck, …/integration,
-# …/production-build), never in the tree.
+# gate, kept under the worktree's git dir (gitflow-pass/typecheck, …/biome, …/knip,
+# …/integration, …/production-build), never in the tree.
 #
 # Everything a gate's answer depends on is in the tree — its configuration, the kit's
 # own scripts, the lockfile — so it is in the fingerprint too. Without node, or when the
@@ -83,7 +84,7 @@ gate_unchanged() {
     [ -n "$3" ] || return 1
     path=$(gate_pass_path "$1" "$2" 2>/dev/null) || return 1
     [ -f "$path" ] && [ "$(cat "$path" 2>/dev/null)" = "$3" ] || return 1
-    echo "gitflow: $2: code unchanged since the last pass (comments and whitespace only) — $2 skipped." >&2
+    echo "gitflow: $2: code unchanged since the last pass (comments, whitespace and prose only) — $2 skipped." >&2
 }
 
 # gate_record_pass <dir> <gate> <key> — records a pass. A record that cannot be written
@@ -233,9 +234,12 @@ biome_pinned_version() {
 }
 
 run_biome_gate() {
-    local action="$1"
+    local action="$1" fp=""
     if ! { [ -f "biome.json" ] || [ -f "biome.jsonc" ]; } || [ ! -f "package.json" ]; then
         echo "gitflow: biome: skipped — no biome.json with a root package.json." >&2
+        return 0
+    fi
+    if fp=$(gate_fingerprint . biome) && gate_unchanged . biome "$fp"; then
         return 0
     fi
     echo "gitflow: running biome lint..." >&2
@@ -258,6 +262,7 @@ run_biome_gate() {
         echo "  Run: npx --no-install @biomejs/biome lint" >&2
         return 4
     fi
+    gate_record_pass . biome "$fp"
 }
 
 # knip_pin — the knip version the stack manifest pins, or nothing.
@@ -278,7 +283,7 @@ knip_pin() {
 # reads the kit's knip.config.ts differently. knip exits 1 on any finding and 2
 # when it cannot run; both fail.
 run_knip_gate() {
-    local action="$1" gate version
+    local action="$1" gate version fp=""
     if [ ! -f "package.json" ]; then
         echo "gitflow: knip: skipped — no root package.json." >&2
         return 0
@@ -298,6 +303,9 @@ run_knip_gate() {
         echo "  A gate that cannot run must not report success, so this is a failure." >&2
         return 4
     fi
+    if fp=$(gate_fingerprint . knip) && gate_unchanged . knip "$fp"; then
+        return 0
+    fi
     echo "gitflow: running knip $version..." >&2
     local out rc=0
     out=$(npx --yes "knip@$version" --no-progress --no-config-hints --reporter symbols 2>&1) || rc=$?
@@ -313,6 +321,7 @@ run_knip_gate() {
         echo "  Run: npx --yes knip@$version --no-progress --no-config-hints --reporter symbols" >&2
         return 4
     fi
+    gate_record_pass . knip "$fp"
 }
 
 # semgrep_include_pattern <path> — the `--include` pattern matching exactly that

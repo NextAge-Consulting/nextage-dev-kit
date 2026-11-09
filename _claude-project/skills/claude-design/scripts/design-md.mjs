@@ -25,6 +25,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { execSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { CONFIG_REL, readConfig, readDesignSubstitutions, withDefaults } from './config.mjs'
 import { buildModel } from './model.mjs'
 
@@ -145,7 +146,7 @@ export async function writeDesignMd(repo) {
   return !r.current
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const argv = process.argv.slice(2)
   const at = argv.indexOf('--repo')
   const repo = at >= 0 ? path.resolve(argv[at + 1]) : execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim()

@@ -177,8 +177,8 @@ resolves every changed class through the project's own Tailwind build and lists 
 values a user would see differently, in light and dark, with moved styles told apart from
 changed ones. A line it proves identical needs no review.
 
-**At the end of a body of work, and at the latest before `/deploy`, walk the human
-through every pending item**: `node .claude/skills/ui-patterns/scripts/check-ui-status.mjs`
+**When `/commit` or `/ship-main` prints the judge's `✗` lines, and at the end of a body of
+work, walk the human through every pending item** — in that turn, before `/open-pr`: `node .claude/skills/ui-patterns/scripts/check-ui-status.mjs`
 lists them, each with the screens that use it. Open by asking whether to include what is
 deferred (`--deferred` lists it). Describe each item by what changed on screen or in
 behaviour, never by file or vocabulary, opening with "nothing new to look at" where that
@@ -257,7 +257,10 @@ component whose canvas render differs from its plain render by a pixel. The
   block that is a variant of an existing one — one candidate at a time, yes or no, three
   answers and the majority wins. It runs at `/commit` and `/ship-main`
   (`skills/gitflow/scripts/design-judge.sh`); a yes is one more pending item for the
-  walk-through, held in `.claude/ui-pending.json`. It never stops a commit.
+  walk-through, held in `.claude/ui-pending.json`. It never stops a commit, and an item
+  leaves the ledger only on the human's word or when its line's code changes; a no from a
+  second asking is not an answer. A comment-only change is not a change: a header added
+  to every file judges nothing.
 - **`/design-audit`** asks the same questions over a whole layer, when the human asks.
 
 ## Converting a legacy app: do not derive values from it

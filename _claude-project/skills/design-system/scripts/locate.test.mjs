@@ -197,6 +197,20 @@ test('a change locates only what it touched; a new block is a candidate against 
   assert.ok(q['FOLLOWS-RULE'].every((c) => /…|Orders/.test(c.candidate.screen)))
 })
 
+test('a comment-only change touches nothing: a header added to every file judges nothing', () => {
+  const { dir, git } = fixture()
+  loadTypeScript(dir)
+  const base = git('rev-parse', 'HEAD').trim()
+  const files = ['packages/ui/src/components/card.tsx', 'packages/ui/src/components/page-banner.tsx', 'apps/web/src/routes/orders.tsx']
+  for (const f of files) fs.writeFileSync(path.join(dir, f), `// ui-pointer: added\n/**\n * A block comment.\n */\n${fs.readFileSync(path.join(dir, f), 'utf8')}`)
+  assert.deepEqual([...locate(readRepo(dir, { base }))], [], 'comments on three files: no candidate')
+  const screen = path.join(dir, 'apps/web/src/routes/orders.tsx')
+  fs.writeFileSync(screen, fs.readFileSync(screen, 'utf8').replace('<p className="type-hint">a</p>', '<p className="type-hint">a</p>\n        <Card className="rounded-none">b</Card>'))
+  const q = byQ([...locate(readRepo(dir, { base }))])
+  assert.deepEqual(q['REPAINT'].map((c) => c.candidate.class), ['rounded-none'], 'the one code change is judged')
+  assert.equal(q['NAMED-FOR-DATA'], undefined, 'the blocks that gained only a comment are untouched')
+})
+
 test('a reference that names its apps meets only references and screens of those apps', () => {
   const { dir } = fixture()
   const w = (rel, text) => {

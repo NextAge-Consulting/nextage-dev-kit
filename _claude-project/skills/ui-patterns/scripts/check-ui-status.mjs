@@ -423,7 +423,8 @@ export function checkUiStatus(repo, { files = repoFiles(repo), sourceDirs = sour
       if (row.status) problems.push(`${INVENTORY}:${row.line}: \`${row.name}\` has a status but no component or reference file is named that`)
       continue
     }
-    if (kind === isComponent && matches.some((f) => !isAtom(f))) {
+    // An atom — vendored, or one the project made and headed `// ui-atom` — carries no type.
+    if (kind === isComponent && matches.some((f) => !isAtom(f) && !headers(read(f)).atom)) {
       if (!row.type) problems.push(`${INVENTORY}:${row.line}: \`${row.name}\` has no block type — name its type from the block-type list in a Type column`)
       else if (types && !types.has(row.type)) problems.push(`${INVENTORY}:${row.line}: \`${row.name}\` names block type \`${row.type}\`, which is not on the block-type list`)
       else for (const f of matches) {

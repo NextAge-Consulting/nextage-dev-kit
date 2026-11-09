@@ -157,7 +157,7 @@ else
         && ok "/commit type-checks new code" || bad "first typecheck (rc=$rc): $(cat "$tmp/out")"
     printf '// one is the answer\nexport const a =   1;\n' > src/a.ts
     tcommit "docs: explain a"; rc=$?
-    { [ "$rc" -eq 0 ] && [ ! -f "$tmp/check-types.ran" ] && grep -q 'typecheck: code unchanged since the last pass (comments and whitespace only) — typecheck skipped' "$tmp/out" \
+    { [ "$rc" -eq 0 ] && [ ! -f "$tmp/check-types.ran" ] && grep -q 'typecheck: code unchanged since the last pass (comments, whitespace and prose only) — typecheck skipped' "$tmp/out" \
       && [ -z "$(git status --porcelain)" ]; } \
         && ok "…a comment-only commit skips it, saying so, and still commits" || bad "comment-only (rc=$rc): $(cat "$tmp/out")"
     printf '// one is the answer\nexport const a = 2;\n' > src/a.ts

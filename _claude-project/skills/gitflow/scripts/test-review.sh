@@ -76,17 +76,31 @@ kind_of() {
     esac
 }
 
-SOURCES=(); TESTS=()
+# comment_only <path> — a tracked source whose every changed line is a comment: a header
+# pointer, a note. It holds no code change to judge, so it is not a changed source.
+comment_only() {
+    local diff code
+    (cd "$ROOT" && git ls-files --error-unmatch -- "$1" >/dev/null 2>&1) || return 1
+    diff=$(cd "$ROOT" && git diff -U0 "$BASE" -- "$1" 2>/dev/null) || return 1
+    code=$(printf '%s\n' "$diff" | grep -E '^[+-]' | grep -vE '^(\+\+\+|---) ' | grep -vE '^[+-][[:space:]]*(//|/\*|\*|$)')
+    [ -z "$code" ]
+}
+
+SOURCES=(); TESTS=(); COMMENTS=0
 while IFS= read -r -d '' f; do
     [ -n "$f" ] && [ -f "$ROOT/$f" ] || continue
     case "$(kind_of "$f")" in
-        source) SOURCES+=("$f") ;;
+        source) if comment_only "$f"; then COMMENTS=$((COMMENTS + 1)); else SOURCES+=("$f"); fi ;;
         test) TESTS+=("$f") ;;
     esac
 done < <(sort -zu "$WORK/changed")
 
 if [ ${#SOURCES[@]} -eq 0 ] && [ ${#TESTS[@]} -eq 0 ]; then
-    echo "gitflow: test review: no TypeScript source or test file changed." >&2
+    if [ "$COMMENTS" -gt 0 ]; then
+        echo "gitflow: test review: no TypeScript source or test file changed — $COMMENTS source file(s) changed by comments only." >&2
+    else
+        echo "gitflow: test review: no TypeScript source or test file changed." >&2
+    fi
     exit 0
 fi
 WHAT="${#SOURCES[@]} changed source file(s) and ${#TESTS[@]} changed test file(s)"

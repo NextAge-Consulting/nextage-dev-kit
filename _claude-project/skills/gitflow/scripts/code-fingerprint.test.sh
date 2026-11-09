@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Regression suite for code-fingerprint.mjs — one hash for the code of a tree, the same
-# whenever only comments and whitespace changed, different whenever anything a check
-# can see changed.
+# whenever only comments, whitespace or prose changed, different whenever anything a
+# check can see changed.
 #
 # Needs node, and TypeScript installed globally or in the repository; without
 # TypeScript, the cases that read code are reported and skipped, and the raw fallback
@@ -51,11 +51,12 @@ export const C = () => (
 );
 EOF
 printf 'notes\n' > readme.md
+printf 'x=1\n' > settings.ini
 
 echo "basics:"
 before=$(fp)
 if [[ "$before" =~ ^[0-9a-f]{32}$ ]]; then ok "prints a 32-character hex fingerprint"; else bad "fingerprint shape: '$before'"; fi
-if grep -qE '3 file\(s\)' "$tmp/err"; then ok "says how many files it read"; else bad "count missing: $(cat "$tmp/err")"; fi
+if grep -qE '3 file\(s\)' "$tmp/err"; then ok "says how many files it read, prose left out"; else bad "count missing: $(cat "$tmp/err")"; fi
 git add -A; git commit -qm init
 c=$(fp --commit HEAD)
 if [ "$c" = "$before" ]; then ok "a commit and a checkout of it have the same fingerprint"; else bad "commit $c vs tree $before"; fi
@@ -138,20 +139,27 @@ fi
 
 echo "other files:"
 before=$(fp)
-printf 'notes, changed\n' > readme.md
+printf 'x=2\n' > settings.ini
 differs "a non-code file change changes it"
+git checkout -q -- settings.ini
+printf 'notes, changed\n' > readme.md
+same "a Markdown change does not"
 git checkout -q -- readme.md
+mkdir -p project-documentation .claude
+printf 'plan\n' > project-documentation/plan.txt; printf '[]\n' > .claude/ui-pending.json
+same "project-documentation and the judge's ledger do not either"
+rm -rf project-documentation .claude
 printf 'new\n' > new.txt
 differs "an untracked, unignored file counts"
 printf 'new.txt\n' > .gitignore; git add .gitignore; git commit -qm ignore; before=$(fp)
 printf 'other\n' > new.txt
 same "an ignored file does not"
-git mv readme.md README.md
+git mv settings.ini SETTINGS.ini
 differs "a rename changes it"
-git mv README.md readme.md
-git rm -q --cached readme.md; rm -f readme.md
+git mv SETTINGS.ini settings.ini
+git rm -q --cached settings.ini; rm -f settings.ini
 differs "a deleted file changes it"
-git checkout -q HEAD -- readme.md
+git checkout -q HEAD -- settings.ini
 
 echo "without TypeScript:"
 before=$(fp)

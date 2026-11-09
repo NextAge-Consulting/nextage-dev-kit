@@ -63,13 +63,14 @@ committing (exit 2) when one is missing, and posts each once the board has moved
 
 The script:
 - Refuses unless on `main`/`master` — a body of work in progress is on its own branch and cannot trip it.
-- Runs `check-types`, `biome lint`, `knip` (when `KNIP_GATE` is on), `semgrep`, the integration gate, the rule review, the SQL review, the test judge and the design judge over the files the commit touches — the same gates `/commit` runs. **`--skip-typecheck` skips the TYPECHECK only.** Every other gate and review sits outside that guard and always run; there is no flag that bypasses them. The typecheck and the integration gate skip on code unchanged since their last pass but for comments and whitespace, as at `/commit`, and say so; `--skip-typecheck` records no pass. The headless reviews run side by side, and a review that passed on the same input is reused rather than called again. The integration gate runs the tests reaching the change, development tests included; the separate integration preflight is `/deploy`'s alone.
+- Runs `check-types`, `biome lint`, `knip` (when `KNIP_GATE` is on), `semgrep`, the integration gate, the rule review, the SQL review, the test judge and the design judge over the files the commit touches — the same gates `/commit` runs. **`--skip-typecheck` skips the TYPECHECK only.** Every other gate and review sits outside that guard and always run; there is no flag that bypasses them. The typecheck, biome, knip and the integration gate skip on code unchanged since their last pass but for comments, whitespace and prose — Markdown, `project-documentation/` and the design judge's ledger are not code — as at `/commit`, and say so; `--skip-typecheck` records no pass. The headless reviews run side by side, and a review that passed on the same input is reused rather than called again. The integration gate runs the tests reaching the change, development tests included; the separate integration preflight is `/deploy`'s alone.
 - Stages all changes, commits directly on `main` with `--no-verify` (validation already ran).
 - Pushes straight to `main`. If `origin/main` advanced, it rebases the commit onto it and re-pushes; on conflict it stops and tells you to resolve + push.
 
 ### Step 5: Report
 
 - Success: confirm the commit is live on `main` (SHA + subject), and which issues it named and moved to Staged. No PR URL — there is none by design.
+- The design judge printed `✗` lines: the commit is live, and each line is a pending item `/deploy` refuses on. Report the commit as live with those items awaiting the human, then put them to the human in this turn, by the `design-system` skill's walk-through: each described by what changed on screen or in behaviour, and settled on the human's word — approved, changed or deferred.
 - `--complete` names an issue not linked on `main`: exit 2, nothing committed.
 - Board update failed after the push: exit 11. The commit is live; the next `/deploy` still moves the named issues to the deploy status.
 - An issue reaching Staged has no comment in `--notes`: exit 2, nothing committed.

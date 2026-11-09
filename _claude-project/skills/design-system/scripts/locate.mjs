@@ -12,7 +12,9 @@
  *
  * The change mode reads the lines changed since <ref> (default: where this work left
  * origin/main, else HEAD) in the UI source the DESIGN_* keys name, the token stylesheets
- * and the references, and locates only in them. `--all` reads a whole layer: tokens,
+ * and the references, and locates only in them. A changed source line that is only a
+ * comment is not a change, and a file with no other change is untouched: a header or
+ * pointer added to every file judges nothing. `--all` reads a whole layer: tokens,
  * components, references or screens (default every layer).
  *
  * What is mechanical stays mechanical: a colour or fixed height at a call site, a role
@@ -28,7 +30,7 @@ import { fileURLToPath } from 'node:url'
 import { readBlockTypes } from './block-types.mjs'
 import { ALL, changedLines, classText, constantClasses, loadTypeScript, openingTags, purposesOf, readKeys, rolesOf, screenBase } from './check-design-tokens.mjs'
 import { uiSourceDirs, workspaceDirs } from './ui-sources.mjs'
-import { appOf, catalogueRows, frontmatter, headers, isComponent, isScreen, key, listOf } from '../../ui-patterns/scripts/check-ui-status.mjs'
+import { appOf, catalogueRows, frontmatter, headers, isComponent, isScreen, key, lineCode, listOf } from '../../ui-patterns/scripts/check-ui-status.mjs'
 
 const REFERENCES = '.claude/skills/ui-patterns/references'
 const INVENTORY = '.claude/rules/project/ui-inventory.md'
@@ -55,6 +57,33 @@ function changedIn(repo, base, pathspecs) {
     for (let n = Number(m[1]), end = n + Number(m[2] ?? 1); n < end; n++) out.get(file).add(n)
   }
   for (const f of git('ls-files', '--others', '--exclude-standard', '--', ...pathspecs).split('\n')) if (f) out.set(f, ALL)
+  return out
+}
+
+/** A source line that is only a comment: a line comment, a one-line block comment, or a line inside a block comment. */
+const isComment = (line) => lineCode(line) === '' || /^\s*(?:\/\*|\*)/.test(line)
+
+/**
+ * The changed lines that carry code. A TypeScript line whose change is a comment is not a
+ * change, and a file left with none is untouched. Stylesheets and references are kept
+ * whole: a token's purpose comment and a rule's prose are their content.
+ */
+function codeChanges(repo, changed) {
+  const out = new Map()
+  for (const [file, lines] of changed) {
+    if (lines === ALL || !/\.tsx?$/.test(file)) {
+      out.set(file, lines)
+      continue
+    }
+    let text
+    try {
+      text = readFileSync(path.join(repo, file), 'utf8').split('\n')
+    } catch {
+      continue
+    }
+    const kept = new Set([...lines].filter((n) => !isComment(text[n - 1] ?? '')))
+    if (kept.size) out.set(file, kept)
+  }
   return out
 }
 
@@ -88,7 +117,7 @@ export function readRepo(repo, { base = null, all = false } = {}) {
   let changed = null
   if (!all) {
     const ref = screenBase(repo, base) ?? 'HEAD'
-    changed = new Map([...changedLines(repo, ref), ...changedIn(repo, ref, ['*.css', '*.md'])])
+    changed = codeChanges(repo, new Map([...changedLines(repo, ref), ...changedIn(repo, ref, ['*.css', '*.md'])]))
   }
   return { repo, keys, pkgRel, dirs, workspaces, css, sources, refs, rows, inventoryLines, types, changed, isAtomFile }
 }

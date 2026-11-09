@@ -131,9 +131,9 @@ test('the ledger: a yes becomes a pending item with its line\'s fingerprint; a c
   const ledger = mergeLedger(repo, [], { yes })
   assert.deepEqual(ledger.map((i) => [i.question, i.at, i.fingerprint]), [['REPAINT', 'src/a.tsx:2', fp.fingerprint]], 'the excepted line is never recorded')
 
-  // Unchanged: kept. Re-judged no: dropped. Line changed: dropped.
+  // Unchanged: kept, a later no notwithstanding — only the human's word or a code change settles it. Line changed: dropped.
   assert.equal(mergeLedger(repo, ledger, {}).length, 1)
-  assert.equal(mergeLedger(repo, ledger, { no: [{ question: 'REPAINT', at: 'src/a.tsx:2' }] }).length, 0)
+  assert.equal(mergeLedger(repo, ledger, { no: [{ question: 'REPAINT', at: 'src/a.tsx:2' }] }).length, 1, 'a re-asked no removes nothing')
   fs.writeFileSync(path.join(repo, 'src/a.tsx'), 'one\n<Card className="p-4">\nthree\n')
   assert.equal(mergeLedger(repo, ledger, {}).length, 0)
   assert.deepEqual(readLedger(path.join(repo, 'none.json')), [])

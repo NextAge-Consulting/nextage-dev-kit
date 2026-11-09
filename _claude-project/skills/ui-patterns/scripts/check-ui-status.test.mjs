@@ -180,6 +180,16 @@ test('a block names a type on the list or is an atom; a vendored atom carries no
   ])
 })
 
+test("a project's own atom, outside the vendored folder, is listed with no block type", () => {
+  const own = 'packages/ui/src/components/date-field.tsx'
+  const out = run({
+    ...CLEAN,
+    [own]: '// ui-status: approved\n// ui-atom\nexport function DateField() {}\n',
+    [INVENTORY]: `${CLEAN_INV}\n| Atom | Use for | Status |\n|---|---|---|\n| \`date-field\` | every date input | approved |\n`,
+  })
+  assert.deepEqual(out.problems, [])
+})
+
 test('a reference is a recipe or a behaviour rule, with the pointers of its kind, and block-types from the list or cross-cutting', () => {
   const ref = (n) => `.claude/skills/ui-patterns/references/${n}.md`
   const out = run({

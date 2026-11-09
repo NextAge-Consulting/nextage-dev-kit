@@ -253,7 +253,7 @@ FAKE_BUILD_SEC=0 FAKE_WAIT_SEC=1 FAKE_WAIT_EXIT=3 checked; rc=$?
     && ok "a build passes and the wait fails: nothing merged" || bad "built once (rc=$rc): $(cat "$tmp/out")"
 FAKE_BUILD_SEC=0 FAKE_WAIT_SEC=0 checked; rc=$?
 { [ "$rc" -eq 0 ] && ! grep -q "build started" "$FAKE_LOG" && grep -q "pr merge" "$FAKE_LOG" \
-  && grep -q "production build: code unchanged since the last pass (comments and whitespace only) — production build skipped" "$tmp/out"; } \
+  && grep -q "production build: code unchanged since the last pass (comments, whitespace and prose only) — production build skipped" "$tmp/out"; } \
     && ok "…the retry on the same code skips the build, saying so, and merges" || bad "retry build (rc=$rc): $(cat "$tmp/out"; cat "$FAKE_LOG")"
 branch feat/built-failed
 FAKE_BUILD_EXIT=1 FAKE_WAIT_SEC=0 checked; rc=$?
