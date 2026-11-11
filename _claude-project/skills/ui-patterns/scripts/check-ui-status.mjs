@@ -14,14 +14,16 @@
  * Deferred is the human's "I did not look; I trust it": it blocks nothing, needs no
  * reason, and is listed apart. Its inventory line carries the file's fingerprint from when
  * it was deferred; once the file changes it is pending again. A line in UI source may be
- * deferred the same way — `design-deferred <fingerprint>` in a comment on the line, the
- * fingerprint of the line's own code — and is pending again when that code changes.
- * `design-accepted` on a line is approved on a line and needs nothing.
+ * deferred the same way — `design-deferred <fingerprint>` in a comment on the line, or on a
+ * comment-only line directly above it, the fingerprint of the line's own code — and is
+ * pending again when that code changes. `design-accepted` in either place is approved on a
+ * line and needs nothing.
  *
  * The judge's ledger. A yes from the judge (design-system skill, scripts/judge.mjs) is a
- * pending item in .claude/ui-pending.json, keyed by question and place with the fingerprint
- * of the line it names. It is pending until the human approves the line (design-accepted),
- * defers it (design-deferred) or the line changes, when it is re-judged at the next commit.
+ * pending item in .claude/ui-pending.json, keyed by question, place and the rule it is
+ * about, with the fingerprint of the line it names. It is pending until the human approves
+ * the line (design-accepted), defers it (design-deferred) or the line changes, when it is
+ * re-judged at the next commit.
  *
  * Pointers. Every file names what governs it at its top, and the check confirms each
  * pointer names something real:
@@ -99,6 +101,14 @@ export function lineCode(line) {
     .replace(/\/\/.*$/, '')
     .replace(/<!--[\s\S]*?-->/g, '')
     .trim()
+}
+
+/** Whether the human has answered for line `n` (1-based) of `lines`: `design-accepted` or
+ * `design-deferred` on the line itself, or on a comment-only line directly above it. */
+export function excepted(lines, n) {
+  const has = (line) => /design-(?:accepted|deferred)\b/.test(line ?? '')
+  const above = lines[n - 2]
+  return has(lines[n - 1]) || (above !== undefined && lineCode(above) === '' && has(above))
 }
 
 /** Every tracked or new file, gitignored ones left out. */
@@ -371,7 +381,7 @@ export function checkUiStatus(repo, { files = repoFiles(repo), sourceDirs = sour
   }
   let deferredLines = 0
   for (const f of [...sources, ...stylesheets]) {
-    read(f).split('\n').forEach((line, i) => {
+    read(f).split('\n').forEach((line, i, lines) => {
       const m = line.match(/design-deferred(?:\s+`?([0-9a-f]{8})`?)?/)
       if (!m) return
       const at = `${f}:${i + 1}`
@@ -379,7 +389,8 @@ export function checkUiStatus(repo, { files = repoFiles(repo), sourceDirs = sour
         problems.push(`${at}: \`design-deferred\` with no fingerprint — record the line's fingerprint (--line-fingerprint)`)
         return
       }
-      const now = fingerprint(lineCode(line))
+      // A marker on a comment-only line defers the line of code beneath it.
+      const now = fingerprint(lineCode(line) || lineCode(lines[i + 1] ?? ''))
       if (m[1] !== now) pending.push(`${at} (line), changed since it was deferred (\`${m[1]}\`, now \`${now}\`) — put it to the human again`)
       else {
         deferredLines++
@@ -400,10 +411,11 @@ export function checkUiStatus(repo, { files = repoFiles(repo), sourceDirs = sour
     }
     for (const i of Array.isArray(items) ? items : []) {
       const m = String(i.at ?? '').match(/^(.*):(\d+)$/)
-      const line = m && existsSync(path.join(repo, m[1])) ? readFileSync(path.join(repo, m[1]), 'utf8').split('\n')[Number(m[2]) - 1] : undefined
-      if (line === undefined || fingerprint(lineCode(line)) !== i.fingerprint || /design-(?:accepted|deferred)\b/.test(line)) continue
+      const lines = m && existsSync(path.join(repo, m[1])) ? readFileSync(path.join(repo, m[1]), 'utf8').split('\n') : null
+      const line = lines?.[Number(m[2]) - 1]
+      if (line === undefined || fingerprint(lineCode(line)) !== i.fingerprint || excepted(lines, Number(m[2]))) continue
       judged++
-      pending.push(`${i.at} (judge ${i.question}) — ${String(i.quote ?? '').split('\n')[0].slice(0, 100)}`)
+      pending.push(`${i.at} (judge ${i.question}${i.about ? `, ${i.about}` : ''}) — ${String(i.quote ?? '').split('\n')[0].slice(0, 100)}`)
     }
   }
 

@@ -11,10 +11,13 @@
  *       Asks every candidate the locator wrote (locate.mjs), one JSON object per line, and
  *       prints each yes. A `finding` line is code's own yes and is not asked. With --ledger,
  *       every yes is written to that file as a pending item for the human's walk-through
- *       (check-ui-status.mjs reads it), keyed by question and place, with the fingerprint of
- *       the line it names. An item leaves the ledger on the human's word alone — the line
- *       carries design-accepted or design-deferred — or when the line's code changes; a later
- *       no from the judge is a re-asked question, not an answer, and removes nothing. Exit 0
+ *       (check-ui-status.mjs reads it), keyed by question, place and the rule it is about,
+ *       with the fingerprint of the line it names. An item leaves the ledger on the human's
+ *       word alone — design-accepted or design-deferred on the line, or on a comment-only
+ *       line directly above it — or when the line's code changes; a later no from the judge
+ *       is a re-asked question, not an answer, and removes nothing. A candidate that names
+ *       the lines its yes may rest on (`anchor`, the changed lines of a screen) is a yes only
+ *       when a quote is one of those lines, and the item is placed on that line. Exit 0
  *       whether or not there were yeses: the judge never stops a commit. Exit 2 when it
  *       cannot run.
  *   node judge.mjs --list
@@ -39,7 +42,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { fingerprint, lineCode } from '../../ui-patterns/scripts/check-ui-status.mjs'
+import { excepted, fingerprint, lineCode } from '../../ui-patterns/scripts/check-ui-status.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 export const LEDGER = '.claude/ui-pending.json'
@@ -124,7 +127,9 @@ export function renderCandidate(question, candidate) {
   return parts.join('\n\n')
 }
 
-/** Everything a quote may be drawn from: every string in the candidate's given fields. */
+/** Everything a quote may be drawn from: every string in the candidate's given fields, and
+ * the fields as the judge is shown them — a list is shown as JSON, so a copy of one of its
+ * items carries the quotes it was shown with. */
 function candidateText(question, candidate) {
   const strings = []
   const walk = (v) => {
@@ -133,7 +138,7 @@ function candidateText(question, candidate) {
     else if (v && typeof v === 'object') Object.values(v).forEach(walk)
   }
   for (const key of question.given) walk(get(candidate, key))
-  return strings.join('\n')
+  return `${strings.join('\n')}\n${renderCandidate(question, candidate)}`
 }
 
 export function systemPrompt(question) {
@@ -214,13 +219,14 @@ export async function askOnce(question, candidate, { model = 'sonnet', bin = pro
   if (!quotes.length) return { error: 'no quote', cost }
   const missing = quotes.find((q) => !text.includes(fold(q)))
   if (missing !== undefined) return { error: `quote not in candidate: ${missing.slice(0, 80)}`, cost }
-  return { answer: a.answer, quote: quotes.join(' | '), cost }
+  return { answer: a.answer, quote: quotes.join(' | '), quotes, cost }
 }
 
 /** The majority of n answers, asked at once: { answer, votes: {yes, no, none}, quotes, cost }. */
 export async function ask(question, candidate, { runs = 3, ...opts } = {}) {
   const votes = { yes: 0, no: 0, none: 0 }
   const quotes = []
+  const yesQuotes = []
   const errors = []
   let cost = 0
   const answers = await Promise.all(Array.from({ length: runs }, () => askOnce(question, candidate, opts)))
@@ -233,9 +239,26 @@ export async function ask(question, candidate, { runs = 3, ...opts } = {}) {
     }
     votes[r.answer]++
     quotes.push(r.quote)
+    if (r.answer === 'yes') yesQuotes.push(...(r.quotes ?? [r.quote]))
   }
   const answer = votes.yes > votes.no ? 'yes' : votes.no > votes.yes ? 'no' : 'none'
-  return { answer, votes, quotes: [...new Set(quotes)], errors, cost }
+  return { answer, votes, quotes: [...new Set(quotes)], yesQuotes: [...new Set(yesQuotes)], errors, cost }
+}
+
+/**
+ * The line a yes rests on: the first of the candidate's anchor lines — `[number, text]`
+ * pairs, the lines a yes may name — that a quote holds or is held by, whitespace folded.
+ * Null when no quote is one of them: the evidence is a line outside the anchor.
+ */
+export function anchorLine(anchor, quotes) {
+  const fold = (s) => String(s).replace(/\s+/g, ' ').trim()
+  const folded = quotes.map(fold).filter(Boolean)
+  for (const [n, text] of anchor.lines ?? []) {
+    const line = fold(text)
+    if (!/\w/.test(line)) continue
+    if (folded.some((q) => q.includes(line) || line.includes(q))) return n
+  }
+  return null
 }
 
 /** Every fixture under judge-fixtures/<NAME>/: { name, file, answer, candidate }. */
@@ -258,9 +281,10 @@ export function placeFingerprint(repo, at) {
   if (!m) return null
   const file = path.join(repo, m[1])
   if (!existsSync(file)) return null
-  const line = readFileSync(file, 'utf8').split('\n')[Number(m[2]) - 1]
+  const lines = readFileSync(file, 'utf8').split('\n')
+  const line = lines[Number(m[2]) - 1]
   if (line === undefined) return null
-  return { fingerprint: fingerprint(lineCode(line)), excepted: /design-(?:accepted|deferred)\b/.test(line) }
+  return { fingerprint: fingerprint(lineCode(line)), excepted: excepted(lines, Number(m[2])) }
 }
 
 /** Read a ledger; a missing or unreadable file is an empty one. */
@@ -280,7 +304,7 @@ export function readLedger(file) {
  * the line, or a change to its code, settles an item.
  */
 export function mergeLedger(repo, items, { yes = [] }) {
-  const keyOf = (i) => `${i.question}\u0000${i.at}`
+  const keyOf = (i) => `${i.question}\u0000${i.at}\u0000${i.about ?? ''}`
   const out = new Map()
   for (const i of items) {
     const now = placeFingerprint(repo, i.at)
@@ -290,15 +314,19 @@ export function mergeLedger(repo, items, { yes = [] }) {
   for (const y of yes) {
     const now = placeFingerprint(repo, y.at)
     if (!now || now.excepted) continue
-    out.set(keyOf(y), { question: y.question, at: y.at, quote: y.quote, fingerprint: now.fingerprint, since: y.since ?? new Date().toISOString().slice(0, 10) })
+    out.set(keyOf(y), { question: y.question, at: y.at, ...(y.about ? { about: y.about } : {}), quote: y.quote, fingerprint: now.fingerprint, since: y.since ?? new Date().toISOString().slice(0, 10) })
   }
-  return [...out.values()].sort((a, b) => a.at.localeCompare(b.at) || a.question.localeCompare(b.question))
+  return [...out.values()].sort((a, b) => a.at.localeCompare(b.at) || a.question.localeCompare(b.question) || (a.about ?? '').localeCompare(b.about ?? ''))
 }
 
-/** Ask every candidate in a JSON-lines file, all at once: { yes, no, errors, cost, asked }. */
+/**
+ * Ask every candidate in a JSON-lines file, all at once: { yes, no, unchanged, errors, cost,
+ * asked }. `unchanged` holds each yes whose evidence is no line the candidate's anchor names.
+ */
 export async function judgeCandidates(questions, text, opts = {}) {
   const yes = []
   const no = []
+  const unchanged = []
   const errors = []
   let cost = 0
   let asked = 0
@@ -326,11 +354,18 @@ export async function judgeCandidates(questions, text, opts = {}) {
   }
   for (const { q, c, r } of await Promise.all(pending)) {
     cost += r.cost
-    if (r.answer === 'yes') yes.push({ question: q.name, at: c.at, quote: r.quotes.join(' | ') })
-    else if (r.answer === 'no') no.push({ question: q.name, at: c.at })
+    if (r.answer === 'yes') {
+      const item = { question: q.name, at: c.at, ...(c.about ? { about: c.about } : {}), quote: r.quotes.join(' | ') }
+      if (!c.anchor) yes.push(item)
+      else {
+        const n = anchorLine(c.anchor, r.yesQuotes)
+        if (n === null) unchanged.push(item)
+        else yes.push({ ...item, at: `${c.anchor.file}:${n}` })
+      }
+    } else if (r.answer === 'no') no.push({ question: q.name, at: c.at })
     else errors.push(`${c.at} ${q.name}: no majority (${r.errors[0] ?? 'split'})`)
   }
-  return { yes, no, errors, cost, asked }
+  return { yes, no, unchanged, errors, cost, asked }
 }
 
 async function main() {
@@ -352,19 +387,26 @@ async function main() {
   if (candidatesFile) {
     const repo = path.resolve(opt('--repo') ?? process.cwd())
     const text = readFileSync(path.resolve(candidatesFile), 'utf8')
-    const { yes, no, errors, cost, asked } = await judgeCandidates(questions, text, { runs, model })
-    for (const y of yes) console.log(`  ✗ ${y.at}  ${y.question}\n      ${y.quote}`)
+    const { yes: every, no, unchanged, errors, cost, asked } = await judgeCandidates(questions, text, { runs, model })
+    // A line the human has answered for is theirs: its yes is neither shown nor recorded.
+    const yes = every.filter((y) => !placeFingerprint(repo, y.at)?.excepted)
+    for (const y of yes) console.log(`  ✗ ${y.at}  ${y.question}${y.about ? ` (${y.about})` : ''}\n      ${y.quote}`)
     for (const e of errors) console.log(`  ! ${e}`)
+    const left = [
+      unchanged.length ? `${unchanged.length} yes resting on a line the change did not touch, not kept` : '',
+      every.length - yes.length ? `${every.length - yes.length} yes on a line the human has answered for, not kept` : '',
+    ].filter(Boolean)
+    const tally = `judge: ${yes.length} yes, ${no.length} no from ${asked} question(s) asked${left.length ? `; ${left.join('; ')}` : ''}`
     const ledger = opt('--ledger')
     if (ledger) {
       const file = path.resolve(repo, ledger)
       const next = mergeLedger(repo, readLedger(file), { yes })
       mkdirSync(path.dirname(file), { recursive: true })
       writeFileSync(file, `${JSON.stringify(next, null, 2)}\n`)
-      console.log(`judge: ${yes.length} yes, ${no.length} no from ${asked} question(s) asked; ${next.length} pending item(s) in ${path.relative(repo, file)}; $${cost.toFixed(2)}`)
-    } else console.log(`judge: ${yes.length} yes, ${no.length} no from ${asked} question(s) asked; $${cost.toFixed(2)}`)
+      console.log(`${tally}; ${next.length} pending item(s) in ${path.relative(repo, file)}; $${cost.toFixed(2)}`)
+    } else console.log(`${tally}; $${cost.toFixed(2)}`)
     // Nothing decided at all is a judge that could not run; a mix of answers and errors ran.
-    process.exit(errors.length && !yes.length && !no.length ? 2 : 0)
+    process.exit(errors.length && !every.length && !no.length && !unchanged.length ? 2 : 0)
   }
 
   if (argv.includes('--test')) {

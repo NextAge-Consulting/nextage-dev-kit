@@ -255,3 +255,34 @@ test('a project with no UI package does not apply', () => {
   fs.writeFileSync(path.join(dir, '.claude/sync-substitutions.json'), JSON.stringify({ DESIGN_UI_PACKAGE: '', _intentionally_empty: ['DESIGN_UI_PACKAGE'] }))
   assert.ok(readRepo(dir, { all: true }).notApplicable)
 })
+
+test('an import that binds names is not a change: a screen whose only change is an import judges nothing', () => {
+  const { dir, git } = fixture()
+  loadTypeScript(dir)
+  const base = git('rev-parse', 'HEAD').trim()
+  const screen = path.join(dir, 'apps/web/src/routes/orders.tsx')
+  const card = path.join(dir, 'packages/ui/src/components/card.tsx')
+  fs.writeFileSync(screen, fs.readFileSync(screen, 'utf8').replace('import { Card }', 'import { submitOnce } from "@acme/web/form/submitOnce"\nimport {\n  type Order,\n} from "@acme/web/orders"\nimport { Card }'))
+  fs.writeFileSync(card, fs.readFileSync(card, 'utf8').replace('export function Card', 'import { cn } from "../lib/cn"\nexport function Card'))
+  assert.deepEqual([...locate(readRepo(dir, { base }))], [], 'imports on a screen and a block: no candidate')
+  fs.writeFileSync(screen, fs.readFileSync(screen, 'utf8').replace('import { Card }', 'import "./orders.css"\nimport { Card }'))
+  const q = byQ([...locate(readRepo(dir, { base }))])
+  assert.ok(q['FOLLOWS-RULE']?.length, 'an import for its effect alone is code, and the screen is judged')
+})
+
+test('a changed screen is asked about with its changed lines as the only lines a yes may rest on', () => {
+  const { dir, git } = fixture()
+  loadTypeScript(dir)
+  const base = git('rev-parse', 'HEAD').trim()
+  const screen = path.join(dir, 'apps/web/src/routes/orders.tsx')
+  fs.writeFileSync(screen, fs.readFileSync(screen, 'utf8').replace('<PageBanner>Saving failed</PageBanner>', '<PageBanner>Saving did not work</PageBanner>'))
+  const follows = byQ([...locate(readRepo(dir, { base }))])['FOLLOWS-RULE']
+  assert.deepEqual(follows.map((c) => c.about).sort(), ['field-groups.md', 'record.md', 'saving.md'], 'one candidate per governing rule, each naming its rule')
+  for (const c of follows) {
+    assert.deepEqual(c.anchor, { file: 'apps/web/src/routes/orders.tsx', lines: [[7, '      <PageBanner>Saving did not work</PageBanner>']] })
+    assert.equal(c.at, 'apps/web/src/routes/orders.tsx:7', 'never the header line')
+    assert.match(c.candidate.screen, /rounded-panel border/, 'the lines around the change stay, as context')
+  }
+  const whole = byQ([...locate(readRepo(dir, { all: true }), { layer: 'screens' })])['FOLLOWS-RULE'][0]
+  assert.deepEqual(whole.anchor.lines.map(([n]) => n), [2, 3, 4, 5, 6, 7, 8, 9, 10, 11], 'an audited screen: every line holding code, the header comment and bare brackets left out')
+})

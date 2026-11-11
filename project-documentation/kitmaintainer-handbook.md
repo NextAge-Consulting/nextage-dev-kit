@@ -1416,8 +1416,12 @@ Code locates, the judge decides, the human approves. `scripts/locate.mjs` finds 
 candidate in a change (`--base`) or a layer (`--all --layer`) using nothing a project
 tunes: a class added at a call site, a new block and its neighbours, a changed screen
 against the rules that govern it, pairs of rules sharing a surface, roles with their
-purposes. A source line changed only in its comments is not a change, and a file with no
-other change is untouched, so a header or pointer added to every file judges nothing. `scripts/judge.mjs` asks one question per candidate from
+purposes. A source line changed only in its comments, or part of an import that binds
+names, is not a change, and a file with no other change is untouched, so a header, a
+pointer or an import added to every file judges nothing. A changed screen is held to its
+rules on the lines the change touched: the lines around them are the judge's context, a
+yes that quotes none of the touched lines is not kept, and the item is placed on the
+touched line its evidence quotes. `scripts/judge.mjs` asks one question per candidate from
 `references/judge-questions.md` — one narrow yes/no with the evidence quoted, a fresh
 headless Claude given that candidate and nothing else, three times, majority wins; a
 quote not in the candidate discards the answer. The three answers, and the candidates
@@ -1433,7 +1437,8 @@ The kit's gate runs the cases before a release (§9.11).
 rule, SQL and test reviews. Every yes is written to `.claude/ui-pending.json` with the
 fingerprint of the line it names, and the status check lists it as pending until the human
 approves the line (`design-accepted — <reason>`), defers it (`design-deferred
-<fingerprint>`) or the line's code changes, when it is re-judged; a no from a later asking
+<fingerprint>`) — either on the line or on a comment-only line directly above it — or the
+line's code changes, when it is re-judged; a no from a later asking
 removes nothing. The judge never fails a commit,
 and a judge that cannot run says so and exits clean: it is advice, and `/deploy` still
 waits on whatever the ledger holds. `/design-audit` asks the same questions over a whole

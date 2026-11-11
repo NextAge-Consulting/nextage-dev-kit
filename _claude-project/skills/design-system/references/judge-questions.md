@@ -232,7 +232,10 @@ region with twenty lines around it).
 
 **Quote:** the screen line that departs. Exceptions are code's, not the judge's: a yes
 whose quoted line, or the line above it, carries a `design-accepted` or `design-deferred`
-comment is discarded by the locator, and the judge is never asked to weigh one.
+comment is discarded by code, and the judge is never asked to weigh one.
+
+Code keeps a yes only when it quotes a line the change touched, and places the item on
+that line.
 
 **Yes when:** a sentence of the rule says what the screen must do or must not do in a
 situation the screen's code visibly contains, and the code does otherwise.

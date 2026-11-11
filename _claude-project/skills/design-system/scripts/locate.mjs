@@ -7,14 +7,17 @@
  *
  * Prints one JSON object per line. A `question` line is a candidate for one judge
  * question (references/judge-questions.md) with the fields that question is Given, and
- * `at` (file:line) for the pending item a yes becomes. A `finding` line is decided by
- * code alone — a second block of one type — and needs no judge.
+ * `at` (file:line) for the pending item a yes becomes. A FOLLOWS-RULE line also carries
+ * `about` (the rule's file) and `anchor` — the screen's changed lines, the only lines a yes
+ * may rest on; the judge places the item on the one its evidence quotes. A `finding` line
+ * is decided by code alone — a second block of one type — and needs no judge.
  *
  * The change mode reads the lines changed since <ref> (default: where this work left
  * origin/main, else HEAD) in the UI source the DESIGN_* keys name, the token stylesheets
  * and the references, and locates only in them. A changed source line that is only a
- * comment is not a change, and a file with no other change is untouched: a header or
- * pointer added to every file judges nothing. `--all` reads a whole layer: tokens,
+ * comment, or part of an import that binds names, is not a change, and a file with no
+ * other change is untouched: a header, a pointer or an import added to every file judges
+ * nothing. `--all` reads a whole layer: tokens,
  * components, references or screens (default every layer).
  *
  * What is mechanical stays mechanical: a colour or fixed height at a call site, a role
@@ -64,9 +67,28 @@ function changedIn(repo, base, pathspecs) {
 const isComment = (line) => lineCode(line) === '' || /^\s*(?:\/\*|\*)/.test(line)
 
 /**
- * The changed lines that carry code. A TypeScript line whose change is a comment is not a
- * change, and a file left with none is untouched. Stylesheets and references are kept
- * whole: a token's purpose comment and a rule's prose are their content.
+ * The lines of a file's imports that bind names. Such an import draws nothing and does
+ * nothing until a line uses the name, and that line is a change of its own. An import for
+ * its effect alone (`import './x.css'`) is code like any other.
+ */
+function importLines(repo, file, text) {
+  const ts = loadTypeScript(repo)
+  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, false, file.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS)
+  const out = new Set()
+  for (const s of sf.statements) {
+    if (!ts.isImportDeclaration(s) || !s.importClause) continue
+    const from = sf.getLineAndCharacterOfPosition(s.getStart(sf)).line + 1
+    const to = sf.getLineAndCharacterOfPosition(s.end).line + 1
+    for (let n = from; n <= to; n++) out.add(n)
+  }
+  return out
+}
+
+/**
+ * The changed lines that carry code. A TypeScript line whose change is a comment, or part
+ * of an import that binds names, is not a change, and a file left with none is untouched.
+ * Stylesheets and references are kept whole: a token's purpose comment and a rule's prose
+ * are their content.
  */
 function codeChanges(repo, changed) {
   const out = new Map()
@@ -75,13 +97,15 @@ function codeChanges(repo, changed) {
       out.set(file, lines)
       continue
     }
-    let text
+    let source
     try {
-      text = readFileSync(path.join(repo, file), 'utf8').split('\n')
+      source = readFileSync(path.join(repo, file), 'utf8')
     } catch {
       continue
     }
-    const kept = new Set([...lines].filter((n) => !isComment(text[n - 1] ?? '')))
+    const text = source.split('\n')
+    const imports = importLines(repo, file, source)
+    const kept = new Set([...lines].filter((n) => !isComment(text[n - 1] ?? '') && !imports.has(n)))
     if (kept.size) out.set(file, kept)
   }
   return out
@@ -406,8 +430,15 @@ function* screens(R, only = null) {
     const pageTypes = recipe?.blockTypes ?? []
     const imported = new Set(sites.filter((s) => s.file === file).map((s) => blockType(R, s.target)).filter(Boolean))
     const governing = refs.filter((r) => r === recipe || (r.kind === 'behaviour' && governs(R, r, file) && (r.blockTypes.includes('cross-cutting') || r.blockTypes.some((t) => pageTypes.includes(t) || imported.has(t)))))
-    const screenText = R.changed && R.changed.get(file) !== ALL ? changedRegion(src, R.changed.get(file), 20) : src
-    for (const r of governing) yield { question: 'FOLLOWS-RULE', at: `${file}:1`, candidate: { rule: r.text, screen: screenText } }
+    const partial = R.changed && R.changed.get(file) !== ALL
+    const screenText = partial ? changedRegion(src, R.changed.get(file), 20) : src
+    // The lines a yes may rest on: the changed lines that hold code, or every such line of a
+    // new or audited screen. The lines around them are the judge's context and nothing more.
+    const all = src.split('\n')
+    const scope = partial ? [...R.changed.get(file)].sort((a, b) => a - b) : all.map((_, i) => i + 1)
+    const lines = scope.filter((n) => !isComment(all[n - 1] ?? '') && /\w/.test(all[n - 1] ?? '')).map((n) => [n, all[n - 1]])
+    if (lines.length)
+      for (const r of governing) yield { question: 'FOLLOWS-RULE', at: `${file}:${lines[0][0]}`, about: path.basename(r.file), anchor: { file, lines }, candidate: { rule: r.text, screen: screenText } }
 
     for (const t of openingTags(src, /<([a-z][\w-]*)\b(?!\.)/g)) {
       if (!touched(R, file, t.line)) continue

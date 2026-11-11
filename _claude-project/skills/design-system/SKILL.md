@@ -99,7 +99,8 @@ token's comment, an inventory line, a line in a screen:
 - **approved** — the human looked and approved it. Wiring approved pieces together stays
   approved. A later change the human asked for, that does not change the kind of thing it
   is, keeps it approved. A new variant is pending; a behaviour change is pending even
-  with nothing new to see. On a line: `design-accepted — <reason>`.
+  with nothing new to see. On a line, or on a comment line directly above it:
+  `design-accepted — <reason>`.
 - **deferred** — the human chose not to look and trusts the work. It blocks nothing and
   needs no reason. Its inventory line carries the file's fingerprint
   (`check-ui-status.mjs --fingerprint <file>`); on a line, `design-deferred <fingerprint>`
@@ -262,8 +263,9 @@ component whose canvas render differs from its plain render by a pixel. The
   (`skills/gitflow/scripts/design-judge.sh`); a yes is one more pending item for the
   walk-through, held in `.claude/ui-pending.json`. It never stops a commit, and an item
   leaves the ledger only on the human's word or when its line's code changes; a no from a
-  second asking is not an answer. A comment-only change is not a change: a header added
-  to every file judges nothing.
+  second asking is not an answer. A comment or an import is not a change: a header or an
+  import added to every file judges nothing. A changed screen is held to its rules on the
+  lines the change touched, and its item sits on the touched line the judge quotes.
 - **`/design-audit`** asks the same questions over a whole layer, when the human asks.
 
 ## Converting a legacy app: do not derive values from it

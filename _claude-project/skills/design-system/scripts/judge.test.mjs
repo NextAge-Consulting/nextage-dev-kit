@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { ask, askOnce, fixturesFor, judgeCandidates, mergeLedger, parseQuestions, placeFingerprint, readLedger, readQuestions, renderCandidate, systemPrompt } from './judge.mjs'
+import { anchorLine, ask, askOnce, fixturesFor, judgeCandidates, mergeLedger, parseQuestions, placeFingerprint, readLedger, readQuestions, renderCandidate, systemPrompt } from './judge.mjs'
 
 /** A stub CLI standing in for claude: answers from STUB_ANSWERS, one JSON per line, in order. */
 function stub(answers) {
@@ -72,10 +72,15 @@ test('the candidate is rendered as its Given fields only, and the system prompt 
 
 test('one answer is read; every quote must be in the candidate, each on its own', async () => {
   const ok = stub([answer('yes', 'thing-one', 'left text')])
-  assert.deepEqual(await askOnce(Q, C, { bin: ok.bin }), { answer: 'yes', quote: 'thing-one | left text', cost: 0.01 })
+  assert.deepEqual(await askOnce(Q, C, { bin: ok.bin }), { answer: 'yes', quote: 'thing-one | left text', quotes: ['thing-one', 'left text'], cost: 0.01 })
   assert.match(ok.input(), /=== name ===/)
   const bad = stub([answer('yes', 'thing-one', 'invented text')])
   assert.match((await askOnce(Q, C, { bin: bad.bin })).error, /quote not in candidate: invented text/)
+  // A list field is shown as JSON: an item copied with the quotes it was shown in is a quote.
+  const LQ = parseQuestions('## LQ — t\n**Asked about:** a.\n**Given:** `name`, `accepts`.\n**Quote:** the class.\n**Yes when:** y.\n**No when:** n.\n**Example yes:** a.\n**Example no:** b.\n')[0]
+  const listed = stub([answer('no', '"gap-*"'), answer('no', 'gap-*')])
+  assert.equal((await askOnce(LQ, { name: 'x', accepts: ['gap-*'] }, { bin: listed.bin })).answer, 'no')
+  assert.equal((await askOnce(LQ, { name: 'x', accepts: ['gap-*'] }, { bin: listed.bin })).answer, 'no')
   const none = stub([JSON.stringify({ is_error: false, structured_output: { answer: 'yes', quotes: [] } })])
   assert.equal((await askOnce(Q, C, { bin: none.bin })).error, 'no quote')
 })
@@ -137,4 +142,43 @@ test('the ledger: a yes becomes a pending item with its line\'s fingerprint; a c
   fs.writeFileSync(path.join(repo, 'src/a.tsx'), 'one\n<Card className="p-4">\nthree\n')
   assert.equal(mergeLedger(repo, ledger, {}).length, 0)
   assert.deepEqual(readLedger(path.join(repo, 'none.json')), [])
+})
+
+test('an anchored yes rests on a changed line: the item is placed on the line a quote names, and a yes about any other line is not kept', async () => {
+  const SQ = parseQuestions('## SQ — t\n**Asked about:** a.\n**Given:** `rule`, `screen`.\n**Quote:** the line.\n**Yes when:** y.\n**No when:** n.\n**Example yes:** a.\n**Example no:** b.\n')[0]
+  const screen = '<Alert variant="destructive">\n  <Button type="submit">\n      onSubmit={() => submitOnce(form)}\n</Alert>'
+  const line = (at, about) => JSON.stringify({ question: 'SQ', at, about, anchor: { file: 'src/s.tsx', lines: [[7, '      onSubmit={() => submitOnce(form)}'], [8, '    )']] }, candidate: { rule: 'Saving is busy.', screen } })
+  // Three answers each: the first candidate's yeses quote the changed line, the second's an untouched one.
+  const s = stub([
+    answer('yes', 'onSubmit={() => submitOnce(form)}'), answer('yes', 'Saving is busy.', 'onSubmit={() => submitOnce(form)}'), answer('no', '<Button type="submit">'),
+    answer('yes', '<Alert variant="destructive">'), answer('yes', '<Alert variant="destructive">'), answer('yes', '<Button type="submit">'),
+  ])
+  const r = await judgeCandidates([SQ], [line('src/s.tsx:7', 'saving.md'), line('src/s.tsx:7', 'alerts.md')].join('\n'), { runs: 3, bin: s.bin, })
+  assert.equal(r.asked, 2)
+  const kept = r.yes.concat(r.unchanged).map((y) => y.about).sort()
+  assert.deepEqual(kept, ['alerts.md', 'saving.md'])
+  assert.equal(r.yes.length + r.unchanged.length, 2)
+  for (const y of r.yes) assert.equal(y.at, 'src/s.tsx:7', 'placed on the changed line its quote names')
+  for (const u of r.unchanged) assert.match(u.quote, /Alert|Button/, 'a yes quoting only untouched lines is not kept')
+
+  assert.equal(anchorLine({ lines: [[7, '      onSubmit={() => submitOnce(form)}']] }, ['onSubmit={() =>   submitOnce(form)}']), 7, 'whitespace is folded')
+  assert.equal(anchorLine({ lines: [[3, '  <Button type="submit">'], [4, '    Save']] }, ['<Button type="submit">\n    Save\n</Button>']), 3, 'a quote spanning lines rests on the first changed line it holds')
+  assert.equal(anchorLine({ lines: [[9, '    )'], [10, '}']] }, [')', '}']), null, 'a line of punctuation alone is never the evidence')
+  assert.equal(anchorLine({ lines: [[7, 'onSubmit={() => submitOnce(form)}']] }, ['<Alert variant="destructive">']), null)
+})
+
+test('the ledger: two rules departing on one line are two items; a marker on a comment-only line above answers for the line beneath', () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'ledger-'))
+  fs.mkdirSync(path.join(repo, 'src'))
+  fs.writeFileSync(path.join(repo, 'src/a.tsx'), 'one\n{/* design-accepted — the kiosk has no banner */}\n<Card className="p-2">\nfour // design-accepted — fine\n<Row />\n')
+  assert.equal(placeFingerprint(repo, 'src/a.tsx:3').excepted, true, 'the comment line above answers')
+  assert.equal(placeFingerprint(repo, 'src/a.tsx:5').excepted, false, 'a marker trailing the code line above answers for that line alone')
+  const yes = [
+    { question: 'FOLLOWS-RULE', at: 'src/a.tsx:5', about: 'saving.md', quote: '<Row />' },
+    { question: 'FOLLOWS-RULE', at: 'src/a.tsx:5', about: 'loading.md', quote: '<Row />' },
+    { question: 'FOLLOWS-RULE', at: 'src/a.tsx:3', about: 'saving.md', quote: '<Card className="p-2">' },
+  ]
+  const ledger = mergeLedger(repo, [], { yes })
+  assert.deepEqual(ledger.map((i) => [i.at, i.about]), [['src/a.tsx:5', 'loading.md'], ['src/a.tsx:5', 'saving.md']])
+  assert.equal(mergeLedger(repo, ledger, { yes }).length, 2, 'asked again, the same two')
 })

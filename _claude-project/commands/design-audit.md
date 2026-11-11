@@ -49,8 +49,9 @@ anything should look. Each answer lands in the same pass:
   the layers beneath it.
 - **Add to the system** — the layer beneath gains what was missing, pending, and
   everything it reaches is brought into line.
-- **Approve it as it is** — `design-accepted — <the human's reason>` on the line: `/* … */`
-  in CSS, `{/* … */}` in JSX, `<!-- … -->` in Markdown. No later audit or judge raises it.
+- **Approve it as it is** — `design-accepted — <the human's reason>` on the line, or on a
+  comment line directly above it: `/* … */` in CSS, `{/* … */}` in JSX, `<!-- … -->` in
+  Markdown. No later audit or judge raises it.
   Arrangement only: a behaviour that departs from its rule is fixed, or the rule is
   changed for every screen — behaviour never differs by exception.
 - **Defer it** — `design-deferred <fingerprint>` on the line

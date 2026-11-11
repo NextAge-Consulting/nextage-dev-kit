@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { catalogueRows, checkUiStatus, fingerprint, frontmatter, headers, INVENTORY, isComponent, isPattern, isScreen, key, lineCode, NOT_APPLICABLE, patternBlockTypes } from './check-ui-status.mjs'
+import { catalogueRows, checkUiStatus, excepted, fingerprint, frontmatter, headers, INVENTORY, isComponent, isPattern, isScreen, key, lineCode, NOT_APPLICABLE, patternBlockTypes } from './check-ui-status.mjs'
 
 const dirs = []
 after(() => {
@@ -336,4 +336,28 @@ test('the judge\'s ledger: an item is pending while its line stands unchanged an
   assert.deepEqual(answered.pending, [])
   const broken = run(ledger('nope').valueOf() === undefined ? {} : { ...base, '.claude/ui-pending.json': 'nope\n' })
   assert.deepEqual(broken.problems, ['.claude/ui-pending.json: not JSON — the judge\'s ledger cannot be read'])
+})
+
+test('a marker on a comment-only line answers for the line beneath it: accepted, deferred, and a ledger item', () => {
+  const code = '  <Card className="p-2">'
+  const fp = fingerprint(lineCode(code))
+  const base = { ...CLEAN, [INVENTORY]: CLEAN_INV }
+  const lines = ['a()', '{/* design-accepted — reason */}', code, 'b() // design-accepted — reason', 'c()']
+  assert.equal(excepted(lines, 3), true)
+  assert.equal(excepted(lines, 4), true)
+  assert.equal(excepted(lines, 5), false, 'a marker trailing a line of code answers for that line alone')
+  assert.equal(excepted(lines, 1), false)
+
+  const deferred = run({ ...base, [SCREEN]: `${screen()}export const S = () => (\n  {/* design-deferred ${fp} */}\n${code}\n)\n` })
+  assert.deepEqual(deferred.problems, [])
+  assert.deepEqual(deferred.pending, [])
+  assert.deepEqual(deferred.deferred, [`${SCREEN}:4 (line)`])
+  const changed = run({ ...base, [SCREEN]: `${screen()}export const S = () => (\n  {/* design-deferred ${fp} */}\n  <Card className="p-4">\n)\n` })
+  assert.match(changed.pending[0], /changed since it was deferred/)
+
+  const item = { question: 'FOLLOWS-RULE', at: `${SCREEN}:5`, about: 'saving.md', quote: 'p-2', fingerprint: fp }
+  const live = run({ ...base, [SCREEN]: `${screen()}export const S = () => (\n  <p />\n${code}\n)\n`, '.claude/ui-pending.json': `${JSON.stringify([item])}\n` })
+  assert.deepEqual(live.pending, [`${SCREEN}:5 (judge FOLLOWS-RULE, saving.md) — p-2`])
+  const answered = run({ ...base, [SCREEN]: `${screen()}export const S = () => (\n  {/* design-accepted — the brand's own card */}\n${code}\n)\n`, '.claude/ui-pending.json': `${JSON.stringify([item])}\n` })
+  assert.deepEqual(answered.pending, [])
 })
