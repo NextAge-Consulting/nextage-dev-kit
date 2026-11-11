@@ -151,6 +151,24 @@ stub npx 0
 t 0 "$(gate run_knip_gate committing)" 'no findings passes'
 rm -rf package.json .claude
 
+echo "design:"
+new_repo
+t 0 "$(gate run_design_gate "$BASE" committing)" 'no design.md passes'
+has 'design checks: skipped — no design.md' '…and says why'
+touch design.md
+printf '{"name":"app","scripts":{"lint:tokens":"x"}}\n' > package.json
+t 4 "$(gate run_design_gate "$BASE" committing)" 'design.md with no lint:design script fails, as CI does'
+has 'no "lint:design" script' '…naming the missing script'
+printf '{"name":"app","scripts":{"lint:tokens":"x","lint:design":"y"}}\n' > package.json
+stub npm 1
+t 4 "$(gate run_design_gate "$BASE" committing)" 'a design check that fails fails the gate'
+has 'lint:tokens failed' '…naming the check'
+stub npm 0
+t 0 "$(gate run_design_gate "$BASE" committing)" 'both design checks clean passes'
+t lint:design "$(sed -n 3p "$tmp/npm.args")" '…lint:design running last'
+unstub npm
+rm -f design.md package.json
+
 echo "semgrep:"
 new_repo
 t 0 "$(gate run_semgrep_gate "$BASE" committing)" 'CI declares no semgrep job: passes'

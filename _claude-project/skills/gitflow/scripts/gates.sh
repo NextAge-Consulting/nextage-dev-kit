@@ -265,6 +265,40 @@ run_biome_gate() {
     gate_record_pass . biome "$fp"
 }
 
+# run_design_gate <base-ref> <action>
+#
+# Mirrors CI's `design checks` step: a repository with a design.md has a design
+# system, so `lint:tokens` and `lint:design` both run, and a missing script fails as
+# it does in CI. The token check judges the lines changed since <base-ref>, handed to
+# it as DESIGN_TOKENS_BASE, as CI hands it the pull request's base. Without a
+# design.md neither applies, and the gate says so.
+run_design_gate() {
+    local base="$1" action="$2" script out
+    if [ ! -f "design.md" ]; then
+        echo "gitflow: design checks: skipped — no design.md at the repository root." >&2
+        return 0
+    fi
+    for script in lint:tokens lint:design; do
+        if ! jq -e --arg s "$script" '.scripts[$s] // empty' package.json >/dev/null 2>&1; then
+            echo "" >&2
+            echo "gitflow: design.md is present but package.json has no \"$script\" script." >&2
+            echo "  CI runs it on every pull request, so this is a failure. Fix before $action." >&2
+            return 4
+        fi
+    done
+    echo "gitflow: running the design checks (lint:tokens, lint:design)..." >&2
+    for script in lint:tokens lint:design; do
+        if ! out=$(DESIGN_TOKENS_BASE="$base" npm run --silent "$script" 2>&1); then
+            echo "" >&2
+            printf '%s\n' "$out" >&2
+            echo "" >&2
+            echo "gitflow: $script failed. Fix before $action." >&2
+            echo "  Run: npm run $script" >&2
+            return 4
+        fi
+    done
+}
+
 # knip_pin — the knip version the stack manifest pins, or nothing.
 knip_pin() {
     [ -f .claude/stack-manifest.json ] || return 0

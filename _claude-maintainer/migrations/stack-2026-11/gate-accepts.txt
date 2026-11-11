@@ -1,0 +1,8 @@
+# Findings the kit gate's replay accepts while this migration ships: the manifest raises
+# these pins, and the Versions section sets every older declared one to its blessed version.
+: better-auth is "
+better-auth resolves to
+: @tanstack/react-router is "
+@tanstack/react-router resolves to
+: @tanstack/react-start is "
+@tanstack/react-start resolves to

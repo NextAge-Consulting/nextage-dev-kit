@@ -40,6 +40,7 @@ A frame atom — the atom a type's **Wraps** cell names — is imported only ins
 | PromptDialog | Asks for one value before an action proceeds | Ends Confirm / Cancel, with one input | EntityModal (a whole record) | Dialog |
 | ReviewDialog | A detailed pre-flight report of a write — counts, tables, problems — then its result | Ends Continue / Cancel after inspection; Continue shows busy | ConfirmDialog (one line) | Dialog |
 | PickerDialog | Choose one or many records from a searchable list, returned to the field that opened it | Ends by selecting — a row click, or Select | FilterPopover (narrows a list) | Dialog |
+| FilterDialog | A form of the fields a list can be narrowed by, beyond its search | Ends Search / Clear / Cancel | FilterPopover (a few filters, anchored) | Dialog |
 | EditDrawer | Create or edit a record in a side panel while the page stays readable | Ends Save / Cancel | EntityModal (covers the page) | Sheet |
 | DetailDrawer | A read-only look at a record without leaving the screen | Ends ✕; offers the full record | EditDrawer (edits) | Sheet |
 | FilterPopover | A small anchored panel setting one or a few filters | Applies live or on Apply; closes on click-away | FilterPanel (always open) | Popover |
@@ -89,6 +90,7 @@ form element, the loading state, the error state — so no screen re-decides it.
 | Type | What it is | Not to be confused with |
 |---|---|---|
 | BrowseToolbar | Search, filters, view switch and add above a collection; with rows selected, it carries their bulk actions | ScreenHeading |
+| DataTable | A collection as a table: headings that sort and size, the person's choice of columns, the rows, and the empty and failure states | CardGrid; EditableTable |
 | Row | One record in a collection, as a table row or a card | ExpandableRow |
 | RowActions | A row's own actions, inline or in an overflow menu | BrowseToolbar |
 | ExpandableRow | A row that discloses detail or an editor in place | DetailDrawer |

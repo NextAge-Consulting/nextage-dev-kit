@@ -135,7 +135,9 @@ guide wherever it lays screens out as fixed-size artboards per device on one can
    ```
 
    At the root, beside `lint:design`:
-   `"lint:tokens": "node .claude/skills/design-system/scripts/check-design-tokens.mjs"`.
+   `"lint:tokens": "node .claude/skills/design-system/scripts/check-design-tokens.mjs"`, and,
+   when the UI package is a workspace, `"build:design-system": "npm run build:design-system -w
+   <UI package>"`, so the command every check prints runs from the root.
 4. Run `build:design-system`, and commit the two files it generates in the UI package.
    The feed stylesheet imports `design-system/safelist.generated.css`, so Tailwind ships
    every class the README promises a design. The package's `cn()` passes

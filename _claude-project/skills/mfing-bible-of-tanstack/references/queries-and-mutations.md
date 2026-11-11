@@ -1,10 +1,9 @@
 # Queries and mutations
 
-**TanStack ships no Query skill** — verified zero `SKILL.md` files across
-`query-core`, `react-query` and the whole `TanStack/query` repo. The nearest
-upstream guidance is Router's `compositions/router-query` skill, which lives in
-the router repository and is not in the published package. This file is
-entirely ours.
+**TanStack ships no Query skill** — `query-core` and `react-query` publish no
+`SKILL.md` — so this file is entirely ours. Wiring Query into the router is
+`data-loading.md`, distilled from `@tanstack/react-router`'s
+`compositions/router-query` skill.
 
 ## One definition per resource
 

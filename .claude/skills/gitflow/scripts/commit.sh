@@ -244,6 +244,7 @@ fi
 run_typecheck_gate "$SKIP_TYPECHECK" "committing" || exit $?
 run_biome_gate "committing" || exit $?
 run_knip_gate "committing" || exit $?
+run_design_gate "$FOLD_BASE" "committing" || exit $?
 run_semgrep_gate "$FOLD_BASE" "committing" || exit $?
 run_terraform_gate "$FOLD_BASE" "committing" || exit $?
 run_terraform_lock_gate "$FOLD_BASE" "committing" || exit $?

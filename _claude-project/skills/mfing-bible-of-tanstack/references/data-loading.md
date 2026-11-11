@@ -1,7 +1,8 @@
 # Route data loading
 
 Distilled from `@tanstack/router-core` skills `router-core/data-loading` and
-`router-core/ssr`, plus our decisions. Router coordinates *when* data loads;
+`router-core/ssr` and `@tanstack/react-router`'s `compositions/router-query`,
+plus our decisions. Router coordinates *when* data loads;
 Query owns caching. This file is the seam between them.
 
 ## The standard route

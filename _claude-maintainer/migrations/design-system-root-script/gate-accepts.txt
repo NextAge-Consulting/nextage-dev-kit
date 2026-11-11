@@ -1,0 +1,4 @@
+# Findings the kit gate's replay accepts while this migration ships: check-stack now
+# requires the root script that hands the design-system build to a workspace UI package,
+# and step 3 writes it.
+no "build:design-system" script — the UI package is

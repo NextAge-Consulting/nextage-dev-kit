@@ -1,6 +1,6 @@
 # Migration: TanStack Start 1.0, Vite 8, vitest 5 and the October pins
 
-`/sync-dev-kit` runs everything below the line in the consumer project's session, once it has landed the stack manifest blessed 2026-10-16 and the TanStack bible that goes with it. A section whose package or pattern the project does not have is skipped, and named as skipped in the report; a section that partly applies is done for the part that does.
+`/sync-dev-kit` runs everything below the line in the consumer project's session, once it has landed the stack manifest blessed 2026-10-16 or later and the TanStack bible that goes with it. A section whose package or pattern the project does not have is skipped, and named as skipped in the report; a section that partly applies is done for the part that does.
 
 ## Estimate
 
@@ -31,7 +31,7 @@ M=.claude/stack-manifest.json
 B=.claude/skills/mfing-bible-of-tanstack/references
 ```
 
-If `$M` has no `"blessed_at": "2026-10-16"`, stop: the sync has not landed this kit version.
+If `jq -e '.blessed_at >= "2026-10-16"' "$M"` fails, stop: the sync has not landed this kit version.
 
 Read `$B/data-loading.md`, `$B/search-params.md`, `$B/server-functions.md`, `$B/queries-and-mutations.md`, `$B/browse-tables.md`, `$B/forms.md`, `$B/deployment.md` and `$B/auth.md` first. Where a section below names one of them, the code it shows is the target shape.
 

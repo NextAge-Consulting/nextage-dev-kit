@@ -156,6 +156,7 @@ fi
 run_typecheck_gate "$SKIP_TYPECHECK" "shipping to main (or --skip-typecheck for a true emergency)" || exit $?
 run_biome_gate "shipping to main" || exit $?
 run_knip_gate "shipping to main" || exit $?
+run_design_gate "$FOLD_BASE" "shipping to main" || exit $?
 run_semgrep_gate "$FOLD_BASE" "shipping to main" || exit $?
 run_terraform_gate "$FOLD_BASE" "shipping to main" || exit $?
 run_terraform_lock_gate "$FOLD_BASE" "shipping to main" || exit $?

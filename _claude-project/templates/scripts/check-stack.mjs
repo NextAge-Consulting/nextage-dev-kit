@@ -480,6 +480,24 @@ if (existsSync(resolve(repoRoot, "design.md"))) {
     else {
       want.push([uiPkg, ui.pkg, "build:design-system", ".claude/skills/claude-design/scripts/build.mjs design-system/design-system.config.mjs"]);
       want.push([uiPkg, ui.pkg, "check:design-system", ".claude/skills/claude-design/scripts/render-check.mjs design-system/design-system.config.mjs"]);
+      // Every npm script runs from the repository root, and every check prints
+      // `npm run build:design-system`: when the UI package is a workspace, the root
+      // carries the same name, handing the run to it.
+      if (uiPkg !== ".") {
+        const got = rootPkg.scripts?.["build:design-system"];
+        const names = [uiPkg, ui.pkg.name].filter(Boolean);
+        // The workspace the root's run names, read from its words: `-w <name>`,
+        // `--workspace <name>` or `--workspace=<name>`.
+        const words = got ? got.trim().split(/\s+/) : [];
+        const targets = words.flatMap((word, i) =>
+          word === "-w" || word === "--workspace" ? [words[i + 1]] : word.startsWith("--workspace=") ? [word.slice("--workspace=".length)] : [],
+        );
+        const hands = words.includes("build:design-system") && targets.some((t) => names.includes(t));
+        if (!hands)
+          failures.push(
+            `package.json: ${got === undefined ? 'no "build:design-system" script' : `"build:design-system" is "${got}"`} — the UI package is ${uiPkg}, so the root hands the run to it: npm run build:design-system -w ${ui.pkg.name ?? uiPkg}`,
+          );
+      }
     }
   }
   for (const [dir, pkg, script, target] of want) {
