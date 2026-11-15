@@ -147,13 +147,14 @@ repo_has_unfiltered_pr_ci() {
     return 1
 }
 
-# The workflow runs GitHub has recorded for commit $1, summarised:
+# The workflow runs GitHub has recorded for commit $1 — the newest run of each workflow,
+# since one started over on the same commit leaves its earlier run behind — summarised:
 #   none | running | done | failed   (or "error" when gh cannot answer)
 runs_for_head() {
     local out
     # shellcheck disable=SC2016 # $r is a jq variable, expanded by jq, not the shell
     if ! out=$(gh api "repos/$REPO/actions/runs?head_sha=$1&per_page=50" --jq '
-        .workflow_runs as $r
+        (.workflow_runs | group_by(.workflow_id) | map(max_by(.created_at // ""))) as $r
         | if ($r | length) == 0 then "none"
           elif any($r[]; .status == "completed" and (.conclusion | IN("failure", "startup_failure", "timed_out", "cancelled"))) then "failed"
           elif all($r[]; .status == "completed") then "done"
@@ -188,6 +189,16 @@ ci_state() {
         echo "pending"; return
     fi
     [ -z "$rollup" ] && rollup="[]"
+    # A check run again on the same commit — a job re-run, or a workflow GitHub starts over
+    # when the PR's title is edited — leaves its earlier run in the rollup. Only the newest
+    # run of each check counts, as `gh pr checks` reads it.
+    local newest
+    if ! newest=$(jq -c '
+        group_by(if (.__typename // "") == "StatusContext" then "status \(.context // "")" else "run \(.workflowName // "") \(.name // "")" end)
+        | map(max_by(.startedAt // .createdAt // ""))' <<<"$rollup" 2>/dev/null); then
+        echo "pending"; return
+    fi
+    rollup="$newest"
     local count
     count=$(echo "$rollup" | jq 'length')
     if [ "$count" = "0" ]; then

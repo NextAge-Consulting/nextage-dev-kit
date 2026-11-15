@@ -915,11 +915,12 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
         if (content) placesOnly(file, t, classesOf(t))
         continue
       }
+      // What a call site may put on a component is held on the lines a change touched, in a
+      // screen and in a part alike: a line nobody has touched is left alone.
+      if (!touched(file, t.line, t.line + t.open.split('\n').length - 1)) continue
       for (const cls of classesOf(t)) {
         classesChecked++
-        // Held on the lines a change touched, in a screen and in a part alike: a line nobody
-        // has touched is left alone.
-        if (touched(file, t.line, t.line + t.open.split('\n').length - 1)) callSiteClasses.push({ file, line: t.line, name: t.name, cls })
+        callSiteClasses.push({ file, line: t.line, name: t.name, cls })
         if (FIXED_SIZE.test(cls.split(':').pop())) add(`${file}:${t.line}`, `<${t.name}> ${cls}`, 'a call site never fixes how tall a component is; that belongs to the component (a size or variant for what the control is)')
         const paint = /^(?:text|bg|border|ring|outline|fill|stroke)-(.+?)(?:\/\d+)?$/.exec(cls.split(':').pop())
         if (paint && colours.has(paint[1])) add(`${file}:${t.line}`, `<${t.name}> ${cls}`, 'a call site never repaints a component\'s colour; add a variant for what it shows')
