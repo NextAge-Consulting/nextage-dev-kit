@@ -691,8 +691,8 @@ run_project_gate() {
 #
 # Each one's output is captured on its own and printed whole, in this fixed order, once all
 # have finished. A review that fails fails the gate, and every output is still shown, so one
-# run reports every finding. The design judge never fails: its yeses are pending items for
-# the human's walk-through, and /deploy waits for them. Each review's SKIP_* override
+# run reports every finding. The design judge never fails: its yeses are pending items, and
+# /deploy waits for them. Each review's SKIP_* override
 # reaches it through the environment.
 run_headless_reviews() {
     local base="$1" action="$2" dir work name rc i=0 failed=""

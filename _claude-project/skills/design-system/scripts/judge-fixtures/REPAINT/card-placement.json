@@ -4,6 +4,5 @@
   "component": "Card",
   "class": "col-span-2",
   "tag": "<Card className=\"mt-4 col-span-2\">",
-  "accepts": [],
   "kind": "block"
 }

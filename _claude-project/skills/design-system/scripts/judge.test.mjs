@@ -132,13 +132,13 @@ test('the ledger: a yes becomes a pending item with its line\'s fingerprint; a c
   assert.equal(placeFingerprint(repo, 'src/a.tsx:9'), null)
   assert.equal(placeFingerprint(repo, 'src/none.tsx:1'), null)
 
-  const yes = [{ question: 'REPAINT', at: 'src/a.tsx:2', quote: 'p-2' }, { question: 'REPAINT', at: 'src/a.tsx:3', quote: 'three' }]
+  const yes = [{ question: 'SCREEN-BOX', at: 'src/a.tsx:2', quote: 'p-2' }, { question: 'SCREEN-BOX', at: 'src/a.tsx:3', quote: 'three' }]
   const ledger = mergeLedger(repo, [], { yes })
-  assert.deepEqual(ledger.map((i) => [i.question, i.at, i.fingerprint]), [['REPAINT', 'src/a.tsx:2', fp.fingerprint]], 'the excepted line is never recorded')
+  assert.deepEqual(ledger.map((i) => [i.question, i.at, i.fingerprint]), [['SCREEN-BOX', 'src/a.tsx:2', fp.fingerprint]], 'the excepted line is never recorded')
 
   // Unchanged: kept, a later no notwithstanding — only the human's word or a code change settles it. Line changed: dropped.
   assert.equal(mergeLedger(repo, ledger, {}).length, 1)
-  assert.equal(mergeLedger(repo, ledger, { no: [{ question: 'REPAINT', at: 'src/a.tsx:2' }] }).length, 1, 'a re-asked no removes nothing')
+  assert.equal(mergeLedger(repo, ledger, { no: [{ question: 'SCREEN-BOX', at: 'src/a.tsx:2' }] }).length, 1, 'a re-asked no removes nothing')
   fs.writeFileSync(path.join(repo, 'src/a.tsx'), 'one\n<Card className="p-4">\nthree\n')
   assert.equal(mergeLedger(repo, ledger, {}).length, 0)
   assert.deepEqual(readLedger(path.join(repo, 'none.json')), [])
@@ -181,4 +181,12 @@ test('the ledger: two rules departing on one line are two items; a marker on a c
   const ledger = mergeLedger(repo, [], { yes })
   assert.deepEqual(ledger.map((i) => [i.at, i.about]), [['src/a.tsx:5', 'loading.md'], ['src/a.tsx:5', 'saving.md']])
   assert.equal(mergeLedger(repo, ledger, { yes }).length, 2, 'asked again, the same two')
+  const tokens = mergeLedger(repo, [], {
+    yes: [
+      { question: 'TOKEN-AGAINST-PURPOSE', at: 'src/a.tsx:5', about: 'text-accent', note: '--color-accent is for: a selected item', quote: '<Row />' },
+      { question: 'TOKEN-AGAINST-PURPOSE', at: 'src/a.tsx:5', about: 'rounded-dense', note: '--radius-dense is for: a dense control', quote: '<Row />' },
+    ],
+  })
+  assert.equal(tokens.length, 2, 'two tokens flagged on one line are two items')
+  assert.ok(tokens.every((i) => i.about && i.note), 'each names its token and what that token is for')
 })

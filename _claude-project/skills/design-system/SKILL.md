@@ -22,7 +22,8 @@ the look and the behaviour are the project's.
 | **Recipe** | How one page type is put together: a **frame** — the block of that page type, fixed ordered slots accepting named block types, no content, carrying the behaviour every screen of the type shares — and **instructions**, each a yes/no or a pick from a closed list, with one reference screen. | the frame in `components/`; the instructions in `.claude/skills/ui-patterns/references/` |
 | **Behaviour rule** | The project's decision on how the app acts on one topic: saving, cancelling, errors, loading, confirming, feedback. Prose, listing its code. | `.claude/skills/ui-patterns/references/` |
 | **Behaviour code** | The code that carries a rule out, inside a block or as a shared function. Names its rule. | wherever it sits |
-| **Screen** | A route that follows one recipe and fills its slots with content: wording, data, server calls. A feature file holds one screen's content. | `routes/`, `features/` |
+| **Screen** | A route a user lands on: it follows one recipe and fills its slots with content. | `routes/` |
+| **Content and wiring** | Everything else in the UI source, none of it part of the system: a screen's wording, data and server calls in a feature file, and the wiring that draws no frame of its own — a root document, a layout route, a router, a provider, a data adapter, a render helper. | `features/`, and wherever the wiring sits |
 
 **Component** means an atom or a block. A component carries **variants** (named complete
 looks), **props** (named for meaning), **slots** (declaring which components they accept)
@@ -32,10 +33,12 @@ its code). Every kind is prose plus code, each pointing at the other.
 **Content two apps share is still content.** It lives in a `features/` folder of the
 shared package, never in a `components/` folder, and keeps its business words there.
 
-**Several apps on one system each have their own experience.** The tokens, the atoms and
-the shared blocks are one system; an app's own blocks live in its `components/`, with the
-human's reason on their inventory lines; a recipe or behaviour rule that holds for some
-apps names them on its `apps:` line (the `ui-patterns` skill).
+**Several apps on one system share its blocks and keep their own content.** The tokens,
+the atoms and the blocks are one system: a frame two apps draw is one shared block, varied
+by slot and option. An app has a block of its own, in its `components/`, only where its
+layout or behaviour differs, with the human's reason on its inventory line; a recipe or
+behaviour rule that holds for some apps names them on its `apps:` line (the `ui-patterns`
+skill).
 
 ## Variant, option and exception
 
@@ -82,8 +85,7 @@ every pointer names something real:
   carries out;
 - an atom: `// ui-atom`;
 - behaviour code outside a block: `// ui-behaviour-code: <rule>.md`;
-- a screen: `// ui-recipe: <recipe>.md`; a feature file holding one screen's content:
-  `// ui-content`;
+- a screen: `// ui-recipe: <recipe>.md`; content or wiring: `// ui-content`;
 - a recipe's frontmatter: `kind: recipe`, `frame: <component, as its inventory line names
   it>`, `reference: <screen file>`, `block-types: [<page type>]`;
 - a behaviour rule's frontmatter: `kind: behaviour`, `code: [<files>]`, `block-types:`.
@@ -98,8 +100,9 @@ token's comment, an inventory line, a line in a screen:
   refuses while anything is pending. Nothing refuses a commit.
 - **approved** — the human looked and approved it. Wiring approved pieces together stays
   approved. A later change the human asked for, that does not change the kind of thing it
-  is, keeps it approved. A new variant is pending; a behaviour change is pending even
-  with nothing new to see. On a line, or on a comment line directly above it:
+  is, keeps it approved — a behaviour change they asked for by name included. A new
+  variant is pending; a behaviour change that comes as a side effect of something else is
+  pending, even with nothing new to see. On a line, or on a comment line directly above it:
   `design-accepted — <reason>`.
 - **deferred** — the human chose not to look and trusts the work. It blocks nothing and
   needs no reason. Its inventory line carries the file's fingerprint
@@ -131,7 +134,14 @@ Design Pack installs it instead (`uxes-design-packs.md` in the kit's docs).
 2. **Sort every frame by its block type** (`references/block-types.md`, "Sort before you
    build") and use this project's block of that type. None yet: build it now, pending,
    from the atoms and blocks nearest in kind, named for the kind.
-3. **A screen follows its recipe.** Its slots take the block types the recipe names; a
+3. **A screen follows its recipe.** Every route has a page type (`references/block-types.md`,
+   "Screen frames") and carries `// ui-recipe`, a type with one screen included; a page
+   type with no recipe yet gets its frame built and its recipe written, pending.
+   `// ui-content` is for content and wiring, never for a file a user lands on. A frame
+   found in wiring — a root document drawing the app's top bar — moves into the block of
+   its type. A screen that departs from its
+   recipe in one place carries the human's `design-accepted — <reason>` there. Its slots
+   take the block types the recipe names; a
    choice the recipe leaves open is a pick from its closed list. A screen draws no box —
    no background, border, radius, shadow or padding of its own — and fades no colour; it
    places and arranges, and styles its own text from the type and colour roles.
@@ -148,7 +158,7 @@ Design Pack installs it instead (`uxes-design-packs.md` in the kit's docs).
 
 Every value is a role. A screen writes no raw value; a component picks a role. A new role
 is added when a thing exists that no role names, named for the job, with its purpose
-comment, pending. A raw `text-sm`, `px-[10px]` or `rounded-lg` fails `npm run lint:tokens`.
+comment, pending when it brings a value a user sees for the first time. A raw `text-sm`, `px-[10px]` or `rounded-lg` fails `npm run lint:tokens`.
 
 ### 4. Discipline the checks do not cover
 
@@ -178,9 +188,27 @@ resolves every changed class through the project's own Tailwind build and lists 
 values a user would see differently, in light and dark, with moved styles told apart from
 changed ones. A line it proves identical needs no review.
 
-**When `/commit` or `/ship-main` prints the judge's `✗` lines, and at the end of a body of
-work, walk the human through every pending item** — in that turn, before `/open-pr`: `node .claude/skills/ui-patterns/scripts/check-ui-status.mjs`
-lists them, each with the screens that use it. Open by asking whether to include what is
+**When `/commit` or `/ship-main` prints the judge's `✗` lines, sort each one in that turn,
+before `/open-pr`.** Each line names what it is about and, for a token, what that token is
+for.
+
+- **Settling it changes nothing a user sees and nothing the app does: fix it yourself.**
+  Change the flagged line to the token whose purpose covers the use, the block that draws
+  the same box, the name the question asks for. Where no role names the job, add the role
+  with the value the screen already shows and use it. Fix every such line in one pass,
+  then run `compare-ui-values.mjs` once to prove no visible value moved.
+- **Then judge the fix before it is committed:** `bash .claude/skills/gitflow/scripts/design-judge.sh`
+  asks about the uncommitted work alone. Fix what it flags and run it again, until it
+  flags nothing of yours to fix. Only then do the fixes go in, with the next commit the
+  human asks for; that commit asks the judge nothing it has just answered.
+- **Settling it changes what a user sees or how the app behaves: it is the human's.** A
+  screen that departs from its behaviour rule is put as what the app does now against
+  what the rule says.
+
+Fit the code to the system, never a purpose comment or a rule to the code.
+
+**Then, and at the end of a body of work, walk the human through what is theirs:** `node .claude/skills/ui-patterns/scripts/check-ui-status.mjs`
+lists every pending item, each with the screens that use it. Open by asking whether to include what is
 deferred (`--deferred` lists it). Describe each item by what changed on screen or in
 behaviour, never by file or vocabulary, opening with "nothing new to look at" where that
 is true. Two competing looks for the same thing go to the human on a comparison page
@@ -241,7 +269,7 @@ component whose canvas render differs from its plain render by a pixel. The
 
 - **The token check** (`npm run lint:tokens`, `scripts/check-design-tokens.mjs`) decides
   everything mechanical: a class off a role, an arbitrary value, a role named by size, a
-  fixed height or a colour at a call site, a faded colour or a frame atom in a screen, a
+  fixed height, a colour or any restyling — padding, a gap, a border, a radius, a shadow, type, a state — at a call site, read from what Tailwind compiles the class to, a faded colour or a frame atom in a screen, a
   bare scroll area, a raw field painting the field look, a token that resolves to nothing
   or that nothing reaches, light and dark disagreeing, every text pair at 4.5:1, a
   reference naming what does not exist, the generated files current, and every class an
@@ -256,15 +284,17 @@ component whose canvas render differs from its plain render by a pixel. The
   `--maturity` prints how many inventory lines each commit that added a screen brought, the
   reading of whether the system is maturing.
 - **The judge** (`references/judge-questions.md`, `scripts/judge.mjs`) answers the
-  questions code cannot — a class that repaints, a screen drawing a frame, a token used
+  questions code cannot — a screen drawing a frame, a token used
   against its purpose, two rules in conflict, a screen departing from its rule, a new
   block that is a variant of an existing one — one candidate at a time, yes or no, three
   answers and the majority wins. It runs at `/commit` and `/ship-main`
-  (`skills/gitflow/scripts/design-judge.sh`); a yes is one more pending item for the
-  walk-through, held in `.claude/ui-pending.json`. It never stops a commit, and an item
+  (`skills/gitflow/scripts/design-judge.sh`); a yes is a pending item held in
+  `.claude/ui-pending.json`, sorted by step 5 of the procedure. It never stops a commit, and an item
   leaves the ledger only on the human's word or when its line's code changes; a no from a
-  second asking is not an answer. A comment or an import is not a change: a header or an
-  import added to every file judges nothing. A changed screen is held to its rules on the
+  second asking is not an answer. A comment, an import, or code that only moved is not a
+  change: a header added to every file, or markup lifted into a shared file, judges
+  nothing. Nor is an approved or deferred component, recipe or rule asked about its own
+  contents at a commit. A changed screen is held to its rules on the
   lines the change touched, and its item sits on the touched line the judge quotes.
 - **`/design-audit`** asks the same questions over a whole layer, when the human asks.
 

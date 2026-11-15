@@ -602,6 +602,38 @@ test('ships: the same app with the folder scanned passes, and a class Tailwind m
   assert.deepEqual(problems.filter((p) => p.startsWith('apps/web/src/styles.css')), [], problems.join('\n'))
 })
 
+test('a call site that restyles a project component fails, by what Tailwind says the class sets; placing it passes', { skip: SHIPS_SKIP }, async () => {
+  const caller = (classes) => ({ 'apps/web/src/routes/orders.tsx': `import { Shell } from "@acme/web/components/shell"\nexport const Orders = () => <Shell className="${classes}">x</Shell>\n` })
+  const check = async (classes) => (await checkDesignTokens(withTailwind(await prepared({ ...SHARED, 'apps/web/src/styles.css': `${ENTRY_UI_ONLY}@source "../../../packages/web/src/**/*.{ts,tsx}";\n`, ...caller(classes) })))).problems.filter((p) => p.startsWith('apps/web/src/routes/orders.tsx'))
+  const bad = await check('mt-4 w-full p-2 gap-1 [&_p]:underline hover:opacity-50')
+  assert.deepEqual(bad.map((p) => p.split('  ')[1]).sort(), ['<Shell> [&_p]:underline', '<Shell> gap-1', '<Shell> hover:opacity-50', '<Shell> p-2'], bad.join('\n'))
+  assert.match(bad.find((p) => p.includes('p-2')), /a call site places a component and never restyles it; this sets padding — the component carries that, as a variant or an option$/)
+  assert.deepEqual(await check('mt-4 w-full max-w-md col-span-2 self-end items-center hidden md:block sr-only absolute top-0 z-10 overflow-hidden'), [], 'where it sits, how wide, how it shares and aligns, whether it shows, and a screen-reader class')
+  const accepted = { 'apps/web/src/routes/orders.tsx': 'import { Shell } from "@acme/web/components/shell"\nexport const Orders = () => (\n  // design-accepted — the kiosk shell is tighter\n  <Shell className="p-2">x</Shell>\n)\n' }
+  assert.deepEqual((await checkDesignTokens(withTailwind(await prepared({ ...SHARED, 'apps/web/src/styles.css': `${ENTRY_UI_ONLY}@source "../../../packages/web/src/**/*.{ts,tsx}";\n`, ...accepted })))).problems.filter((p) => p.startsWith('apps/web/src/routes/orders.tsx')), [], 'the human\'s design-accepted on the line above answers for it')
+})
+
+test('restyling at a call site is judged on the lines a change touched, in a part as in a screen', { skip: SHIPS_SKIP }, async () => {
+  const part = (extra) => `import { Shell } from "@acme/web/components/shell"\nexport function Wrap() {\n  return <>\n    <Shell className="p-2">old</Shell>\n${extra}  </>\n}\n`
+  const dir = withTailwind(await prepared({ ...SHARED, 'apps/web/src/styles.css': `${ENTRY_UI_ONLY}@source "../../../packages/web/src/**/*.{ts,tsx}";\n`, 'apps/web/src/components/wrap.tsx': part('') }))
+  const git = (...args) => execFileSync('git', ['-C', dir, '-c', 'user.email=t@example.com', '-c', 'user.name=t', ...args])
+  fs.writeFileSync(path.join(dir, '.gitignore'), 'node_modules\n')
+  git('init', '-q')
+  git('add', '-A')
+  git('commit', '-qm', 'base')
+  const base = String(git('rev-parse', 'HEAD')).trim()
+  const restyles = (r) => r.problems.filter((p) => /never restyles/.test(p)).map((p) => p.split('  ').slice(0, 2).join(' '))
+  assert.deepEqual(restyles(await checkDesignTokens(dir, { base })), [], 'a part nobody has touched keeps the padding it had')
+  fs.writeFileSync(path.join(dir, 'apps/web/src/components/wrap.tsx'), part('    <Shell className="gap-1">new</Shell>\n'))
+  assert.deepEqual(restyles(await checkDesignTokens(dir, { base })), ['apps/web/src/components/wrap.tsx:5 <Shell> gap-1'], 'the line the change added is held; the line above it is not')
+  assert.equal(restyles(await checkDesignTokens(dir, { all: true })).length, 2, 'an audit holds every line')
+})
+
+test('call sites are not judged for restyling with no Tailwind stylesheet, and the check says so', async () => {
+  const { notes } = await run({ 'apps/web/src/routes/orders.tsx': 'import { Card } from "@acme/ui/components/card"\nexport const Orders = () => <Card className="p-2">x</Card>\n' })
+  assert.match(notes.join(' '), /call sites: not judged for restyling — no stylesheet imports tailwindcss/)
+})
+
 test('ships: with no app stylesheet importing tailwindcss it does not apply, and says so', async () => {
   const { notes, counts } = await run()
   assert.match(notes.join(' '), /ships: no app stylesheet imports tailwindcss — does not apply/)
@@ -855,15 +887,20 @@ test('a class list built as an array and joined is read as classes', async () =>
   assert.deepEqual(problems.map((p) => p.split('  ')[1]).sort(), ['rounded-lg', 'shadow-lg', 'text-sm'])
 })
 
-test('purposes: the comment above or beside a token or utility, a re-export taking what it points at, a gap left empty', () => {
+test('purposes: the comment above or beside a token or utility, never a check\'s marker, a re-export taking what it points at, a gap left empty', () => {
   const p = purposesOf([
-    ['tokens.css', ':root {\n  /* ─── ramp ─── */\n  /* the page */\n  --background: #fff;\n  --input: #ccc; /* a field\'s border */\n\n  --step-12: 12px;\n}\n'],
+    ['tokens.css', ':root {\n  /* ─── ramp ─── */\n  /* the page */\n  --background: #fff;\n  --input: #ccc; /* a field\'s border */\n  /* an error message\'s text */\n  --error: #d22; /* contrast-accepted: 4.41 — kept as is */\n  --warn: #a60; /* a warning\'s text */ /* contrast-accepted: 3.10 — kept as is */\n\n  --step-12: 12px;\n}\n'],
     ['type.css', '/* why a field\'s value was refused,\n   and nothing else */\n@utility type-field-error {\n  font-size: var(--step-12);\n}\n'],
     ['styles.css', '@theme {\n  --color-background: var(--background);\n  --color-x: var(--nowhere);\n}\n'],
   ])
   assert.equal(p.get('--background'), 'the page')
   assert.equal(p.get('--input'), "a field's border")
+  assert.equal(p.get('--error'), "an error message's text", "a check's marker beside a token is not its purpose")
+  assert.equal(p.get('--warn'), "a warning's text")
   assert.equal(p.get('--step-12'), '')
+  const loose = purposesOf([['tokens.css', ':root {\n  /* ─── ramp ─── */\n  --under-header: #fff;\n  /* a comment, then a gap */\n\n  --after-gap: #000;\n}\n']])
+  assert.equal(loose.get('--under-header'), '', 'a group header is not a purpose')
+  assert.equal(loose.get('--after-gap'), '', 'a comment a blank line away is not a purpose')
   assert.equal(p.get('type-field-error'), "why a field's value was refused, and nothing else")
   assert.equal(p.get('--color-background'), 'the page')
   assert.equal(p.get('--color-x'), '')

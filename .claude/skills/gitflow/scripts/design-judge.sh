@@ -1,13 +1,16 @@
 #!/bin/bash
-# design-judge.sh <base-ref> — the design judge, run by /commit and /ship-main.
+# design-judge.sh [<base-ref>] — the design judge, run by /commit and /ship-main.
+#
+# With no <base-ref> it judges what the next /commit will: the work since the last commit
+# that is not a checkpoint. A session runs it that way after fixing flags, and the commit
+# that follows, finding the same candidates, asks nothing again.
 #
 # Code locates every candidate in the change since <base-ref> (the design-system skill's
 # locate.mjs: a class added at a call site, a new block, a changed screen against the rules
 # that govern it, …) and a cold judge answers one yes/no question per candidate
 # (judge.mjs, references/judge-questions.md), three answers and the majority wins. Every
-# yes is written to .claude/ui-pending.json as a pending item for the human's
-# walk-through, which check-ui-status.mjs reads and /deploy refuses on. Nothing here
-# stops a commit: the judge is advisory, and this script exits 0 once it has run, with
+# yes is written to .claude/ui-pending.json as a pending item, which check-ui-status.mjs
+# reads and /deploy refuses on. Nothing here stops a commit: the judge is advisory, and this script exits 0 once it has run, with
 # yeses or without. A judge that cannot run says so and exits 0 too — it is advice, not a
 # gate, and the status check still holds whatever the ledger already carries.
 #
@@ -18,7 +21,7 @@
 
 set -uo pipefail
 
-BASE="${1:-HEAD}"
+BASE="${1:-}"
 
 if [ "${SKIP_DESIGN_JUDGE:-}" = "1" ]; then
     echo "gitflow: design judge skipped (SKIP_DESIGN_JUDGE=1)." >&2
@@ -26,6 +29,11 @@ if [ "${SKIP_DESIGN_JUDGE:-}" = "1" ]; then
 fi
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "gitflow: design judge: not in a git repository." >&2; exit 0; }
+if [ -z "$BASE" ]; then
+    # shellcheck source=./branch_helpers.sh
+    source "$(dirname "${BASH_SOURCE[0]}")/branch_helpers.sh"
+    BASE=$(cd "$ROOT" && checkpoint_fold_base)
+fi
 CACHE_LIB="$(dirname "${BASH_SOURCE[0]}")/review-cache.sh"
 SUBS="$ROOT/.claude/sync-substitutions.json"
 # The design-system skill ships beside this script: .claude/skills/gitflow/scripts → .claude/skills/design-system.
@@ -88,7 +96,7 @@ if ! (cd "$ROOT" && JUDGE_CLAUDE="$JUDGE_BIN" node "$JUDGE" --candidates "$WORK/
 fi
 cat "$WORK/out" >&2
 if grep -q '^  ✗' "$WORK/out"; then
-    echo "  Each ✗ is a pending item in $LEDGER for the human's walk-through; /deploy waits for it. The commit goes ahead." >&2
+    echo "  Each ✗ is a pending item in $LEDGER; /deploy waits for it. Fix each one that changes nothing on screen or in behaviour; only the rest go to the human. The commit goes ahead." >&2
 fi
 [ -n "$CACHE_KEY" ] && [ -f "$CACHE_LIB" ] && review_cache_store "$ROOT" design-judge "$CACHE_KEY"
 exit 0

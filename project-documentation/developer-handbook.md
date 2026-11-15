@@ -184,7 +184,8 @@ When the system has no answer for a value, Claude builds the gap as pending and 
 to you at the review; the kit itself holds no opinion on how anything should look. Existing
 screens that predate the system are never blocked — the checks judge only the lines you
 change — and `/design-audit` brings an area into line when you have time for it:
-`designer-handbook.md`, "Starting and growing a design system".
+`designer-handbook.md`, "Starting and growing a design system". Type `/uxes` before a
+conversation about the design system itself, so Claude answers with the whole of it loaded.
 
 ## Longer runs
 
@@ -213,8 +214,9 @@ reference carries history, a justification, or a counted list. Have Claude fix t
 and commit again. If you judge a finding wrong, commit with `SKIP_RULE_REVIEW=1`.
 
 **The design judge printed a finding at `/commit`.** The commit went through: a finding is a
-pending item in `.claude/ui-pending.json`, listed by the UI status check and put to you at the
-next review, where you approve the line, defer it or have it fixed. `/deploy` waits for it;
+pending item in `.claude/ui-pending.json`, listed by the UI status check. Claude fixes each
+one that changes nothing on screen or in behaviour, and puts the rest to you in the same
+turn, where you approve the line, defer it or have it changed. `/deploy` waits for it;
 nothing else does.
 
 **`/commit` stopped on the test judge.** It judged the tests of the TypeScript you

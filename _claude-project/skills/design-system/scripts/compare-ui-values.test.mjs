@@ -414,6 +414,31 @@ test('a deleted file nothing moved into is compared as removed lines, so a merge
   }
 })
 
+test('two copies merged into one shared file are each compared against it, so only what differed for a copy shows', () => {
+  const repo = mkdtempSync(path.join(os.tmpdir(), 'ui-values-repo-'))
+  try {
+    const git = (...args) => execFileSync('git', ['-C', repo, '-c', 'user.email=t@example.com', '-c', 'user.name=t', ...args])
+    git('init', '-q')
+    const bar = (gap) => `a\n<div className="flex ${gap}">b</div>\nc\nd\n`
+    for (const app of ['one', 'two', 'three']) mkdirSync(path.join(repo, app), { recursive: true })
+    writeFileSync(path.join(repo, 'one', 'Bar.tsx'), bar('gap-2'))
+    writeFileSync(path.join(repo, 'two', 'Bar.tsx'), bar('gap-3'))
+    writeFileSync(path.join(repo, 'three', 'Bar.tsx'), 'export const other = 1\n<p className="p-4">unrelated</p>\n')
+    git('add', '-A')
+    git('commit', '-qm', 'base')
+    for (const app of ['one', 'two', 'three']) rmSync(path.join(repo, app, 'Bar.tsx'))
+    mkdirSync(path.join(repo, 'ui'))
+    writeFileSync(path.join(repo, 'ui', 'Bar.tsx'), bar('gap-2'))
+    const changes = changedHunks(repo, 'HEAD')
+    assert.deepEqual(changes.filter((h) => h.file === 'ui/Bar.tsx').map(({ removed, added, line, from }) => ({ removed, added, line, from })), [
+      { removed: ['<div className="flex gap-3">b</div>'], added: ['<div className="flex gap-2">b</div>'], line: 2, from: 'two/Bar.tsx' },
+    ])
+    assert.deepEqual(changes.filter((h) => h.file !== 'ui/Bar.tsx').map((h) => [h.file, h.removed.length, h.added.length, h.standing]), [['three/Bar.tsx', 2, 0, ['ui/Bar.tsx']]])
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
 test('identical wrappers collapsing into one part line that adds styles of its own are moves', () => {
   const wrap = () => new Map([['|display', 'flex'], ['|flex-direction', 'column'], ['|gap', '8px']])
   const diffs = [
@@ -424,6 +449,97 @@ test('identical wrappers collapsing into one part line that adds styles of its o
   const { moved, remaining } = explainMoves(diffs)
   assert.deepEqual(moved.map((m) => m.from).sort(), ['a.tsx:1', 'b.tsx:1'])
   assert.deepEqual(remaining.map((r) => r.where), ['part.tsx:9'])
+})
+
+test('two identical lines merged into one place both move there, whatever else gained one of their styles', () => {
+  const partial = new Map([[[...look().keys()][0], [...look().values()][0]], ['|color', 'red']])
+  const { moved, remaining } = explainMoves([
+    { where: 'a/Switcher.tsx:18', lost: look(), gained: new Map() },
+    { where: 'b/Switcher.tsx:21', lost: look(), gained: new Map() },
+    { where: 'ui/Switcher.tsx:107', lost: new Map(), gained: look() },
+    { where: 'ui/Bar.tsx:29', lost: new Map(), gained: partial },
+  ])
+  assert.deepEqual(moved.map((m) => `${m.from}>${m.to}`), ['a/Switcher.tsx:18>ui/Switcher.tsx:107', 'b/Switcher.tsx:21>ui/Switcher.tsx:107'])
+  assert.deepEqual(remaining.map((d) => d.where), ['ui/Bar.tsx:29'])
+})
+
+test('a style that left a merged copy for a line standing in the shared file moved; the standing line is no change', () => {
+  const { moved, remaining } = explainMoves([
+    { where: 'b/Tabs.tsx:0', lost: new Map([...look(), ['|color', 'red']]), gained: new Map() },
+    { where: 'ui/Tabs.tsx:12', lost: new Map(), gained: look(), standing: true },
+    { where: 'ui/Tabs.tsx:20', lost: new Map(), gained: new Map([['|gap', '4px']]), standing: true },
+  ])
+  assert.deepEqual(moved, [{ from: 'b/Tabs.tsx:0', to: 'ui/Tabs.tsx:12', styles: 3 }])
+  assert.deepEqual(remaining.map((d) => [d.where, [...d.lost], [...d.gained]]), [['b/Tabs.tsx:0', [['|color', 'red']], []]])
+})
+
+test('a style the destination holds that one source brought and another did not is listed at the other', () => {
+  const base = () => new Map([['|font-size', '30px'], ['|line-height', '36px']])
+  const wide = () => new Map([...base(), ['@media (width >= 64rem)|font-size', '36px']])
+  const { remaining } = explainMoves([
+    { where: 'account.tsx:1', lost: wide(), gained: new Map() },
+    { where: 'shop.tsx:1', lost: base(), gained: new Map() },
+    { where: 'Heading.tsx:17', lost: new Map(), gained: wide() },
+  ])
+  assert.deepEqual(remaining.map((d) => [d.where, [...d.gained]]), [['shop.tsx:1', [['@media (width >= 64rem)|font-size', '36px']]]])
+})
+
+test('a line moves to the map line under the key it passes, and a value that differs there is its change', () => {
+  const { moved, remaining } = explainMoves([
+    { where: 'Other.tsx:3', lost: new Map([['|font-size', '30px'], ['|line-height', '36px'], ['|color', 'navy']]), gained: new Map() },
+    { where: 'View.tsx:80', lost: new Map([['|font-size', '30px'], ['|line-height', '36px'], ['|color', 'navy']]), gained: new Map(), uses: { tags: ['ScreenHeading'], picks: ['portal'] } },
+    { where: 'ui/screen-heading.tsx:17', lost: new Map(), gained: new Map([['|font-size', '30px'], ['|line-height', '36px'], ['|color', 'navy']]), key: 'storefront' },
+    { where: 'ui/screen-heading.tsx:19', lost: new Map(), gained: new Map([['|font-size', '24px'], ['|line-height', '32px'], ['|color', 'navy']]), key: 'portal' },
+    { where: 'Third.tsx:9', lost: new Map([['|font-size', '24px'], ['|line-height', '32px'], ['|color', 'navy']]), gained: new Map() },
+  ])
+  assert.deepEqual(moved.find((m) => m.from === 'View.tsx:80'), { from: 'View.tsx:80', to: 'ui/screen-heading.tsx:19', styles: 1 })
+  assert.deepEqual(remaining.map((d) => [d.where, [...d.changed]]), [['View.tsx:80', [['|font-size', ['30px', '24px']], ['|line-height', ['36px', '32px']]]]])
+})
+
+test('between equal overlaps, a line moves to the component it now mounts', () => {
+  const t = () => new Map([['|font-size', '24px'], ['|line-height', '32px']])
+  const { moved } = explainMoves([
+    { where: 'Register.tsx:1', lost: t(), gained: new Map(), uses: { tags: ['Heading'], picks: [] } },
+    { where: 'Heading.tsx:19', lost: new Map(), gained: new Map([...t(), ['|color', 'navy'], ['|gap', '4px']]) },
+    { where: 'NotFound.tsx:14', lost: new Map(), gained: new Map([...t(), ['|margin-bottom', '12px']]) },
+  ])
+  assert.equal(moved[0].to, 'Heading.tsx:19')
+})
+
+test('what is left of a line that moved goes on to a second place it wholly explains', () => {
+  const type = () => new Map([['|font-size', '30px'], ['|line-height', '36px'], ['|color', 'navy']])
+  const place = () => new Map([['|margin-bottom', '8px'], ['|text-align', 'center']])
+  const { moved, remaining } = explainMoves([
+    { where: 'login.tsx:69', lost: new Map([...type(), ...place()]), gained: new Map() },
+    { where: 'Heading.tsx:17', lost: new Map(), gained: type() },
+    { where: 'AuthColumn.tsx:77', lost: new Map(), gained: place() },
+  ])
+  assert.deepEqual(moved.map((m) => m.to), ['Heading.tsx:17', 'AuthColumn.tsx:77'])
+  assert.deepEqual(remaining, [])
+})
+
+test('of two further places a moved line explains, the one holding more of what is left takes it', () => {
+  const type = () => new Map([['|font-size', '30px'], ['|line-height', '36px'], ['|color', 'navy']])
+  const { moved, remaining } = explainMoves([
+    { where: 'login.tsx:69', lost: new Map([...type(), ['|margin-bottom', '8px'], ['|text-align', 'center']]), gained: new Map() },
+    { where: 'Heading.tsx:17', lost: new Map(), gained: type() },
+    { where: 'AuthColumn.tsx:43', lost: new Map(), gained: new Map([['|margin-bottom', '8px']]) },
+    { where: 'AuthColumn.tsx:77', lost: new Map(), gained: new Map([['|margin-bottom', '8px'], ['|text-align', 'center']]) },
+  ])
+  assert.deepEqual(moved.map((m) => m.to), ['Heading.tsx:17', 'AuthColumn.tsx:77'])
+  assert.deepEqual(remaining.map((d) => d.where), ['AuthColumn.tsx:43'])
+})
+
+test('two identical lines moving to two identical places go one to each', () => {
+  const diffs = [
+    { where: 'a/Bar.tsx:0', lost: look(), gained: new Map() },
+    { where: 'b/Bar.tsx:0', lost: look(), gained: new Map() },
+    { where: 'a/Shell.tsx:9', lost: new Map(), gained: look() },
+    { where: 'b/Shell.tsx:9', lost: new Map(), gained: look() },
+  ]
+  const { moved, remaining } = explainMoves(diffs)
+  assert.deepEqual(moved.map((m) => `${m.from}>${m.to}`), ['a/Bar.tsx:0>a/Shell.tsx:9', 'b/Bar.tsx:0>b/Shell.tsx:9'])
+  assert.deepEqual(remaining, [])
 })
 
 test('of two lines gaining the same styles, a line moves first to the one it explains entirely', () => {

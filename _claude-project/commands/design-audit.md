@@ -33,8 +33,8 @@ Run them in this order. With no argument, run every pass from `tokens`; `system`
 | `tokens` | the token, type and styles files the `DESIGN_*` keys name | ROLE-NAME, DUPLICATE-ROLE |
 | `components` | every component the inventory lists | TOKEN-AGAINST-PURPOSE, VARIANT-INCOMPLETE, NAMED-FOR-DATA, DUPLICATE-BLOCK over every pair of the same or neighbouring type |
 | `references` | every recipe and behaviour rule | TOKEN-AGAINST-PURPOSE, RULE-REACH, RULE-CONFLICT over every pair sharing a surface and an app |
-| `screens` | every screen file the UI source holds that is not a component — or only those under `[path]` | TOKEN-AGAINST-PURPOSE, FOLLOWS-RULE, REPAINT, SCREEN-BOX |
-| `design` | a Claude Design design's pages, read through the Artifact tool; the session writes the candidates itself — each page against every rule that governs its page type (FOLLOWS-RULE, the page's markup as `screen`), each `class-name` on a mounted component (REPAINT), each plain element drawing a box (SCREEN-BOX) — as JSON lines for `judge.mjs --candidates` | the `screens` questions |
+| `screens` | every screen file the UI source holds that is not a component — or only those under `[path]` | TOKEN-AGAINST-PURPOSE, FOLLOWS-RULE, SCREEN-BOX |
+| `design` | a Claude Design design's pages, read through the Artifact tool; the session writes the candidates itself — each page against every rule that governs its page type (FOLLOWS-RULE, the page's markup as `screen`), each `class-name` on a mounted component (REPAINT), each plain element drawing a box (SCREEN-BOX) — as JSON lines for `judge.mjs --candidates` | the `screens` questions and REPAINT |
 
 **Settle a pass before starting the next.** A yes left open in a lower layer makes every
 layer above it unreliable.

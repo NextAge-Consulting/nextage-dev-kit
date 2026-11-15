@@ -16,7 +16,8 @@ Decided by code, never asked:
 
 - a role named with a t-shirt size, a class off a role, an arbitrary value, a size prop
   by magnitude, a fixed height at a call site, a colour repainted at a call site, a
-  faded colour in a screen, a frame atom imported outside a block, a bare scroll area, a
+  class at a call site that restyles a component — padding, a gap, a border, a radius, a
+  shadow, type, a state — a faded colour in a screen, a frame atom imported outside a block, a bare scroll area, a
   raw field painting the field look (the token checker);
 - a token with no purpose comment, a token value between the steps of its family's
   scale, a rule file stating a pixel, font or weight literal, a rule naming a component,
@@ -24,6 +25,13 @@ Decided by code, never asked:
 - the inventory and the files disagreeing, a status missing, a block type not on the
   list, a pointer naming nothing (the status check);
 - `design.md` disagreeing with the stylesheet (the file is generated).
+
+Never asked at a commit, whatever the question:
+
+- a line that is a comment, an import, or code the same change only moved from elsewhere;
+- the contents of a component, recipe or rule the human has answered for
+  (`ui-status: approved` or `deferred`). A screen's use of it is still asked, and
+  `/design-audit` asks everything.
 
 ## The format
 
@@ -256,12 +264,12 @@ the block carries it.
 
 ## REPAINT — a class at a call site changes how a block looks
 
-**Asked about:** one class a changed line adds to a project component at a call site,
-after the token checker has already failed colours and fixed heights.
+**Asked about:** one class a Claude Design design adds to a mounted component
+(`/design-audit design`). In the project's code this is decided by the token checker and
+never asked.
 
-**Given:** `component`, `class`, `tag` (the opening tag as written), `accepts` (the
-classes the component's code reads from its className for layout, if it declares any),
-`kind` (block or atom).
+**Given:** `component`, `class`, `tag` (the opening tag as written), `kind` (block or
+atom).
 
 **Quote:** the class.
 
@@ -271,9 +279,7 @@ looks or feels different here than elsewhere. A class on a block's inner element
 through a selector counts.
 
 **No when:** the class places the component — margin, width, min or max height, flex or
-grid share, position, alignment, order, visibility, overflow on a bounded box — or is a
-class the component declares it accepts (a gap on a layout block, a column span on a
-field).
+grid share, position, alignment, order, visibility, overflow on a bounded box.
 
 **Example yes:** `<Card className="p-2 rounded-none">` → yes: padding and radius are the
 card's.

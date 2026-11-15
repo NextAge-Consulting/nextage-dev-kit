@@ -17,8 +17,8 @@ cat > "$tmp/claude" <<'EOF'
 cat > "$STUB_LOG"
 echo call >> "$STUB_LOG.calls"
 case "$STUB_MODE" in
-  yes)   echo '{"is_error":false,"total_cost_usd":0.01,"structured_output":{"answer":"yes","quotes":["rounded-none"]}}' ;;
-  no)    echo '{"is_error":false,"total_cost_usd":0.01,"structured_output":{"answer":"no","quotes":["rounded-none"]}}' ;;
+  yes)   echo '{"is_error":false,"total_cost_usd":0.01,"structured_output":{"answer":"yes","quotes":["rounded-panel border p-4"]}}' ;;
+  no)    echo '{"is_error":false,"total_cost_usd":0.01,"structured_output":{"answer":"no","quotes":["rounded-panel border p-4"]}}' ;;
   error) echo "boom" >&2; exit 3 ;;
 esac
 EOF
@@ -31,6 +31,7 @@ new_repo(){
 EOF
   printf '{ "workspaces": ["apps/*", "packages/*"] }\n' > "$repo/package.json"
   printf '{ "name": "@acme/ui" }\n' > "$repo/packages/ui/package.json"
+  printf '{ "compilerOptions": { "jsx": "preserve", "module": "esnext", "moduleResolution": "bundler", "paths": { "@acme/ui/*": ["./packages/ui/src/*"] } } }\n' > "$repo/tsconfig.json"
   printf '{ "name": "web", "dependencies": { "@acme/ui": "*" } }\n' > "$repo/apps/web/package.json"
   printf ':root {\n  /* a panel corner */\n  --radius-panel: 8px;\n}\n' > "$repo/packages/ui/src/tokens.css"
   printf '@theme inline {\n  --radius-panel: var(--radius-panel);\n}\n' > "$repo/packages/ui/src/styles.css"
@@ -44,10 +45,10 @@ gate(){ (cd "$repo" && STUB_MODE="$1" STUB_LOG="$tmp/log" JUDGE_CLAUDE="$tmp/cla
 calls(){ if [ -f "$tmp/log.calls" ]; then wc -l <"$tmp/log.calls" | tr -d ' '; else echo 0; fi; }
 t(){ if [ "$2" = "$1" ]; then echo "  ✓ $3"; else echo "  ✗ FAIL (got $2, want $1) — $3"; fail=1; fi; }
 has(){ grep -q "$1" "$tmp/err" && echo "  ✓ $2" || { echo "  ✗ FAIL — $2: $(cat "$tmp/err")"; fail=1; }; }
-repaint(){ printf '// ui-content\nimport { Card } from "@acme/ui/components/card"\nexport const Orders = () => <Card className="mt-4 rounded-none">x</Card>\n' > "$repo/apps/web/src/routes/orders.tsx"; }
+boxed(){ printf '// ui-content\nimport { Card } from "@acme/ui/components/card"\nexport const Orders = () => <Card className="mt-4"><div className="rounded-panel border p-4">x</div></Card>\n' > "$repo/apps/web/src/routes/orders.tsx"; }
 
 echo "DOES NOT APPLY:"
-new_repo; printf '{"DESIGN_UI_PACKAGE": ""}\n' > "$repo/.claude/sync-substitutions.json"; repaint; rm -f "$tmp/log.calls"
+new_repo; printf '{"DESIGN_UI_PACKAGE": ""}\n' > "$repo/.claude/sync-substitutions.json"; boxed; rm -f "$tmp/log.calls"
 t 0 "$(gate yes)" 'no UI package: exit 0'
 has 'does not apply: this project has no UI package' '…and says why'
 [ "$(calls)" = 0 ] && echo "  ✓ …and the judge is never called" || { echo "  ✗ FAIL — judge called"; fail=1; }
@@ -58,23 +59,35 @@ t 0 "$(gate yes)" 'nothing UI changed: exit 0'
 has 'nothing in this change to judge' '…and says so'
 
 echo "A YES IS A PENDING ITEM, NEVER A BLOCK:"
-new_repo; repaint; rm -f "$tmp/log.calls"
-t 0 "$(gate yes)" 'a repaint the judge confirms: exit 0'
+new_repo; boxed; rm -f "$tmp/log.calls"
+t 0 "$(gate yes)" 'a box the judge confirms: exit 0'
 [ "$(calls)" = 3 ] && echo "  ✓ asked three times" || { echo "  ✗ FAIL — calls=$(calls): $(cat "$tmp/err")"; fail=1; }
-has 'REPAINT' 'the yes is printed'
+has 'SCREEN-BOX' 'the yes is printed'
 has 'pending item in .claude/ui-pending.json' '…and named as a pending item for the human'
-[ -f "$repo/.claude/ui-pending.json" ] && grep -q '"question": "REPAINT"' "$repo/.claude/ui-pending.json" && echo "  ✓ the ledger holds it" || { echo "  ✗ FAIL — no ledger entry"; fail=1; }
+[ -f "$repo/.claude/ui-pending.json" ] && grep -q '"question": "SCREEN-BOX"' "$repo/.claude/ui-pending.json" && echo "  ✓ the ledger holds it" || { echo "  ✗ FAIL — no ledger entry"; fail=1; }
 t 0 "$(gate yes)" 'the same change again: exit 0'
 [ "$(calls)" = 3 ] && echo "  ✓ …and the judge is not asked again" || { echo "  ✗ FAIL — asked again (calls=$(calls))"; fail=1; }
 
+echo "RUN BEFORE THE COMMIT, WITH NO BASE:"
+new_repo; boxed; rm -f "$tmp/log.calls"
+git -C "$repo" add -A; git -C "$repo" commit -qm '🔖 wip: checkpoint'
+printf '\n' >> "$repo/apps/web/src/routes/orders.tsx"
+out=$( (cd "$repo" && STUB_MODE=yes STUB_LOG="$tmp/log" JUDGE_CLAUDE="$tmp/claude" "$S" 2>"$tmp/err"); echo $?)
+t 0 "$out" 'no base given: exit 0'
+has 'SCREEN-BOX' 'it judges the work since the last commit that is not a checkpoint'
+[ "$(calls)" = 3 ] && echo "  ✓ asked three times" || { echo "  ✗ FAIL — calls=$(calls): $(cat "$tmp/err")"; fail=1; }
+BASE=$(git -C "$repo" rev-parse HEAD^) t 0 "$(BASE=$(git -C "$repo" rev-parse HEAD^) gate yes)" 'the commit that follows, on that same base: exit 0'
+has 'already judged' '…asks nothing again'
+[ "$(calls)" = 3 ] && echo "  ✓ …and makes no call" || { echo "  ✗ FAIL — asked again (calls=$(calls))"; fail=1; }
+
 echo "A NO LEAVES NOTHING PENDING:"
-new_repo; repaint; rm -f "$tmp/log.calls"
+new_repo; boxed; rm -f "$tmp/log.calls"
 t 0 "$(gate no)" 'a no: exit 0'
 has '0 yes, 1 no' 'the count says so'
 [ ! -s "$repo/.claude/ui-pending.json" ] || [ "$(cat "$repo/.claude/ui-pending.json")" = "[]" ] && echo "  ✓ the ledger holds nothing" || { echo "  ✗ FAIL — ledger: $(cat "$repo/.claude/ui-pending.json")"; fail=1; }
 
 echo "CANNOT RUN — ADVISORY:"
-new_repo; repaint; rm -f "$tmp/log.calls"
+new_repo; boxed; rm -f "$tmp/log.calls"
 t 0 "$(gate error)" 'the judge CLI fails: exit 0'
 has 'could not run' '…and says it could not run'
 has 'It is advice, not a gate' '…and that the commit goes ahead'

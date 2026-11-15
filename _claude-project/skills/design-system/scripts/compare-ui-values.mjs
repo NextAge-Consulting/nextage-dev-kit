@@ -20,14 +20,14 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, globSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { classNames, classText } from './check-design-tokens.mjs'
 
-const ENTRY = /^\s*@import\s+["']tailwindcss["']/m
+export const ENTRY = /^\s*@import\s+["']tailwindcss["']/m
 const ROOT_PX = 16
 /** A property at its CSS initial value draws the same as the property unset. */
 export const INITIAL = { 'background-color': ['transparent'], 'border-color': ['currentcolor'], 'box-shadow': ['none'], opacity: ['1', '100%'] }
@@ -382,6 +382,15 @@ export async function compilerFor(root, entry, { inherited = new Set() } = {}) {
     get vars() {
       return vars
     },
+    /** The declarations one class compiles to, as Tailwind's own build writes them. */
+    declarationsOf(c) {
+      if (!cache.has(c)) {
+        cache.set(c, declarations(compiled.build([c]), c))
+        vars = read()
+        place.clear()
+      }
+      return cache.get(c)
+    },
     /** Each property's final value, light and dark: `14px`, or `x · dark y` when they differ. */
     resolve(classes) {
       let built = false
@@ -554,24 +563,63 @@ export function pairLines(removed, added) {
   return { pairs, leftover }
 }
 
+/** What a new-side line names: the components it mounts and the string values it passes them. */
+export function usesOf(text) {
+  return {
+    tags: [...text.matchAll(/<([A-Z][\w.]*)/g)].map((m) => m[1]),
+    picks: [...text.matchAll(/=\s*(?:"([^"]*)"|'([^']*)'|\{\s*["'`]([^"'`]*)["'`]\s*\})/g)].map((m) => m[1] ?? m[2] ?? m[3]),
+  }
+}
+
+/** The key a line of a class map sits under (`portal: 'type-…'`), or null. */
+export const keyOf = (text) => text.match(/^\s*["']?([\w-]+)["']?\s*:/)?.[1] ?? null
+
 /**
  * Styles that moved rather than changed. Each line carries what it lost outright, what it
  * gained outright, and what changed value in place. A line's lost styles that another line
  * gained — same context, same value — moved there, when they are at least half of what it
- * lost: one shared property is coincidence. Several lines may move into one; one line's
- * styles explain one destination, so a look copied to a second place lists as added there —
- * a wrong "moved" would hide a change. A value that changed in place is never explained by
- * a move.
+ * lost: one shared property is coincidence. Several lines may move into one. A line that
+ * now mounts a component (`uses`) moves to that component's file before any other, and to
+ * the class-map line under the key it passes (`key`) and no other line of that map. What is
+ * left of a line that moved goes on to any further place it wholly explains.
+ *
+ * A move never hides a difference. Whatever the destination holds that a source did not
+ * bring there — brought by another line, or standing in a shared file — is that source's
+ * own change, listed at the source: gained, or changed where the source lost another value
+ * of the same property. A value that changed in place is never explained by a move. A
+ * `standing` line is a place styles may move to that is no change of its own: what nothing
+ * moved to it is not listed.
  */
 export function explainMoves(diffs) {
   const overlap = (srcLost, tGained) => [...srcLost].filter(([k, v]) => tGained.get(k) === v).map(([k]) => k)
   const lost = new Map(diffs.map((d) => [d, new Map(d.lost)]))
   const gained = new Map(diffs.map((d) => [d, new Map(d.gained)]))
+  const changed = new Map(diffs.map((d) => [d, new Map(d.changed ?? [])]))
+  const norm = (x) => x.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const fileOf = (d) => d.where.replace(/:\d+$/, '')
+  const nameOf = (d) => {
+    const parts = fileOf(d).split('/')
+    const base = parts.at(-1).replace(/\.\w+$/, '')
+    return norm(base === 'index' ? (parts.at(-2) ?? base) : base)
+  }
+  const keysIn = new Map()
+  for (const d of diffs) if (d.key && d.gained.size) keysIn.set(fileOf(d), (keysIn.get(fileOf(d)) ?? new Set()).add(d.key))
+  // 2: the map line under the key this line passes; 1: the component it mounts; 0: neither;
+  // -1: another key's line of the map it picks from.
+  const named = (src, t) => {
+    if (!(src.uses?.tags ?? []).some((tag) => norm(tag.split('.')[0]) === nameOf(t))) return 0
+    const picks = src.uses.picks ?? []
+    const keys = keysIn.get(fileOf(t))
+    if (keys && picks.some((x) => keys.has(x))) return t.key && picks.includes(t.key) ? 2 : -1
+    return 1
+  }
   const moves = new Map()
+  const brought = []
   const move = (src, t, keys) => {
     const key = `${src.where} → ${t.where}`
     if (!moves.has(key)) moves.set(key, { from: src.where, to: t.where, styles: 0 })
     moves.get(key).styles += keys.length
+    brought.push({ src, t, keys: new Set(keys) })
     for (const k of keys) {
       lost.get(src).delete(k)
       gained.get(t).delete(k)
@@ -583,16 +631,43 @@ export function explainMoves(diffs) {
     for (const t of diffs) {
       if (t === src || !t.gained.size) continue
       const keys = overlap(src.lost, t.gained)
-      // More shared styles wins; on a tie, the line this one explains more of.
+      if (!keys.length) continue
+      const name = named(src, t)
+      if (name < 0) continue
+      const half = keys.length * 2 >= src.lost.size
+      // The component a line mounts counts once its styles are half there; the keyed line always.
+      const rank = name === 2 ? 2 : name === 1 && half ? 1 : 0
+      // Styles no earlier line has already moved there: two identical lines moving to two
+      // identical places go one to each, never both to the first.
+      const open = overlap(src.lost, gained.get(t)).length
       const fit = keys.length / t.gained.size
-      if (keys.length && (!best || keys.length > best.keys.length || (keys.length === best.keys.length && fit > best.fit))) best = { t, keys, fit }
+      const score = [rank, keys.length, open, fit]
+      // The named place wins; then more shared styles, so several identical lines merged
+      // into one place all move there; then the place with more still unclaimed; then the
+      // line this one explains more of.
+      if (!best || score.some((x, n) => x !== best.score[n] && score.slice(0, n).every((y, m) => y === best.score[m]) && x > best.score[n])) best = { t, keys, score, half }
     }
-    if (!best || best.keys.length * 2 < src.lost.size) continue
+    if (!best || (best.score[0] < 2 && !best.half)) continue
     move(src, best.t, best.keys)
+    // The place that explains most of what is left goes first.
+    for (const t of [...diffs].sort((x, y) => y.gained.size - x.gained.size)) {
+      if (t === src || t === best.t || !t.gained.size || named(src, t) < 0) continue
+      if ([...t.gained].every(([k, v]) => lost.get(src).get(k) === v)) move(src, t, [...t.gained.keys()])
+    }
+  }
+  for (const { src, t, keys } of brought) {
+    for (const [k, v] of t.gained) {
+      if (keys.has(k) || !(t.standing || !gained.get(t).has(k))) continue
+      const was = lost.get(src).get(k)
+      if (was !== undefined) {
+        changed.get(src).set(k, [was, v])
+        lost.get(src).delete(k)
+      } else if (src.gained.get(k) !== v) gained.get(src).set(k, v)
+    }
   }
   const remaining = diffs
-    .map((d) => ({ ...d, lost: lost.get(d), gained: gained.get(d), changed: d.changed ?? new Map() }))
-    .filter((d) => d.lost.size || d.gained.size || d.changed.size)
+    .map((d) => ({ ...d, lost: lost.get(d), gained: gained.get(d), changed: changed.get(d) }))
+    .filter((d) => d.lost.size || (d.gained.size && !d.standing) || d.changed.size)
   return { moved: [...moves.values()], remaining }
 }
 
@@ -731,43 +806,85 @@ export function hunks(diff) {
 /** Every changed .ts/.tsx hunk since `base`. A file git does not track yet is compared too:
  * against the deleted file of the same name when there is one — a file moved, say into a
  * feature folder — so only its real edits show; otherwise as all added lines — a part just
- * extracted — so a style that left a screen for it reads as moved. A deleted file nothing
- * moved into is all removed lines. */
+ * extracted — so a style that left a screen for it reads as moved. A further deleted file of
+ * that name — a second copy merged into one shared file — is compared against the new file
+ * as well when it shares at least half its lines with it, so only what differed for that
+ * copy shows; otherwise it is all removed lines, naming the new file as `standing`: a style
+ * the copy drew that stands on a line there moved, though that line is no change of its
+ * own. Any other deleted file is all removed lines. */
 export function changedHunks(repo, base) {
   const tracked = hunks(git(repo, ['diff', '-U0', base, '--', '*.ts', '*.tsx']))
   const deleted = git(repo, ['diff', '--name-only', '--diff-filter=D', base, '--', '*.ts', '*.tsx']).split('\n').filter(Boolean)
-  const claimed = new Set()
-  const untracked = []
-  for (const file of git(repo, ['ls-files', '--others', '--exclude-standard', '--', '*.ts', '*.tsx']).split('\n')) {
-    if (!file || file.includes('node_modules') || !existsSync(path.join(repo, file))) continue
-    const text = readFileSync(path.join(repo, file), 'utf8').replace(/\r\n/g, '\n')
-    const from = deleted.find((d) => !claimed.has(d) && path.basename(d) === path.basename(file))
-    if (!from) {
-      untracked.push({ file, oldLine: 0, line: 1, removed: [], added: text.replace(/\n$/, '').split('\n') })
-      continue
-    }
-    claimed.add(from)
+  const show = (file) => git(repo, ['show', `${base}:${file}`]).replace(/\r\n/g, '\n')
+  // The hunks between a deleted file as it was at `base` and a file in the working tree.
+  const against = (from, file) => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'ui-values-moved-'))
     try {
       const old = path.join(dir, 'old')
-      writeFileSync(old, git(repo, ['show', `${base}:${from}`]))
+      writeFileSync(old, show(from))
       // `git diff --no-index` exits 1 when the files differ; its output is the diff either way.
       const r = spawnSync('git', ['diff', '--no-index', '-U0', old, path.join(repo, file)], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
       if (r.status !== 0 && r.status !== 1) throw new Error(`git diff --no-index ${from} ${file}: ${r.stderr.trim()}`)
-      for (const h of hunks(r.stdout)) untracked.push({ ...h, file, from })
+      return hunks(r.stdout).map((h) => ({ ...h, file, from }))
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
   }
-  // A deleted file nothing moved into is all removed lines, so a style that left it — merged
-  // into another file — is compared, and reads as moved.
-  const gone = deleted
-    .filter((d) => !claimed.has(d))
-    .map((file) => ({ file, oldLine: 1, line: 0, removed: git(repo, ['show', `${base}:${file}`]).replace(/\r\n/g, '\n').replace(/\n$/, '').split('\n'), added: [] }))
+  const claimed = new Set()
+  const untracked = []
+  const moved = []
+  for (const file of git(repo, ['ls-files', '--others', '--exclude-standard', '--', '*.ts', '*.tsx']).split('\n')) {
+    if (!file || file.includes('node_modules') || !existsSync(path.join(repo, file))) continue
+    const from = deleted.find((d) => !claimed.has(d) && path.basename(d) === path.basename(file))
+    if (!from) {
+      const text = readFileSync(path.join(repo, file), 'utf8').replace(/\r\n/g, '\n')
+      untracked.push({ file, oldLine: 0, line: 1, removed: [], added: text.replace(/\n$/, '').split('\n') })
+      continue
+    }
+    claimed.add(from)
+    moved.push(file)
+    untracked.push(...against(from, file))
+  }
+  const gone = []
+  for (const file of deleted.filter((d) => !claimed.has(d))) {
+    const lines = show(file).replace(/\n$/, '').split('\n')
+    // A second copy merged into a file another copy moved to: the nearest file of its name.
+    let best = null
+    const same = moved.filter((m) => path.basename(m) === path.basename(file))
+    for (const to of same) {
+      const found = against(file, to)
+      const removed = found.reduce((n, h) => n + h.removed.length, 0)
+      if (!best || removed < best.removed) best = { found, removed }
+    }
+    if (best && best.removed * 2 <= lines.length) untracked.push(...best.found)
+    // A deleted file nothing moved into is all removed lines, so a style that left it — merged
+    // into another file — is compared, and reads as moved.
+    else gone.push({ file, oldLine: 1, line: 0, removed: lines, added: [], ...(same.length ? { standing: same } : {}) })
+  }
   return [...tracked, ...untracked, ...gone]
 }
 
-function entryFor(entries, file) {
+/**
+ * The project's Tailwind, one compiler per stylesheet that imports tailwindcss, for asking
+ * what a class is: `declarationsOf(file, cls)` is what the class compiles to in the
+ * stylesheet nearest the file. `entries` is empty when no stylesheet imports tailwindcss.
+ */
+export async function classCompilers(repo) {
+  const found = globSync('**/*.css', { cwd: repo, exclude: (p) => /(^|[\\/])(node_modules|dist|build|\.[^\\/]+)$/.test(p) }).map((f) => f.split(path.sep).join('/'))
+  const entries = found.filter((f) => ENTRY.test(readFileSync(path.join(repo, f), 'utf8'))).sort()
+  const compilers = new Map()
+  for (const e of entries) compilers.set(e, await compilerFor(repo, e))
+  const cache = new Map()
+  const declarationsOf = (file, cls) => {
+    const entry = entryFor(entries, file)
+    const k = `${entry}\0${cls}`
+    if (!cache.has(k)) cache.set(k, compilers.get(entry).declarationsOf(cls))
+    return cache.get(k)
+  }
+  return { entries, declarationsOf }
+}
+
+export function entryFor(entries, file) {
   const scored = entries.map((e) => [e, path.dirname(e).split('/').filter((p, i) => file.split('/')[i] === p).length])
   scored.sort((a, b) => b[1] - a[1] || (a[0].startsWith('apps/') ? -1 : 1))
   return scored[0]?.[0]
@@ -858,10 +975,17 @@ export async function compareUiValues(repo, { base = 'HEAD' } = {}) {
       const oldLines = linesOf(baseDir, h.file)
       const newLines = linesOf(repo, h.file)
       // Lines pair by their written shape; their classes come from the class lists alone.
-      const { pairs, leftover } = pairLines(stripComments(h.removed), stripComments(h.added))
+      const raw = stripComments(h.added)
+      const { pairs, leftover } = pairLines(stripComments(h.removed), raw)
+      // A tag left open on its line closes on a later one: its attributes are read with it.
+      const tagFrom = (n) => {
+        let text = raw[n] ?? ''
+        for (let m = n + 1; m < raw.length && /<[A-Z][\w.]*(?:\s[^>]*)?$/.test(text); m++) text += ` ${raw[m]}`
+        return text
+      }
       h.removed = stripComments(h.removed.map((l, i) => oldLines?.[h.oldLine - 1 + i] ?? l))
       h.added = stripComments(h.added.map((l, i) => newLines?.[h.line - 1 + i] ?? l))
-      const record = (where, x, y) => {
+      const record = (where, x, y, meta = {}) => {
         const lost = new Map()
         const gained = new Map()
         const changed = new Map()
@@ -876,7 +1000,7 @@ export async function compareUiValues(repo, { base = 'HEAD' } = {}) {
             else changed.set(k, [va, vb])
           }
         }
-        if (lost.size || gained.size || changed.size) diffs.push({ where, lost, gained, changed })
+        if (lost.size || gained.size || changed.size) diffs.push({ where, lost, gained, changed, ...meta })
       }
       for (const l of leftover) {
         const removed = l.side === 'removed'
@@ -890,8 +1014,8 @@ export async function compareUiValues(repo, { base = 'HEAD' } = {}) {
           continue
         }
         for (const c of vs) {
-          if (removed) record(where, before.resolve(c), new Map())
-          else record(where, new Map(), after.resolve(c))
+          if (removed) record(where, before.resolve(c), new Map(), { uses: usesOf(raw.join(' ')) })
+          else record(where, new Map(), after.resolve(c), { key: keyOf(raw[l.index] ?? '') })
         }
       }
       for (const [ri, ai] of pairs) {
@@ -907,8 +1031,21 @@ export async function compareUiValues(repo, { base = 'HEAD' } = {}) {
           uncompared.push(`${where}  — its conditional class choices changed shape; check each branch by hand`)
           continue
         }
-        for (let v = 0; v < vo.length; v++) record(where, before.resolve(vo[v]), after.resolve(vn[v]))
+        for (let v = 0; v < vo.length; v++) record(where, before.resolve(vo[v]), after.resolve(vn[v]), { uses: usesOf(tagFrom(ai)), key: keyOf(raw[ai] ?? '') })
       }
+    }
+
+    // The lines of each file a merged copy's styles may stand on, as places to move to.
+    for (const file of new Set(changes.flatMap((h) => h.standing ?? []))) {
+      const after = await get('new', entryFor(entries, file))
+      if (!after) continue
+      ;(linesOf(repo, file) ?? []).forEach((text, i) => {
+        if (!candidates(text).length) return
+        for (const c of variants(text) ?? []) {
+          const gained = after.resolve(c)
+          if (gained.size) diffs.push({ where: `${file}:${i + 1}`, lost: new Map(), gained, changed: new Map(), standing: true })
+        }
+      })
     }
 
     const { moved, remaining } = explainMoves(diffs)

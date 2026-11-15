@@ -70,7 +70,7 @@ The script:
 ### Step 5: Report
 
 - Success: confirm the commit is live on `main` (SHA + subject), and which issues it named and moved to Staged. No PR URL — there is none by design.
-- The design judge printed `✗` lines: the commit is live, and each line is a pending item `/deploy` refuses on. Report the commit as live with those items awaiting the human, then put them to the human in this turn, by the `design-system` skill's walk-through: each described by what changed on screen or in behaviour, and settled on the human's word — approved, changed or deferred.
+- The design judge printed `✗` lines: the commit is live, and each line is a pending item `/deploy` refuses on. In this turn, sort them by step 5 of the `design-system` skill's procedure: fix each one that changes nothing on screen or in behaviour, and put to the human only the rest, each described by what changed on screen or in behaviour and settled on their word — approved, changed or deferred.
 - `--complete` names an issue not linked on `main`: exit 2, nothing committed.
 - Board update failed after the push: exit 11. The commit is live; the next `/deploy` still moves the named issues to the deploy status.
 - An issue reaching Staged has no comment in `--notes`: exit 2, nothing committed.

@@ -13,7 +13,8 @@ components, and `implement` turns it into the real screens — prework, never th
 
 ## The layers
 
-The picture is `uxes-layers.svg` in this folder.
+The picture is `uxes-layers.svg` in this folder. Type `/uxes` before asking Claude for
+advice or work on the design system: it loads how the whole system fits together.
 
 | Layer | What it is | Decides | Example |
 |---|---|---|---|
@@ -28,8 +29,9 @@ A small difference is a **variant** of a block, an **option** a recipe offers, o
 **exception** you approve on one screen. Never a new block.
 
 Several apps on one design system: a recipe or rule that holds for some of them names
-them on its `apps:` line; one with no `apps:` line holds everywhere. An app's own block
-carries your reason on its inventory line.
+them on its `apps:` line; one with no `apps:` line holds everywhere. A frame two apps draw
+is one shared block, so a tweak lands in both; an app's own block exists only where its
+layout or behaviour differs, and carries your reason on its inventory line.
 
 ---
 
@@ -69,7 +71,7 @@ list. Nobody pastes a design's link — it comes from the folder.
 
 `pending` waits for you and blocks `/deploy`. `approved` is your word. `deferred` is "I did
 not look; I trust it" — blocks nothing, needs no reason, pending again if the code changes.
-Nothing stops a commit; the judge's findings join the pending list.
+Nothing stops a commit. Claude fixes each judge finding that changes nothing on screen or in behaviour; the rest join the pending list for you.
 
 ## The design audit — only when you ask, never in CI
 

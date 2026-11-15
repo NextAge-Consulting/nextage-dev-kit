@@ -20,8 +20,8 @@
  * line and needs nothing.
  *
  * The judge's ledger. A yes from the judge (design-system skill, scripts/judge.mjs) is a
- * pending item in .claude/ui-pending.json, keyed by question, place and the rule it is
- * about, with the fingerprint of the line it names. It is pending until the human approves
+ * pending item in .claude/ui-pending.json, keyed by question, place and what it is about
+ * (the rule, token, class or other piece), with the fingerprint of the line it names. It is pending until the human approves
  * the line (design-accepted), defers it (design-deferred) or the line changes, when it is
  * re-judged at the next commit.
  *
@@ -31,8 +31,9 @@
  *                   inventory line), or `// ui-atom`; optionally `// ui-behaviour: a.md, b.md`,
  *                   the behaviour rules it carries out;
  *   behaviour code  `// ui-behaviour-code: <rule>.md` on any .ts/.tsx that carries a rule;
- *   a screen        `// ui-recipe: <recipe>.md`, or `// ui-content` for a feature file that
- *                   holds one screen's content;
+ *   a screen        `// ui-recipe: <recipe>.md` on a file a user lands on; `// ui-content`
+ *                   on content and wiring — a feature file, a root document, a layout
+ *                   route, a router, a provider, a helper;
  *   a recipe        frontmatter `kind: recipe`, `frame: <component>`, `reference: <screen
  *                   file>`, `block-types:`;
  *   a behaviour rule frontmatter `kind: behaviour`, `code: [<files>]`, `block-types:`; every
@@ -358,8 +359,8 @@ export function checkUiStatus(repo, { files = repoFiles(repo), sourceDirs = sour
       else pointBack(refByName.get(rule), f)
     }
     if (!isScreen(f, sourceDirs)) continue
-    if (h.recipe && h.content) problems.push(`${f}: both \`// ui-recipe\` and \`// ui-content\`; a screen follows a recipe, a feature file is content`)
-    else if (!h.recipe && !h.content) problems.push(`${f}: no header — \`// ui-recipe: <recipe>.md\`, or \`// ui-content\` for one screen's content`)
+    if (h.recipe && h.content) problems.push(`${f}: both \`// ui-recipe\` and \`// ui-content\`; a screen follows a recipe; content and wiring follow none`)
+    else if (!h.recipe && !h.content) problems.push(`${f}: no header — \`// ui-recipe: <recipe>.md\`, or \`// ui-content\` for content or wiring`)
     else if (h.recipe) {
       if (!refByName.has(h.recipe)) problems.push(`${f}: \`// ui-recipe: ${h.recipe}\` names no reference file`)
       else if (!recipeOf.has(refByName.get(h.recipe))) problems.push(`${f}: \`// ui-recipe: ${h.recipe}\` names a reference that is not a recipe`)
@@ -415,7 +416,7 @@ export function checkUiStatus(repo, { files = repoFiles(repo), sourceDirs = sour
       const line = lines?.[Number(m[2]) - 1]
       if (line === undefined || fingerprint(lineCode(line)) !== i.fingerprint || excepted(lines, Number(m[2]))) continue
       judged++
-      pending.push(`${i.at} (judge ${i.question}${i.about ? `, ${i.about}` : ''}) — ${String(i.quote ?? '').split('\n')[0].slice(0, 100)}`)
+      pending.push(`${i.at} (judge ${i.question}${i.about ? `, ${i.about}` : ''}) — ${i.note ? `${i.note} — ` : ''}${String(i.quote ?? '').split('\n')[0].slice(0, 100)}`)
     }
   }
 

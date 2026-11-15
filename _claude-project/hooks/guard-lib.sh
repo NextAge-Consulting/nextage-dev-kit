@@ -198,6 +198,9 @@ hook_cwd_of() {
 project_root_for() {
     local raw base p dir top top_sp rel
     raw=$(path_spelling "${CLAUDE_PROJECT_DIR:-$PWD}")
+    # A relative project dir is taken from the working directory: the walks up below end
+    # at `/`, which only an absolute path reaches.
+    case "$raw" in /*) ;; *) raw=$(path_spelling "$PWD/$raw") ;; esac
     base=$(_kit_physical_path "$raw")
     p=$(path_spelling "${1:-$raw}")
     case "$p" in /*) ;; *) p="${raw%/}/$p" ;; esac
@@ -209,6 +212,8 @@ project_root_for() {
     # The checkout's top is the nearest folder holding `.git` — a directory in a
     # repository, a file in a worktree. Found in plain bash rather than by asking git,
     # because a process start costs a fraction of a second on Windows, on every call.
+    # The walk ends at `/`: `path_spelling` spells a drive letter `/c/…`, and a relative
+    # project dir is made absolute above, so every path here starts with `/`.
     top="$dir"
     while [ ! -e "$top/.git" ]; do
         case "$top" in

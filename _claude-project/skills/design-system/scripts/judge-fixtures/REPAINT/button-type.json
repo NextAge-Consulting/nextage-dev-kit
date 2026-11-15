@@ -4,6 +4,5 @@
   "component": "Button",
   "class": "type-metadata",
   "tag": "<Button variant=\"outline\" className=\"type-metadata\">",
-  "accepts": [],
   "kind": "atom"
 }

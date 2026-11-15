@@ -9,11 +9,14 @@ import type { AtRule as CssAtRule, ChildNode, Declaration as CssDecl, Node as Cs
  * written that way this adds the same colour in hex, inside an `@supports` block only
  * those browsers apply, so current browsers render exactly as before.
  *
- * Only rules that define tokens are read — on `:root`, `:host` or a `.dark` theme — and
- * never one inside an `@supports` block, which is Tailwind's own fallback for its
- * utilities. A `var()` inside a colour resolves the way the browser would: the rule's
- * own tokens, then the root's. A token that cannot be resolved is left alone and
- * reported as a build warning.
+ * Only rules that define tokens are read — on `:root`, `:host` or a `.dark` theme. Tailwind's
+ * minifier moves a token written in a newer colour form into an `@supports` block testing
+ * for that form, leaving a cruder value outside; such a rule is read too, and its fallback
+ * goes after that block, where an older browser reads it. Every other `@supports` block —
+ * Tailwind's fallbacks for its utilities, a test of anything but colour, this plugin's own —
+ * is left alone. A `var()` inside a colour resolves the way the browser would: the rule's
+ * own tokens, then the tokens of its selector elsewhere in the file, then the root's. A token
+ * that cannot be resolved is left alone and reported as a build warning.
  *
  * A PostCSS plugin, in the app's Vite config: `css: { postcss: { plugins: [colorFallbacks()] } }`.
  */
@@ -28,16 +31,25 @@ type Rgba = [number, number, number, number]
 export const colorFallbacks: PluginCreator<void> = () => ({
   postcssPlugin: 'color-fallbacks',
   OnceExit(root, { result, AtRule, Rule, Declaration }) {
-    const tokenRules: CssRule[] = []
+    const tokenRules: { rule: CssRule; after: CssRule | CssAtRule }[] = []
     root.walkRules((rule) => {
-      if (DEFINES_TOKENS.test(rule.selector) && !insideSupports(rule)) tokenRules.push(rule)
+      if (!DEFINES_TOKENS.test(rule.selector)) return
+      const supports = supportsAncestor(rule)
+      if (!supports) tokenRules.push({ rule, after: rule })
+      else if (testsNewerColour(supports)) tokenRules.push({ rule, after: supports })
     })
     const rootTokens = new Map<string, string>()
-    for (const rule of tokenRules) {
+    const selectorTokens = new Map<string, Map<string, string>>()
+    for (const { rule, after } of tokenRules) {
+      if (after !== rule) continue
       if (isPlainRoot(rule)) for (const decl of tokenDecls(rule)) rootTokens.set(decl.prop, decl.value)
+      const own = selectorTokens.get(rule.selector.trim()) ?? new Map<string, string>()
+      for (const decl of tokenDecls(rule)) own.set(decl.prop, decl.value)
+      selectorTokens.set(rule.selector.trim(), own)
     }
-    for (const rule of tokenRules) {
+    for (const { rule, after } of tokenRules) {
       const scope = new Map(rootTokens)
+      for (const [prop, value] of selectorTokens.get(rule.selector.trim()) ?? []) scope.set(prop, value)
       for (const decl of tokenDecls(rule)) scope.set(decl.prop, decl.value)
       const fallbacks: CssDecl[] = []
       for (const decl of tokenDecls(rule)) {
@@ -46,22 +58,32 @@ export const colorFallbacks: PluginCreator<void> = () => ({
         if (plain === null) result.warn(`no plain-colour fallback for ${decl.prop}: ${decl.value.trim()}`, { node: decl })
         else fallbacks.push(new Declaration({ prop: decl.prop, value: plain, source: decl.source }))
       }
-      if (!fallbacks.length || !rule.parent) continue
+      if (!fallbacks.length || !after.parent) continue
       // Each added node carries the source of the rule it copies, so source maps and
       // Vite's asset handling see where it came from.
       const block = new AtRule({ name: 'supports', params: NEEDS_FALLBACK, source: rule.source })
       const copy = new Rule({ selector: rule.selector, source: rule.source })
       copy.append(fallbacks)
       block.append(copy)
-      rule.parent.insertAfter(rule, block)
+      after.parent.insertAfter(after, block)
     }
   },
 })
 colorFallbacks.postcss = true
 
-function insideSupports(node: CssNode): boolean {
-  for (let p = node.parent; p; p = p.parent) if (p.type === 'atrule' && (p as CssAtRule).name === 'supports') return true
-  return false
+/** The outermost `@supports` block around a node, or null. */
+function supportsAncestor(node: CssNode): CssAtRule | null {
+  let found: CssAtRule | null = null
+  for (let p = node.parent; p; p = p.parent) if (p.type === 'atrule' && (p as CssAtRule).name === 'supports') found = p as CssAtRule
+  return found
+}
+
+/** An `@supports` block that applies only where a newer colour form is read: the block
+ * Tailwind's minifier moves such a token into. A negated test — this plugin's own block
+ * among them — never is. */
+function testsNewerColour(block: CssAtRule): boolean {
+  const params = block.params.trim()
+  return !/^not\b/i.test(params) && /\b(color-mix|oklch|oklab|lab|lch)\(/i.test(params)
 }
 
 /** `:root` / `:host` outside any condition — the tokens every theme starts from. */

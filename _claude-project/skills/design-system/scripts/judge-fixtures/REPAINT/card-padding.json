@@ -4,6 +4,5 @@
   "component": "Card",
   "class": "p-2",
   "tag": "<Card className=\"p-2 rounded-none\">",
-  "accepts": [],
   "kind": "block"
 }

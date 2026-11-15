@@ -11,8 +11,9 @@
  *       Asks every candidate the locator wrote (locate.mjs), one JSON object per line, and
  *       prints each yes. A `finding` line is code's own yes and is not asked. With --ledger,
  *       every yes is written to that file as a pending item for the human's walk-through
- *       (check-ui-status.mjs reads it), keyed by question, place and the rule it is about,
- *       with the fingerprint of the line it names. An item leaves the ledger on the human's
+ *       (check-ui-status.mjs reads it), keyed by question, place and what the candidate
+ *       says it is about (`about`: the rule, token, class or other piece), carrying the
+ *       candidate's `note`, with the fingerprint of the line it names. An item leaves the ledger on the human's
  *       word alone — design-accepted or design-deferred on the line, or on a comment-only
  *       line directly above it — or when the line's code changes; a later no from the judge
  *       is a re-asked question, not an answer, and removes nothing. A candidate that names
@@ -314,7 +315,7 @@ export function mergeLedger(repo, items, { yes = [] }) {
   for (const y of yes) {
     const now = placeFingerprint(repo, y.at)
     if (!now || now.excepted) continue
-    out.set(keyOf(y), { question: y.question, at: y.at, ...(y.about ? { about: y.about } : {}), quote: y.quote, fingerprint: now.fingerprint, since: y.since ?? new Date().toISOString().slice(0, 10) })
+    out.set(keyOf(y), { question: y.question, at: y.at, ...(y.about ? { about: y.about } : {}), ...(y.note ? { note: y.note } : {}), quote: y.quote, fingerprint: now.fingerprint, since: y.since ?? new Date().toISOString().slice(0, 10) })
   }
   return [...out.values()].sort((a, b) => a.at.localeCompare(b.at) || a.question.localeCompare(b.question) || (a.about ?? '').localeCompare(b.about ?? ''))
 }
@@ -341,7 +342,7 @@ export async function judgeCandidates(questions, text, opts = {}) {
       continue
     }
     if (c.finding) {
-      yes.push({ question: c.finding, at: c.at, quote: c.text })
+      yes.push({ question: c.finding, at: c.at, ...(c.about ? { about: c.about } : {}), quote: c.text })
       continue
     }
     const q = questions.find((x) => x.name === c.question)
@@ -355,7 +356,7 @@ export async function judgeCandidates(questions, text, opts = {}) {
   for (const { q, c, r } of await Promise.all(pending)) {
     cost += r.cost
     if (r.answer === 'yes') {
-      const item = { question: q.name, at: c.at, ...(c.about ? { about: c.about } : {}), quote: r.quotes.join(' | ') }
+      const item = { question: q.name, at: c.at, ...(c.about ? { about: c.about } : {}), ...(c.note ? { note: c.note } : {}), quote: r.quotes.join(' | ') }
       if (!c.anchor) yes.push(item)
       else {
         const n = anchorLine(c.anchor, r.yesQuotes)
@@ -390,7 +391,7 @@ async function main() {
     const { yes: every, no, unchanged, errors, cost, asked } = await judgeCandidates(questions, text, { runs, model })
     // A line the human has answered for is theirs: its yes is neither shown nor recorded.
     const yes = every.filter((y) => !placeFingerprint(repo, y.at)?.excepted)
-    for (const y of yes) console.log(`  ✗ ${y.at}  ${y.question}${y.about ? ` (${y.about})` : ''}\n      ${y.quote}`)
+    for (const y of yes) console.log(`  ✗ ${y.at}  ${y.question}${y.about ? ` (${y.about})` : ''}${y.note ? `\n      ${y.note}` : ''}\n      ${y.quote}`)
     for (const e of errors) console.log(`  ! ${e}`)
     const left = [
       unchanged.length ? `${unchanged.length} yes resting on a line the change did not touch, not kept` : '',

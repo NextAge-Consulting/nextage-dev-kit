@@ -115,10 +115,10 @@ Pass `--skip-typecheck` ONLY if the user explicitly requested bypassing typechec
 
 - Commit succeeded: report the commit hash and branch, and any issues moved to Staged
 - The design judge printed `✗` lines: the commit landed, and each line is a pending item
-  `/deploy` refuses on. Report the commit as landed with those items awaiting the human,
-  then put them to the human in this turn, before `/open-pr`, by the `design-system`
-  skill's walk-through: each described by what changed on screen or in behaviour, and
-  settled on the human's word — approved, changed or deferred
+  `/deploy` refuses on. In this turn, before `/open-pr`, sort them by step 5 of the
+  `design-system` skill's procedure: fix each one that changes nothing on screen or in
+  behaviour, and put to the human only the rest, each described by what changed on
+  screen or in behaviour and settled on their word — approved, changed or deferred
 - `main has moved` in the output: relay the commits behind and the files changed on both
   sides, and recommend `/catchup` — before any further work when files overlap. It is a
   warning; the commit still landed. On `main` it fires BEFORE the branch is cut, so the new

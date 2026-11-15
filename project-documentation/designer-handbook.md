@@ -43,8 +43,20 @@ token's line.
 Claude builds screens from what the system already has. When a screen needs something
 the system lacks — a block, a variant, a token, a recipe instruction, a rule — Claude
 builds it and keeps going, marking it **pending** rather than stopping to ask. The judge
-that runs at every commit adds its own findings to the same pile. You review everything
-pending together, at the end of the work, each item described by what changed on screen.
+that runs at every commit raises its own findings. Claude fixes the ones that change
+nothing you would see — a colour used outside its stated job, a box drawn by hand where a
+block exists, a name — and adds the rest to the same pile. You review everything pending
+together, at the end of the work, each item described by what changed on screen or in how
+the app behaves.
+
+**When Claude shows you a choice between looks, it uses the lightest page that is still
+accurate.** A change to a title's size or a card's shadow is a quick sample. A piece whose
+look depends on where it sits is captured from the real page — you open a file, with no
+sign-in and no test data. A screen's arrangement is captured whole. Only behaviour — a
+flow, a save, a failure — is shown as real pages you sign in to. Every one is drawn with
+the app's real styles, never values typed by hand, and Claude says which kind it used and
+what it does not show. If that is not enough to decide, say "show me a better render" and
+it steps up.
 
 Every item takes one of three answers:
 
@@ -60,6 +72,11 @@ for days but never reaches production. Nothing stops a commit.
 
 A change you ask for in conversation ("make Save wider") is made to the block, with a
 warning of what else it changes. Your yes is its approval.
+
+When a conversation turns to the design system itself — sorting a new piece, a judge
+finding, bringing an old area into line — type `/uxes` first. It gives Claude the whole
+system at once: the layers, what happens between an edit and a deploy, and which decisions
+are yours.
 
 ## Starting and growing a design system
 

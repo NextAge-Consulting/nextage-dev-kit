@@ -58,8 +58,8 @@
  *              only in a workspace the stylesheet does not scan is in the code and absent
  *              from the CSS, and no reading of the source can see that;
  *
- * Whether a call site repaints a block, whether a screen draws a box a block should, and
- * whether a name says what a thing is for are judgements: the judge (locate.mjs and
+ * Whether a screen draws a box a block should, and whether a name says what a thing is for,
+ * are judgements: the judge (locate.mjs and
  * judge.mjs, run by gitflow's design-judge.sh) answers them.
  *   generated  with a claude-design config, the safelist and class-merge files are
  *              current and imported;
@@ -75,10 +75,12 @@ import { createRequire } from 'node:module'
 import { existsSync, globSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { parseTokenBlocks } from '../../claude-design/scripts/resolve.mjs'
+import { parseTokenBlocks, usageOf } from '../../claude-design/scripts/resolve.mjs'
 import { atomModule, readBlockTypes } from './block-types.mjs'
+import { classCompilers } from './compare-ui-values.mjs'
 import { contrastProblems } from './contrast.mjs'
 import { uiPackages, uiSourceDirs, workspaceImports } from './ui-sources.mjs'
+import { excepted } from '../../ui-patterns/scripts/check-ui-status.mjs'
 
 export const KEYS = [
   'DESIGN_UI_PACKAGE', 'DESIGN_TOKEN_FILES', 'DESIGN_TYPE_FILE', 'DESIGN_STYLES_FILE', 'DESIGN_VENDORED_DIR',
@@ -100,6 +102,15 @@ const NOT_CLASSES = new Set([
 ])
 const SPACE_PROPS = 'p|px|py|pt|pb|pl|pr|ps|pe|m|mx|my|mt|mb|ml|mr|ms|me|gap|gap-x|gap-y|space-x|space-y'
 const CORNER = 't|r|b|l|tl|tr|br|bl|s|e|ss|se|es|ee'
+
+/** What a call site may set on a component: where it sits, how wide it is, how it shares
+ * and aligns in its row or grid, whether it shows. Read from the CSS properties the class
+ * compiles to, never from how the class is spelled. */
+const CALL_SITE_PLACES = /^(?:margin|width$|min-width$|max-width$|min-height$|max-height$|flex|grid|order$|align-|justify-|place-|position$|inset|top$|right$|bottom$|left$|z-index$|display$|visibility$|text-align$|overflow|text-overflow$|white-space$|aspect-ratio$|float$|clear$)/
+/** A colour or a fixed height at a call site: refused by its own rule, with its own words. */
+const CALL_SITE_PAINTS = /^(?:color$|background-color$|border(?:-(?:top|right|bottom|left|inline|block)(?:-(?:start|end))?)?-color$|outline-color$|fill$|stroke$|height$|--tw-ring-color$)/
+/** Classes for assistive technology alone, which draw nothing a user sees. */
+const SCREEN_READER_ONLY = /^(?:not-)?sr-only$/
 
 /** A fixed height or size at a call site: how tall a control is belongs to the control. */
 const FIXED_SIZE = /^(?:h|size)-(?!full$|auto$|screen$|fit$|min$|max$|dvh$|svh$|lvh$).+$/
@@ -203,8 +214,9 @@ function designStylesheets(repo) {
   return rels.map((r) => path.join(repo, pkgRel, r)).filter(existsSync).map((f) => [f, readFileSync(f, 'utf8').replace(/\r\n/g, '\n')])
 }
 
-/** What each custom property and utility is for: the comment on its line or the comment
- * directly above it, from the first stylesheet that gives one. A re-export with no comment
+/** What each custom property and utility is for, by the publisher's own reading of a
+ * purpose comment (`usageOf`): the comment on its line or directly above it with no blank
+ * line between, from the first stylesheet that gives one. A re-export with no comment
  * of its own (`--spacing-x: var(--x)`) carries the purpose of what it points at. */
 export function purposesOf(css) {
   const out = new Map()
@@ -220,16 +232,16 @@ export function purposesOf(css) {
         above = text.replace(/^\/\*+\s*/, '').replace(/\s*\*\/.*$/, '').replace(/\s*\*\s+/g, ' ').trim()
         continue
       }
-      const decl = line.match(/^(--[A-Za-z0-9-]+)\s*:([^;]*);\s*(?:\/\*\s*(.*?)\s*\*\/)?/)
+      const decl = line.match(/^(--[A-Za-z0-9-]+)\s*:([^;]*);\s*((?:\/\*.*?\*\/\s*)*)/)
       const util = line.match(/^@utility\s+([a-z][a-z0-9-]*)\s*\{/)
       const name = decl?.[1] ?? util?.[1]
       if (name) {
-        const purpose = decl?.[3] || above || ''
+        const purpose = usageOf(decl?.[3], above)
         if (!out.get(name)) out.set(name, purpose)
         const target = decl?.[2].trim().match(/^var\((--[A-Za-z0-9-]+)\)$/)?.[1]
         if (target && target !== name && !pointsAt.has(name)) pointsAt.set(name, target)
       }
-      if (line) above = null
+      above = null
     }
   }
   for (const [name, target] of pointsAt) {
@@ -830,11 +842,12 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
     })
   }
 
-  // --- a call site places a component; it never repaints it ------------------
+  // --- a call site places a component; it never paints or sizes it -------------
   // A className naming a constant is read as the constant's classes, whether the
   // file declares it or imports it from another.
   const exportedConsts = new Map()
   const fileConsts = new Map([...sources].map(([f, s]) => [f, constantClasses(s, exportedConsts)]))
+  const callSiteClasses = []
   let blockTypes = { frames: new Map() }
   try {
     blockTypes = readBlockTypes()
@@ -904,6 +917,9 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
       }
       for (const cls of classesOf(t)) {
         classesChecked++
+        // Held on the lines a change touched, in a screen and in a part alike: a line nobody
+        // has touched is left alone.
+        if (touched(file, t.line, t.line + t.open.split('\n').length - 1)) callSiteClasses.push({ file, line: t.line, name: t.name, cls })
         if (FIXED_SIZE.test(cls.split(':').pop())) add(`${file}:${t.line}`, `<${t.name}> ${cls}`, 'a call site never fixes how tall a component is; that belongs to the component (a size or variant for what the control is)')
         const paint = /^(?:text|bg|border|ring|outline|fill|stroke)-(.+?)(?:\/\d+)?$/.exec(cls.split(':').pop())
         if (paint && colours.has(paint[1])) add(`${file}:${t.line}`, `<${t.name}> ${cls}`, 'a call site never repaints a component\'s colour; add a variant for what it shows')
@@ -1115,6 +1131,32 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
   // compiler, the same scan the Vite plugin sets up — and every class the app's own code and
   // its imported workspaces use that the built CSS lacks is a finding, naming the folder the
   // stylesheet leaves out and the @source line that scans it.
+  // --- a call site never restyles a component ------------------------------------
+  // What a class sets is Tailwind's own answer. A class that sets anything but where the
+  // component sits is a look the component must carry itself.
+  let restyleClasses = 0
+  if (callSiteClasses.length) {
+    let tailwind = null
+    try {
+      tailwind = await classCompilers(repo)
+    } catch (err) {
+      notes.push(`call sites: not judged for restyling — Tailwind could not compile the project's classes (${err.message.split('\n')[0]})`)
+    }
+    if (tailwind && !tailwind.entries.length) notes.push('call sites: not judged for restyling — no stylesheet imports tailwindcss')
+    else if (tailwind) {
+      for (const { file, line, name, cls } of callSiteClasses) {
+        if (SCREEN_READER_ONLY.test(cls.split(':').pop())) continue
+        // The human's word on the line, or on the comment line above it, answers for it.
+        if (excepted(sources.get(file).split('\n'), line)) continue
+        restyleClasses++
+        const sets = [...new Set([...tailwind.declarationsOf(file, cls).keys()].map((k) => k.split('|').pop()))].filter((p) => !p.startsWith('--tw-') || p === '--tw-shadow' || p === '--tw-ring-shadow' || p === '--tw-ring-color')
+        const restyles = sets.filter((p) => !CALL_SITE_PLACES.test(p) && !CALL_SITE_PAINTS.test(p))
+        if (restyles.length) add(`${file}:${line}`, `<${name}> ${cls}`, `a call site places a component and never restyles it; this sets ${restyles.slice(0, 3).join(', ')} — the component carries that, as a variant or an option`)
+      }
+      notes.push(`call sites: ${restyleClasses} class(es) on project components read through Tailwind's build`)
+    }
+  }
+
   let shipsEntries = 0
   let shipsClasses = 0
   {
@@ -1163,6 +1205,7 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
           // Only class lists count as classes the code uses — the same reading as every rule
           // above, so a word in a comment or a prop value is never a missing class. The scanner
           // reads the content it is handed.
+          // `exported` is this function's own map of class-list names, declared with the sources above.
           const wanted = needed.scanFiles(files.map((f) => ({ content: classText(readFileSync(path.join(repo, f), 'utf8').replace(/\r\n/g, '\n'), { names: exported }), extension: path.extname(f).slice(1) })))
           shipsClasses += wanted.length
           const gaps = wanted.filter((c) => !scanned.has(c))

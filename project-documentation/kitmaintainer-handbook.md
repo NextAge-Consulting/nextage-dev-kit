@@ -19,7 +19,7 @@ The kit is just another project — it has its own `.claude/` with project-custo
 | `_statusline/statusline.sh` | `~/.claude/statusline.sh` via `/install-statusline` (one-time) | The kit's custom statusline asset; referenced by `install-statusline.md`. |
 | `.github/` | Nowhere — this repo's own GitHub automation | The `stack-watch` workflow and its script (§9.13). Consumer workflows live in `_github-project/`, never here. |
 | `tests/` | Nowhere — sync reads only the `_*-project/` folders | Tests for kit-shipped files that must not ship with them, e.g. `tests/templates/check-workspace-tiers.test.sh`. Each case copies the real script into a throwaway repo where sync would put it. |
-| `.claude/` | This kit repo's own active config | Mirror of `_claude-project/` PLUS kit-custom commands and scripts that only make sense in this repo: `install-cpl`, `install-statusline` (commands + their helper scripts). These never propagate anywhere. |
+| `.claude/` | This kit repo's own active config | Mirror of `_claude-project/` PLUS kit-custom commands and scripts that only make sense in this repo: `install-cpl`, `install-statusline`, `shipkit` (commands + their helper scripts) and `uxes` (§12a.11). These never propagate anywhere. |
 
 ### Why consumers get nothing globally
 
@@ -300,7 +300,7 @@ Any of:
 6. The command calls `skills/gitflow/scripts/commit.sh` with the message
 7. Script picks the branch: on `main` it cuts `<type>/<slug>` from the message; on a branch whose PR is assigned to someone else (`pr_handed_off`) it cuts one stacked on it, records the parent, and carries only the issue links added since the hand-off; anywhere else it commits in place. Then it stages all changes, commits with `--no-verify`, and pushes.
 8. `git-guard.sh` never fires on that commit — the script's `git commit` is a subprocess, not a top-level tool call (§3.1). No token is involved.
-9. Before staging, the script runs the gates that MIRROR CI so a failure costs a second here rather than a round trip after the PR is open: typecheck, Biome lint, and Semgrep over the files this commit touches (gated on CI declaring a `semgrep` job, and scoped to changed files so it stays seconds — CI still scans everything). Then the project gate: when `.claude/project-gate.sh` exists it runs with the fold base, and a failure exits 4 — the kit's own is §9.11. Then the integration gate (`run_integration_gate`): the coverage check, then the project's `test:related` script (`vitest related`) with `--run --project integration` on the changed TypeScript — through the project's script, so a credentials loader in front of vitest applies; integration tests, changed TypeScript and no `test:related` fail. That run is also where a database the tests cannot use is reported — the harness's globalSetup refuses before any test connects, naming the fix, and the gate prints its output whole; when no integration test reaches the change, no globalSetup runs and nothing touches the database. The separate `test:preflight` runs only at `/deploy`. The typecheck, biome, knip and the integration gate skip on unchanged code: each pass records the code fingerprint it passed on under the git dir (`gitflow-pass/<gate>`, via `gate_fingerprint` / `gate_unchanged` / `gate_record_pass` in `gates.sh`), and the next run on the same fingerprint says "code unchanged since the last pass (comments, whitespace and prose only)" and does not run. The fingerprint is `code-fingerprint.mjs`, beside the gitflow scripts: one hash of the working tree (tracked and unignored files), TypeScript and JavaScript read by TypeScript's parser — the syntax tree and every token's text, with comments and whitespace dropped, except tool-directive comments, the line distances in a file holding one, and JSDoc in JavaScript — and every other file by its git blob id, except Markdown, `project-documentation/` and the design judge's ledger `.claude/ui-pending.json`, which no check reads and which are left out, so an approval or a doc edit re-runs nothing. A file the parser cannot read cleanly, or a tree without TypeScript to load, is hashed byte for byte. The integration gate's record adds the fold base, since its coverage check and its `vitest related` measure from there. Only a pass is recorded, `--skip-typecheck` records nothing, and without node the gates run every time. Then the headless reviews and the design judge, run side by side by `run_headless_reviews` in `gates.sh`, so the gate takes as long as the slowest; each one's output is captured and printed whole, in a fixed order, once all finish, and a review failing fails the gate. The rule review (`rule-review.sh`): every rule-prose file changed since the fold base — the set `hooks/rule-prose.sh` defines — goes to a headless `claude -p` with no tools, no settings and no CLAUDE.md, which reports history, justification and counted lists in added lines only. The design judge (`design-judge.sh`, §12a.7): the locator finds every candidate in the change and the judge answers one yes/no question per candidate; a yes is a pending item in `.claude/ui-pending.json` for the human's walk-through, and the commit goes ahead. The SQL review (`sql-review.sh`): every Drizzle `sql` template on a changed line goes to a headless `claude -p` with the project's drizzle configs and its Drizzle schema files — found by content, every file that defines a table with a Drizzle table function, so introspected tables outside every config's `schema` count — which reports a table or column typed as text where the schema's object belongs, and only a name the schema confirms; the templates, then the configs and schema files, are inlined until 300,000 bytes (`SQL_REVIEW_MAX_BYTES`) are spent and the rest listed for the reviewer to read, so no change is too big to review; the developer fixes each finding or commits with `SKIP_SQL_REVIEW=1`. The SQL and test reviews can read the repository with Read, Grep and Glob — the only tools they have, pre-approved, with the repository added by `--add-dir` while each runs from a temp dir so no project settings or CLAUDE.md load; the rule review and the judge have no tools. The test judge (`test-review.sh`): when a TypeScript source or test file changed since the fold base, a headless `claude -p` receives each changed source file's diff and the top-level declarations it touches, every changed test, every test that imports a changed file, and the application code a changed test imports, and can read the rest of the repository, with the kit's criteria for what earns a test embedded in its prompt — what makes code risky, the primary-route, risk, development and unit kinds told apart by file name, ORM-only and duplicate tests, and that a test must call the application's code. It reports four kinds of finding: `missing` (risky behaviour no test proves), `reimplements` (a test running its own copy of the logic), `superfluous` (ORM-only, or a duplicate of another test, primary-route tests included) and `misnamed` (a test filed as the wrong kind); every finding fails the gate, as in the other reviews, and the developer fixes it or the human commits with `SKIP_TEST_REVIEW=1`. No change is too big to review: the input inlines, in that order, the changed sources' diffs, the changed tests, the covering tests and the context until 300,000 bytes (`TEST_REVIEW_MAX_BYTES`) are spent, and lists every file that did not fit by path under "NOT INLINED — read with the Read tool"; the gate prints what it listed and counts both in its summary. Before reporting a test `missing` or a duplicate, the reviewer greps the repository's tests for the function's name, so a test anywhere counts. All of them run on the developer's Claude subscription; a missing CLI or a failed call fails the gate, which exits 4. A review that passes records a key under the git dir (`gitflow-review-cache/<review>`, via `review-cache.sh`): a hash of the review script, its system prompt and schema, and the whole input it sent — the content under review and every reference file folded into it; a review that can read the repository adds the path and content hash of every file it is pointed at — the test judge every test file, the SQL review every drizzle config and schema file — so a change to one re-asks the review even when the input sent is unchanged. The next run with the same key says it is reusing that pass and makes no call, so re-running `/commit` after fixing something else does not pay for the same review again. A finding, or a review that could not run, is never recorded. commitlint is the one gate that remains CI-only, because it validates the PR title, which does not exist yet at commit time.
+9. Before staging, the script runs the gates that MIRROR CI so a failure costs a second here rather than a round trip after the PR is open: typecheck, Biome lint, and Semgrep over the files this commit touches (gated on CI declaring a `semgrep` job, and scoped to changed files so it stays seconds — CI still scans everything). Then the project gate: when `.claude/project-gate.sh` exists it runs with the fold base, and a failure exits 4 — the kit's own is §9.11. Then the integration gate (`run_integration_gate`): the coverage check, then the project's `test:related` script (`vitest related`) with `--run --project integration` on the changed TypeScript — through the project's script, so a credentials loader in front of vitest applies; integration tests, changed TypeScript and no `test:related` fail. That run is also where a database the tests cannot use is reported — the harness's globalSetup refuses before any test connects, naming the fix, and the gate prints its output whole; when no integration test reaches the change, no globalSetup runs and nothing touches the database. The separate `test:preflight` runs only at `/deploy`. The typecheck, biome, knip and the integration gate skip on unchanged code: each pass records the code fingerprint it passed on under the git dir (`gitflow-pass/<gate>`, via `gate_fingerprint` / `gate_unchanged` / `gate_record_pass` in `gates.sh`), and the next run on the same fingerprint says "code unchanged since the last pass (comments, whitespace and prose only)" and does not run. The fingerprint is `code-fingerprint.mjs`, beside the gitflow scripts: one hash of the working tree (tracked and unignored files), TypeScript and JavaScript read by TypeScript's parser — the syntax tree and every token's text, with comments and whitespace dropped, except tool-directive comments, the line distances in a file holding one, and JSDoc in JavaScript — and every other file by its git blob id, except Markdown, `project-documentation/` and the design judge's ledger `.claude/ui-pending.json`, which no check reads and which are left out, so an approval or a doc edit re-runs nothing. A file the parser cannot read cleanly, or a tree without TypeScript to load, is hashed byte for byte. The integration gate's record adds the fold base, since its coverage check and its `vitest related` measure from there. Only a pass is recorded, `--skip-typecheck` records nothing, and without node the gates run every time. Then the headless reviews and the design judge, run side by side by `run_headless_reviews` in `gates.sh`, so the gate takes as long as the slowest; each one's output is captured and printed whole, in a fixed order, once all finish, and a review failing fails the gate. The rule review (`rule-review.sh`): every rule-prose file changed since the fold base — the set `hooks/rule-prose.sh` defines — goes to a headless `claude -p` with no tools, no settings and no CLAUDE.md, which reports history, justification and counted lists in added lines only. The design judge (`design-judge.sh`, §12a.7): the locator finds every candidate in the change and the judge answers one yes/no question per candidate; a yes is a pending item in `.claude/ui-pending.json`, and the commit goes ahead; the session fixes each one that changes nothing on screen or in behaviour and puts the rest to the human. The SQL review (`sql-review.sh`): every Drizzle `sql` template on a changed line goes to a headless `claude -p` with the project's drizzle configs and its Drizzle schema files — found by content, every file that defines a table with a Drizzle table function, so introspected tables outside every config's `schema` count — which reports a table or column typed as text where the schema's object belongs, and only a name the schema confirms; the templates, then the configs and schema files, are inlined until 300,000 bytes (`SQL_REVIEW_MAX_BYTES`) are spent and the rest listed for the reviewer to read, so no change is too big to review; the developer fixes each finding or commits with `SKIP_SQL_REVIEW=1`. The SQL and test reviews can read the repository with Read, Grep and Glob — the only tools they have, pre-approved, with the repository added by `--add-dir` while each runs from a temp dir so no project settings or CLAUDE.md load; the rule review and the judge have no tools. The test judge (`test-review.sh`): when a TypeScript source or test file changed since the fold base, a headless `claude -p` receives each changed source file's diff and the top-level declarations it touches, every changed test, every test that imports a changed file, and the application code a changed test imports, and can read the rest of the repository, with the kit's criteria for what earns a test embedded in its prompt — what makes code risky, the primary-route, risk, development and unit kinds told apart by file name, ORM-only and duplicate tests, and that a test must call the application's code. It reports four kinds of finding: `missing` (risky behaviour no test proves), `reimplements` (a test running its own copy of the logic), `superfluous` (ORM-only, or a duplicate of another test, primary-route tests included) and `misnamed` (a test filed as the wrong kind); every finding fails the gate, as in the other reviews, and the developer fixes it or the human commits with `SKIP_TEST_REVIEW=1`. No change is too big to review: the input inlines, in that order, the changed sources' diffs, the changed tests, the covering tests and the context until 300,000 bytes (`TEST_REVIEW_MAX_BYTES`) are spent, and lists every file that did not fit by path under "NOT INLINED — read with the Read tool"; the gate prints what it listed and counts both in its summary. Before reporting a test `missing` or a duplicate, the reviewer greps the repository's tests for the function's name, so a test anywhere counts. All of them run on the developer's Claude subscription; a missing CLI or a failed call fails the gate, which exits 4. A review that passes records a key under the git dir (`gitflow-review-cache/<review>`, via `review-cache.sh`): a hash of the review script, its system prompt and schema, and the whole input it sent — the content under review and every reference file folded into it; a review that can read the repository adds the path and content hash of every file it is pointed at — the test judge every test file, the SQL review every drizzle config and schema file — so a change to one re-asks the review even when the input sent is unchanged. The next run with the same key says it is reusing that pass and makes no call, so re-running `/commit` after fixing something else does not pay for the same review again. A finding, or a review that could not run, is never recorded. commitlint is the one gate that remains CI-only, because it validates the PR title, which does not exist yet at commit time.
 
 ### 4.3. What the script does NOT do
 
@@ -1318,8 +1318,9 @@ guarantees. Three words cover "a little different": a variant, an option, or a h
 exception on one screen. Every file names what governs it in its first lines, and
 `check-ui-status.mjs` fails a pointer that names nothing.
 
-Several apps on one system: the tokens, atoms and shared blocks are one system; an app's
-own blocks carry the human's reason on their inventory lines; a recipe or rule that holds
+Several apps on one system: the tokens, atoms and blocks are one system, and a frame two
+apps draw is one shared block varied by slot and option; an app's own block exists only
+where its layout or behaviour differs, with the human's reason on its inventory line; a recipe or rule that holds
 for some apps names them on its `apps:` line (workspaces as the root `package.json`
 declares them; absent means every app). `check-ui-status.mjs` fails an `apps:` naming no
 workspace, and `locate.mjs` pairs references for the conflict question, reaches blocks for
@@ -1388,7 +1389,7 @@ matter of judgement.
 
 **The token checker** (`skills/design-system/scripts/check-design-tokens.mjs`,
 `npm run lint:tokens`) decides everything mechanical from the `DESIGN_*` keys: classes off
-a role, arbitrary values, roles named by size, a fixed height or a colour at a call site, a
+a role, arbitrary values, roles named by size, a fixed height, a colour or any restyling at a call site (the properties the project's Tailwind compiles each class to, so padding, a gap, a border, a radius, a shadow, type or a state on a component fails where it is written, on the lines a change touched, in a part as in a screen), a
 faded colour or a frame atom in a screen, bare scroll areas, raw fields, token resolution
 and reach, light and dark parity, every text pair's contrast, a reference naming what does
 not exist, the generated files and `design.md` current, and every app's entry stylesheet
@@ -1410,15 +1411,30 @@ gained: a maturing system trends to zero.
 **`compare-ui-values.mjs`** proves a change leaves every visible value the same, through
 the project's own Tailwind build, light and dark, moved styles told apart from changed.
 
+**`render-comparison.mjs`** builds the static comparison pages
+(`references/comparison-pages.md`): `sample` compiles option markup with the project's
+Tailwind; `capture-script` prints what `agent-browser eval` runs in a live page to take a
+section with its ancestors and the page's stylesheets; `captured` turns that into a page
+that opens with the app stopped, each ancestor held at its measured width, fonts and images
+carried in the file, an option being a class swap or an edit to the elements a selector
+names. A script in the page crops each option to the piece — whatever it draws outside its
+own box included — numbers the options, scales them together to fit one row, and each
+option is also written alone. It exits 1 on a class no stylesheet
+styles or a font file it cannot find. Its suite runs the capture in a real browser when
+`agent-browser` is installed, and says so when it is not.
+
 ### 12a.7. The judge
 
-Code locates, the judge decides, the human approves. `scripts/locate.mjs` finds every
+Code locates, the judge decides, the session fixes what is mechanical, and the human approves what shows and how the app behaves. `scripts/locate.mjs` finds every
 candidate in a change (`--base`) or a layer (`--all --layer`) using nothing a project
 tunes: a class added at a call site, a new block and its neighbours, a changed screen
 against the rules that govern it, pairs of rules sharing a surface, roles with their
-purposes. A source line changed only in its comments, or part of an import that binds
+purposes. Which token a class uses is Tailwind's own answer: the locator compiles each class with the project's Tailwind (`classTokens`, on `compare-ui-values.mjs`'s compiler) and takes the custom properties its declarations read, so nothing is inferred from how a class is spelled; a type utility is its own role. Which component a tag is comes from TypeScript the same way: `componentBindings` resolves each file's imports through the project's tsconfig, aliases and barrels, so a tag is the component its import names and never another of the same name, and an import of the project's own code that does not resolve stops the locator with the file and path. A block's name is the exported component named as its file is; its summary is its code with the imports left out, carried on to what it draws; its inventory row is matched by path where the row gives one; and a tag is handed to the judge whole, however many lines it is written over. A source line changed only in its comments, or part of an import that binds
 names, is not a change, and a file with no other change is untouched, so a header, a
-pointer or an import added to every file judges nothing. A changed screen is held to its
+pointer or an import added to every file judges nothing. A line whose code the same change
+removed elsewhere only moved, and is not a change either. A component, recipe or rule
+carrying `ui-status: approved` or `deferred` is not asked about its own contents at a commit:
+the human has answered for it, and `/design-audit` still asks. A changed screen is held to its
 rules on the lines the change touched: the lines around them are the judge's context, a
 yes that quotes none of the touched lines is not kept, and the item is placed on the
 touched line its evidence quotes. `scripts/judge.mjs` asks one question per candidate from
@@ -1434,8 +1450,13 @@ question that does not give the known answer on nearly every run is rewritten or
 The kit's gate runs the cases before a release (§9.11).
 
 `skills/gitflow/scripts/design-judge.sh` runs at `/commit` and `/ship-main` beside the
-rule, SQL and test reviews. Every yes is written to `.claude/ui-pending.json` with the
-fingerprint of the line it names, and the status check lists it as pending until the human
+rule, SQL and test reviews. Every yes is written to `.claude/ui-pending.json` with what it
+is about — the token, class, rule or other piece the candidate named — a token's purpose,
+and the fingerprint of the line it names, so two flags on one line are two items and none
+has to be traced again. The session sorts them in the same turn: one that can be settled
+with nothing changing on screen or in behaviour it fixes on the flagged line, proved by
+`compare-ui-values.mjs`; only one that changes what shows or how the app behaves goes to
+the human. The status check lists each item as pending until the human
 approves the line (`design-accepted — <reason>`), defers it (`design-deferred
 <fingerprint>`) — either on the line or on a comment-only line directly above it — or the
 line's code changes, when it is re-judged; a no from a later asking
@@ -1451,8 +1472,8 @@ screen frames, record, collections, filtering, feedback and status — each with
 definition, how it ends, the neighbours it is not to be confused with, and for a frame the
 atom it wraps. It names kinds, never looks. A page type's block is a recipe's frame:
 slots and the behaviour every screen of that type shares, no content. Nothing is typed as
-untyped: a piece that fits no type is an atom, a variant of an existing block, or a new
-type.
+untyped: a piece that fits no type exactly is an atom, a variant of an existing block, a
+block of the nearest type with the reason on its inventory line, or content.
 
 The status check fails an inventory line whose Type is not on the list and a reference
 whose `block-types:` names an unknown type; the token check reads the Wraps column as the
@@ -1487,6 +1508,27 @@ The kit has no UI. The whole subsystem is template-only, listed in the dogfood m
 dogfooded, and in the kit it says the design-system skill is not installed and exits clean.
 `project-documentation/designer-handbook.md` is the human's introduction and
 `ui-design-cheatsheet.md` the one-page reference.
+
+### 12a.11. `/uxes` — loading the system whole
+
+The subsystem is one mechanism spread over many files, and advice on one part given
+without the rest contradicts the rest. `/uxes` is how a session is given the whole: the
+human types it when the conversation turns to the User Experience System, in a project or
+in the kit. Its text is the briefing, so running it puts the system in context with no
+file to go and open.
+
+| Where | File | Holds |
+|---|---|---|
+| A project | `_claude-project/commands/uxes.md` | The layers, the path of a change from edit to `/deploy`, where status is kept, what moves it, who decides what, how a piece is sorted, and that the project conforms to the kit |
+| The kit | `.claude/commands/uxes.md`, kit-custom | The project's file, inlined by an `@` reference, then the settled decisions and the table of what each kit change moves with it |
+
+Both end by requiring the session to state, before it advises or edits, the layer the
+change sits in, what it reaches, and the settled sentence that governs it, quoted. That
+statement is what shows the human the briefing was applied.
+
+Both are instructions about the same system as the skills, the rules and the inventory
+template, at a different depth. A change to how the system works changes them in the same
+change; the kit's file lists what it must stay true to.
 
 ## 12b. Autonomous mode
 

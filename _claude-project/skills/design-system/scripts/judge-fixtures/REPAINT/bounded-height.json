@@ -4,6 +4,5 @@
   "component": "ScrollRegion",
   "class": "max-h-80",
   "tag": "<ScrollRegion className=\"max-h-80\">",
-  "accepts": [],
   "kind": "block"
 }

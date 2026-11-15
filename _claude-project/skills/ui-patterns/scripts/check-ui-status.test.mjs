@@ -269,9 +269,9 @@ test('every screen names its recipe or is content; a feature file is a screen to
     [INVENTORY]: `${CLEAN_INV}\n| File | Governs | Status |\n|---|---|---|\n| \`saving.md\` | x | approved |\n`,
   })
   assert.deepEqual(out.problems, [
-    "apps/web/src/features/orders/components/Summary.tsx: no header — `// ui-recipe: <recipe>.md`, or `// ui-content` for one screen's content",
+    "apps/web/src/features/orders/components/Summary.tsx: no header — `// ui-recipe: <recipe>.md`, or `// ui-content` for content or wiring",
     'apps/web/src/routes/users.tsx: `// ui-recipe: nowhere.md` names no reference file',
-    'apps/web/src/routes/both.tsx: both `// ui-recipe` and `// ui-content`; a screen follows a recipe, a feature file is content',
+    'apps/web/src/routes/both.tsx: both `// ui-recipe` and `// ui-content`; a screen follows a recipe; content and wiring follow none',
     'apps/web/src/routes/rule.tsx: `// ui-recipe: saving.md` names a reference that is not a recipe',
   ])
   assert.equal(out.counts.screens, 6)
@@ -328,11 +328,11 @@ test('the judge\'s ledger: an item is pending while its line stands unchanged an
   const fp = fingerprint(lineCode(code))
   const base = { ...CLEAN, [INVENTORY]: CLEAN_INV, [SCREEN]: `${screen()}export const S = () => (\n${code}\n  <p className="type-hint">x</p>\n)\n` }
   const ledger = (items) => ({ ...base, '.claude/ui-pending.json': `${JSON.stringify(items)}\n` })
-  const live = run(ledger([{ question: 'REPAINT', at: `${SCREEN}:4`, quote: 'p-2', fingerprint: fp }, { question: 'REPAINT', at: `${SCREEN}:5`, quote: 'type-hint', fingerprint: 'deadbeef' }]))
+  const live = run(ledger([{ question: 'SCREEN-BOX', at: `${SCREEN}:4`, quote: 'p-2', fingerprint: fp }, { question: 'SCREEN-BOX', at: `${SCREEN}:5`, quote: 'type-hint', fingerprint: 'deadbeef' }]))
   assert.deepEqual(live.problems, [])
-  assert.deepEqual(live.pending, [`${SCREEN}:4 (judge REPAINT) — p-2`])
+  assert.deepEqual(live.pending, [`${SCREEN}:4 (judge SCREEN-BOX) — p-2`])
   assert.equal(live.counts.judged, 1)
-  const answered = run({ ...ledger([{ question: 'REPAINT', at: `${SCREEN}:4`, quote: 'p-2', fingerprint: fp }]), [SCREEN]: `${screen()}export const S = () => (\n${code} {/* design-accepted — the brand's own card */}\n)\n` })
+  const answered = run({ ...ledger([{ question: 'SCREEN-BOX', at: `${SCREEN}:4`, quote: 'p-2', fingerprint: fp }]), [SCREEN]: `${screen()}export const S = () => (\n${code} {/* design-accepted — the brand's own card */}\n)\n` })
   assert.deepEqual(answered.pending, [])
   const broken = run(ledger('nope').valueOf() === undefined ? {} : { ...base, '.claude/ui-pending.json': 'nope\n' })
   assert.deepEqual(broken.problems, ['.claude/ui-pending.json: not JSON — the judge\'s ledger cannot be read'])

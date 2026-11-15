@@ -26,7 +26,7 @@ The kit is a project like any other, with its own `.claude/` of rules, hooks, sk
 
 The kit repo's project-level config, loaded when working in the kit. It holds the part of `_claude-project/` the kit actually uses — gitflow commands, the shared rules, hooks and skills — which is everything the manifest below does not mark template-only. The manifest governs; a large slice is deliberately absent.
 
-It also holds kit-custom items that never propagate: the `install-cpl`, `install-statusline` and `shipkit` commands, `scripts/shipkit.sh`, `scripts/bump-action-pins.sh`, the kit-specific rules `dev-kit-workflow.md`, `sync-design-pre-read.md`, `uxes-pre-read.md`, `hook-testing.md` and `migrations.md`, and the pre-ship gate — `project-gate.sh` and `kit-gate/` (kitmaintainer-handbook.md §9.11). Edit those in place — they have no other home, and the "kit's own rule tweak" row below does not apply to them.
+It also holds kit-custom items that never propagate: the `install-cpl`, `install-statusline`, `shipkit` and `uxes` commands, `scripts/shipkit.sh`, `scripts/bump-action-pins.sh`, the kit-specific rules `dev-kit-workflow.md`, `sync-design-pre-read.md`, `hook-testing.md` and `migrations.md`, and the pre-ship gate — `project-gate.sh` and `kit-gate/` (kitmaintainer-handbook.md §9.11). Edit those in place — they have no other home, and the "kit's own rule tweak" row below does not apply to them.
 
 Those prove the extensibility pattern: any project can add commands in its own `.claude/commands/` that the kit knows nothing about.
 
@@ -62,6 +62,7 @@ The kit dogfoods only what it actually uses. Everything below ships to consumers
 | `skills/design-system/**`, `rules/ui-design.md`, `rules/a11y-baseline.md` | Kit has no UI — no JSX/TSX, no `design.md` (kitmaintainer-handbook.md §12a.7). |
 | `skills/claude-design/**`, `commands/ui-design.md` | Kit has no UI package and no design system to publish to Claude Design. |
 | `commands/design-audit.md` | Kit has no design system or UI code to audit. |
+| `commands/uxes.md` | The User Experience System as a project's session needs it. Kit has no UI to build; the kit's own `/uxes`, a kit-custom command, inlines this file and adds the maintainer's part. |
 | `commands/primary-route-audit.md`, `skills/primary-route-tests/**` | Kit has no app, no routes, server functions or tables, and no integration tests — no primary routes to test and nothing to drift. |
 | `skills/ui-patterns/**`, `rules/ui-patterns.md` | Kit has no UI — nothing to compose and no interactions to pattern. |
 | `templates/dependency-policy.md` | Operating procedure for dependency and vulnerability work. The kit has no `package.json` and no dependencies, so there is nothing to triage and no timelines to own. Syncs to consumers in `merge` mode: the owners, alerts, timelines, exceptions, build-graph, pass-log and project-notes regions are the project's (pipeline.md §3.5). |

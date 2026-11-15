@@ -56,7 +56,8 @@ jq -r '.packages | to_entries[] | "\(.key) \(.value.version)"' "$M"
 The manifest does not pin the packages below; move each to the newest version whose peer range accepts the manifest's Vite, written without a range:
 
 - `@vitejs/plugin-react`. On 6.x, a Babel plugin passed through its `babel` option — React Compiler included — moves to `@rolldown/plugin-babel`, per that package's README.
-- `@tailwindcss/vite`, `vite-tsconfig-paths` and every other package in a Vite config's `plugins` that the manifest does not list.
+- `@tailwindcss/vite` and every other package in a Vite config's `plugins` that the manifest does not list.
+- `vite-tsconfig-paths` is removed, not moved: Vite 8 resolves tsconfig paths itself. In each config that called it, remove the plugin and set `resolve.tsconfigPaths` to `true`; delete the dependency.
 - `nitro`, when the next section replaces `@tanstack/nitro-v2-vite-plugin` with it.
 
 Move every `@vitest/*` package to the vitest version exactly. Run `npm install`, then `node scripts/check-stack.mjs` and `node scripts/check-dep-alignment.mjs`, and make both pass before going on.

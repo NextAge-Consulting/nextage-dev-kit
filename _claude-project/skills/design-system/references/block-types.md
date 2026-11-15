@@ -7,23 +7,38 @@ are the `design-system` skill's.
 
 ## Sort before you build
 
-1. **Name the block type** of every frame you are about to build — a dialog, a panel, a
-   header, a toolbar, a row, a whole screen's layout. Match it by what it is and how it
-   ends, never by what it contains.
-2. **Find this project's block of that type** in `rules/project/ui-inventory.md` (its
-   Type column) and use it. Read every recipe and behaviour rule whose `block-types:`
-   names the type.
-3. **None yet → build the block now, from this first use,** pending, named for the kind
-   (`ReviewDialog`, never `CustomerNotesDialog`). Its inventory line carries the type.
-4. **No type fits → sort it:** A single control or element that owns
-   its look is an atom. A piece that differs a little from an existing block is a variant
-   or option of that block. A kind of thing no type names is a new block type, which is a
-   kit change: a type joins the list when two projects or two reference design systems
-   have it. Nothing is typed as untyped.
+This sort is the same for a piece you are about to build and a piece that already
+exists.
 
-**One block per type is the norm.** A second block of the same type is a question for the
-human: same thing, and it folds into the first as a variant; different, and their reason
-goes on its inventory line.
+1. **Split the piece into frame and content.** The frame is what it is and how it ends:
+   the trigger, the panel, the rows, the layout. The content is what one screen puts in
+   it: its words, its data, its server calls. Sort the frame; the content stays with its
+   screen, in `features/`. A piece named for a business object is a frame plus that
+   object's content whenever the frame would draw the same for another object.
+2. **Name the block type** of the frame — a dialog, a panel, a header, a toolbar, a row, a
+   whole screen's layout. Match it by what it is and how it ends, never by what it
+   contains.
+3. **Find this project's block of that type** in `rules/project/ui-inventory.md` (its
+   Type column), in whichever app or package holds it, and use it. What differs — what it
+   holds, how many, a part one use has and another lacks — is a slot or an option on that
+   block. Read every recipe and behaviour rule whose `block-types:` names the type.
+4. **None yet → build the block now, from this first use,** pending, named for the kind
+   (`ReviewDialog`, never `CustomerNotesDialog`). Its inventory line carries the type.
+5. **No type fits exactly → sort it up the layers, bottom first:** a single control or
+   element that owns its look is an atom; a piece that differs a little from an existing
+   block is a variant or option of that block; any other frame takes the nearest type by
+   what it is and how it ends, with the reason on its inventory line; what is left once
+   the frame is taken out — one business object's own fields — is content, in `features/`.
+   Every piece lands in exactly one. Nothing is typed as untyped.
+
+**One block per type is the norm, across every app on the system.** A frame two apps draw
+is one shared block, and a change to it lands in both. A second block of the same type is
+a question for the human, put with both shown as the real thing: the same frame, and it
+folds into the first, what differs becoming a slot or an option; a different layout or
+behaviour, and their reason goes on its inventory line. Never write that reason yourself.
+
+**The same code never sits in two apps.** A fold or a move that would leave it there makes
+one shared block.
 
 **Two overlays that end differently are two types.** A popup that ends Close is not a
 popup that ends Save.

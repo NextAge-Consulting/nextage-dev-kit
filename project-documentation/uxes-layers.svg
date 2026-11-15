@@ -35,7 +35,7 @@
   <text x="671" y="268" text-anchor="middle" fill="#312e81" font-weight="600">project</text>
   <rect x="742" y="218" width="640" height="92" rx="6" fill="#ffffff" stroke="#9ca3af"/>
   <text x="758" y="240" fill="#374151"><tspan font-weight="600">token check</tspan> · CI, end of work, changed lines — no box, no raw value, no faded colour, no frame atom</text>
-  <text x="758" y="258" fill="#374151"><tspan font-weight="600">judge</tspan> · commit, advisory — FOLLOWS-RULE, REPAINT, SCREEN-BOX, TOKEN-AGAINST-PURPOSE</text>
+  <text x="758" y="258" fill="#374151"><tspan font-weight="600">judge</tspan> · commit, advisory — FOLLOWS-RULE, SCREEN-BOX, TOKEN-AGAINST-PURPOSE</text>
   <text x="758" y="276" fill="#374151"><tspan font-weight="600">status check</tspan> · deploy, /work, /handoff — the header names a recipe that exists</text>
   <text x="758" y="296" fill="#374151"><tspan font-weight="600">human</tspan> · end of work — an exception on one screen is theirs: design-accepted — reason</text>
 
@@ -63,8 +63,8 @@
   <text x="671" y="474" text-anchor="middle" fill="#312e81" font-weight="600">project</text>
   <text x="671" y="492" text-anchor="middle" fill="#6b7280" font-size="11">types: kit</text>
   <rect x="742" y="434" width="640" height="92" rx="6" fill="#ffffff" stroke="#9ca3af"/>
-  <text x="758" y="456" fill="#374151"><tspan font-weight="600">status check</tspan> · deploy, /work, /handoff — type on the list, header and inventory agree, one block per type</text>
-  <text x="758" y="474" fill="#374151"><tspan font-weight="600">judge</tspan> · commit, advisory — DUPLICATE-BLOCK, NAMED-FOR-DATA, VARIANT-INCOMPLETE</text>
+  <text x="758" y="456" fill="#374151"><tspan font-weight="600">status check</tspan> · deploy, /work, /handoff — type on the list, header and inventory agree</text>
+  <text x="758" y="474" fill="#374151"><tspan font-weight="600">judge</tspan> · commit, advisory — DUPLICATE-BLOCK, NAMED-FOR-DATA, VARIANT-INCOMPLETE; a second block of a type</text>
   <text x="758" y="492" fill="#374151"><tspan font-weight="600">compare-ui-values</tspan> · end of work — proves a change left every visible value the same</text>
   <text x="758" y="512" fill="#374151"><tspan font-weight="600">human</tspan> · end of work — a new block or variant is pending until approved</text>
 
