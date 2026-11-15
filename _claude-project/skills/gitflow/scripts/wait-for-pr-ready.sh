@@ -154,7 +154,7 @@ runs_for_head() {
     local out
     # shellcheck disable=SC2016 # $r is a jq variable, expanded by jq, not the shell
     if ! out=$(gh api "repos/$REPO/actions/runs?head_sha=$1&per_page=50" --jq '
-        (.workflow_runs | group_by(.workflow_id) | map(max_by(.created_at // ""))) as $r
+        (.workflow_runs // [] | group_by(.workflow_id) | map(max_by(.created_at // ""))) as $r
         | if ($r | length) == 0 then "none"
           elif any($r[]; .status == "completed" and (.conclusion | IN("failure", "startup_failure", "timed_out", "cancelled"))) then "failed"
           elif all($r[]; .status == "completed") then "done"
@@ -195,7 +195,7 @@ ci_state() {
     local newest
     if ! newest=$(jq -c '
         group_by(if (.__typename // "") == "StatusContext" then "status \(.context // "")" else "run \(.workflowName // "") \(.name // "")" end)
-        | map(max_by(.startedAt // .createdAt // ""))' <<<"$rollup" 2>/dev/null); then
+        | map(max_by(.startedAt // .createdAt // ""))' <<<"$rollup"); then
         echo "pending"; return
     fi
     rollup="$newest"
