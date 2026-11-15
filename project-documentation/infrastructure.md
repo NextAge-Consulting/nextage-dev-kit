@@ -27,6 +27,19 @@ containers bind to `127.0.0.1` only — never `0.0.0.0` — so the only way in i
 nginx. Images come from ECR, orchestrated by docker-compose with
 `restart: unless-stopped`. A WAF is attached to the ALB.
 
+**nginx compresses, because nothing else in the path does.** The ALB cannot compress a
+response, and nginx's `gzip on` covers only `text/html` until told otherwise — so a
+built site's scripts and styles, most of what a first visit downloads, go out
+uncompressed. Every site's server block names the rest:
+
+```nginx
+gzip_types text/css application/javascript text/javascript application/json
+           application/manifest+json image/svg+xml;
+gzip_vary on;
+```
+
+Images other than SVG are already compressed, and compressing them again only costs CPU.
+
 ## Why not CloudFront instead of the ALB
 
 *Recorded against the present-tense rule (§XV) because it comes up about once a year,
@@ -734,6 +747,7 @@ ones. An established project is where these hide, because nothing ever surfaced 
 | No container can reach the instance role | `aws ec2 describe-instances --query 'Reservations[].Instances[].MetadataOptions.HttpPutResponseHopLimit'` | A `2` or higher. Every container on the box holds the host's identity — its parameters, its image pulls, and any other app's secrets on the same box |
 | SSH is closed and SSM works | `aws ssm describe-instance-information` | Agent absent while `:22` is open — the port cannot be closed until the agent is proven |
 | ECR repositories have a lifecycle policy | `aws ecr get-lifecycle-policy` per repository | `LifecyclePolicyNotFoundException`. Nothing fails; images accumulate and the bill arrives months later |
+| Scripts and styles go out compressed | `curl -sI -H 'Accept-Encoding: gzip' https://<site>/<a script the page loads>` | No `content-encoding: gzip`. Pages compressed and scripts not is the default nginx, and the site still works, so nothing reports it |
 | Swap is OFF | `swapon --show` | Any swap on a container host — it trades a contained OOM kill for host-wide thrashing |
 | Containers report healthy | `docker ps` | `(unhealthy)`. Check the probe target before the app — a healthcheck pointed at a path that redirects fails forever while the app is fine |
 | Every container has `mem_limit` | `docker inspect -f '{{.Name}} {{.HostConfig.Memory}}' $(docker ps -q)` | A `0`. Unbounded containers are the actual control here — this is the row that matters |

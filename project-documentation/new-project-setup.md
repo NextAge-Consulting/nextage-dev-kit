@@ -337,14 +337,15 @@ For a TanStack Start app that will face a security audit or a client's security 
 
 ### 6c — Design system (if this project has a UI) `[claude+you]`
 
-No screen is styled until the project has a design system. Where it comes from depends on the project:
+Screens are built from the project's design system. Where it comes from depends on the project:
 
-- **A new project** — pick and adjust a theme at [tweakcn](https://tweakcn.com), then hand Claude its Tailwind v4 code. Claude puts it in the UI package's token stylesheet and writes `design.md` from it.
-- **An existing app** — Claude extracts the system the app already shows into a token stylesheet and `design.md`, bringing each thing drawn several ways to you as a choice. A tweakcn theme can be merged over it as the path forward.
+- **A new project** — pick and adjust a theme at [tweakcn](https://tweakcn.com), then hand Claude its Tailwind v4 code. Claude puts it in the UI package's token stylesheet, names the first roles over it and generates `design.md`. A Design Pack, when one exists, installs a finished system instead.
+- **An existing app** — Claude extracts the system the app already shows into a token stylesheet and generates `design.md`, bringing each thing drawn several ways to you as a choice. A tweakcn theme can be merged over it as the path forward.
+- **A project arriving with a `design.md` and no stylesheet** — the DESIGN.md tool's export writes its tokens as Tailwind CSS, which becomes the base of the token stylesheet; `design.md` is then regenerated from the stylesheet.
 
-Either way, finish with `/design-audit system`: it lists where the kit's design opinions fill gaps the theme or the old app left, and you adopt them one at a time. `designer-handbook.md`, "Starting and growing a design system", is the full walk-through, including when to audit existing screens later.
+The kit holds no opinion on how anything should look; what the system lacks is built pending the first time a screen needs it and put to you. `designer-handbook.md`, "Starting and growing a design system", is the full walk-through, including when to audit existing screens later.
 
-**Verify:** `design.md` exists at the repository root, `npm run lint:design` and `npm run lint:tokens` pass, and `/design-audit system` reports no open findings.
+**Verify:** `design.md` exists at the repository root and is current (`node .claude/skills/claude-design/scripts/design-md.mjs --check`), and `npm run lint:design`, `npm run lint:tokens` and `node .claude/skills/ui-patterns/scripts/check-ui-status.mjs` pass.
 
 ### 7 — Deploy pipeline (if this project deploys) `[claude+you]`
 

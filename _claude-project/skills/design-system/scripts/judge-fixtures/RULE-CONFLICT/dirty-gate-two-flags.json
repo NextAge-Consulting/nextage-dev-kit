@@ -1,0 +1,13 @@
+{
+  "answer": "yes",
+  "why": "contradictory gates",
+  "surface": "a record form",
+  "a": {
+    "file": "form-layout.md",
+    "text": "Save is enabled only when a field value differs from its loaded value."
+  },
+  "b": {
+    "file": "inline-form.md",
+    "text": "Save is enabled as soon as any field has been touched, whether or not its value changed."
+  }
+}

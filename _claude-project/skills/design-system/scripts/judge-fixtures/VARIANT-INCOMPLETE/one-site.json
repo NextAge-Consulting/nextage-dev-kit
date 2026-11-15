@@ -1,0 +1,10 @@
+{
+  "answer": "no",
+  "why": "one call site",
+  "component": "Card",
+  "variant": "default",
+  "definition": "rounded-container border bg-card p-card-inset shadow-card",
+  "callSites": [
+    "<Card className=\"p-0\">"
+  ]
+}

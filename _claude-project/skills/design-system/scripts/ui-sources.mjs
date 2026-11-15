@@ -4,6 +4,11 @@
  * commit, with nothing to remember.
  *
  *   uiSourceDirs(repo, uiPackage)  → { dirs, problems }, `dirs` from the repository root
+ *   uiPackages(repo, uiPackage)    → { packages, problems }: the UI package's workspace folder
+ *                                  and every dependant's, from the repository root
+ *   workspaceImports(repo, dir)    → the source folders of workspace `dir` and of every
+ *                                  workspace it depends on, transitively — what its build
+ *                                  bundles, so what its stylesheet has to scan
  *   node ui-sources.mjs [--repo <dir>]
  *                                  prints the dirs one per line, reading DESIGN_UI_PACKAGE
  *                                  from .claude/sync-substitutions.json; exits 1 naming the
@@ -58,27 +63,58 @@ export function workspaceDirs(repo) {
   return { dirs: [...new Set(dirs)], problems }
 }
 
-/** The source folders of the UI package and of every workspace depending on it. */
-export function uiSourceDirs(repo, uiPackage) {
+/** The UI package's workspace folder and every workspace's that depends on it by name. A
+ * repository with no workspaces is one package: the root and the UI package. */
+export function uiPackages(repo, uiPackage) {
   const pkg = posix(uiPackage).replace(/^\.\//, '').replace(/\/+$/, '') || '.'
   const { dirs: workspaces, problems } = workspaceDirs(repo)
-  if (problems.length) return { dirs: [], problems }
+  if (problems.length) return { packages: [], problems }
+  if (!workspaces.length) return { packages: ['.', pkg], problems: [] }
+  const manifest = path.join(repo, pkg, 'package.json')
+  if (!existsSync(manifest)) return { packages: [], problems: [`${pkg}/package.json  — not found; the UI package's name is how its dependants are found`] }
+  const name = readJson(manifest).name
+  if (!name) return { packages: [], problems: [`${pkg}/package.json  — has no "name"; the UI package's name is how its dependants are found`] }
+  const dependants = workspaces.filter((w) => {
+    if (w === pkg) return false
+    const m = readJson(path.join(repo, w, 'package.json'))
+    return DEP_FIELDS.some((f) => m[f] && Object.hasOwn(m[f], name))
+  })
+  return { packages: [pkg, ...dependants], problems: [] }
+}
 
-  let packages
-  if (!workspaces.length) {
-    packages = ['.', pkg]
-  } else {
-    const manifest = path.join(repo, pkg, 'package.json')
-    if (!existsSync(manifest)) return { dirs: [], problems: [`${pkg}/package.json  — not found; the UI package's name is how its dependants are found`] }
-    const name = readJson(manifest).name
-    if (!name) return { dirs: [], problems: [`${pkg}/package.json  — has no "name"; the UI package's name is how its dependants are found`] }
-    const dependants = workspaces.filter((w) => {
-      if (w === pkg) return false
-      const m = readJson(path.join(repo, w, 'package.json'))
-      return DEP_FIELDS.some((f) => m[f] && Object.hasOwn(m[f], name))
-    })
-    packages = [pkg, ...dependants]
+/** The source folders of workspace `dir` and of every workspace it depends on, transitively:
+ * the code its build bundles. Its own folder comes first. */
+export function workspaceImports(repo, dir) {
+  const { dirs: workspaces } = workspaceDirs(repo)
+  const byName = new Map()
+  for (const w of workspaces) {
+    const name = readJson(path.join(repo, w, 'package.json')).name
+    if (name) byName.set(name, w)
   }
+  const seen = new Set([dir])
+  const queue = [dir]
+  while (queue.length) {
+    const w = queue.shift()
+    const file = path.join(repo, w, 'package.json')
+    if (!existsSync(file)) continue
+    const m = readJson(file)
+    for (const f of DEP_FIELDS) {
+      for (const name of Object.keys(m[f] ?? {})) {
+        const d = byName.get(name)
+        if (d && !seen.has(d)) {
+          seen.add(d)
+          queue.push(d)
+        }
+      }
+    }
+  }
+  return [...new Set([...seen].map((w) => sourceOf(repo, w)))]
+}
+
+/** The source folders of the UI package and of every workspace depending on it. */
+export function uiSourceDirs(repo, uiPackage) {
+  const { packages, problems } = uiPackages(repo, uiPackage)
+  if (problems.length) return { dirs: [], problems }
 
   // A folder inside another one already listed adds nothing.
   const sources = [...new Set(packages.map((d) => sourceOf(repo, d)))]

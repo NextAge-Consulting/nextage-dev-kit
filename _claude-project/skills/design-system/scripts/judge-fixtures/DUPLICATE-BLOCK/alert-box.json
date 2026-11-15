@@ -1,0 +1,15 @@
+{
+  "answer": "yes",
+  "why": "same notice, another name",
+  "new": {
+    "name": "AlertBox",
+    "type": "(none named)",
+    "code": "export function AlertBox({ icon, title, children }) {\n  return <div role=\"status\" className=\"flex gap-related rounded-control border bg-feedback-info-fill p-related\">{icon}<div><p className=\"type-card-title\">{title}</p><p>{children}</p></div></div>\n}"
+  },
+  "existing": {
+    "name": "Alert",
+    "type": "PageBanner",
+    "code": "export function Alert({ tone, icon, title, children }) {\n  return <div role=\"status\" className={cn(\"flex gap-related rounded-control border p-related\", toneClass[tone])}>{icon}<div><AlertTitle>{title}</AlertTitle><AlertDescription>{children}</AlertDescription></div></div>\n}",
+    "inventoryLine": "| `Alert` | a standing message about the screen, in a tone | PageBanner | approved |"
+  }
+}

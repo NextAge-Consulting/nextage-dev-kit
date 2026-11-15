@@ -1,0 +1,15 @@
+{
+  "answer": "no",
+  "why": "a tile is a figure that clicks through, a card is a container",
+  "new": {
+    "name": "StatTile",
+    "type": "StatTile",
+    "code": "export function StatTile({ label, value, onClick }) {\n  return <button onClick={onClick} className=\"rounded-container border bg-card p-card-inset text-left\"><p className=\"type-metadata\">{label}</p><p className=\"type-figure\">{value}</p></button>\n}"
+  },
+  "existing": {
+    "name": "Card",
+    "type": "(none named)",
+    "code": "export function Card({ children }) {\n  return <div className=\"rounded-container border bg-card p-card-inset\">{children}</div>\n}",
+    "inventoryLine": "| `Card` | a resting container for grouped content | (none named) | approved |"
+  }
+}

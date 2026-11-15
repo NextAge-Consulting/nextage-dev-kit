@@ -1,0 +1,21 @@
+# Findings the kit gate's replay accepts while this migration ships: the model's checks
+# raise them in every project with UI until the migration's steps resolve each kind.
+no header
+no `kind:` in its frontmatter
+is not approved, pending or deferred
+names block type `<none>`
+has no block type
+a recipe names its frame
+a recipe names one reference screen
+a behaviour rule lists its code
+is not a file in this repository
+names no reference file
+names a reference that is not a
+does not point back with
+whose `code:` list does not name it
+token section out of date
+cannot generate its token section
+no usage comment
+no design-system family for this token
+is deferred with no fingerprint
+has no status

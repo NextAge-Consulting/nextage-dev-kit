@@ -10,6 +10,24 @@ that redirects an anonymous visitor to `/login`. Every screen lives under it, so
 protection is the default and a route added outside it is public. That is almost
 never what anyone intends, so treat a top-level route as a red flag in review.
 
+**The guard reads the session through the query cache, keyed on the navigation's
+`cause`:** fresh when a screen is entered, reused when it is `stay`.
+
+```ts
+beforeLoad: async ({ cause, context, location }) => {
+  const session = await context.queryClient.query({
+    queryKey: ['session'],
+    queryFn: () => getSession(),
+    staleTime: cause === 'stay' ? Number.POSITIVE_INFINITY : 0,
+  })
+  if (!session) throw redirect({ to: '/login', search: { redirect: location.href } })
+  return { session }
+}
+```
+
+With more than one app, write this once in a shared module and call it from every
+app's guard.
+
 **Data protection** — `requireSession()` as the first line of every server
 function, independently, every time.
 

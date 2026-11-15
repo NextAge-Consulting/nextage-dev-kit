@@ -151,6 +151,24 @@ stub npx 0
 t 0 "$(gate run_knip_gate committing)" 'no findings passes'
 rm -rf package.json .claude
 
+echo "design:"
+new_repo
+t 0 "$(gate run_design_gate "$BASE" committing)" 'no design.md passes'
+has 'design checks: skipped — no design.md' '…and says why'
+touch design.md
+printf '{"name":"app","scripts":{"lint:tokens":"x"}}\n' > package.json
+t 4 "$(gate run_design_gate "$BASE" committing)" 'design.md with no lint:design script fails, as CI does'
+has 'no "lint:design" script' '…naming the missing script'
+printf '{"name":"app","scripts":{"lint:tokens":"x","lint:design":"y"}}\n' > package.json
+stub npm 1
+t 4 "$(gate run_design_gate "$BASE" committing)" 'a design check that fails fails the gate'
+has 'lint:tokens failed' '…naming the check'
+stub npm 0
+t 0 "$(gate run_design_gate "$BASE" committing)" 'both design checks clean passes'
+t lint:design "$(sed -n 3p "$tmp/npm.args")" '…lint:design running last'
+unstub npm
+rm -f design.md package.json
+
 echo "semgrep:"
 new_repo
 t 0 "$(gate run_semgrep_gate "$BASE" committing)" 'CI declares no semgrep job: passes'
@@ -238,19 +256,6 @@ printf 'echo "a project check failed" >&2\nexit 3\n' > .claude/project-gate.sh
 t 4 "$(gate run_project_gate "$BASE" "shipping to main")" 'a project gate that fails: fails'
 has 'Fix before shipping to main' '…naming the action'
 rm -rf .claude
-
-echo "run_fit_check_gate:"
-new_repo
-t 0 "$(gate run_fit_check_gate committing)" 'no UI status check: passes'
-has "does not exist" 'no UI status check: says why it does not apply'
-mkdir -p .claude/skills/ui-patterns/scripts && : > .claude/skills/ui-patterns/scripts/check-ui-status.mjs
-t 4 "$(gate run_fit_check_gate committing)" 'node missing: fails'
-stub node 0
-t 0 "$(gate run_fit_check_gate committing)" 'fit checks in order: passes'
-t "--fit-only" "$(tail -1 "$tmp/node.args")" 'runs the check in its fit-only mode'
-stub node 1
-t 4 "$(gate run_fit_check_gate "shipping to main")" 'a missing or stale fit check: fails'
-has "Run the fit check before shipping to main" 'a failure says what to do'
 
 echo "build (real npm):"
 mono="$tmp/mono"; mkdir -p "$mono/packages/a" "$mono/packages/b"
@@ -395,7 +400,7 @@ fgate(){ ( PATH="$STUBS:$REALNODE:$SANDBOX"; source "$D/gates.sh"; "$@" ) 2>"$tm
 ran(){ # ran <stub> <label> — the stub was called by the last gate
   if [ -f "$tmp/$1.args" ]; then echo "  ✓ $2"; else echo "  ✗ FAIL — $2; stderr was: $(cat "$tmp/err")"; fail=1; fi; rm -f "$tmp/$1.args"; }
 skipped(){ # skipped <stub> <label> — the stub was not called, and the gate said why
-  if [ ! -f "$tmp/$1.args" ] && grep -qF 'code unchanged since the last pass (comments and whitespace only)' "$tmp/err"; then
+  if [ ! -f "$tmp/$1.args" ] && grep -qF 'code unchanged since the last pass (comments, whitespace and prose only)' "$tmp/err"; then
     echo "  ✓ $2"; else echo "  ✗ FAIL — $2; stderr was: $(cat "$tmp/err")"; fail=1; fi; rm -f "$tmp/$1.args"; }
 if [ ! -d "$TS_DIR" ]; then
   echo "  ✗ FAIL — these cases need TypeScript installed globally (npm i -g typescript)"; fail=1
@@ -427,12 +432,50 @@ else
   printf '{"name":"app","scripts":{"check-types":"tsc --noEmit -p ."}}\n' > package.json
   t 0 "$(fgate run_typecheck_gate 0 committing)" 'typecheck: a configuration change is a code change'
   ran npm '…and runs'
+  mkdir -p .claude/rules/project project-documentation
+  printf '| `card` | pending |\n' > .claude/rules/project/ui-inventory.md
+  printf '[{"at":"src/a.ts:1"}]\n' > .claude/ui-pending.json
+  printf 'notes\n' > project-documentation/notes.txt
+  t 0 "$(fgate run_typecheck_gate 0 committing)" 'typecheck: the UI inventory, the judge\x27s ledger and a doc changed'
+  skipped npm '…an approval is not a code change'
+  rm -rf .claude project-documentation
+
+  # Biome and knip skip the same way.
+  printf '{"$schema":"./node_modules/@biomejs/biome/configuration_schema.json"}\n' > biome.json
+  stub npx 0
+  t 0 "$(fgate run_biome_gate committing)" 'biome: the first pass runs'
+  ran npx '…running biome lint'
+  t 0 "$(fgate run_biome_gate committing)" 'biome: the same code again passes'
+  skipped npx '…without running'
+  printf '// reworded\nexport const a = 3;\n' > src/a.ts
+  t 0 "$(fgate run_biome_gate committing)" 'biome: a comment changed'
+  skipped npx '…still skips'
+  printf 'export const a = 33;\n' > src/a.ts
+  stub npx 1
+  t 4 "$(fgate run_biome_gate committing)" 'biome: changed code runs, and its failure fails'
+  ran npx '…having run'
+  stub npx 0
+  t 0 "$(fgate run_biome_gate committing)" 'biome: a failure is never recorded — the same code runs again'
+  ran npx '…having run'
+  rm biome.json
+  mkdir -p .claude
+  printf '{"KNIP_GATE":"true"}\n' > .claude/sync-substitutions.json
+  printf '{"packages":{"knip":{"version":"5.88.1"}}}\n' > .claude/stack-manifest.json
+  t 0 "$(fgate run_knip_gate committing)" 'knip: the first pass runs'
+  ran npx '…running knip'
+  t 0 "$(fgate run_knip_gate committing)" 'knip: the same code again passes'
+  skipped npx '…without running'
+  printf 'export const a = 34;\n' > src/a.ts
+  t 0 "$(fgate run_knip_gate committing)" 'knip: changed code runs'
+  ran npx '…having run'
+  rm -rf .claude
 
   # The integration gate: a real coverage script, the vitest run a stub.
   mkdir -p .claude scripts test
   printf '{"DB_ENGINE":"PostgreSQL"}\n' > .claude/sync-substitutions.json
   printf 'console.log("✓ check-integration-coverage: 1 changed exported function(s)");\n' > scripts/check-integration-coverage.mjs
   printf 'x\n' > test/a.integration.test.ts
+  printf 'export const a = 3;\n' > src/a.ts
   printf '{"name":"app","scripts":{"check-types":"tsc --noEmit -p .","test:related":"vitest related"}}\n' > package.json
   stub npm 0 'echo " ✓ |integration| test/a.integration.test.ts"'
   t 0 "$(fgate run_integration_gate "$BASE" committing)" 'integration: the first pass runs'

@@ -438,16 +438,16 @@ closes_line_for_issues() {
 # add_issue_to_project <owner/repo> <issue_num>
 # Echoes "<item id> existing" or "<item id> added" for the issue's item on the
 # configured project (GITFLOW_PROJECT_ID, already loaded), adding the issue when it
-# is not there. Adding an issue that is already an item returns the existing item,
-# so a race with the board's auto-add cannot duplicate it. Errors → stderr, return 1.
+# is not there. When the board's auto-add puts it there between the lookup and the
+# add, GitHub refuses the add as "Content already exists", and the item it raced is
+# looked up again and returned. Errors → stderr, return 1.
 #
 # Every issue gitflow files is added here when it is filed (file-issue.sh). The
 # board's "Auto-add to project" workflow is only the fallback for issues filed by
 # hand: GitHub sets it up per repository, and a new repository is easy to forget.
-add_issue_to_project() {
-    local slug="$1" num="$2" owner repo graphql_out item_id issue_node_id add_out
-    owner="${slug%/*}"; repo="${slug#*/}"
-    if ! graphql_out=$(gh api graphql -f query="
+# _board_lookup <owner> <repo> <num> — the issue's node id and its project items, as JSON.
+_board_lookup() {
+    gh api graphql -f query="
         query(\$owner: String!, \$repo: String!, \$num: Int!) {
             repository(owner: \$owner, name: \$repo) {
                 issue(number: \$num) {
@@ -458,15 +458,26 @@ add_issue_to_project() {
                 }
             }
         }" \
-        -f owner="$owner" -f repo="$repo" -F num="$num" 2>&1); then
+        -f owner="$1" -f repo="$2" -F num="$3"
+}
+
+# _board_item_id <lookup JSON> — the issue's item on the configured project, or nothing.
+_board_item_id() {
+    printf '%s' "$1" \
+        | jq -r --arg pid "$GITFLOW_PROJECT_ID" \
+            '.data.repository.issue.projectItems.nodes[]? | select(.project.id == $pid) | .id' \
+        | head -1
+}
+
+add_issue_to_project() {
+    local slug="$1" num="$2" owner repo graphql_out item_id issue_node_id add_out
+    owner="${slug%/*}"; repo="${slug#*/}"
+    if ! graphql_out=$(_board_lookup "$owner" "$repo" "$num" 2>&1); then
         echo "issue_helpers: ERROR — GraphQL lookup failed for $slug#$num: $graphql_out" >&2
         echo "  Most likely cause: gh token missing 'project' scope. Fix: gh auth refresh -s project, retry." >&2
         return 1
     fi
-    item_id=$(printf '%s' "$graphql_out" \
-        | jq -r --arg pid "$GITFLOW_PROJECT_ID" \
-            '.data.repository.issue.projectItems.nodes[]? | select(.project.id == $pid) | .id' \
-        | head -1)
+    item_id=$(_board_item_id "$graphql_out")
     if [ -n "$item_id" ]; then
         echo "$item_id existing"
         return 0
@@ -477,6 +488,16 @@ add_issue_to_project() {
             addProjectV2ItemById(input: { projectId: \$pid, contentId: \$cid }) { item { id } }
         }" \
         -f pid="$GITFLOW_PROJECT_ID" -f cid="$issue_node_id" 2>&1); then
+        case "$add_out" in
+            *"Content already exists in this project"*)
+                if graphql_out=$(_board_lookup "$owner" "$repo" "$num" 2>&1); then
+                    item_id=$(_board_item_id "$graphql_out")
+                    if [ -n "$item_id" ]; then
+                        echo "$item_id existing"
+                        return 0
+                    fi
+                fi ;;
+        esac
         echo "issue_helpers: ERROR — $slug#$num is not on the configured project (PROJECT_ID=$GITFLOW_PROJECT_ID), and adding it failed: ${add_out:-the issue lookup returned no node ID}" >&2
         echo "  Fix one of:" >&2
         echo "    - Missing 'project' scope on the gh token: gh auth refresh -s project, retry." >&2

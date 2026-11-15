@@ -149,8 +149,9 @@ control in the canvas's Tweaks panel and read as `this.props.<name>`.
   flip shows the system exactly as it stands, every override off.
 - **Name a gap for what it is, never for where it first appears** — `fieldRow`, not
   `payForm`. Settle what it is before building its tweak, by the design-system skill's
-  check for a new part: a fresh agent shown only a description says which existing part it
-  extends, or the generic name a new part takes. The key is that name.
+  duplicate question (`references/judge-questions.md`, DUPLICATE-BLOCK): the judge says
+  whether an existing block already draws it; the name is the block type's, or the
+  existing block's with a word for how the variant differs. The key is that name.
 - **A gap's tweak lives on ONE page, the one it is judged on** — a tweak flips only the
   page it is on. A gap that also appears on other pages shows there as designed, with no
   tweak, until it is decided. Name its home page when you tell the person about the gap.
@@ -162,14 +163,13 @@ control in the canvas's Tweaks panel and read as `this.props.<name>`.
   approval.** Each option is a letter: `Undecided — A` (shown, not yet approved) and
   `Approved — A` (shown, approved), then B and C for further options; then `System as is`
   (rejected — the person does not want the addition). Undecided and Approved render the
-  same; only the approval differs. The default is `Undecided — <the letter you
-  recommend>`. `check-design.mjs` reads the states from the saved defaults and reports
+  same; only the approval differs. The default is `Undecided — A`; the AI recommends no option. `check-design.mjs` reads the states from the saved defaults and reports
   them; an option without one of these prefixes fails it.
 - **The design folder's `tweaks-to-approve.md` defines every letter.** One entry per open gap,
   grouped by the page its tweak is on: what the letter adds; what it is for; where it is,
   on every page it shows; a `System as is → A` table of the exact values that change; what
   the page draws outside the tweak, which approving it approves too; every value off the
-  scale; the part it extends or the new part's name; and **Phone only**, naming the frame
+  scale; the block it extends or the new block's name; and **Phone only**, naming the frame
   to flip it on, when it applies. It changes in the same edit as the design, and an entry
   leaves when its gap lands or is rejected.
 - **Tell the person the moment you create a gap** — in the same reply as the change that

@@ -44,12 +44,17 @@ repo() {
     echo "$r"
 }
 
-# ui <repo> <build:design-system> — adds packages/ui holding the design-system config.
+# ui <repo> <build:design-system> [<root build:design-system>] — adds packages/ui holding
+# the design-system config, and the root script handing the build to it ("" leaves it out).
 ui() {
     mkdir -p "$1/packages/ui/design-system"
     echo 'export default {}' > "$1/packages/ui/design-system/design-system.config.mjs"
     jq -n --arg b "$2" --arg c "$CHECK" \
         '{name:"@acme/ui",scripts:{"build:design-system":$b,"check:design-system":$c}}' > "$1/packages/ui/package.json"
+    local root="${3-npm run build:design-system -w @acme/ui}"
+    if [ -n "$root" ]; then
+        jq --arg r "$root" '.scripts["build:design-system"] = $r' "$1/package.json" > "$1/package.json.tmp" && mv "$1/package.json.tmp" "$1/package.json"
+    fi
 }
 
 # expect <name> <repo> <exit> <text the output must contain>
@@ -131,6 +136,12 @@ expect "a workflow on another major fails" "$r" 1 ".github/workflows/ci.yml: nod
 
 r=$(repo ui-right "$TOKENS" "packages/ui"); ui "$r" "$BUILD"
 expect "UI package with the kit build:design-system passes" "$r" 0 "4 design script(s) checked"
+
+r=$(repo ui-root-dir "$TOKENS" "packages/ui"); ui "$r" "$BUILD" "npm run build:design-system -w packages/ui"
+expect "the root may hand the build to the UI package by its folder" "$r" 0 "4 design script(s) checked"
+
+r=$(repo ui-no-root "$TOKENS" "packages/ui"); ui "$r" "$BUILD" ""
+expect "a workspace UI package with no root build:design-system fails, naming the command" "$r" 1 "package.json: no \"build:design-system\" script — the UI package is packages/ui, so the root hands the run to it: npm run build:design-system -w @acme/ui"
 
 r=$(repo ui-wrong "$TOKENS" "packages/ui"); ui "$r" "node scripts/build.mjs design-system/design-system.config.mjs"
 expect "UI package with build:design-system pointing elsewhere fails" "$r" 1 "packages/ui/package.json: \"build:design-system\""

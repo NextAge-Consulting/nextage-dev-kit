@@ -1,0 +1,9 @@
+{
+  "answer": "no",
+  "why": "purpose is general; silence is no",
+  "token": "text-muted",
+  "purpose": "secondary text",
+  "line": "<p className=\"text-muted\">Last synced an hour ago</p>",
+  "where": "screen apps/web/src/routes/settings.tsx",
+  "context": "<ScreenHeading title=\"Settings\" />\n<p className=\"text-muted\">Last synced an hour ago</p>"
+}

@@ -1,0 +1,9 @@
+{
+  "answer": "no",
+  "why": "a content cell",
+  "tag": "<td className=\"border-b px-related\">",
+  "children": "{row.name}",
+  "file": "apps/web/src/features/users/users.tsx",
+  "blockTypes": "ModalShell: screen content in a popup, ends Close. ConfirmDialog: one short question. PageBanner: a standing message about the screen. ScreenHeading: the title and actions of a screen. BrowseToolbar: search, filters and add above a collection. Row: one record in a collection. FieldGroup: a titled group of fields. EmptyState: nothing to show, with the next action. StatTile: one headline figure.",
+  "blocks": []
+}

@@ -23,11 +23,25 @@ describe('colour fallbacks', () => {
     expect(css).toContain(`${FALLBACK} { :root:where(.dark, .dark *) { --input: #000000; --field: #00000080 }}`)
   })
 
-  it("leaves utilities and Tailwind's own @supports fallbacks alone", async () => {
+  it('gives a token the minifier moved into a colour-support block its fallback after that block, through its theme', async () => {
+    // Tailwind's build leaves a cruder value outside and the real one inside a block testing for color-mix().
+    const { css, warnings } = await run(
+      ':root { --input: oklch(1 0 0) } :root:where(.dark, .dark *) { --input: oklch(0 0 0); --field: var(--input) } @supports (color: color-mix(in lab, red, red)) { :root:where(.dark, .dark *) { --field: color-mix(in oklab, var(--input) 30%, transparent) } }',
+    )
+    expect(warnings).toEqual([])
+    const enhancement = css.indexOf('@supports (color: color-mix(in lab, red, red))')
+    const fallback = css.indexOf(`${FALLBACK} { :root:where(.dark, .dark *) { --field: #0000004d }}`)
+    expect(enhancement).toBeGreaterThan(-1)
+    expect(fallback).toBeGreaterThan(enhancement)
+  })
+
+  it('leaves utilities, a support test of anything but colour, and its own blocks alone', async () => {
     const { css } = await run(
-      '.bg-x { --tw-color: oklch(1 0 0) } @supports (color: color-mix(in lab, red, red)) { :root { --x: color-mix(in oklab, var(--y) 50%, transparent) } }',
+      '@supports (color: color-mix(in lab, red, red)) { .bg-x { background: color-mix(in oklab, red 50%, transparent) } } @supports (not (-webkit-appearance: -apple-pay-button)) { :root { --x: oklch(1 0 0) } }',
     )
     expect(css).not.toContain('@supports not')
+    const own = await run(`${FALLBACK} { :root { --x: oklch(1 0 0) } }`)
+    expect(own.css.split('@supports not').length).toBe(2)
   })
 
   it('reports a token it cannot resolve, and adds nothing for it', async () => {

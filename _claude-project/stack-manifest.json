@@ -55,7 +55,7 @@
     "decide whether it affects how WE use it, and update whatever references it",
     "invalidates. Never bump this file to make a build pass."
   ],
-  "blessed_at": "2026-10-16",
+  "blessed_at": "2026-11-11",
   "_node_notes": [
     "The one Node major every project runs: its .nvmrc names it, its root engines.node",
     "allows nothing older, and every Dockerfile node: image, CI node-version and CodeBuild",
@@ -69,16 +69,18 @@
   },
   "packages": {
     "@tanstack/react-router": {
-      "version": "1.170.44",
+      "version": "1.170.46",
       "applies": "whenDeclared",
       "severity": "required",
-      "installedBy": "project"
+      "installedBy": "project",
+      "blessedAt": "2026-11-11"
     },
     "@tanstack/react-start": {
-      "version": "1.169.2",
+      "version": "1.169.4",
       "applies": "whenDeclared",
       "severity": "required",
-      "installedBy": "project"
+      "installedBy": "project",
+      "blessedAt": "2026-11-11"
     },
     "@tanstack/react-router-ssr-query": {
       "version": "1.167.3",
@@ -116,14 +118,17 @@
       "severity": "required",
       "installedBy": "project",
       "blessedAt": "2026-10-16",
+      "advisoriesReviewed": {
+        "GHSA-p4f5-76q4-ffq7": "It needs a dev server exposed to the network, and the only way the kit exposes one is `/dev <app> --tunnel`, a short session a developer opens deliberately and closes; 8.3.7 fixes it, and a project that tunnels takes that version."
+      },
       "why": "TanStack Start peers vite >=8.0.0 with no upper bound, so without a pin a fresh install would take a Vite major the kit has never run. Two copies of Vite in one tree make the router's instance checks fail and every route 404 (dependency-management.md); the lockfile check compares each declaring workspace's resolved copy against this one."
     },
     "better-auth": {
-      "version": "1.7.10",
+      "version": "1.7.18",
       "applies": "whenDeclared",
       "severity": "required",
       "installedBy": "project",
-      "blessedAt": "2026-10-16",
+      "blessedAt": "2026-11-11",
       "advisoriesReviewed": {
         "GHSA-fmh4-wcc4-5jm3": "No version fixes it: the fix is configuration, and the bible's auth.md (Organizations) prescribes it for any project using the organization plugin."
       },
@@ -273,7 +278,8 @@
       "file": "data-loading.md",
       "distilled_from": [
         "@tanstack/router-core: router-core/data-loading",
-        "@tanstack/router-core: router-core/ssr"
+        "@tanstack/router-core: router-core/ssr",
+        "@tanstack/react-router: compositions/router-query"
       ],
       "plus": "our router+query wiring and guard pattern"
     },
@@ -295,7 +301,7 @@
     {
       "file": "queries-and-mutations.md",
       "distilled_from": [],
-      "plus": "entirely ours — TanStack ships no Query skill"
+      "plus": "entirely ours — TanStack ships no Query skill; the router+query wiring upstream's router-query skill covers is data-loading.md's"
     },
     {
       "file": "browse-tables.md",
@@ -369,9 +375,9 @@
   ],
   "watch": {
     "@tanstack/query-intent": {
-      "why": "TanStack/query PR #10879 (29 Query skills in a new @tanstack/query-intent package) was closed unmerged on 2026-08-17 with no replacement, and react-query ships no skills. The only upstream Query guidance for agents is react-router's compositions/router-query skill, which exists in the router repo but is not in the published package (its files are dist and src). queries-and-mutations.md stays ours.",
+      "why": "TanStack/query PR #10879 (29 Query skills in a new @tanstack/query-intent package) was closed unmerged on 2026-08-17 with no replacement, and react-query ships no skills. The only upstream Query guidance for agents is react-router's compositions/router-query skill, which covers the router wiring data-loading.md is distilled from, not keys, mutations or cache repair. queries-and-mutations.md stays ours.",
       "pr": "https://github.com/TanStack/query/pull/10879",
-      "action": "When router-query is published, or Query ships skills of its own, re-distil queries-and-mutations.md against it and keep only our decisions on top."
+      "action": "When Query ships skills of its own, re-distil queries-and-mutations.md against them and keep only our decisions on top."
     },
     "start-middleware": {
       "why": "We deliberately do NOT use createMiddleware for auth (server-functions.md). #2783 — server middleware in the client bundle — was open Nov 2024 to Feb 2026. Still open as of 2026-10-16: #7213 (middleware calling a server function in another file throws; a 2026-09 comment reports it hanging in production on Vite 8 — unverified) and #7459 (createMiddleware undefined on cold-start SSR in vite dev, labelled needs-upstream-fix).",
@@ -389,6 +395,13 @@
         "https://github.com/TanStack/form/issues/2384"
       ],
       "action": "When the fixes ship in a 1.x release, bump react-form and react-form-start together."
+    },
+    "@biomejs/biome 2.6": {
+      "why": "Held at 2.5.15 on 2026-11-11. Biome 2.6 adds correctness/noComponentHookFactories to the recommended preset at error severity, and it reports capitalised object-literal properties and nested functions that are not React components or hooks (#12625), so `biome lint` fails on code with nothing wrong in it. 2.6.6 is the first 2.6 release safe for biome.base.json: before it, configuring rules in a group of more than 256 could enable or disable the wrong rule (#12954), and the nursery group the base configures is past that size.",
+      "issues": [
+        "https://github.com/biomejs/biome/issues/12625"
+      ],
+      "action": "When #12625 is fixed in a release, measure that release's `biome lint` against the consumers before raising the pin, to 2.6.6 or later, and move biome.base.json's $schema in the same change."
     }
   },
   "ssr_no_external": {

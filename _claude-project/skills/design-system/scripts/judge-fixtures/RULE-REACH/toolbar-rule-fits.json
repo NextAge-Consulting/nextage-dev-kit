@@ -1,0 +1,12 @@
+{
+  "answer": "no",
+  "why": "fits; not following is another question",
+  "rule": "---\nblock-types: [BrowseToolbar]\n---\n# Browse filtering\n\nSearch is leftmost. Facets open in a popover. The add action is rightmost.",
+  "blockTypes": "block-types: [BrowseToolbar]",
+  "block": {
+    "name": "BrowseToolbar",
+    "type": "BrowseToolbar",
+    "summary": "Search, facet popover trigger, view switch, add button; the add button sits before the search today.",
+    "inventoryLine": "| `BrowseToolbar` | search, filters, view switch and add above a collection | BrowseToolbar | approved |"
+  }
+}

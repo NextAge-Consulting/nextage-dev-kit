@@ -1,0 +1,11 @@
+{
+  "answer": "no",
+  "why": "specific to its object; content question, not naming",
+  "name": "ResidentRecord",
+  "blockType": "RecordScreen",
+  "summary": "Renders a resident: name, unit, move-in date, balance card, tenancy actions; reads the resident object directly.",
+  "screens": [
+    "resident record (portal)",
+    "resident record (back office)"
+  ]
+}

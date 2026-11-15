@@ -1,0 +1,8 @@
+{
+  "answer": "yes",
+  "why": "type is the button's",
+  "component": "Button",
+  "class": "type-metadata",
+  "tag": "<Button variant=\"outline\" className=\"type-metadata\">",
+  "kind": "atom"
+}

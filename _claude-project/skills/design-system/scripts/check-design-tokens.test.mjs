@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { checkDesignTokens, NOT_SET_UP, parityProblems, purposesOf } from './check-design-tokens.mjs'
+import { checkDesignTokens, hasRule, NOT_SET_UP, parityProblems, purposesOf } from './check-design-tokens.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ENGINE = path.resolve(HERE, '../../claude-design/scripts')
@@ -176,7 +176,18 @@ function fixture(files = {}, { keys = KEYS } = {}) {
   return dir
 }
 
-const run = async (files, opts) => checkDesignTokens(fixture(files, opts))
+const { writeDesignMd } = await import(path.join(ENGINE, 'design-md.mjs'))
+/** A fixture whose design.md token section is generated, unless the test wrote its own. */
+async function prepared(files = {}, opts) {
+  const dir = fixture(files, opts)
+  if (!('design.md' in files) && !(opts?.keys && !opts.keys.DESIGN_TOKEN_FILES) && fs.existsSync(path.join(dir, 'packages/ui/src/tokens.css'))) {
+    try {
+      await writeDesignMd(dir)
+    } catch {}
+  }
+  return dir
+}
+const run = async (files, opts) => checkDesignTokens(await prepared(files, opts))
 const PIECE = 'apps/web/src/components/piece.tsx'
 const screen = (body, imports = '') => ({ [PIECE]: `${imports}\nexport function S() {\n  return ${body}\n}\n` })
 
@@ -252,24 +263,25 @@ test('roles the CSS defines pass: a leading token, a radius corner, a colour wit
   assert.deepEqual(problems, [])
 })
 
-test('spacing between the steps of the scale fails: the kit default has no 20px, no 40px and no 2px', async () => {
+test('spacing between steps is judged only against the project\'s own scale; with no config none is judged', async () => {
   const { problems, notes } = await run(screen('<div className="p-5 gap-10 mt-0.5 px-6 gap-2" />'))
-  assert.deepEqual(problems.map((p) => p.split('  ')[1]).sort(), ['gap-10', 'mt-0.5', 'p-5'])
-  assert.match(problems.join('\n'), /not a step of the spacing scale \(0, 4, 8, 12, 16, 24, 32, 48px\)/)
-  assert.ok(notes.some((n) => /spacing scale: .* from the kit's default/.test(n)))
+  assert.deepEqual(problems, [])
+  assert.ok(notes.some((n) => /spacing scale: the project declares none/.test(n)))
 })
 
 test("a project's own spacing steps replace the kit's", async () => {
   const dir = await withConfig({ 'packages/ui/design-system/design-system.config.mjs': CONFIG.replace('steps: [0, 1, 2, 3, 4, 6, 8, 12]', 'steps: [0, 1, 2, 3, 4, 5, 6, 8, 12]'), ...screen('<div className="p-5 gap-10" />') })
   const { problems, notes } = await checkDesignTokens(dir)
   assert.deepEqual(problems.filter((p) => /spacing scale/.test(p)).map((p) => p.split('  ')[1]), ['gap-10'])
+  assert.match(problems.join('\n'), /not a step of the spacing scale \(0, 4, 8, 12, 16, 20, 24, 32, 48px\)/)
   assert.ok(notes.some((n) => /from packages\/ui\/design-system\/design-system\.config\.mjs/.test(n)))
 })
 
 test('spacing between the steps on an untouched line is left alone; the changed line is judged', async () => {
-  const dir = fixture({ 'apps/web/src/routes/orders.tsx': 'export const S = () => <>\n  <div className="p-5" />\n</>\n' })
+  const dir = fixture({ 'packages/ui/design-system/design-system.config.mjs': CONFIG, 'apps/web/src/routes/orders.tsx': 'export const S = () => <>\n  <div className="p-5" />\n</>\n' })
   const git = (...args) => execFileSync('git', ['-C', dir, '-c', 'user.email=t@example.com', '-c', 'user.name=t', ...args])
   git('init', '-q')
+  await writeDesignMd(dir)
   git('add', '-A')
   git('commit', '-qm', 'base')
   const base = String(git('rev-parse', 'HEAD')).trim()
@@ -480,7 +492,7 @@ test('a token nothing reaches fails, unless it is marked not-yet-built', async (
 
 test('a breakpoint used only through its variant prefix or an @variant block is reached; one used nowhere still fails', async () => {
   const { problems } = await run({
-    'packages/ui/src/tokens.css': `${TOKENS.replace(':root {', ':root {\n  --breakpoint-phone: 30rem;\n  --breakpoint-tablet: 48rem;\n  --breakpoint-wide: 80rem;\n  --breakpoint-later: 96rem;')}\n@utility sheet {\n  bottom: 0;\n  @variant phone {\n    bottom: auto;\n  }\n}\n`,
+    'packages/ui/src/tokens.css': `${TOKENS.replace(':root {', ':root {\n  /* publish: off */\n  /* the phone breakpoint */\n  --breakpoint-phone: 30rem;\n  /* the tablet breakpoint */\n  --breakpoint-tablet: 48rem;\n  /* the wide breakpoint */\n  --breakpoint-wide: 80rem;\n  /* a breakpoint for later */\n  --breakpoint-later: 96rem;\n  /* publish: on */')}\n@utility sheet {\n  bottom: 0;\n  @variant phone {\n    bottom: auto;\n  }\n}\n`,
     'packages/ui/src/components/bar.tsx': 'export const bar = "grid tablet:grid-cols-2 max-wide:hidden"\n',
   })
   assert.ok(!problems.some((p) => /--breakpoint-(phone|tablet|wide)/.test(p)), problems.join('\n'))
@@ -489,7 +501,7 @@ test('a breakpoint used only through its variant prefix or an @variant block is 
 
 test('a token named by Tailwind\'s variable shorthand is reached; one used nowhere still fails', async () => {
   const { problems } = await run({
-    'packages/ui/src/tokens.css': TOKENS.replace(':root {', ':root {\n  --tall: 40px;\n  --hint: #00ff00;\n  --later: #ff0000;'),
+    'packages/ui/src/tokens.css': TOKENS.replace(':root {', ':root {\n  /* publish: off */\n  /* a tall control */\n  --tall: 40px;\n  /* publish: on */\n  /* a hint fill */\n  --hint: #00ff00;\n  /* a colour for later */\n  --later: #ff0000;'),
     'packages/ui/src/components/bar.tsx': 'export const bar = "min-h-(--tall) hover:bg-(color:--hint)"\n',
   })
   assert.ok(!problems.some((p) => /--tall|--hint/.test(p)), problems.join('\n'))
@@ -531,23 +543,113 @@ test('a token file that does not parse fails, and is not reported as having no d
   assert.doesNotMatch(notes.join(' '), /no dark theme/)
 })
 
-test('design.md: a missing frontmatter key, a role without an entry, an unknown quoted class, an off-grid frontmatter pixel', async () => {
-  const design = DESIGN.replace('  formControl:\n    fontSize: 14px\n', '').replace('  panel: 8px\n', '  panel: 8px\n  card: 15px\n').replace('a 14px body.', 'a 14px body, `rounded.huge`, {colors.secondary}, `type-caption`, and a 375px phone.')
-  const { problems } = await run({ 'design.md': design })
-  const text = problems.join('\n')
-  assert.match(text, /type-form-control {2}— a type role with no typography entry/)
-  assert.match(text, /rounded\.huge {2}— no such key in the frontmatter/)
-  assert.match(text, /\{colors\.secondary\} {2}— no such key/)
-  assert.match(text, /type-caption {2}— no such type role/)
-  assert.match(text, /15px {2}— off the grid/)
-  assert.doesNotMatch(text, /375px/, 'a pixel value in the prose is the judge\'s')
-  assert.ok(problems.length >= 5)
+test('design.md: a token section the stylesheet would not generate is out of date; the generated one is current', async () => {
+  const stale = await run({ 'design.md': DESIGN })
+  assert.ok(stale.problems.some((p) => /design\.md {2}token section out of date/.test(p)), stale.problems.join('\n'))
+  const dir = await prepared()
+  const fresh = await checkDesignTokens(dir)
+  assert.deepEqual(fresh.problems, [])
+  assert.equal(fresh.counts.designCurrent, true)
+  fs.writeFileSync(path.join(dir, 'packages/ui/src/tokens.css'), TOKENS.replace('--radius-panel: 8px;', '--radius-panel: 10px;'))
+  const changed = await checkDesignTokens(dir)
+  assert.ok(changed.problems.some((p) => /token section out of date/.test(p)))
+  await writeDesignMd(dir)
+  assert.deepEqual((await checkDesignTokens(dir)).problems, [])
 })
 
-test('design.md: a `---` inside a frontmatter comment does not end the frontmatter', async () => {
-  const design = DESIGN.replace('---\n', '---\n# --- the ramp: raw values ---\n')
-  const { problems } = await run({ 'design.md': design })
-  assert.deepEqual(problems, [])
+// Tailwind for the ships check, from the global npm root, as TypeScript is found: the check
+// compiles an app's stylesheet with the project's own Tailwind, and a fixture has none.
+const TAILWIND_GLOBAL = (() => {
+  try {
+    const root = execFileSync('npm', ['root', '-g'], { encoding: 'utf8' }).trim()
+    const needed = ['tailwindcss', '@tailwindcss/node', '@tailwindcss/oxide']
+    return needed.every((p) => fs.existsSync(path.join(root, p))) ? root : null
+  } catch {
+    return null
+  }
+})()
+/** A fixture whose node_modules resolve Tailwind from the global root. */
+function withTailwind(dir) {
+  for (const p of ['tailwindcss', '@tailwindcss/node', '@tailwindcss/oxide']) {
+    const to = path.join(dir, 'node_modules', p)
+    fs.mkdirSync(path.dirname(to), { recursive: true })
+    fs.symlinkSync(path.join(TAILWIND_GLOBAL, p), to)
+  }
+  return dir
+}
+const SHIPS_SKIP = TAILWIND_GLOBAL ? false : 'the ships check needs Tailwind installed globally (npm i -g tailwindcss @tailwindcss/node @tailwindcss/oxide)'
+const SHARED = {
+  'packages/web/package.json': '{ "name": "@acme/web", "dependencies": { "@acme/ui": "*" } }\n',
+  'packages/web/src/components/shell.tsx': 'export function Shell({ children }: { children?: unknown }) {\n  return <section className="py-4 bg-background">{children}</section>\n}\n',
+  'apps/web/package.json': '{ "name": "web", "dependencies": { "@acme/ui": "*", "@acme/web": "*" } }\n',
+}
+const ENTRY_UI_ONLY = '@import "tailwindcss" source("./");\n@source "../../../packages/ui/src/**/*.{ts,tsx}";\n'
+
+test('ships: a class used only in a workspace the app imports but its stylesheet does not scan fails, naming the folder and the @source line to add', { skip: SHIPS_SKIP }, async () => {
+  const dir = withTailwind(await prepared({ ...SHARED, 'apps/web/src/styles.css': ENTRY_UI_ONLY }))
+  const { problems, counts, notes } = await checkDesignTokens(dir)
+  const ships = problems.filter((p) => p.startsWith('apps/web/src/styles.css'))
+  assert.equal(ships.length, 1, problems.join('\n'))
+  assert.match(ships[0], /^apps\/web\/src\/styles\.css {2}py-4 {2}— used in packages\/web\/src\/components\/shell\.tsx:2 but not in the CSS this app builds — its stylesheet does not scan packages\/web\/src; add @source "\.\.\/\.\.\/\.\.\/packages\/web\/src\/\*\*\/\*\.\{ts,tsx\}"$/)
+  assert.equal(counts.shipsEntries, 1)
+  assert.ok(counts.shipsClasses > 0)
+  assert.match(notes.join(' '), /ships: 1 app stylesheet\(s\) compiled/)
+})
+
+test('ships: the same app with the folder scanned passes, and a class Tailwind makes no rule of is never a finding', { skip: SHIPS_SKIP }, async () => {
+  const dir = withTailwind(await prepared({ ...SHARED, 'apps/web/src/styles.css': `${ENTRY_UI_ONLY}@source "../../../packages/web/src/**/*.{ts,tsx}";\n` }))
+  const { problems } = await checkDesignTokens(dir)
+  assert.deepEqual(problems.filter((p) => p.startsWith('apps/web/src/styles.css')), [], problems.join('\n'))
+})
+
+test('a call site that restyles a project component fails, by what Tailwind says the class sets; placing it passes', { skip: SHIPS_SKIP }, async () => {
+  const caller = (classes) => ({ 'apps/web/src/routes/orders.tsx': `import { Shell } from "@acme/web/components/shell"\nexport const Orders = () => <Shell className="${classes}">x</Shell>\n` })
+  const check = async (classes) => (await checkDesignTokens(withTailwind(await prepared({ ...SHARED, 'apps/web/src/styles.css': `${ENTRY_UI_ONLY}@source "../../../packages/web/src/**/*.{ts,tsx}";\n`, ...caller(classes) })))).problems.filter((p) => p.startsWith('apps/web/src/routes/orders.tsx'))
+  const bad = await check('mt-4 w-full p-2 gap-1 [&_p]:underline hover:opacity-50')
+  assert.deepEqual(bad.map((p) => p.split('  ')[1]).sort(), ['<Shell> [&_p]:underline', '<Shell> gap-1', '<Shell> hover:opacity-50', '<Shell> p-2'], bad.join('\n'))
+  assert.match(bad.find((p) => p.includes('p-2')), /a call site places a component and never restyles it; this sets padding — the component carries that, as a variant or an option$/)
+  assert.deepEqual(await check('mt-4 w-full max-w-md col-span-2 self-end items-center hidden md:block sr-only absolute top-0 z-10 overflow-hidden'), [], 'where it sits, how wide, how it shares and aligns, whether it shows, and a screen-reader class')
+  const accepted = { 'apps/web/src/routes/orders.tsx': 'import { Shell } from "@acme/web/components/shell"\nexport const Orders = () => (\n  // design-accepted — the kiosk shell is tighter\n  <Shell className="p-2">x</Shell>\n)\n' }
+  assert.deepEqual((await checkDesignTokens(withTailwind(await prepared({ ...SHARED, 'apps/web/src/styles.css': `${ENTRY_UI_ONLY}@source "../../../packages/web/src/**/*.{ts,tsx}";\n`, ...accepted })))).problems.filter((p) => p.startsWith('apps/web/src/routes/orders.tsx')), [], 'the human\'s design-accepted on the line above answers for it')
+})
+
+test('restyling at a call site is judged on the lines a change touched, in a part as in a screen', { skip: SHIPS_SKIP }, async () => {
+  const part = (extra) => `import { Shell } from "@acme/web/components/shell"\nexport function Wrap() {\n  return <>\n    <Shell className="p-2">old</Shell>\n${extra}  </>\n}\n`
+  const dir = withTailwind(await prepared({ ...SHARED, 'apps/web/src/styles.css': `${ENTRY_UI_ONLY}@source "../../../packages/web/src/**/*.{ts,tsx}";\n`, 'apps/web/src/components/wrap.tsx': part('') }))
+  const git = (...args) => execFileSync('git', ['-C', dir, '-c', 'user.email=t@example.com', '-c', 'user.name=t', ...args])
+  fs.writeFileSync(path.join(dir, '.gitignore'), 'node_modules\n')
+  git('init', '-q')
+  git('add', '-A')
+  git('commit', '-qm', 'base')
+  const base = String(git('rev-parse', 'HEAD')).trim()
+  const restyles = (r) => r.problems.filter((p) => /never restyles/.test(p)).map((p) => p.split('  ').slice(0, 2).join(' '))
+  assert.deepEqual(restyles(await checkDesignTokens(dir, { base })), [], 'a part nobody has touched keeps the padding it had')
+  fs.writeFileSync(path.join(dir, 'apps/web/src/components/wrap.tsx'), part('    <Shell className="gap-1">new</Shell>\n'))
+  assert.deepEqual(restyles(await checkDesignTokens(dir, { base })), ['apps/web/src/components/wrap.tsx:5 <Shell> gap-1'], 'the line the change added is held; the line above it is not')
+  assert.equal(restyles(await checkDesignTokens(dir, { all: true })).length, 2, 'an audit holds every line')
+})
+
+test('call sites are not judged for restyling with no Tailwind stylesheet, and the check says so', async () => {
+  const { notes } = await run({ 'apps/web/src/routes/orders.tsx': 'import { Card } from "@acme/ui/components/card"\nexport const Orders = () => <Card className="p-2">x</Card>\n' })
+  assert.match(notes.join(' '), /call sites: not judged for restyling — no stylesheet imports tailwindcss/)
+})
+
+test('ships: with no app stylesheet importing tailwindcss it does not apply, and says so', async () => {
+  const { notes, counts } = await run()
+  assert.match(notes.join(' '), /ships: no app stylesheet imports tailwindcss — does not apply/)
+  assert.equal(counts.shipsEntries, 0)
+})
+
+test('ships: an entry stylesheet with no Tailwind installed from the root fails, never passes unbuilt', async () => {
+  const { problems } = await run({ 'apps/web/src/styles.css': ENTRY_UI_ONLY })
+  assert.ok(problems.some((p) => /^apps\/web\/src\/styles\.css {2}cannot be compiled {2}— @tailwindcss\/node and @tailwindcss\/oxide are not installed/.test(p)), problems.join('\n'))
+})
+
+test('hasRule finds a class by its own selector, escaped as Tailwind writes it, never a longer class', () => {
+  assert.equal(hasRule('.py-4 { padding-block: 1rem; }', 'py-4'), true)
+  assert.equal(hasRule('.py-4\\.5 { padding-block: 1.125rem; }', 'py-4'), false)
+  assert.equal(hasRule('.hover\\:bg-x:hover { color: red }', 'hover:bg-x'), true)
+  assert.equal(hasRule('.py-40 {}', 'py-4'), false)
 })
 
 test("the project slot runs every check in the UI package's design-system/checks/", async () => {
@@ -584,6 +686,7 @@ async function withConfig(extra = {}) {
     ...extra,
   })
   execFileSync('git', ['init', '-q'], { cwd: dir })
+  await writeDesignMd(dir)
   return dir
 }
 
@@ -738,7 +841,7 @@ test('the arguments of a helper that returns classes are values, not classes; a 
 })
 
 test('the screen rules judge only lines changed since the base; untouched lines pass, all: true judges every line', async () => {
-  const dir = fixture({ 'apps/web/src/routes/orders.tsx': 'export const S = () => <>\n  <div className="text-foreground/50" />\n</>\n' })
+  const dir = await prepared({ 'apps/web/src/routes/orders.tsx': 'export const S = () => <>\n  <div className="text-foreground/50" />\n</>\n' })
   const git = (...args) => execFileSync('git', ['-C', dir, '-c', 'user.email=t@example.com', '-c', 'user.name=t', ...args])
   git('init', '-q')
   git('add', '-A')
@@ -755,7 +858,7 @@ test('the screen rules judge only lines changed since the base; untouched lines 
 })
 
 test('a screen moved into a feature folder is judged by its edits, not as a new file', async () => {
-  const dir = fixture({ 'apps/web/src/components/Roles.tsx': 'export const R = () => <>\n  <div className="text-foreground/50" />\n</>\n' })
+  const dir = await prepared({ 'apps/web/src/components/Roles.tsx': 'export const R = () => <>\n  <div className="text-foreground/50" />\n</>\n' })
   const git = (...args) => execFileSync('git', ['-C', dir, '-c', 'user.email=t@example.com', '-c', 'user.name=t', ...args])
   git('init', '-q')
   git('add', '-A')
@@ -770,7 +873,7 @@ test('a screen moved into a feature folder is judged by its edits, not as a new 
 
 test('the role list names every role a screen may write, one family per line', async () => {
   const { roleList } = await import('./check-design-tokens.mjs')
-  const list = roleList(fixture())
+  const list = roleList(await prepared())
   assert.match(list, /^type roles: type-body type-form-control$/m)
   assert.match(list, /^radius: rounded-control rounded-panel$/m)
   assert.match(list, /^colours \(bg-, text-, border-\): .*\bprimary\b/m)
@@ -784,15 +887,20 @@ test('a class list built as an array and joined is read as classes', async () =>
   assert.deepEqual(problems.map((p) => p.split('  ')[1]).sort(), ['rounded-lg', 'shadow-lg', 'text-sm'])
 })
 
-test('purposes: the comment above or beside a token or utility, a re-export taking what it points at, a gap left empty', () => {
+test('purposes: the comment above or beside a token or utility, never a check\'s marker, a re-export taking what it points at, a gap left empty', () => {
   const p = purposesOf([
-    ['tokens.css', ':root {\n  /* ─── ramp ─── */\n  /* the page */\n  --background: #fff;\n  --input: #ccc; /* a field\'s border */\n\n  --step-12: 12px;\n}\n'],
+    ['tokens.css', ':root {\n  /* ─── ramp ─── */\n  /* the page */\n  --background: #fff;\n  --input: #ccc; /* a field\'s border */\n  /* an error message\'s text */\n  --error: #d22; /* contrast-accepted: 4.41 — kept as is */\n  --warn: #a60; /* a warning\'s text */ /* contrast-accepted: 3.10 — kept as is */\n\n  --step-12: 12px;\n}\n'],
     ['type.css', '/* why a field\'s value was refused,\n   and nothing else */\n@utility type-field-error {\n  font-size: var(--step-12);\n}\n'],
     ['styles.css', '@theme {\n  --color-background: var(--background);\n  --color-x: var(--nowhere);\n}\n'],
   ])
   assert.equal(p.get('--background'), 'the page')
   assert.equal(p.get('--input'), "a field's border")
+  assert.equal(p.get('--error'), "an error message's text", "a check's marker beside a token is not its purpose")
+  assert.equal(p.get('--warn'), "a warning's text")
   assert.equal(p.get('--step-12'), '')
+  const loose = purposesOf([['tokens.css', ':root {\n  /* ─── ramp ─── */\n  --under-header: #fff;\n  /* a comment, then a gap */\n\n  --after-gap: #000;\n}\n']])
+  assert.equal(loose.get('--under-header'), '', 'a group header is not a purpose')
+  assert.equal(loose.get('--after-gap'), '', 'a comment a blank line away is not a purpose')
   assert.equal(p.get('type-field-error'), "why a field's value was refused, and nothing else")
   assert.equal(p.get('--color-background'), 'the page')
   assert.equal(p.get('--color-x'), '')

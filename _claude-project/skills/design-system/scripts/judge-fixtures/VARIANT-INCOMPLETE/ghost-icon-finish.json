@@ -1,0 +1,12 @@
+{
+  "answer": "yes",
+  "why": "three callers finish it",
+  "component": "Button",
+  "variant": "ghost",
+  "definition": "bg-transparent text-foreground hover:bg-accent",
+  "callSites": [
+    "<Button variant=\"ghost\" className=\"size-7 p-0\">",
+    "<Button variant=\"ghost\" className=\"size-7 p-0\">",
+    "<Button variant=\"ghost\" className=\"size-7 p-0 rounded-pill\">"
+  ]
+}

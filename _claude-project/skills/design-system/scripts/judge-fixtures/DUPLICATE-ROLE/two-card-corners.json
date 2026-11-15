@@ -1,0 +1,14 @@
+{
+  "answer": "yes",
+  "why": "same job, values differ",
+  "a": {
+    "name": "--radius-card",
+    "purpose": "the corner of a card",
+    "value": "8px"
+  },
+  "b": {
+    "name": "--radius-panel",
+    "purpose": "a panel or card corner",
+    "value": "10px"
+  }
+}

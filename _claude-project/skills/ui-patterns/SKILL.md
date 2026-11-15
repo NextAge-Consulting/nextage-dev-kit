@@ -1,132 +1,128 @@
 ---
 name: ui-patterns
-description: The project's own UI patterns — how surfaces are COMPOSED and how they BEHAVE. Browse/list layouts, pagination, filtering, autosave, optimistic updates, loading/empty/error states, inline edit, multi-step flows. Use when building or changing how something is assembled or how it acts, not what it is made of. Each pattern is a reference file in references/; read the matching one before implementing. Complements the design-system skill, which owns tokens and atoms.
+description: The project's recipes and behaviour rules — how each page type is put together, and how the app acts on one topic. Use when composing a screen or changing how something behaves, not what it is made of. Each is a reference file in references/; read the matching ones before building. Complements the design-system skill, which owns the kinds, tokens and components.
 user-invocable: false
 ---
 
-# UI Patterns
+# Recipes and Behaviour Rules
 
-The home for **composition and behaviour**:
+The home for how a project's blocks combine and how its application acts. The
+`design-system` skill owns what a thing is made of; this skill owns the two kinds of
+reference that govern screens.
 
-- **`design-system`** — what a thing is *made of*. Tokens, atoms, colour, type,
-  spacing, `design.md` compliance.
-- **`ui-patterns`** (this skill) — how things are *assembled* and how they
-  *act*. Screen layouts, toolbars, pagination, autosave, optimistic UI, empty
-  and error states, inline edit, wizards.
+## Recipes and behaviour rules
 
-## The boundary test
+**A recipe** says how one page type (`references/block-types.md` in the `design-system`
+skill: BrowseScreen, RecordScreen, SettingsScreen, …) is put together. Its **frame** is a
+block in code: fixed, ordered slots accepting named block types, no content, carrying the
+behaviour every screen of the type shares. Its **instructions** are this file: which block
+fills each slot, and each choice the recipe leaves open as a yes/no or a pick from a closed
+list. It names one reference screen that shows it.
 
-> **What lever does this change pull?** If it is a lever `design.md` or a stock
-> component already owns — a colour, a radius, a button variant, a row height —
-> it is `design-system`. If it goes beyond what `design.md` is scoped to, it is
-> here.
+**A behaviour rule** says how the app acts on one topic — saving, cancelling, errors,
+loading, confirming, feedback, paging, filtering, sorting, navigation — across every
+surface. The code that carries it out lives in blocks or shared functions, and the rule
+lists them. Three button arrangements can share one save rule.
 
-| Decision | Home |
+A reference is one kind, never both. Arrangement that a block owns stays in the block;
+a guarantee a component makes is written on the component, not here.
+
+**A reference governs every app unless it says otherwise.** A repository with several
+apps on one design system — a shop, a customer portal, an office dashboard — gives a
+recipe or rule that holds for some of them an `apps:` line naming those workspaces. Two
+references whose apps never meet are never judged against each other, and a screen is
+held only to the references that govern its app. Two apps that share a cart share its
+rule by both being named on it.
+
+## Which kind, and whether it is one at all
+
+> Would another competent developer plausibly have built this differently, and would the
+> difference show to the user as inconsistency?
+
+Yes → it is a recipe instruction or a behaviour rule; write it. No → it is craft; build it
+and move on.
+
+| Craft — build it | A rule — settle it |
 |---|---|
-| Row height | design-system |
-| Which button variant a toolbar action uses | design-system |
-| Adding a `popover` atom | design-system |
-| How a page decides how many rows to show | **ui-patterns** |
-| What a toolbar contains and in what order | **ui-patterns** |
-| Showing active filters as a count vs. as chips | **ui-patterns** |
+| Type the name to confirm a destructive action | How a list behaves while it reloads |
+| Disabling submit until a required field is filled | Where a failed save shows its failure |
+| A spinner on the button you just pressed | What a browse toolbar holds, in what order |
 
-## A pattern names the ROLES its parts play
+A reference records this project's choice. Guidance equally true in any codebase does not
+belong in one.
 
-When a pattern describes a composite — a row, a card, a field block, a toolbar —
-it names which token role each part uses and says nothing about sizes.
+## How to use them
 
-> A row carries a `row-title`, a `row-subtitle` beneath it, and a `metadata` line.
+1. Read `rules/project/ui-inventory.md`, then the recipe for the page type and every
+   behaviour rule whose `block-types:` names the block types you are building.
+2. Build the screen from the recipe's frame; fill its slots with the blocks it names; make
+   each open choice from its closed list. Behaviour comes from the blocks that carry the
+   rules, never from the screen.
+3. No reference for what you need: research primary sources — a major design system's
+   published guidelines, the docs of the library you build on — build it, and write the
+   reference pending.
 
-A part no role names is a missing role — raise it with the design system, never
-invent a size here. The `design-system` skill's token section covers how a role
-gets named.
+## Writing one
 
-## Keep this skill at the skills root
+**Writing a reference or an inventory line is rule authoring: invoke the `rule-authoring`
+skill first.**
 
-It lives at `.claude/skills/ui-patterns/`. Claude Code does not discover a skill
-nested under `skills/project/`.
+Frontmatter, then a one-line summary, then the rules:
 
-## First: is it even a pattern?
+```yaml
+---
+kind: recipe
+frame: browse-screen
+reference: apps/web/src/routes/users.tsx
+block-types: [BrowseScreen]
+ui-status: pending
+---
+```
 
-> **Would another competent developer plausibly have built this differently, and
-> would that difference show up to the user as inconsistency?**
+```yaml
+---
+kind: behaviour
+code: [packages/ui/src/components/form-actions.tsx, packages/web/src/lib/unsaved-guard.ts]
+block-types: cross-cutting
+apps: [apps/shop, apps/dealer]
+ui-status: pending
+---
+```
 
-Yes → it is a pattern. Write its reference (below).
-No → it is craft. Build it and move on.
+`frame:` names the component as its inventory line does. `block-types:` names the types the
+reference governs, or `cross-cutting` for every type. `apps:` names the workspaces the
+reference governs, as the root `package.json` declares them; leave it out when it governs
+every app. A recipe's reference screen lives in one of its apps.
+Every file a rule's `code:` names points back at it (`// ui-behaviour:` on a block,
+`// ui-behaviour-code:` elsewhere). `check-ui-status.mjs` fails a pointer that names
+nothing.
 
-| Craft — build it | A pattern — settle it |
-|---|---|
-| Type the name to confirm a destructive action | How a list behaves while it reloads: skeleton, spinner, blank, or hold the old rows |
-| Disabling submit until a required field is filled | Whether filters show as chips or a count |
-| A spinner on the button you just pressed | What a toolbar contains and in what order |
-| Marking the current nav item as active | How a screen decides how many rows to show |
+A reference is an instruction and holds only what the next builder needs:
 
-**A reference records THIS project's choice.** Guidance equally true in any
-codebase does not belong in one.
+- **When it applies** — the surfaces and situations, and how to recognise one.
+- **How to build it** — each rule present tense and actionable, naming roles and blocks,
+  never a size, a pixel or a weight.
+- **What is excluded** — "Favourites are not reorderable."
 
-## How to use it
-
-1. **Look in `references/`** — one file per pattern, named for the pattern, first
-   line summarising it. Read the matching one **before** implementing, and every
-   reference whose `block-types:` names the block type you are building.
-2. **No reference for what you need? Research primary sources first.**
-   Real design systems — GitHub Primer, Nielsen Norman, GitLab Pajamas, Material,
-   PatternFly, Oracle's grid guidance — not model memory. Then build it, write its
-   reference marked pending (below), and carry on.
-3. **Patterns still obey the visual layer.** Invoke the `design-system` skill for
-   any styling the pattern needs; `rules/a11y-baseline.md` auto-loads on JSX and is
-   authoritative for accessibility.
-
-## A new pattern is written pending; only the human approves it (Zero Tolerance)
-
-**Write the reference when you build the pattern, with `ui-status: pending` in its
-frontmatter, and add its line to `rules/project/ui-inventory.md` as pending in the
-same pass.** The human approves it at the review (the `design-system` skill's Step
-2), and it becomes `approved` in both places. If they ask for changes, change the
-build and rewrite the reference to match.
-
-**Never mark a pattern approved yourself** — not in an autonomous session, not to
-close your own loop. Keep the research and the discarded options in the build's own
-code comments.
-
-## What a reference holds
-
-**Writing a reference or an inventory line is rule authoring: invoke the
-`rule-authoring` skill first**, whatever tool writes the file.
-
-A reference is an instruction, and it holds only what the next builder needs:
-
-- **When it applies** — the surfaces and situations it governs, and how to
-  recognise one.
-- **How to build it** — each rule present tense and actionable.
-- **What is excluded** — a prohibition: "Favourites are not reorderable — no
-  drag-to-reorder."
-- **Known limitations** of the pattern as specified.
-
-Nothing else. No why, no evidence, no sources, no incident, no dates, no names, no
-"originally", no record of what shipped or was removed. The pattern is the law
-because the project adopted it.
+Nothing else: no why, no sources, no incident, no dates, no record of what shipped, no
+backlog. The test for every sentence: does it change how the next screen is built?
 
 | Never write | Write instead |
 |---|---|
 | "The first attempt was a solid fill. It failed because…" | "No background fill of any kind." |
-| "The tabs went through two lives and lost both…" | "The top bar holds no navigation." |
 | "We considered X, then tried Y, and settled on Z." | "Z. Never X." |
 | "Decided with the customer on 3 March." | *(nothing)* |
 
-**Never a backlog.** A reference carries no feature ideas, no "future" or "still
-open" section, no open product questions and no status of what is built. Those go
-wherever the project tracks work.
+## Status
 
-The test for every sentence: **does it change how the next screen is built?** No →
-cut it.
+Write a new reference with `ui-status: pending` in its frontmatter and add its inventory
+line as pending in the same pass. The human approves it at the review (the
+`design-system` skill, "Prove, then put it to the human"), and it becomes `approved` in
+both places. **Never mark a reference approved yourself.** One the human sets aside is
+`deferred`, with its file's fingerprint on its inventory line, and is pending again when
+the file changes.
 
-## Adding a reference
+## Keep this skill at the skills root
 
-One file per pattern in this project's `references/`, which the kit ships empty
-and a sync never overwrites, named for what it governs — `row-actions.md`, never the
-project's own data. Open with frontmatter carrying its `ui-status` and its
-`block-types:` — the types from the `design-system` skill's `references/block-types.md`
-it governs, as a list (`[BrowseScreen, Pager]`), or `cross-cutting` when it governs
-every type. Lead with a one-line summary of the rule, then the rules themselves. Keep
-it short.
+It lives at `.claude/skills/ui-patterns/`. Claude Code does not discover a skill nested
+under `skills/project/`. `references/` ships empty and a sync never writes into it.

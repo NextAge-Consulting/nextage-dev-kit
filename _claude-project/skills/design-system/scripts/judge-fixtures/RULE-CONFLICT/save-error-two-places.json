@@ -1,0 +1,13 @@
+{
+  "answer": "yes",
+  "why": "one failure, two places",
+  "surface": "a record form",
+  "a": {
+    "file": "form-layout.md",
+    "text": "A failed save shows its failure line directly above the actions. The form stays open."
+  },
+  "b": {
+    "file": "save-errors.md",
+    "text": "When a save fails, a banner appears at the top of the form naming the failure; the actions stay as they were."
+  }
+}

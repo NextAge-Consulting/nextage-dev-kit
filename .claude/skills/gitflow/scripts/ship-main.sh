@@ -156,15 +156,12 @@ fi
 run_typecheck_gate "$SKIP_TYPECHECK" "shipping to main (or --skip-typecheck for a true emergency)" || exit $?
 run_biome_gate "shipping to main" || exit $?
 run_knip_gate "shipping to main" || exit $?
+run_design_gate "$FOLD_BASE" "shipping to main" || exit $?
 run_semgrep_gate "$FOLD_BASE" "shipping to main" || exit $?
 run_terraform_gate "$FOLD_BASE" "shipping to main" || exit $?
 run_terraform_lock_gate "$FOLD_BASE" "shipping to main" || exit $?
 run_project_gate "$FOLD_BASE" "shipping to main" || exit $?
 run_integration_gate "$FOLD_BASE" "shipping to main" || exit $?
-
-# Fit checks: a pending component carries its fit check's approval of the file as it
-# stands. Cheap and local, so it runs before the headless reviews.
-run_fit_check_gate "shipping to main" || exit $?
 
 # The headless reviews, side by side — rule prose against the rule-authoring standard,
 # new parts against the UI inventory, UI changes against the design system, changed

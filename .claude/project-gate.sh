@@ -30,6 +30,12 @@ suites_for() {
             echo "$f"
             return
             ;;
+        # A judge question or one of its cases: the whole case set is the suite, asked of the
+        # live model, so a question that drifts is caught before it ships.
+        _claude-project/skills/design-system/references/judge-questions.md | _claude-project/skills/design-system/scripts/judge-fixtures/*)
+            echo "_claude-project/skills/design-system/scripts/judge.mjs --test"
+            return
+            ;;
         _claude-project/stack-manifest.json)
             echo "tests/templates/check-stack.test.sh"
             return
@@ -69,6 +75,7 @@ run_suite() {
     case "$1" in
         *.test.mjs) node --test "$1" ;;
         *.test.sh) bash "$1" ;;
+        *" --test") node "${1% --test}" --test ;;
     esac
 }
 
@@ -135,7 +142,8 @@ main() {
 
     # The suites beside the changed files.
     local suites
-    suites=$(while IFS= read -r f; do suites_for "$f"; done <"$list" | sort -u | while IFS= read -r s; do [ -f "$s" ] && echo "$s"; done)
+    # A suite entry may carry flags after its path; only the path has to exist.
+    suites=$(while IFS= read -r f; do suites_for "$f"; done <"$list" | sort -u | while IFS= read -r s; do [ -f "${s%% *}" ] && echo "$s"; done)
     if [ -z "$suites" ]; then
         echo "project gate: suites: none beside the changed files." >&2
     else

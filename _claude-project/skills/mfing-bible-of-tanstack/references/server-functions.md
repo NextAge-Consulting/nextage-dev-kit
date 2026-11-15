@@ -20,8 +20,10 @@ export const getItemBrowse = createServerFn({ method: 'GET' })
 Call it as `getItemBrowse({ data: params })`. The `{ data }` wrapper is required
 on both sides — the argument is `{ data }`, the handler destructures `{ data }`.
 
-`GET` for reads, `POST` for writes. A `GET` server function can be cached and
-prefetched by the router; a `POST` never is.
+`GET` is the kit standard for reads and `POST` for writes. A `GET` sends its input
+in the URL's query string and a `POST` in the body, so consider `POST` for a read
+whose input can outgrow a URL — a browse carrying many filters — or must stay out
+of URLs and access logs.
 
 ## Auth is a line in the handler, not middleware
 

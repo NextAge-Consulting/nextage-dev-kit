@@ -1,0 +1,6 @@
+{
+  "answer": "yes",
+  "why": "the judge says departure and quotes the line; code sees the comment above the quoted line and discards the yes. Exceptions are never the judge's to weigh.",
+  "rule": "# Confirm\n\nA yes/no action that fails keeps its dialog open and replaces the description with the failure. The dialog closes only on success or Cancel.",
+  "screen": "onError: (err) => {\n  // design-accepted — this dialog is launched from a kiosk where the banner is the only visible surface\n  setOpen(false); setBanner(err.message)\n}"
+}

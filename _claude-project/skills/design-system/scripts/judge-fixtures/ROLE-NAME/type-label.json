@@ -1,0 +1,7 @@
+{
+  "answer": "yes",
+  "why": "label here is a size tier, the comment says small",
+  "name": "type-label",
+  "purpose": "small text for form field labels and captions",
+  "value": "12px/16px 500"
+}

@@ -1,0 +1,15 @@
+{
+  "answer": "no",
+  "why": "ends differently",
+  "new": {
+    "name": "PickerDialog",
+    "type": "PickerDialog",
+    "code": "export function PickerDialog({ open, rows, onPick }) {\n  return <Dialog open={open}><DialogContent><SearchInput /><ul>{rows.map(r => <li onClick={() => onPick(r)}>{r.label}</li>)}</ul></DialogContent></Dialog>\n}"
+  },
+  "existing": {
+    "name": "ModalShell",
+    "type": "ModalShell",
+    "code": "export function ModalShell({ open, title, children, onClose }) {\n  return <Dialog open={open}><DialogContent><DialogTitle>{title}</DialogTitle>{children}<DialogFooter><Button onClick={onClose}>Close</Button></DialogFooter></DialogContent></Dialog>\n}",
+    "inventoryLine": "| `ModalShell` | screen content in a popup that ends with Close | ModalShell | approved |"
+  }
+}

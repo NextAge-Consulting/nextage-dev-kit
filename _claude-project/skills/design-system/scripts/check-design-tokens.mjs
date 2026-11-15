@@ -51,13 +51,16 @@
  *              --<x>-foreground on --<x> — measures 4.5:1 in each theme, or its text
  *              token's line marks the ratio accepted (contrast.mjs);
  *   patterns   every type role, token and component a pattern reference names in code exists;
- *   design.md  every token reference and quoted class exists, every type and radius
- *              role has its frontmatter entry, every pixel value in the frontmatter is
- *              on the grid;
+ *   design.md  its token section is the one the stylesheet generates (design-md.mjs);
+ *   ships      every app's entry stylesheet, compiled as the app's build compiles it — the
+ *              same compiler, the same `source(…)` and `@source` scan — holds a rule for
+ *              every class the app's own code and its imported workspaces use; a class used
+ *              only in a workspace the stylesheet does not scan is in the code and absent
+ *              from the CSS, and no reading of the source can see that;
  *
- * Whether a call site repaints a part, whether a screen draws a box a part should, and
- * whether a name says what a thing is for are judgements: the design review at /commit
- * (gitflow's design-review.sh) makes them.
+ * Whether a screen draws a box a block should, and whether a name says what a thing is for,
+ * are judgements: the judge (locate.mjs and
+ * judge.mjs, run by gitflow's design-judge.sh) answers them.
  *   generated  with a claude-design config, the safelist and class-merge files are
  *              current and imported;
  *   project    every `*.mjs` in <DESIGN_UI_PACKAGE>/design-system/checks/ — the
@@ -72,10 +75,12 @@ import { createRequire } from 'node:module'
 import { existsSync, globSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { parseTokenBlocks } from '../../claude-design/scripts/resolve.mjs'
+import { parseTokenBlocks, usageOf } from '../../claude-design/scripts/resolve.mjs'
 import { atomModule, readBlockTypes } from './block-types.mjs'
+import { classCompilers } from './compare-ui-values.mjs'
 import { contrastProblems } from './contrast.mjs'
-import { uiSourceDirs } from './ui-sources.mjs'
+import { uiPackages, uiSourceDirs, workspaceImports } from './ui-sources.mjs'
+import { excepted } from '../../ui-patterns/scripts/check-ui-status.mjs'
 
 export const KEYS = [
   'DESIGN_UI_PACKAGE', 'DESIGN_TOKEN_FILES', 'DESIGN_TYPE_FILE', 'DESIGN_STYLES_FILE', 'DESIGN_VENDORED_DIR',
@@ -98,6 +103,15 @@ const NOT_CLASSES = new Set([
 const SPACE_PROPS = 'p|px|py|pt|pb|pl|pr|ps|pe|m|mx|my|mt|mb|ml|mr|ms|me|gap|gap-x|gap-y|space-x|space-y'
 const CORNER = 't|r|b|l|tl|tr|br|bl|s|e|ss|se|es|ee'
 
+/** What a call site may set on a component: where it sits, how wide it is, how it shares
+ * and aligns in its row or grid, whether it shows. Read from the CSS properties the class
+ * compiles to, never from how the class is spelled. */
+const CALL_SITE_PLACES = /^(?:margin|width$|min-width$|max-width$|min-height$|max-height$|flex|grid|order$|align-|justify-|place-|position$|inset|top$|right$|bottom$|left$|z-index$|display$|visibility$|text-align$|overflow|text-overflow$|white-space$|aspect-ratio$|float$|clear$)/
+/** A colour or a fixed height at a call site: refused by its own rule, with its own words. */
+const CALL_SITE_PAINTS = /^(?:color$|background-color$|border(?:-(?:top|right|bottom|left|inline|block)(?:-(?:start|end))?)?-color$|outline-color$|fill$|stroke$|height$|--tw-ring-color$)/
+/** Classes for assistive technology alone, which draw nothing a user sees. */
+const SCREEN_READER_ONLY = /^(?:not-)?sr-only$/
+
 /** A fixed height or size at a call site: how tall a control is belongs to the control. */
 const FIXED_SIZE = /^(?:h|size)-(?!full$|auto$|screen$|fit$|min$|max$|dvh$|svh$|lvh$).+$/
 /** A token a class list can hold — never an operator or a stray quote. */
@@ -117,6 +131,17 @@ const MAGNITUDE_NAME = /^(?:\d*x[sl]|sm|md|lg)$/
 const MAGNITUDE_SIZE = /\ssize=(?:"((?:icon-)?(?:\d?xs|sm|md|lg|\d?xl))"|\{\s*["'`]((?:icon-)?(?:\d?xs|sm|md|lg|\d?xl))["'`]\s*\})/
 
 const posix = (p) => p.split(path.sep).join('/').replaceAll('\\', '/')
+/** An app's entry stylesheet: the one that imports Tailwind, so the one its build compiles. */
+const TAILWIND_ENTRY = /^\s*@import\s+["']tailwindcss["']/m
+/** Whether built CSS holds a rule for a class: its selector as Tailwind escapes it, not as the
+ * prefix of a longer class (`.py-2` is not `.py-2\.5`). */
+export function hasRule(css, cls) {
+  const selector = `.${cls.replace(/[^\w-]/g, (ch) => `\\${ch}`)}`
+  for (let i = css.indexOf(selector); i !== -1; i = css.indexOf(selector, i + 1)) {
+    if (!/[\w\\-]/.test(css[i + selector.length] ?? '')) return true
+  }
+  return false
+}
 const isComment = (line) => /^\s*(\/\/|\*|\/\*)/.test(line)
 const DECL = /^\s*(--[A-Za-z0-9-]+)\s*:\s*(.+?);(?:\s*\/\*.*)?\s*$/
 
@@ -189,8 +214,9 @@ function designStylesheets(repo) {
   return rels.map((r) => path.join(repo, pkgRel, r)).filter(existsSync).map((f) => [f, readFileSync(f, 'utf8').replace(/\r\n/g, '\n')])
 }
 
-/** What each custom property and utility is for: the comment on its line or the comment
- * directly above it, from the first stylesheet that gives one. A re-export with no comment
+/** What each custom property and utility is for, by the publisher's own reading of a
+ * purpose comment (`usageOf`): the comment on its line or directly above it with no blank
+ * line between, from the first stylesheet that gives one. A re-export with no comment
  * of its own (`--spacing-x: var(--x)`) carries the purpose of what it points at. */
 export function purposesOf(css) {
   const out = new Map()
@@ -206,16 +232,16 @@ export function purposesOf(css) {
         above = text.replace(/^\/\*+\s*/, '').replace(/\s*\*\/.*$/, '').replace(/\s*\*\s+/g, ' ').trim()
         continue
       }
-      const decl = line.match(/^(--[A-Za-z0-9-]+)\s*:([^;]*);\s*(?:\/\*\s*(.*?)\s*\*\/)?/)
+      const decl = line.match(/^(--[A-Za-z0-9-]+)\s*:([^;]*);\s*((?:\/\*.*?\*\/\s*)*)/)
       const util = line.match(/^@utility\s+([a-z][a-z0-9-]*)\s*\{/)
       const name = decl?.[1] ?? util?.[1]
       if (name) {
-        const purpose = decl?.[3] || above || ''
+        const purpose = usageOf(decl?.[3], above)
         if (!out.get(name)) out.set(name, purpose)
         const target = decl?.[2].trim().match(/^var\((--[A-Za-z0-9-]+)\)$/)?.[1]
         if (target && target !== name && !pointsAt.has(name)) pointsAt.set(name, target)
       }
-      if (line) above = null
+      above = null
     }
   }
   for (const [name, target] of pointsAt) {
@@ -709,22 +735,22 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
     }
   }
   if (!screenScope) notes.push('screen rules: every line judged')
-  // The spacing scale: the project's own steps from its claude-design config, else the
-  // kit's (design-opinion.md — 0, 4, 8, 12, 16, 24, 32, 48px).
-  let spacingSteps = [0, 1, 2, 3, 4, 6, 8, 12]
-  let spacingFrom = "the kit's default"
+  // The spacing scale is the project's: its steps in its claude-design config. The kit has
+  // no scale of its own, so without a config the between-steps rule does not apply.
+  let spacingSteps = null
   const scaleConfig = path.join(pkg, 'design-system/design-system.config.mjs')
   if (existsSync(scaleConfig)) {
     const { readConfig } = await import(new URL('../../claude-design/scripts/config.mjs', import.meta.url).href)
     const { ctx } = await readConfig(scaleConfig)
-    if (ctx?.CONFIG?.spacing?.steps) {
-      spacingSteps = ctx.CONFIG.spacing.steps
-      spacingFrom = `${pkgRel}/design-system/design-system.config.mjs`
-    }
+    if (ctx?.CONFIG?.spacing?.steps) spacingSteps = ctx.CONFIG.spacing.steps
   }
-  const onScale = new Set(spacingSteps.map(String))
-  const scaleList = spacingSteps.map((n) => `${n * 4}`).join(', ')
-  notes.push(`spacing scale: ${scaleList}px, from ${spacingFrom}; judged on changed lines only`)
+  const onScale = new Set((spacingSteps ?? []).map(String))
+  const scaleList = (spacingSteps ?? []).map((n) => `${n * 4}`).join(', ')
+  notes.push(
+    spacingSteps
+      ? `spacing scale: ${scaleList}px, from ${pkgRel}/design-system/design-system.config.mjs; judged on changed lines only`
+      : 'spacing scale: the project declares none (no design-system config), so a step between steps is not judged',
+  )
   const touched = (file, from, to = from) => {
     if (!screenScope) return true
     const lines = screenScope.get(file)
@@ -810,17 +836,18 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
       })
       // A step between the scale's steps — judged on changed lines only, like the screen rules.
       each(new RegExp(`(?<![\\w-])-?(?:${SPACE_PROPS})-(\\d+(?:\\.5)?)(?![\\w-])`, 'g'), (m) => {
-        if (onScale.has(m[1]) || (m[1].endsWith('.5') && m[1] !== '0.5') || !touched(file, i + 1)) return
+        if (!spacingSteps || onScale.has(m[1]) || (m[1].endsWith('.5') && m[1] !== '0.5') || !touched(file, i + 1)) return
         add(at, m[0], `not a step of the spacing scale (${scaleList}px); space between things is a named gap`)
       })
     })
   }
 
-  // --- a call site places a component; it never repaints it ------------------
+  // --- a call site places a component; it never paints or sizes it -------------
   // A className naming a constant is read as the constant's classes, whether the
   // file declares it or imports it from another.
   const exportedConsts = new Map()
   const fileConsts = new Map([...sources].map(([f, s]) => [f, constantClasses(s, exportedConsts)]))
+  const callSiteClasses = []
   let blockTypes = { frames: new Map() }
   try {
     blockTypes = readBlockTypes()
@@ -890,6 +917,9 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
       }
       for (const cls of classesOf(t)) {
         classesChecked++
+        // Held on the lines a change touched, in a screen and in a part alike: a line nobody
+        // has touched is left alone.
+        if (touched(file, t.line, t.line + t.open.split('\n').length - 1)) callSiteClasses.push({ file, line: t.line, name: t.name, cls })
         if (FIXED_SIZE.test(cls.split(':').pop())) add(`${file}:${t.line}`, `<${t.name}> ${cls}`, 'a call site never fixes how tall a component is; that belongs to the component (a size or variant for what the control is)')
         const paint = /^(?:text|bg|border|ring|outline|fill|stroke)-(.+?)(?:\/\d+)?$/.exec(cls.split(':').pop())
         if (paint && colours.has(paint[1])) add(`${file}:${t.line}`, `<${t.name}> ${cls}`, 'a call site never repaints a component\'s colour; add a variant for what it shows')
@@ -1044,53 +1074,18 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
     }
   }
 
-  // --- design.md describes what the code is ---------------------------------
+  // --- design.md's token section is generated from the stylesheet --------------
+  // The file is a published view of the system: its colors, typography, rounded and
+  // spacing groups are written by the claude-design engine's design-md.mjs, and a file
+  // whose groups differ from what the stylesheet would generate is out of date.
+  let designCurrent = null
   if (design !== null) {
-    const lineOf = (i) => design.slice(0, i).split('\n').length
-    const declared = {}
-    let group = null
-    // The frontmatter is what lies between the first two lines that are exactly `---`;
-    // a `---` inside a YAML comment or a value does not end it.
-    for (const line of (design.split(/^---$/m)[1] ?? '').split('\n')) {
-      const g = line.match(/^([a-z]+):\s*$/)
-      if (g) {
-        group = g[1]
-        declared[group] = new Set()
-        continue
-      }
-      const k = line.match(/^ {2}([A-Za-z0-9-]+):/)
-      if (k && group) declared[group].add(k[1])
-    }
-    const SPEC_GROUPS = new Set(['colors', 'typography', 'rounded', 'spacing', 'components'])
-    for (const m of design.matchAll(/\{([a-z]+)\.([A-Za-z0-9-]+)\}/g))
-      if (!declared[m[1]]?.has(m[2])) add(`${designPath}:${lineOf(m.index)}`, `{${m[1]}.${m[2]}}`, 'no such key in the frontmatter')
-    // The same reference written without braces, in prose.
-    for (const m of design.matchAll(/`([a-z]+)\.([A-Za-z0-9-]+)`/g))
-      if ((SPEC_GROUPS.has(m[1]) || declared[m[1]]) && !declared[m[1]]?.has(m[2])) add(`${designPath}:${lineOf(m.index)}`, `${m[1]}.${m[2]}`, 'no such key in the frontmatter')
-    // A frontmatter key names a role in either case: `rowTitle` and `row-title` are `type-row-title`.
-    const kebab = (k) => k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)
-    const typography = new Set([...(declared.typography ?? [])].map(kebab))
-    for (const r of typeRoles) if (!typography.has(r.slice(5))) add(designPath, r, 'a type role with no typography entry in the frontmatter')
-    // A `font-*` entry is a family, not a role.
-    for (const k of declared.typography ?? []) if (!kebab(k).startsWith('font-') && !typeRoles.has(`type-${kebab(k)}`)) add(designPath, `typography.${k}`, 'no such type role in the stylesheets')
-    for (const r of radiusRoles) if (!declared.rounded?.has(r)) add(designPath, `rounded-${r}`, 'a radius role with no rounded entry in the frontmatter')
-    for (const k of declared.rounded ?? []) if (k !== 'none' && !radiusRoles.has(k)) add(designPath, `rounded.${k}`, 'no such radius role in the stylesheets')
-    for (const m of design.matchAll(/`(type-[a-z0-9-]+)`/g)) if (!typeRoles.has(m[1])) add(`${designPath}:${lineOf(m.index)}`, m[1], 'no such type role')
-    for (const m of design.matchAll(/`rounded-([a-z0-9-]+)`/g)) if (!radiusRoles.has(m[1]) && m[1] !== 'none') add(`${designPath}:${lineOf(m.index)}`, `rounded-${m[1]}`, 'no such radius role')
-    for (const m of design.matchAll(/`font-([a-z0-9-]+)`/g))
-      if (!weightRoles.has(m[1]) && !fontFamilies.has(m[1])) add(`${designPath}:${lineOf(m.index)}`, `font-${m[1]}`, 'no such weight role or font family')
-    for (const m of design.matchAll(/`(scroll-[a-z-]+|[a-z]+-theme-only)`/g)) if (!utilities.has(m[1])) add(`${designPath}:${lineOf(m.index)}`, m[1], 'no such utility')
-    // A pixel value the frontmatter states is on the grid, unless the stylesheets declare
-    // it (an odd type step, a pill's 999) or it is a 1px hairline.
-    const declaredPx = new Set()
-    for (const [, s] of css) for (const m of s.matchAll(/(?<![\w.])(\d+(?:\.\d+)?)px/g)) declaredPx.add(m[1])
-    const fmStart = design.search(/^---$/m)
-    const fmEnd = fmStart < 0 ? -1 : design.slice(fmStart + 3).search(/^---$/m)
-    const frontmatter = fmEnd < 0 ? '' : design.slice(0, fmStart + 3 + fmEnd)
-    for (const m of frontmatter.matchAll(/(?<![\w.])(\d+(?:\.\d+)?)px/g)) {
-      const v = m[1]
-      if (v === '1' || declaredPx.has(v)) continue
-      if (v.includes('.') || Number(v) % 2 !== 0) add(`${designPath}:${lineOf(m.index)}`, `${v}px`, 'off the grid, and no token declares it')
+    const { generateDesignMd } = await import(new URL('../../claude-design/scripts/design-md.mjs', import.meta.url).href)
+    const gen = await generateDesignMd(repo)
+    if (gen.problems.length) for (const g of gen.problems) problems.push(`${designPath}  — cannot generate its token section: ${g}`)
+    else {
+      designCurrent = gen.current
+      if (!gen.current) add(designPath, 'token section out of date', 'differs from what the token stylesheets generate — run npm run build:design-system (or node .claude/skills/claude-design/scripts/design-md.mjs) and commit it')
     }
   }
 
@@ -1124,6 +1119,120 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
       const mergeUsed = [...sources].some(([f, src]) => f !== rel(classMerge.file) && src.includes(mergeName) && src.includes('designClassGroups'))
       if (!mergeUsed)
         add(rel(classMerge.file), 'not imported', "no source file passes its designClassGroups to extendTailwindMerge, so cn() keeps two classes of one role and CSS order picks the winner")
+    }
+  }
+
+  // --- every app ships the classes its code uses -----------------------------
+  // An app's entry stylesheet names the folders Tailwind scans (`source(…)`, `@source`), and
+  // Tailwind generates CSS for the classes it finds there and nothing else. A class used only
+  // in a workspace the app imports but does not scan is in the code and absent from the CSS,
+  // and no reading of the source can see it: the class is a real role, and the browser just
+  // gets no rule. So each app's stylesheet is compiled as its build compiles it — the same
+  // compiler, the same scan the Vite plugin sets up — and every class the app's own code and
+  // its imported workspaces use that the built CSS lacks is a finding, naming the folder the
+  // stylesheet leaves out and the @source line that scans it.
+  // --- a call site never restyles a component ------------------------------------
+  // What a class sets is Tailwind's own answer. A class that sets anything but where the
+  // component sits is a look the component must carry itself.
+  let restyleClasses = 0
+  if (callSiteClasses.length) {
+    let tailwind = null
+    try {
+      tailwind = await classCompilers(repo)
+    } catch (err) {
+      notes.push(`call sites: not judged for restyling — Tailwind could not compile the project's classes (${err.message.split('\n')[0]})`)
+    }
+    if (tailwind && !tailwind.entries.length) notes.push('call sites: not judged for restyling — no stylesheet imports tailwindcss')
+    else if (tailwind) {
+      for (const { file, line, name, cls } of callSiteClasses) {
+        if (SCREEN_READER_ONLY.test(cls.split(':').pop())) continue
+        // The human's word on the line, or on the comment line above it, answers for it.
+        if (excepted(sources.get(file).split('\n'), line)) continue
+        restyleClasses++
+        const sets = [...new Set([...tailwind.declarationsOf(file, cls).keys()].map((k) => k.split('|').pop()))].filter((p) => !p.startsWith('--tw-') || p === '--tw-shadow' || p === '--tw-ring-shadow' || p === '--tw-ring-color')
+        const restyles = sets.filter((p) => !CALL_SITE_PLACES.test(p) && !CALL_SITE_PAINTS.test(p))
+        if (restyles.length) add(`${file}:${line}`, `<${name}> ${cls}`, `a call site places a component and never restyles it; this sets ${restyles.slice(0, 3).join(', ')} — the component carries that, as a variant or an option`)
+      }
+      notes.push(`call sites: ${restyleClasses} class(es) on project components read through Tailwind's build`)
+    }
+  }
+
+  let shipsEntries = 0
+  let shipsClasses = 0
+  {
+    const { packages } = uiPackages(repo, pkgRel)
+    const apps = packages.filter((w) => w !== pkgRel && w !== '.')
+    const entries = []
+    for (const w of apps) {
+      for (const f of globSync('**/*.css', { cwd: path.join(repo, w), exclude: (p) => /node_modules|dist/.test(posix(p)) })) {
+        const file = posix(path.join(w, f))
+        if (TAILWIND_ENTRY.test(readFileSync(path.join(repo, file), 'utf8'))) entries.push({ app: w, file })
+      }
+    }
+    if (!entries.length) notes.push('ships: no app stylesheet imports tailwindcss — does not apply')
+    else {
+      let tw = null
+      let Scanner = null
+      try {
+        const req = createRequire(path.join(repo, 'package.json'))
+        tw = await import(pathToFileURL(req.resolve('@tailwindcss/node')).href)
+        ;({ Scanner } = await import(pathToFileURL(req.resolve('@tailwindcss/oxide')).href))
+      } catch (err) {
+        for (const e of entries) add(e.file, 'cannot be compiled', `@tailwindcss/node and @tailwindcss/oxide are not installed from the repository root (${err.message.split('\n')[0]}); the ships check builds the stylesheet with the Tailwind the app's build uses`)
+      }
+      if (tw && Scanner) {
+        for (const { app, file } of entries) {
+          const abs = path.join(repo, file)
+          const text = readFileSync(abs, 'utf8')
+          const fresh = () => tw.compile(text, { base: path.dirname(abs), onDependency() {} })
+          let compiled
+          try {
+            compiled = await fresh()
+          } catch (err) {
+            add(file, 'cannot be compiled', err.message.split('\n')[0])
+            continue
+          }
+          shipsEntries++
+          // The scan the build performs: the stylesheet's own `source(…)` root (the app folder
+          // when it names none) plus every `@source`, exactly as @tailwindcss/vite sets it up.
+          const roots = compiled.root === 'none' ? [] : compiled.root === null ? [{ base: path.join(repo, app), pattern: '**/*', negated: false }] : [{ ...compiled.root, negated: false }]
+          const scanned = new Set(new Scanner({ sources: [...roots, ...compiled.sources] }).scan())
+          // What the app bundles: the code of its own source and of every workspace it
+          // imports — never a test, a story or a stylesheet, which the build does not bundle.
+          const imports = workspaceImports(repo, app)
+          const files = imports.flatMap((d) => globSync(`${d}/**/*.{ts,tsx,js,jsx}`, { cwd: repo }).map(posix)).filter((f) => !/\.(test|spec|stories|d)\.[jt]sx?$/.test(f) && !/(^|\/)(node_modules|dist)\//.test(f))
+          const needed = new Scanner({ sources: [] })
+          // Only class lists count as classes the code uses — the same reading as every rule
+          // above, so a word in a comment or a prop value is never a missing class. The scanner
+          // reads the content it is handed.
+          // `exported` is this function's own map of class-list names, declared with the sources above.
+          const wanted = needed.scanFiles(files.map((f) => ({ content: classText(readFileSync(path.join(repo, f), 'utf8').replace(/\r\n/g, '\n'), { names: exported }), extension: path.extname(f).slice(1) })))
+          shipsClasses += wanted.length
+          const gaps = wanted.filter((c) => !scanned.has(c))
+          if (!gaps.length) continue
+          // A candidate is a class only when Tailwind makes a rule of it; a fresh compiler
+          // builds the gaps, since build() is cumulative.
+          const shipped = compiled.build([...scanned])
+          const built = (await fresh()).build(gaps)
+          const whereUsed = (cls) => {
+            for (const f of files) {
+              if (!existsSync(path.join(repo, f))) continue
+              const lines = readFileSync(path.join(repo, f), 'utf8').split('\n')
+              const n = lines.findIndex((l) => l.includes(cls) && new RegExp(`(?<![\\w-])${cls.replace(/[^\w-]/g, '\\$&')}(?![\\w-])`).test(l))
+              if (n !== -1) return `${f}:${n + 1}`
+            }
+            return null
+          }
+          for (const cls of gaps) {
+            if (!hasRule(built, cls) || hasRule(shipped, cls)) continue
+            const at = whereUsed(cls)
+            const folder = at ? imports.find((d) => at.startsWith(`${d}/`)) : null
+            const glob = folder ? `${posix(path.relative(path.dirname(abs), path.join(repo, folder)))}/**/*.{ts,tsx}` : null
+            add(file, cls, `used in ${at ?? 'the code this app bundles'} but not in the CSS this app builds — its stylesheet does not scan ${folder ?? 'that folder'}${glob ? `; add @source "${glob}"` : ''}`)
+          }
+        }
+        notes.push(`ships: ${shipsEntries} app stylesheet(s) compiled as their builds compile them; ${shipsClasses} class candidates checked against the CSS each app builds`)
+      }
     }
   }
 
@@ -1166,6 +1275,9 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
       contrastMeasured: contrast.measured,
       themes: contrast.themes,
       generated: generatedChecked,
+      designCurrent,
+      shipsEntries,
+      shipsClasses,
       projectChecks: projectChecks.length,
       patterns: patternFiles.length,
     },
@@ -1204,7 +1316,7 @@ async function main() {
   console.log(
     `✓ design tokens: scanned ${counts.sourceFiles} source files (${counts.lines} lines), ${counts.stylesheets} stylesheets and design.md; ` +
       `${counts.classesChecked} classes checked against ${counts.typeRoles} type roles, ${counts.radius} radius, ${counts.weight} weight, ` +
-      `${counts.colours} colours; ${counts.tokens} tokens resolve; ${counts.contrastPairs} text pairs measured in ${counts.themes} theme(s) (${counts.contrastMeasured} measurements); ${counts.generated} generated files current; ${counts.projectChecks} project checks; ${counts.patterns} pattern references`,
+      `${counts.colours} colours; ${counts.tokens} tokens resolve; ${counts.contrastPairs} text pairs measured in ${counts.themes} theme(s) (${counts.contrastMeasured} measurements); ${counts.generated} generated files current; ${counts.shipsEntries} app stylesheet(s) ship every class their code uses; ${counts.projectChecks} project checks; ${counts.patterns} pattern references`,
   )
 }
 

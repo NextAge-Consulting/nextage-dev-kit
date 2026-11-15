@@ -1,0 +1,13 @@
+{
+  "answer": "no",
+  "why": "names itself the exception",
+  "surface": "a browse",
+  "a": {
+    "file": "browse-layout.md",
+    "text": "Every browse pages its rows; the pager sits under the table."
+  },
+  "b": {
+    "file": "related-list.md",
+    "text": "A related list on a record screen is the one browse that does not page: it shows every child row and no pager."
+  }
+}

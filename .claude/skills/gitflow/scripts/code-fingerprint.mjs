@@ -29,6 +29,11 @@
  * TypeScript cannot be loaded, every file is hashed raw, so nothing is ever wrongly
  * skipped, and it says so.
  *
+ * Files no check reads are left out altogether: Markdown anywhere, everything under
+ * project-documentation/, and the design judge's ledger (.claude/ui-pending.json). A doc
+ * edit, an approval in the UI inventory or a ledger change leaves the code as it was, so
+ * none of them re-runs a gate or the full suite.
+ *
  * Prints the fingerprint on stdout, and on stderr how many files it read and how.
  * Exit 0 on success; 2 when it cannot run, or the tree holds no files.
  */
@@ -54,9 +59,11 @@ export const FULL_SUITE = {
 };
 
 // Bumped when what the fingerprint covers changes, so an old record never matches.
-const ALGORITHM = "code-fingerprint/1";
+const ALGORITHM = "code-fingerprint/2";
 
 const CODE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
+/** Prose and the judge's ledger: no check reads them, so they are not in the fingerprint. */
+const PROSE = (path) => /\.md$/i.test(path) || path.startsWith("project-documentation/") || path === ".claude/ui-pending.json";
 const JS = /\.(js|jsx|mjs|cjs)$/;
 
 /**
@@ -188,6 +195,7 @@ function treeFiles() {
       if (!entry) continue;
       const tab = entry.indexOf("\t");
       const [, type, oid] = entry.slice(0, tab).split(" ");
+      if (PROSE(entry.slice(tab + 1))) continue;
       files.push({ path: entry.slice(tab + 1), oid, type, read: null });
     }
     // One cat-file for every blob the parser reads.
@@ -222,6 +230,7 @@ function treeFiles() {
   ];
   const files = [];
   for (const path of paths) {
+    if (PROSE(path)) continue;
     if (gitlinks.has(path)) {
       let oid = gitlinks.get(path);
       try {

@@ -28,11 +28,12 @@ has_typescript_sources() {
 #
 # A gate that passed records the code fingerprint it passed on (code-fingerprint.mjs:
 # one hash of the tree, comments and whitespace left out of TypeScript and JavaScript,
-# every other file byte for byte). The next run on the same fingerprint skips the gate,
+# Markdown, project-documentation/ and the judge's ledger left out altogether, every
+# other file byte for byte). The next run on the same fingerprint skips the gate,
 # saying so: nothing a check can see has changed since it passed. Only a pass is
 # recorded, so a failure runs again every time. The record is the last pass of each
-# gate, kept under the worktree's git dir (gitflow-pass/typecheck, …/integration,
-# …/production-build), never in the tree.
+# gate, kept under the worktree's git dir (gitflow-pass/typecheck, …/biome, …/knip,
+# …/integration, …/production-build), never in the tree.
 #
 # Everything a gate's answer depends on is in the tree — its configuration, the kit's
 # own scripts, the lockfile — so it is in the fingerprint too. Without node, or when the
@@ -83,7 +84,7 @@ gate_unchanged() {
     [ -n "$3" ] || return 1
     path=$(gate_pass_path "$1" "$2" 2>/dev/null) || return 1
     [ -f "$path" ] && [ "$(cat "$path" 2>/dev/null)" = "$3" ] || return 1
-    echo "gitflow: $2: code unchanged since the last pass (comments and whitespace only) — $2 skipped." >&2
+    echo "gitflow: $2: code unchanged since the last pass (comments, whitespace and prose only) — $2 skipped." >&2
 }
 
 # gate_record_pass <dir> <gate> <key> — records a pass. A record that cannot be written
@@ -233,9 +234,12 @@ biome_pinned_version() {
 }
 
 run_biome_gate() {
-    local action="$1"
+    local action="$1" fp=""
     if ! { [ -f "biome.json" ] || [ -f "biome.jsonc" ]; } || [ ! -f "package.json" ]; then
         echo "gitflow: biome: skipped — no biome.json with a root package.json." >&2
+        return 0
+    fi
+    if fp=$(gate_fingerprint . biome) && gate_unchanged . biome "$fp"; then
         return 0
     fi
     echo "gitflow: running biome lint..." >&2
@@ -258,6 +262,41 @@ run_biome_gate() {
         echo "  Run: npx --no-install @biomejs/biome lint" >&2
         return 4
     fi
+    gate_record_pass . biome "$fp"
+}
+
+# run_design_gate <base-ref> <action>
+#
+# Mirrors CI's `design checks` step: a repository with a design.md has a design
+# system, so `lint:tokens` and `lint:design` both run, and a missing script fails as
+# it does in CI. The token check judges the lines changed since <base-ref>, handed to
+# it as DESIGN_TOKENS_BASE, as CI hands it the pull request's base. Without a
+# design.md neither applies, and the gate says so.
+run_design_gate() {
+    local base="$1" action="$2" script out
+    if [ ! -f "design.md" ]; then
+        echo "gitflow: design checks: skipped — no design.md at the repository root." >&2
+        return 0
+    fi
+    for script in lint:tokens lint:design; do
+        if ! jq -e --arg s "$script" '.scripts[$s] // empty' package.json >/dev/null 2>&1; then
+            echo "" >&2
+            echo "gitflow: design.md is present but package.json has no \"$script\" script." >&2
+            echo "  CI runs it on every pull request, so this is a failure. Fix before $action." >&2
+            return 4
+        fi
+    done
+    echo "gitflow: running the design checks (lint:tokens, lint:design)..." >&2
+    for script in lint:tokens lint:design; do
+        if ! out=$(DESIGN_TOKENS_BASE="$base" npm run --silent "$script" 2>&1); then
+            echo "" >&2
+            printf '%s\n' "$out" >&2
+            echo "" >&2
+            echo "gitflow: $script failed. Fix before $action." >&2
+            echo "  Run: npm run $script" >&2
+            return 4
+        fi
+    done
 }
 
 # knip_pin — the knip version the stack manifest pins, or nothing.
@@ -278,7 +317,7 @@ knip_pin() {
 # reads the kit's knip.config.ts differently. knip exits 1 on any finding and 2
 # when it cannot run; both fail.
 run_knip_gate() {
-    local action="$1" gate version
+    local action="$1" gate version fp=""
     if [ ! -f "package.json" ]; then
         echo "gitflow: knip: skipped — no root package.json." >&2
         return 0
@@ -298,6 +337,9 @@ run_knip_gate() {
         echo "  A gate that cannot run must not report success, so this is a failure." >&2
         return 4
     fi
+    if fp=$(gate_fingerprint . knip) && gate_unchanged . knip "$fp"; then
+        return 0
+    fi
     echo "gitflow: running knip $version..." >&2
     local out rc=0
     out=$(npx --yes "knip@$version" --no-progress --no-config-hints --reporter symbols 2>&1) || rc=$?
@@ -313,6 +355,7 @@ run_knip_gate() {
         echo "  Run: npx --yes knip@$version --no-progress --no-config-hints --reporter symbols" >&2
         return 4
     fi
+    gate_record_pass . knip "$fp"
 }
 
 # semgrep_include_pattern <path> — the `--include` pattern matching exactly that
@@ -638,51 +681,28 @@ run_project_gate() {
     fi
 }
 
-# run_fit_check_gate <action>
-#
-# Every pending component carries, on its inventory line, the fit check that approved
-# it as it stands (the design-system skill's references/fit-check.md). A component
-# added or changed without one stops the commit here, while it is still one change
-# away, not at the approval review.
-run_fit_check_gate() {
-    local action="$1" check=".claude/skills/ui-patterns/scripts/check-ui-status.mjs"
-    if [ ! -f "$check" ]; then
-        echo "gitflow: fit checks: not checked ($check does not exist)." >&2
-        return 0
-    fi
-    if ! command -v node >/dev/null 2>&1; then
-        echo "gitflow: fit checks cannot run: node is not installed. A gate that cannot run fails." >&2
-        return 4
-    fi
-    if ! node "$check" --fit-only; then
-        echo "" >&2
-        echo "gitflow: a pending component has no fit check, or changed after it. Run the fit check before $action." >&2
-        return 4
-    fi
-}
-
 # run_headless_reviews <fold_base> <action>
 #
-# The five headless reviews — rule prose (rule-review.sh), new parts (part-review.sh), the
-# design system (design-review.sh), hand-written SQL (sql-review.sh) and the tests of
-# changed TypeScript (test-review.sh) — each measured from <fold_base>. Each makes one
-# `claude -p` call only when its kind of file changed, and reuses its own earlier pass
-# when its input is unchanged (review-cache.sh), so they run side by side: the gate takes
-# as long as the slowest, not the sum.
+# The headless reviews — rule prose (rule-review.sh), hand-written SQL (sql-review.sh) and
+# the tests of changed TypeScript (test-review.sh) — and the design judge (design-judge.sh),
+# each measured from <fold_base>. Each calls `claude -p` only when its kind of file changed,
+# and reuses its own earlier pass when its input is unchanged (review-cache.sh), so they run
+# side by side: the gate takes as long as the slowest, not the sum.
 #
-# Each review's output is captured on its own and printed whole, in this fixed order,
-# once all five have finished. Any review that fails fails the gate, and every review's
-# output is still shown, so one run reports every finding. Each review's SKIP_*_REVIEW
-# override reaches it through the environment.
+# Each one's output is captured on its own and printed whole, in this fixed order, once all
+# have finished. A review that fails fails the gate, and every output is still shown, so one
+# run reports every finding. The design judge never fails: its yeses are pending items, and
+# /deploy waits for them. Each review's SKIP_* override
+# reaches it through the environment.
 run_headless_reviews() {
     local base="$1" action="$2" dir work name rc i=0 failed=""
-    local names=(rule-review part-review design-review sql-review test-review) pids=()
+    local names=(rule-review design-judge sql-review test-review) pids=()
     dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     if ! work=$(mktemp -d); then
         echo "gitflow: the headless reviews cannot run: no temporary directory. Fix before $action." >&2
         return 4
     fi
-    echo "gitflow: running the rule, part, design, SQL and test reviews side by side..." >&2
+    echo "gitflow: running the rule, SQL and test reviews and the design judge side by side..." >&2
     for name in "${names[@]}"; do
         "$dir/$name.sh" "$base" >"$work/$name.out" 2>&1 &
         pids+=("$!")

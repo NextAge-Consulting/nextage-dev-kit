@@ -12,7 +12,7 @@
  * compares to send nothing when nothing changed.
  *
  * Writes the generated safelist and class-merge files into the UI package
- * (generate.mjs), then <package>/<out>/project/ — tokens.json, README.md, the
+ * (generate.mjs) and design.md's token section (design-md.mjs), then <package>/<out>/project/ — tokens.json, README.md, the
  * cover, fonts, asset-group READMEs, and the components: bundle.js
  * (window.<namespace> on the design page's React 18), bundle.css, index.d.ts,
  * React 18 in components/lib, and a preview and README per component — plus
@@ -32,6 +32,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { checkPrerequisites, iconsSpecifier, loadConfig, packageRequire } from './config.mjs'
 import { contentFingerprint } from './fingerprint.mjs'
+import { writeDesignMd } from './design-md.mjs'
 import { writeGenerated } from './generate.mjs'
 import { buildModel, promisedClasses, readText } from './model.mjs'
 import { REF_AS_PROP } from './ref-as-prop.mjs'
@@ -121,6 +122,7 @@ const ref = gitRef()
 // from. Each design's README records the same line for the system it uses.
 const STAMP = `${RELEASE ? `Release ${RELEASE} · built` : 'Built'} ${SYNC_DATE} from ${ref}`
 const generated = writeGenerated(ctx, model)
+const designRewritten = await writeDesignMd(REPO)
 const tokens = {
   name: CONFIG.title,
   version: 1,
@@ -192,7 +194,7 @@ const styleCount = groups.reduce((n, g) => n + g.styles.length, 0)
 console.log(
   `design-system build: ${colorTokens.length} colours, ${styleCount} type roles, ${spacing.length} spacing, ${radius.length} radii, ${shadow.length} shadow, ${fonts.length} font, ${COMPONENTS.length} components → ${path.relative(REPO, OUT)} · ${STAMP} · content ${CONTENT}`,
 )
-if (generated.length) console.log(`design-system build: rewrote ${generated.map((g) => `${CONFIG.package}/${g}`).join(', ')} — commit them with the token change`)
+if (generated.length || designRewritten) console.log(`design-system build: rewrote ${[...generated.map((g) => `${CONFIG.package}/${g}`), ...(designRewritten ? ['design.md'] : [])].join(', ')} — commit them with the token change`)
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 async function buildComponents() {

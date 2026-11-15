@@ -1,0 +1,6 @@
+{
+  "answer": "yes",
+  "why": "label replaced",
+  "rule": "# Loading\n\nA busy control keeps its label and shows a spinner beside it. The label never changes while busy.",
+  "screen": "<Button type=\"submit\" disabled={busy}>\n  {busy ? <Spinner /> : \"Sign in\"}\n</Button>"
+}

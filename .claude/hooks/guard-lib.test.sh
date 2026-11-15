@@ -94,6 +94,12 @@ eq "$tmp/pr/link/.claude/worktrees/x" "$(root "$tmp/pr/link" "$wt/src/a.ts")" 'k
 mkdir -p "$tmp/pr/outer/proj"; git -C "$tmp/pr/outer" init -q
 eq "$tmp/pr/outer/proj" "$(root "$tmp/pr/outer/proj" "$tmp/pr/outer/proj/a.ts")" 'an enclosing repository the project is not a checkout of → the project dir'
 eq "$tmp/pr/outer" "$(root "$pr" "$tmp/pr/outer/b.ts")" 'a file in another repository → that repository'
+# A walk that never ends is killed here, so it fails the case instead of hanging the suite.
+bounded(){ local out="$tmp/bounded.out" pid killer rc; ( cd "$1" && CLAUDE_PROJECT_DIR="$2" project_root_for "$3" > "$out" ) & pid=$!; ( sleep 5; kill -9 "$pid" 2>/dev/null ) & killer=$!; wait "$pid" 2>/dev/null; rc=$?; kill "$killer" 2>/dev/null; wait "$killer" 2>/dev/null; if [ "$rc" -eq 0 ]; then cat "$out"; else printf 'did not finish'; fi; }
+eq "$tmp/pr/plain" "$(bounded "$tmp/pr/plain" "." "a.ts")" 'a relative project dir in no checkout is taken from the working directory'
+eq "$tmp/pr/plain/gone/deeper" "$(bounded "$tmp/pr/plain" "gone/deeper" "a.ts")" 'a relative project dir that does not exist still ends'
+eq "$pr" "$(bounded "$pr/src" ".." "src/a.ts")" 'a relative project dir inside a checkout → the checkout'
+eq '/c/proj' "$(bounded "$tmp/pr/plain" 'C:\proj' 'C:\proj\src\a.ts')" 'a drive-letter project dir and path are spelled /c/… and end at the root'
 
 echo "REQUIRE_TOOLS — present tools pass silently and are remembered:"
 out=$(require_tools PreToolUse jq python3; echo "returned")

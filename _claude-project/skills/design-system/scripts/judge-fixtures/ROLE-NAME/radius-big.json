@@ -1,0 +1,7 @@
+{
+  "answer": "yes",
+  "why": "big is a size",
+  "name": "--radius-big",
+  "purpose": "the larger corner, for panels and dialogs",
+  "value": "12px"
+}

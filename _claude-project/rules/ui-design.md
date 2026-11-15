@@ -4,122 +4,65 @@ paths: "{design.md,**/*.tsx,**/*.jsx,**/*.css,**/*.scss}"
 
 # UI / Design System Rule
 
-**Invoke the `design-system` skill before writing or editing any UI or styling code, or the project's `design.md`.**
+**Invoke the `design-system` skill before writing or editing any UI or styling code, or
+a token stylesheet.**
 
 ```
 Skill({skill: "design-system"})
 ```
 
-It enforces "read the project's `design.md` first, then apply universal styling discipline", and hard-stops when `design.md` is missing from the project root. On that hard stop, ask the human — a design system is theirs to establish, so do not write one yourself and do not proceed with ad-hoc styling instead.
-
-When the file you are editing *is* `design.md`, run `npm run lint:design` before calling the change done. The skill instructs this; the rule's job is to make sure the skill loads.
-
-This rule is path-targeted because JSX and TSX consume tokens, CSS and SCSS hold the `@theme` definitions, and `design.md` is the spec itself. Server functions, tests, config and other prose don't touch the design system.
+It carries the kinds, the words for status, the pointers every file carries, the
+procedure for building from the project's system and the review that approves what is
+new. This rule is path-targeted because JSX and TSX consume the system, CSS and SCSS hold
+it, and `design.md` is generated from it.
 
 ## One app, one look and feel
 
-**We build applications, not websites.** Ground every design decision, piece of research and argument in application practice, where consistency is enforced and a screen gets little freedom. A practice common on websites is not a reason here.
+**We build applications, not websites.** Consistency is the product: the same thing looks
+the same, sits in the same place and acts the same on every screen.
 
-**Reuse what exists.** Sizes, spacing and colours come only from tokens — never a value picked because it looks better. No tweaking for its own sake.
+**The project's system decides.** Where it covers a piece, use it as it is. Where it is
+silent, build the gap pending and put it to the human at the review; never pick a value
+because it looks better, never restyle a block on one screen, never write a screen's own
+save, error or loading behaviour.
 
-**Build from the project's `shadcn/ui` atoms, styled with Tailwind**; the `shadcn` skill carries the component patterns.
+**A change the human asks for is made in the system** — the token, the component, the
+recipe, the rule — never on one screen, and you tell them what else it changes before you
+make it.
 
-**Check every UI change at phone, tablet and desktop widths** — horizontal space on a phone, text that overflows or wraps, how grid and flex layouts shift across the `sm:` / `md:` / `lg:` / `xl:` breakpoints.
+**A change that leaves what the user sees and what the app does exactly the same needs
+no approval.** Prove it first with `node .claude/skills/design-system/scripts/compare-ui-values.mjs`;
+only what it lists as changed goes to the human.
 
-**Name the block type of every frame before you build it** — a dialog, drawer, header, toolbar, row or screen layout — from the `design-system` skill's `references/block-types.md`. Use this app's part of that type; the first frame of a type builds the part. A screen or feature file then arranges parts and styles its own text from the semantic roles; a box it needs — background, border, radius, shadow, padding — is a part's.
+**Nothing new becomes part of the system until the human has looked at it.** Build what
+the work needs, mark what they have not seen pending, and `/deploy` refuses while anything
+is. A commit is never refused on a matter of judgement.
 
-**A change the human asks for is made in the part** — the token, component or pattern — never on one screen, and you tell them what else it changes before you make it.
+## Adding a piece means adding it in two places
 
-**A change that leaves what the user sees exactly the same needs no review and no approval.** Prove it first with `node .claude/skills/design-system/scripts/compare-ui-values.mjs`; only what it lists as changed goes to the human.
+The file carries its header — its status and its pointer — and `rules/project/ui-inventory.md`
+carries its line, with its block type and status, in the same change as the piece. The
+inventory answers "does this already exist". `check-ui-status.mjs` fails while the two
+disagree.
 
-**Nothing new becomes part of the system until the human has looked at it and approved it.** Build what the work needs and mark what they have not seen pending; `/deploy` refuses while anything is. A look moved unchanged — `compare-ui-values.mjs` proves it — or one they picked on a comparison page is already approved. How that plays out when converting a screen, tweaking one, building a new screen or mockup, or bringing a Claude Design back is the `design-system` skill's Step 2.
+## The system is the stylesheet and the components
 
-## Adding a component means adding it in two places
+The token stylesheet is what the browser sees and the components are what screens are made
+of. `design.md` is generated from the stylesheet by `npm run build:design-system`; its
+prose sections are hand-written, its token section is never edited by hand. A settled UI
+decision lands in what the build uses — a token, a component, a recipe, a behaviour rule
+or an inventory line — never in a separate decisions document.
 
-`design.md` is the authority for what the design system contains, and it is not auto-loaded — this rule is. So a component can exist, be specified, and still get hand-rolled, because nothing put its name in front of whoever wrote the screen.
+## A token names what a thing is
 
-The project's `rules/project/ui-inventory.md` — path-targeted to the same globs — carries the list of components that exist, one line each on what they are for and which block type each one is. `design.md` keeps the spec; the inventory answers "does this already exist", which is the question actually being got wrong.
+Name the role, never the size, in every family: spacing, radius, weight, elevation and
+sizing as much as type. `npm run lint:tokens` fails a raw value, a role named by size and
+every other mechanical breach; the judge questions in the `design-system` skill cover the
+rest.
 
-Add a new component to both, in the same change as the component itself, with its block type and status.
+## Where UI lives
 
-## Authority chain
-
-1. **The CSS `@theme` block** (typically `src/styles.css` or `apps/shared/src/styles.css`) — the runtime source of truth, what the browser actually sees.
-2. **The project's `design.md`** — the documented spec, google-labs-code compliant.
-3. **The `design-system` skill** — project-agnostic discipline for consuming any spec.
-
-Where runtime and documented spec diverge, runtime wins: update `design.md` to match.
-
-**A settled UI decision lands in what the build uses** — a token, a component, `design.md`, a pattern reference, or a "never X, use Y" line in the UI inventory — never in a separate decisions document. UI still to build is a GitHub issue.
-
-## A token names what a thing IS
-
-**Name the role, never the size** — a component as much as a token: `ButtonActive`, never `ButtonRed`. `field-caption`, `row-title` and `card-inset`
-are tokens; `label`, `microlabel`, `sm`, `xs` and `lg` are sizes in token
-clothing, and they leave the next screen with the same decision to make.
-
-**Every family, not just type** — spacing, radius, weight, elevation and sizing.
-Colour is usually the one already done right (a ramp plus semantic aliases,
-components referencing only the aliases); it is the shape the others need.
-
-A component picks a role. **A screen writes no raw value at all** — it uses a
-component, and the component names the role. That is what stops the same thing
-rendering at four sizes across four screens.
-
-Adding a role happens when a thing exists that none of the current roles names —
-not when an existing role looks slightly wrong on one screen. If two roles compete
-for one element, the naming is wrong: settle on the better name, mark the change pending, and raise it at the review.
-
-**Back it with a check that fails the build.** A raw `text-sm` or `px-[10px]` is
-valid Tailwind and valid TSX, so no ordinary linter objects; without a gate this
-rule is a preference. The kit ships the gate: `npm run lint:tokens`, the
-`design-system` skill's "Enforce it or it decays".
-
-**The two tests for a name** — can someone point at the element and name it
-without hesitating, and does one name cover many values in the existing code —
-are in the `design-system` skill, with why the second one is the half that
-actually catches a wrong name.
-
-## The client/server wall
-
-The design system's UI — tokens, atoms, `cn()`, display components — lives in a home with client dependencies only (react, radix, cva) and no server or DB imports. One front-end app puts it in that app's `src/components/ui/`; more than one puts it in a dedicated client-only workspace (`packages/ui`) they all consume.
-
-The wall is bidirectional. **The UI home holds no server code**, so a UI atom can never drag pg or drizzle into the client bundle. **The server-shared package holds no UI**, so a headless app — a REST API, a worker — can consume shared business logic with no path reaching a React import. Keep that true even with no headless app today: enforcing it from the start costs nothing and retrofitting it is a refactor.
-
-A component needing server data is an app-level composite wiring a server function to a UI atom, not the UI home reaching into the server.
-
-A project that cannot yet satisfy the wall — UI still living in its server-shared package — records the exception in a file under `rules/project/`, naming the migration path.
-
-### A third tier, only when something needs it
-
-Server-shared plus UI home covers most projects. A third appears when a project has shared code that is neither: reachable from browser code, used by more than one front-end app, and not presentational — a Stripe browser integration, a shared serverFn, a shipping-API client.
-
-"Reachable from browser code" is the test, not "executes in the browser". A serverFn runs on the server, but the client imports its reference to call it, so it cannot live in the browser-free server-shared package. It must not go in the UI home either, which stays clean presentation. So it earns its own workspace, conventionally `packages/web`, holding integrations and shared serverFns and never touching the database.
-
-Any front-end may import it — apps, and extension apps too.
-
-Create it when the code that belongs in it exists, never speculatively — an empty third package is another manifest, another workspace dependency in every app, and a "where does this go?" decision on every future change. Most projects never need it.
-
-### Browser extensions are all browser
-
-A browser-extension app is client code end to end. There is no server half, so nothing in it can justify a data-tier import — a stray one ships drizzle into the extension bundle.
-
-An extension app may consume the UI home like any other front-end. It must never import the server-shared package, and never import database code (`drizzle-orm`, `pg`, `postgres`, `@neondatabase/*`) directly.
-
-The guard identifies an extension app by a browser-extension builder in its dependencies — `wxt`, `plasmo`, `@plasmohq/parcel-config`, or `@crxjs/vite-plugin` — so a new extension is covered the moment its `package.json` names one, with nothing to configure. It is also excluded from headless-app detection: an extension has no `react` dependency and may have no `.tsx`, which would otherwise read as a server-only service, and the two have opposite rules about reaching the database.
-
-### The one sanctioned crossing: contract types
-
-Row and param shapes produced by server loaders and rendered by UI components are defined once, in the UI home under `contracts/`, and `import type`d back by the server module that produces them. Types erase at compile, so nothing crosses at runtime.
-
-This is the only way the server-shared package may reference the UI home, and it is types-only — a runtime import is a violation. Contract modules import nothing but sibling contract modules. Declaring the shape twice drifts; putting it in the server tier and importing it from UI breaches the wall.
-
-### The guard
-
-`scripts/check-workspace-tiers.mjs` (CI job `workspace-tiers`) enforces all of the above. It detects which tiers a repo has — server-shared, UI home, web tier, headless apps (an app workspace with no `react` dependency and no `.tsx`), and extension apps (an app workspace whose dependencies name an extension builder) — and checks only the walls that exist, so a repo with no shared workspace passes unconditionally.
-
-It also holds the rule every wall depends on: a tier is recognised by its package name, so a workspace reaches another only by that name, declared as a dependency (`typescript-rules.md`, Workspace Imports). A relative import out of a workspace, or a tsconfig `paths` alias resolving outside one, fails.
-
-Read its success line: it names what it actually enforced. Fewer tiers listed than you expect means a tier was not detected, not that it was checked and found clean.
-
-It detects the UI home as the `packages/ui` workspace. A single-app UI home living in `apps/<app>/src/components/ui/` is a directory, not a workspace, so the guard does not see it and that wall is yours to hold by hand until the project grows a second front-end.
+The design system's UI — tokens, atoms, blocks, `cn()` — lives in a home with client
+dependencies only: one front-end app's `src/`, or a dedicated UI workspace every front-end
+consumes. Which workspace may import which is `typescript-rules.md`, "The client/server
+wall"; the UI home holds no server code.

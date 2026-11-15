@@ -1,0 +1,11 @@
+{
+  "answer": "yes",
+  "why": "a banner",
+  "tag": "<div className=\"rounded-control border border-feedback-warning bg-feedback-warning-fill p-related\">",
+  "children": "<p>Your session ends in 5 minutes.</p>",
+  "file": "apps/web/src/routes/__root.tsx",
+  "blockTypes": "ModalShell: screen content in a popup, ends Close. ConfirmDialog: one short question. PageBanner: a standing message about the screen. ScreenHeading: the title and actions of a screen. BrowseToolbar: search, filters and add above a collection. Row: one record in a collection. FieldGroup: a titled group of fields. EmptyState: nothing to show, with the next action. StatTile: one headline figure.",
+  "blocks": [
+    "PageBanner — `page-banner`"
+  ]
+}

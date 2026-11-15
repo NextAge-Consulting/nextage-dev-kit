@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { uiSourceDirs } from './ui-sources.mjs'
+import { uiPackages, uiSourceDirs, workspaceImports } from './ui-sources.mjs'
 
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), 'ui-sources.mjs')
 
@@ -52,6 +52,21 @@ test('a workspace with no src contributes its own folder', () => {
 test('the workspaces field may be an object and may list folders by name', () => {
   const dir = repo({ ...MONOREPO, 'package.json': { workspaces: { packages: ['packages/ui', './apps/office/'] } } })
   assert.deepEqual(uiSourceDirs(dir, 'packages/ui').dirs, ['packages/ui/src', 'apps/office/src'])
+})
+
+test('the UI package and its dependants are named as workspace folders', () => {
+  assert.deepEqual(uiPackages(repo(MONOREPO), 'packages/ui').packages, ['packages/ui', 'apps/office', 'apps/portal'])
+})
+
+test('what a workspace imports is found transitively, its own source first; a workspace it does not import is left out', () => {
+  const dir = repo({
+    ...MONOREPO,
+    'packages/web/package.json': { name: '@acme/web', dependencies: { '@acme/ui': '*' } },
+    'packages/web/src/shell.tsx': '',
+    'apps/office/package.json': { name: 'office', dependencies: { '@acme/web': '*' } },
+  })
+  assert.deepEqual(workspaceImports(dir, 'apps/office'), ['apps/office/src', 'packages/web/src', 'packages/ui/src'])
+  assert.deepEqual(workspaceImports(dir, 'apps/portal'), ['apps/portal/src', 'packages/ui/src'])
 })
 
 test('a repository with no workspaces is one package: its src', () => {

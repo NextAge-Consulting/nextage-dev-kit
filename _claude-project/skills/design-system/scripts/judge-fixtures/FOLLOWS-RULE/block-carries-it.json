@@ -1,0 +1,6 @@
+{
+  "answer": "no",
+  "why": "the block carries it",
+  "rule": "# Save contract\n\nSave is enabled only when a field differs from its loaded value; FormActions carries this.",
+  "screen": "<FormShell form={form}>\n  <FieldGroup title=\"Details\">…</FieldGroup>\n  <FormActions form={form} />\n</FormShell>"
+}

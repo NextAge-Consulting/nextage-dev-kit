@@ -1,0 +1,11 @@
+{
+  "answer": "yes",
+  "why": "generic row named for one data type",
+  "name": "InvoiceRow",
+  "blockType": "Row",
+  "summary": "Draws a table row from a columns array and a row object of any shape; takes columns, row, onClick.",
+  "screens": [
+    "invoices browse",
+    "payments browse"
+  ]
+}

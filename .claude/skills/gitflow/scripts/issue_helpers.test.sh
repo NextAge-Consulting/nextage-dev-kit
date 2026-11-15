@@ -163,11 +163,14 @@ printf '%s\n' "$q" | head -3 | tr -d '\n' >> "$GH_LOG"; echo >> "$GH_LOG"
 case "$q" in
   *addProjectV2ItemById*)
     [ "$GH_MODE" = add-fails ] && { echo "Resource not accessible by integration" >&2; exit 1; }
+    # The board's auto-add got there between the lookup and the add.
+    [ "$GH_MODE" = raced ] && { : > "$GH_LOG.raced"; echo '{"errors":[{"message":"Content already exists in this project"}]}'; echo "gh: Content already exists in this project" >&2; exit 1; }
     echo '{"data":{"addProjectV2ItemById":{"item":{"id":"ITEM_NEW"}}}}' ;;
   *updateProjectV2ItemFieldValue*)
     echo '{"data":{"updateProjectV2ItemFieldValue":{"projectV2Item":{"id":"x"}}}}' ;;
   *projectItems*)
-    case "$GH_MODE" in
+    mode="$GH_MODE"; [ "$mode" = raced ] && [ -f "$GH_LOG.raced" ] && mode=on-board
+    case "$mode" in
       on-board) echo '{"data":{"repository":{"issue":{"id":"ISSUE_1","projectItems":{"nodes":[{"id":"ITEM_1","project":{"id":"PROJ"}}]}}}}}' ;;
       *)        echo '{"data":{"repository":{"issue":{"id":"ISSUE_1","projectItems":{"nodes":[{"id":"ITEM_X","project":{"id":"OTHER"}}]}}}}}' ;;
     esac ;;
@@ -187,6 +190,10 @@ t 1 "$(grep -c addProjectV2ItemById "$tmp/gh.log")" '…added exactly once'
 t 1 "$(grep -c updateProjectV2ItemFieldValue "$tmp/gh.log")" '…and its status still set'
 grep -q "WARNING — #7 was not on the project; added it. Issues filed with file-issue.sh are put on the board when they are filed" "$tmp/board.err" \
   && t ok ok '…with a warning that it was filed some other way' || t ok "$(cat "$tmp/board.err")" '…with a warning that it was filed some other way'
+rm -f "$tmp/gh.log.raced"
+t 0 "$(board raced)" 'an issue the auto-add puts on the board mid-add: status set'
+t 1 "$(grep -c updateProjectV2ItemFieldValue "$tmp/gh.log")" '…on the item the auto-add made'
+t 0 "$(grep -c ERROR "$tmp/board.err")" '…and no error'
 t 1 "$(board add-fails)" 'a failed add is a hard error'
 t 0 "$(grep -c updateProjectV2ItemFieldValue "$tmp/gh.log")" '…and no status is set'
 grep -q "gh auth refresh -s project" "$tmp/board.err" && t ok ok '…naming the likely fix' || t ok missing '…naming the likely fix'

@@ -1,0 +1,13 @@
+{
+  "answer": "no",
+  "why": "different surfaces, each named",
+  "surface": "a form",
+  "a": {
+    "file": "dialogs.md",
+    "text": "In a dialog, Cancel sits first and the primary action last."
+  },
+  "b": {
+    "file": "form-layout.md",
+    "text": "On a page form, Save sits first, then Close."
+  }
+}

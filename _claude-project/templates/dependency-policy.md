@@ -100,7 +100,7 @@ opens. Expect them to occasionally cost hours. If one turns into a fight, stop a
 escalate rather than forcing it through — a half-migrated build graph is worse than a
 stale one.
 
-The kit's list: `vite`, `@vitejs/*`, `vite-tsconfig-paths`, `esbuild`, `rollup`,
+The kit's list: `vite`, `@vitejs/*`, `esbuild`, `rollup`,
 `postcss`, `react`, `react-dom`, `@types/react`, `@types/react-dom`, `@tanstack/*`,
 `hono`, `@hono/*`, `drizzle-orm`, `drizzle-kit`, and the database driver (`pg`,
 `mssql`). This project adds:

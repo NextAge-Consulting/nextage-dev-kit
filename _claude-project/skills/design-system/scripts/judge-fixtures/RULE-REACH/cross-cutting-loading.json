@@ -1,0 +1,12 @@
+{
+  "answer": "no",
+  "why": "applies cleanly",
+  "rule": "---\nblock-types: cross-cutting\n---\n# Loading\n\nA busy control keeps its label and shows a spinner beside it. Nothing is disabled while busy.",
+  "blockTypes": "block-types: cross-cutting",
+  "block": {
+    "name": "ConfirmDialog",
+    "type": "ConfirmDialog",
+    "summary": "One question, Yes and No; the Yes shows busy while the action runs.",
+    "inventoryLine": "| `ConfirmDialog` | one short question about an action | ConfirmDialog | approved |"
+  }
+}

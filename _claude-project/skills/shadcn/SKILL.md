@@ -20,9 +20,9 @@ The JSON above contains the project config and installed components. Use `npx sh
 
 ## Principles
 
-1. **Use existing components first.** Use `npx shadcn@latest search` to check registries before writing custom UI. Check community registries too.
+1. **Use the project's own blocks first** (`rules/project/ui-inventory.md`), then its atoms; reach for a registry only for an atom the project lacks, with `npx shadcn@latest search`.
 2. **Compose, don't reinvent.** Settings page = Tabs + Card + form controls. Dashboard = Sidebar + Card + Chart + Table.
-3. **Use built-in variants before custom styles.** `variant="outline"`, `size="sm"`, etc.
+3. **Use built-in variants before custom styles.** `variant="outline"`; a size prop names the role it serves, never a magnitude (the `design-system` skill).
 4. **Use semantic colors.** `bg-primary`, `text-muted-foreground` — never raw values like `bg-blue-500`.
 
 ## Critical Rules
@@ -63,7 +63,6 @@ These rules are **always enforced**. Each links to a file with Incorrect/Correct
 - **Use existing components before custom markup.** Check if a component exists before writing a styled `div`.
 - **Callouts use `Alert`.** Don't build custom styled divs.
 - **Empty states use `Empty`.** Don't build custom empty state markup.
-- **No toasts.** Show feedback where the user is looking (the `ui-patterns.md` rule); never `sonner`.
 - **Use `Separator`** instead of `<hr>` or `<div className="border-t">`.
 - **Use `Skeleton`** for loading placeholders. No custom `animate-pulse` divs.
 - **Use `Badge`** instead of custom styled spans.

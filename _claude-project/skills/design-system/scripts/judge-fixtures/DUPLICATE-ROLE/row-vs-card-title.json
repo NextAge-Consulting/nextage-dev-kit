@@ -1,0 +1,14 @@
+{
+  "answer": "no",
+  "why": "equal values, different jobs",
+  "a": {
+    "name": "type-row-title",
+    "purpose": "the first line of a row in a collection",
+    "value": "14px/20px 500"
+  },
+  "b": {
+    "name": "type-card-title",
+    "purpose": "a card's heading",
+    "value": "14px/20px 500"
+  }
+}

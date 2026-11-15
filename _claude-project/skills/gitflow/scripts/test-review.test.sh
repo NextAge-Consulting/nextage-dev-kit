@@ -60,6 +60,11 @@ t 0 "$( (cd "$repo" && SKIP_TEST_REVIEW=1 STUB_MODE=missing STUB_LOG="$tmp/log" 
 has "$tmp/err" 'test review skipped (SKIP_TEST_REVIEW=1)' '…saying it was skipped'
 ! called && echo "  ✓ …and the reviewer is never called" || { echo "  ✗ FAIL — reviewer called"; fail=1; }
 
+new_repo; printf '// ui-behaviour-code: saving.md\n/**\n * a note\n */\n' | cat - "$repo/src/billing.ts" > "$tmp/b" && mv "$tmp/b" "$repo/src/billing.ts"; rm -f "$tmp/log"
+t 0 "$(gate missing)" 'a source changed by comments only: exit 0'
+has "$tmp/err" '1 source file(s) changed by comments only' '…saying so'
+called && { echo "  ✗ FAIL — the reviewer was called for a comment"; fail=1; } || echo "  ✓ …without calling the reviewer"
+
 echo "REVIEWED:"
 new_repo; sed -i.bak 's/a + b/a + b + 0/' "$repo/src/billing.ts"; rm -f "$repo/src/billing.ts.bak"
 t 0 "$(gate clean)" 'a changed source file, clean: exit 0'

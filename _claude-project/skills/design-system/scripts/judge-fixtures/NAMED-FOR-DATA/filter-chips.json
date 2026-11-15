@@ -1,0 +1,10 @@
+{
+  "answer": "no",
+  "why": "kind name",
+  "name": "FilterChips",
+  "blockType": "FilterChips",
+  "summary": "Draws each active filter as a removable chip with Clear all; takes filters, onRemove, onClear.",
+  "screens": [
+    "every browse"
+  ]
+}

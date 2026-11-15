@@ -1,0 +1,14 @@
+{
+  "answer": "no",
+  "why": "different elements",
+  "a": {
+    "name": "--radius-control",
+    "purpose": "buttons, fields, selects",
+    "value": "6px"
+  },
+  "b": {
+    "name": "--radius-stamp",
+    "purpose": "badges and small tags",
+    "value": "4px"
+  }
+}

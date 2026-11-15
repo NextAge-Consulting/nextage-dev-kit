@@ -1,0 +1,15 @@
+{
+  "answer": "no",
+  "why": "inventory records the pair",
+  "new": {
+    "name": "NavTabBar",
+    "type": "NavRail",
+    "code": "export function NavTabBar({ items }) {\n  return <nav className=\"fixed bottom-0 flex justify-around border-t bg-surface\">{items.map(i => <TabItem key={i.key} {...i} />)}</nav>\n}"
+  },
+  "existing": {
+    "name": "NavList",
+    "type": "NavRail",
+    "code": "export function NavList({ items }) {\n  return <nav className=\"flex flex-col gap-tight\">{items.map(i => <NavItem key={i.key} {...i} />)}</nav>\n}",
+    "inventoryLine": "| `NavList` | the app's section navigation as a side list; NavTabBar is its phone form, by the human's decision | NavRail | approved |"
+  }
+}

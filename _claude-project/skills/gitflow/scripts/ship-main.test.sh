@@ -97,7 +97,7 @@ else
     before=$(git rev-parse HEAD)
     rc=$(tship "📚 docs: explain a")
     { [ "$rc" = 0 ] && [ ! -f "$tmp/check-types.ran" ] && [ "$(git rev-parse origin/main)" != "$before" ] \
-      && grep -q 'typecheck: code unchanged since the last pass (comments and whitespace only) — typecheck skipped' "$tmp/out"; } \
+      && grep -q 'typecheck: code unchanged since the last pass (comments, whitespace and prose only) — typecheck skipped' "$tmp/out"; } \
         && ok "…a comment-only change skips it, saying so, and ships" || bad "comment-only (rc=$rc): $(cat "$tmp/out")"
     printf 'export const a = 2;\n' > src/a.ts
     rc=$(tship "🐛 fix: a is two")

@@ -1,0 +1,12 @@
+{
+  "answer": "yes",
+  "why": "demands a control the block cannot have by decision",
+  "rule": "---\nblock-types: [Pager]\n---\n# Paging\n\nThe pager shows the page-size control, the record count and the arrows. A size change returns to page 1.",
+  "blockTypes": "block-types: [Pager]",
+  "block": {
+    "name": "BrowsePager",
+    "type": "Pager",
+    "summary": "Count and arrows only.",
+    "inventoryLine": "| `BrowsePager` | count and arrows only, fit-to-screen paging; no size control, by the human's decision | Pager | approved |"
+  }
+}
