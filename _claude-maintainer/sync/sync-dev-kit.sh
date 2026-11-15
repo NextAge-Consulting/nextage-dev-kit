@@ -1227,12 +1227,21 @@ is_maintainer_machine() {
 
 # Names of the migrations the kit added after <commit>, oldest first. Fails when the
 # commit is not in the kit's history, since the project's version then cannot be read.
+#
+# A migration <commit> itself holds is not one: the project met it at that sync. A squash
+# or a rebase leaves <commit> out of HEAD's history and gives the kit a new commit adding
+# every migration the old ones added, so the log alone would offer each of them again.
 migrations_added_since() {
-    local since="$1" out
+    local since="$1" out names name
     [ -z "$since" ] && return 0
     git -C "$KIT_PATH" cat-file -e "${since}^{commit}" 2>/dev/null || return 1
     out=$(git -C "$KIT_PATH" log --reverse --diff-filter=A --name-only --format= "${since}..HEAD" -- "$MIGRATIONS_DIR") || return 1
-    printf '%s\n' "$out" | sed -n "s#^${MIGRATIONS_DIR}/\([^/]*\)/PROMPT\.md\$#\1#p"
+    names=$(printf '%s\n' "$out" | sed -n "s#^${MIGRATIONS_DIR}/\([^/]*\)/PROMPT\.md\$#\1#p")
+    while IFS= read -r name; do
+        [ -z "$name" ] && continue
+        git -C "$KIT_PATH" cat-file -e "${since}:${MIGRATIONS_DIR}/${name}/PROMPT.md" 2>/dev/null && continue
+        printf '%s\n' "$name"
+    done <<<"$names"
 }
 
 # Names of the migrations in the kit's working tree that its HEAD does not hold, in byte

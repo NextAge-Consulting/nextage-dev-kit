@@ -513,6 +513,21 @@ run --scan >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 5 ] && ok "migrations: a last sync the kit's history does not hold fails the scan" || bad "unknown lastSyncedCommit (rc=$rc)"
 cp "$tmp/lock.orig" "$L"
 
+# ─── Migrations: a squash leaves the project's commit out of the kit's history ──
+KIT_BRANCH=$(git -C "$KIT" rev-parse --abbrev-ref HEAD)
+git -C "$KIT" checkout -q -b release-branch
+add_migration m-on-branch
+[ "$(pending)" = '["m-on-branch"]' ] && ok "squash: a migration committed on a branch is listed" || bad "on branch: $(pending)"
+run --migration-done m-on-branch >/dev/null 2>&1; run --finalize >/dev/null 2>&1
+git -C "$KIT" checkout -q "$KIT_BRANCH"
+git -C "$KIT" merge -q --squash release-branch >/dev/null 2>&1
+kit_commit "release, squashed"
+git -C "$KIT" merge-base --is-ancestor "$(jq -r .lastSyncedCommit "$L")" HEAD && bad "squash: the fixture did not leave the project's commit out of the history"
+[ "$(pending)" = "[]" ] && ok "squash: a migration the project's own commit held is not offered again" || bad "after squash: $(pending)"
+add_migration m-after-squash
+[ "$(pending)" = '["m-after-squash"]' ] && ok "squash: one the kit adds afterwards is listed" || bad "after squash, new: $(pending)"
+run --migration-done m-after-squash >/dev/null 2>&1; run --finalize >/dev/null 2>&1
+
 # ─── Migrations on a maintainer machine: uncommitted ones run ahead ───────
 MARK="$HOME/.claude/kitmaster"
 draft() { mkdir -p "$KIT/_claude-maintainer/migrations/$1"; printf '# %s\n\n---\n\nDo %s.\n' "$1" "$1" > "$KIT/_claude-maintainer/migrations/$1/PROMPT.md"; }

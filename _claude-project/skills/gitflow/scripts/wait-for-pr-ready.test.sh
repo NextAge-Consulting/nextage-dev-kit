@@ -44,6 +44,21 @@ wait_pr "$SUITE_PENDING"; rc=$?
 wait_pr '[]'; rc=$?
 [ "$rc" -eq 3 ] && ok "aws: no checks at all is not ready" || bad "aws empty (rc=$rc): $(cat "$tmp/out")"
 
+# A check run again on the same commit: only its newest run counts.
+RERUN_PASSED='[{"__typename":"CheckRun","workflowName":"pr-title","name":"title-check","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-01-01T10:00:00Z"},{"__typename":"CheckRun","workflowName":"ci","name":"node-checks","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-01-01T10:00:00Z"},{"__typename":"CheckRun","workflowName":"pr-title","name":"title-check","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-01-01T10:01:10Z"}]'
+RERUN_FAILED='[{"__typename":"CheckRun","workflowName":"pr-title","name":"title-check","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-01-01T10:00:00Z"},{"__typename":"CheckRun","workflowName":"pr-title","name":"title-check","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-01-01T10:01:10Z"}]'
+RERUN_RUNNING='[{"__typename":"CheckRun","workflowName":"pr-title","name":"title-check","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-01-01T10:00:00Z"},{"__typename":"CheckRun","workflowName":"pr-title","name":"title-check","status":"IN_PROGRESS","conclusion":"","startedAt":"2026-01-01T10:01:10Z"}]'
+SAME_NAME_TWO_WORKFLOWS='[{"__typename":"CheckRun","workflowName":"ci","name":"build","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-01-01T10:00:00Z"},{"__typename":"CheckRun","workflowName":"docs","name":"build","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-01-01T10:01:10Z"}]'
+subs '{"GEMINI_NOT_INSTALLED":"true"}'
+wait_pr "$RERUN_PASSED"; rc=$?
+[ "$rc" -eq 0 ] && ok "a check that failed and then passed on a re-run of the same commit is ready" || bad "re-run passed (rc=$rc): $(cat "$tmp/out")"
+wait_pr "$RERUN_FAILED"; rc=$?
+[ "$rc" -eq 2 ] && ok "a check whose newest run failed is a failure, whatever an earlier run said" || bad "re-run failed (rc=$rc): $(cat "$tmp/out")"
+wait_pr "$RERUN_RUNNING"; rc=$?
+[ "$rc" -eq 3 ] && ok "a check running again is pending, not the failure it replaces" || bad "re-run running (rc=$rc): $(cat "$tmp/out")"
+wait_pr "$SAME_NAME_TWO_WORKFLOWS"; rc=$?
+[ "$rc" -eq 2 ] && ok "two workflows' jobs of one name are two checks: one failing still fails" || bad "same name, two workflows (rc=$rc): $(cat "$tmp/out")"
+
 subs '{"GEMINI_NOT_INSTALLED":"true"}'
 wait_pr "$GREEN_CI"; rc=$?
 [ "$rc" -eq 0 ] && ok "github (default): green checks are ready without a separate status" || bad "github (rc=$rc): $(cat "$tmp/out")"

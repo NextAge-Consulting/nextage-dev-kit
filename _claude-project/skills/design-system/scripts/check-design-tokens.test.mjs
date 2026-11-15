@@ -614,7 +614,7 @@ test('a call site that restyles a project component fails, by what Tailwind says
 })
 
 test('restyling at a call site is judged on the lines a change touched, in a part as in a screen', { skip: SHIPS_SKIP }, async () => {
-  const part = (extra) => `import { Shell } from "@acme/web/components/shell"\nexport function Wrap() {\n  return <>\n    <Shell className="p-2">old</Shell>\n${extra}  </>\n}\n`
+  const part = (extra) => `import { Shell } from "@acme/web/components/shell"\nexport function Wrap() {\n  return <>\n    <Shell className="p-2 h-9 text-foreground" size="lg">old</Shell>\n${extra}  </>\n}\n`
   const dir = withTailwind(await prepared({ ...SHARED, 'apps/web/src/styles.css': `${ENTRY_UI_ONLY}@source "../../../packages/web/src/**/*.{ts,tsx}";\n`, 'apps/web/src/components/wrap.tsx': part('') }))
   const git = (...args) => execFileSync('git', ['-C', dir, '-c', 'user.email=t@example.com', '-c', 'user.name=t', ...args])
   fs.writeFileSync(path.join(dir, '.gitignore'), 'node_modules\n')
@@ -622,11 +622,11 @@ test('restyling at a call site is judged on the lines a change touched, in a par
   git('add', '-A')
   git('commit', '-qm', 'base')
   const base = String(git('rev-parse', 'HEAD')).trim()
-  const restyles = (r) => r.problems.filter((p) => /never restyles/.test(p)).map((p) => p.split('  ').slice(0, 2).join(' '))
-  assert.deepEqual(restyles(await checkDesignTokens(dir, { base })), [], 'a part nobody has touched keeps the padding it had')
-  fs.writeFileSync(path.join(dir, 'apps/web/src/components/wrap.tsx'), part('    <Shell className="gap-1">new</Shell>\n'))
-  assert.deepEqual(restyles(await checkDesignTokens(dir, { base })), ['apps/web/src/components/wrap.tsx:5 <Shell> gap-1'], 'the line the change added is held; the line above it is not')
-  assert.equal(restyles(await checkDesignTokens(dir, { all: true })).length, 2, 'an audit holds every line')
+  const restyles = (r) => r.problems.filter((p) => p.startsWith('apps/web/src/components/wrap.tsx') && /call site|size named by magnitude/.test(p)).map((p) => p.split('  ').slice(0, 2).join(' ')).sort()
+  assert.deepEqual(restyles(await checkDesignTokens(dir, { base })), [], 'a line nobody has touched is held to none of the call-site rules: restyling, a fixed height, a repainted colour, a size by magnitude')
+  fs.writeFileSync(path.join(dir, 'apps/web/src/components/wrap.tsx'), part('    <Shell className="gap-1 h-8 text-foreground" size="sm">new</Shell>\n'))
+  assert.deepEqual(restyles(await checkDesignTokens(dir, { base })), ['apps/web/src/components/wrap.tsx:5 <Shell> gap-1', 'apps/web/src/components/wrap.tsx:5 <Shell> h-8', 'apps/web/src/components/wrap.tsx:5 <Shell> size="sm"', 'apps/web/src/components/wrap.tsx:5 <Shell> text-foreground'], 'the line the change added is held to all four; the line above it is not')
+  assert.equal(restyles(await checkDesignTokens(dir, { all: true })).length, 8, 'an audit holds every line')
 })
 
 test('call sites are not judged for restyling with no Tailwind stylesheet, and the check says so', async () => {
