@@ -36,7 +36,7 @@ of what is added, changed and destroyed. CI on the PR is the real gate.
 3. applies;
 4. merges — the org repo's main branch only ever holds what is live;
 5. commits the regenerated infrastructure reference straight to main, like a release's
-   changelog;
+   version bump;
 6. moves the issues the PR closes to the deploy column, like every `/deploy`.
 
 **`/merge` refuses** in an org repo: Terraform lands through `/deploy`.

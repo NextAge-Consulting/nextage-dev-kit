@@ -36,11 +36,16 @@ Run `/deploy` on an up-to-date `main`. In one pass it:
    nothing new since the last release — or if the full test suite fails. It runs the suite
    only when `main`'s exact code has no recorded pass.
 2. Works out the version bump from the commit subjects (a breaking change is major, a
-   feature is minor, anything else is a patch) and writes the changelog entry.
+   feature is minor, anything else is a patch) and, when the project has a changelog rule,
+   writes the entry it describes.
 3. Commits the bump, tags it, and pushes both.
 4. Runs the database migration, if the project has one. It can be set to skip when no
    migration file changed. A failed migration stops everything before any app ships.
 5. Starts every service's deploy (all at once on CodeBuild) and reports each one's result.
+
+The changelog is the project's own. `.claude/rules/project/changelog.md` says who reads it,
+what each release entry holds and where it goes; without that rule, releases carry no
+changelog.
 
 Every failure exits with a code that says what went wrong and what to do.
 (`pipeline.md` §2.8)
@@ -60,6 +65,12 @@ back across a release that changed the schema only after checking the old code s
 
 It runs with its own key, separate from the deploy key every developer holds. Whoever
 holds the promote key is who may promote. (`pipeline.md` §2.9)
+
+**To attach something to each release** — a bill of materials a customer asks for, a
+scan report — write `.claude/project-release.sh`. Promotion runs it with the version once
+the Release is published, and it does the fetching and the attaching itself: it is this
+project's file, and the kit knows nothing of what it holds. Give the promote key whatever
+read access that script needs, in this project's own infrastructure.
 
 ## Setting a project up
 

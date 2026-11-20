@@ -286,9 +286,10 @@ is_app_only() {
         _claude-project/rules/integrations/agent-browser.md) return 0 ;;
         _claude-project/commands/dev.md|_claude-project/commands/ui-design.md) return 0 ;;
         _claude-project/commands/design-audit.md|_claude-project/commands/primary-route-audit.md) return 0 ;;
-        _claude-project/commands/uxes.md) return 0 ;;
+        _claude-project/commands/uxes.md|_claude-project/commands/design-pack.md) return 0 ;;
         _claude-project/skills/agent-browser/*|_claude-project/skills/claude-design/*) return 0 ;;
         _claude-project/skills/dependency-triage/*|_claude-project/skills/design-system/*) return 0 ;;
+        _claude-project/skills/design-packs/*) return 0 ;;
         _claude-project/skills/dev-server/*|_claude-project/skills/e2e/*|_claude-project/skills/e2e-author/*) return 0 ;;
         _claude-project/skills/primary-route-tests/*) return 0 ;;
         _claude-project/skills/mfing-bible-of-tanstack/*|_claude-project/skills/postgres-neon-drizzle/*) return 0 ;;

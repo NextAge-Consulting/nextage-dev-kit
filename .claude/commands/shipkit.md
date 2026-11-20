@@ -12,10 +12,12 @@ $ARGUMENTS
 .claude/scripts/shipkit.sh --plan
 ```
 
-It prints the `version`, the `base` the release is measured from, the `title`, the `migrations` it adds with each one's Kind, every migration in `missing_estimate`, and every `consumer_name_hits` line.
+It prints the `version`, the `base` the release is measured from, the `title`, the `migrations` it adds with each one's Kind, every migration in `missing_estimate`, every `consumer_name_hits` line, and `unshipped_pack`.
 
 - **`missing_estimate` not empty:** stop. Write each one's Estimate (`.claude/rules/project/migrations.md`), test its commands against a real project, and run `/shipkit` again.
 - **`consumer_name_hits`:** the kit is public. Read each hit. A real name of a project, client or person is rewritten generically before anything is committed (`kit-maintainer.md`, "THE KIT IS PUBLIC"); a common word that happens to match is left. Then run the plan again.
+
+- **`unshipped_pack` not empty:** tell the human, in its own words, before anything else in this step. The Design Packs repository is released by `/shippack`, never by this command, and a kit release goes ahead without it.
 
 ## Step 1a: Bring the actions up to date
 
@@ -83,4 +85,4 @@ With `version` and `base` from Step 1. It commits `VERSION`, pushes `main`, tags
 
 ## Step 5: Report
 
-The release's title and URL, the migrations it carries, each with its Kind, and Gemini's findings, each fixed or declined with its reason.
+The release's title and URL, the migrations it carries, each with its Kind, Gemini's findings, each fixed or declined with its reason, and the plan's `unshipped_pack` line when it had one.

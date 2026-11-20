@@ -111,7 +111,7 @@ which the human runs.
 
 ### Step 4: Note post-merge state
 
-After `/merge` completes, the squash commit is on main and this checkout is standing on it — the next `/work` cuts a fresh branch from here. After a worktree's `/merge`, the session is back in the primary checkout, whose `main` the next `/work` refreshes. **No deploy fires automatically.** To ship to production, run `/deploy` (which bumps version, writes changelog, pushes, triggers the deploy workflow). Multiple merges can accumulate on main between deploys — `/deploy` ships all commits since the last release tag in one bump.
+After `/merge` completes, the squash commit is on main and this checkout is standing on it — the next `/work` cuts a fresh branch from here. After a worktree's `/merge`, the session is back in the primary checkout, whose `main` the next `/work` refreshes. **No deploy fires automatically.** To ship to production, run `/deploy` (which bumps version, applies the project's changelog entry, pushes, triggers the deploy workflow). Multiple merges can accumulate on main between deploys — `/deploy` ships all commits since the last release tag in one bump.
 
 ## What this command does NOT do
 

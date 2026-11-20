@@ -90,8 +90,10 @@ are yours.
 3. **Start building.** Anything missing is built the first time a screen needs it, pending
    for your review.
 
-A project that starts from a Design Pack — another project's finished system, generalised
-— installs it instead of steps 2 and 3, and owns every file of it from then on.
+A project that takes a Design Pack — the behaviour, recipes and layout another project
+already got right — still does steps 1 and 2: its look stays its own. The pack's pieces
+then arrive finished in place of building each from nothing, and the project owns every
+file of them from then on. Finding, installing and cutting packs is `design-packs-guide.md`.
 
 ### An existing app: extract, then decide
 
@@ -106,6 +108,46 @@ A project that starts from a Design Pack — another project's finished system, 
    judge only the lines that change, so existing screens never block your work, and nothing
    new can break the system. When you can spend time on an area, audit it
    (`/design-audit screens <path>`) and bring it into line.
+
+### Taking a piece to another project
+
+**`/design-pack extract <piece>` cuts one finished piece of this system into a folder
+another project can install under its own look.** A piece is a behaviour rule with the
+code that carries it out, a recipe, or a block: name a rule or recipe by its file name
+without `.md`, and a block as the inventory names it.
+
+- **It needs everything committed and nothing pending.** A piece is cut from work you have
+  approved.
+- **It never changes this project.** The folder lands under
+  `project-documentation/temporary/design-pack/`. When it refuses — an import of business
+  code — the fix is ordinary work here that you decide on.
+- **It takes the look of the project it lands in, except where the pack says a value is
+  part of what it is.** The piece lists the roles it uses by purpose. When a pack is
+  made, you say which values belong to its nature and why — a back office is compact, so
+  its gaps and sizes travel — and only those travel, each with your reason. Everything
+  else is the receiving project's own. In the piece's folder, Claude takes out what
+  this project added for its own subject, rewords the comments and the prose into words
+  any project would use so the piece is easy to recognise and reuse, and takes out real
+  data. It asks you first when taking something out changes what the piece does.
+- **It is proved before you see it:** installed alone in an empty project, the piece
+  typechecks, builds, and passes the token check and the status check.
+- **Publishing is yours.**
+
+### Taking a piece from another project
+
+**`/design-pack install <piece or app pack>` brings a finished piece, or a whole list of
+them such as a back office, into this project under your own colours, type and spacing.**
+
+- **It plans before it copies.** You see every file that would land, what the pieces
+  expect this project to already have, and the roles and libraries it lacks.
+- **Where a piece would stand beside one of yours, it stops and asks.** You see both as the
+  real thing and choose: fold the incoming one into yours, replace yours, or keep both
+  with your reason.
+- **Everything it copies is pending.** You approve each piece on a real screen with this
+  project's own data, exactly as you approve anything new.
+- **From then on every file is this project's,** to change as it needs. Nothing syncs.
+  `/design-pack compare` shows what the pack has changed since, and you merge a change by
+  hand or leave it.
 
 ### The design audit
 

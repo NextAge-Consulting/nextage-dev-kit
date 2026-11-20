@@ -28,8 +28,8 @@
 # unconfirmed exits 12 before the push.
 #
 # Changelog: NOT touched here. Single-writer model — `/deploy` is the sole
-# author of changelog.md (deploy.sh inserts the consolidated release entry
-# under today's date header at version-bump time).
+# author of changelog.md (deploy.sh applies the release's entry, written by the
+# project's own rule, in the release commit).
 #
 # Transport detection (for PR creation):
 #   - If `gh` is available (local), uses gh pr create

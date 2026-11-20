@@ -1,6 +1,6 @@
 # /deploy
 
-Cut a release: bump version + write changelog + push the bump directly to `main`, then tag and trigger the deploy workflow. Part of the gitflow subsystem. Invoked directly (`/deploy`) or via natural-language triggers ("deploy", "ship to prod", "release", "cut a release").
+Cut a release: bump version + apply the project's changelog entry, when it has a changelog rule + push the bump directly to `main`, then tag and trigger the deploy workflow. Part of the gitflow subsystem. Invoked directly (`/deploy`) or via natural-language triggers ("deploy", "ship to prod", "release", "cut a release").
 
 Bare `/deploy` ships the full fleet. `/deploy <service>` (e.g. `/deploy worker`, `/deploy worker rest`) ships only those services — a bare service name mirrors `/dev <workspace>` and maps to `deploy-<service>.yml`, validated before any bump.
 
@@ -10,15 +10,15 @@ $ARGUMENTS
 
 ## Releasing infrastructure
 
-In an org repo (`REPO_KIND` is `org` in `.claude/sync-substitutions.json`), and from a PR branch in a combo repo (`combo`), `/deploy` on the PR's branch applies the PR's Terraform and merges it. In an org repo, ask nothing about a level or a changelog, skip every step below, and run:
+In an org repo (`REPO_KIND` is `org` in `.claude/sync-substitutions.json`), and from a PR branch in a combo repo (`combo`), `/deploy` on the PR's branch applies the PR's Terraform and merges it. In an org repo, ask nothing about a level or a changelog entry, skip every step below, and run:
 
 ```bash
 .claude/skills/gitflow/scripts/deploy.sh
 ```
 
-It refuses a PR that targets another branch or lacks what main has, waits for green CI, re-plans each changed root and stops unless the plan matches the PR's plan block, applies, merges, commits the regenerated infrastructure reference straight to main as a release commits its changelog, then moves the issues the PR closes to the deploy status. Exit 29 means applied and merged but the reference did not reach main: run `.claude/skills/terraform/scripts/gen-reference.sh`, then `/ship-main`. Report what it applied and the merge, or its refusal as printed — a plan that no longer matches names the difference, and nothing has been applied.
+It refuses a PR that targets another branch or lacks what main has, waits for green CI, re-plans each changed root and stops unless the plan matches the PR's plan block, applies, merges, commits the regenerated infrastructure reference straight to main as a release commits its version bump, then moves the issues the PR closes to the deploy status. Exit 29 means applied and merged but the reference did not reach main: run `.claude/skills/terraform/scripts/gen-reference.sh`, then `/ship-main`. Report what it applied and the merge, or its refusal as printed — a plan that no longer matches names the difference, and nothing has been applied.
 
-**A combo PR that also changes the app** — any file outside `infra/terraform/`, `project-documentation/`, `.claude/` and Markdown — is released in the same run, after the apply and the merge. Skip Step 1: on a PR branch `--check-only` is refused, and the release runs its own state gates from main. Do Steps 2 and 3 on the branch, then run Step 4's command there with the level and changelog file. The script applies, merges, and hands the arguments to the release, which moves the shipped issues. A combo PR changing only Terraform and docs takes the bare command above and cuts no release.
+**A combo PR that also changes the app** — any file outside `infra/terraform/`, `project-documentation/`, `.claude/` and Markdown — is released in the same run, after the apply and the merge. Skip Step 1: on a PR branch `--check-only` is refused, and the release runs its own state gates from main. Do Steps 2 and 3 on the branch, then run Step 4's command there with the level and the changelog patch, when there is one. The script applies, merges, and hands the arguments to the release, which moves the shipped issues. A combo PR changing only Terraform and docs takes the bare command above and cuts no release.
 
 On `main` in a combo repo, `/deploy` releases the app: follow the steps below as in any app repo.
 
@@ -82,26 +82,21 @@ Highest wins (major > minor > patch). NEVER skip — if there are commits to dep
 
 Prior `🚀 release: v...` commits are by definition tag boundaries — they should never appear in the unbumped window because the last tag is created at that commit. If one shows up, the previous /deploy didn't tag-push cleanly; investigate before re-bumping.
 
-### Step 3: Generate changelog entry
+### Step 3: Write the changelog entry, when the project has a changelog rule
 
-For each commit since last tag, compose a user-facing bullet in the existing changelog style (see top of `changelog.md`). Pattern:
+**The changelog is the project's.** Its rule is `.claude/rules/project/changelog.md`. Read it. With no rule, there is no entry: skip this step, and Step 4 passes no patch.
 
-```
-- **<emoji> <Short Title Case>** - <one-line user-impact description>
-```
+With the rule, read `changelog.md` (or `CHANGELOG.md`). Compose this release's entry from the commits since the last tag, exactly as the rule says: what goes in, how it reads, where it sits, what heads it. The new version is `v<NEW>` from Step 2's level, already known before the script runs. The kit sets none of this.
 
-Group related commits where it reads naturally (multiple fixes to the same surface = one bullet). Skip pure infra commits (e.g., `🔧 chore: bump deps` doesn't need a customer-facing line — but DO bump version since deps did change). For dep-only releases, write a single line like `- **♻️ Dependency Updates** - Routine package updates`.
-
-Write the entry to a tempfile:
+Hand the entry to the script as a patch that adds it and changes nothing else. Edit a copy, never `changelog.md` itself — the script refuses a dirty tree and lands the entry in the release commit — then diff the copy, so the patch carries only the new lines:
 
 ```bash
-cat > /tmp/deploy-changelog-<random>.md <<'EOF'
-- **✨ Feature Name** - Description
-- **🐛 Bug Fix** - Description
-EOF
+F=changelog.md                                 # or CHANGELOG.md
+T=$(mktemp -d); mkdir -p "$T/a" "$T/b"
+if [ -f "$F" ]; then cp "$F" "$T/a/$F"; cp "$F" "$T/b/$F"; SRC="a/$F"; else : > "$T/b/$F"; SRC=/dev/null; fi
+# edit "$T/b/$F" into the new changelog, then:
+( cd "$T" && git diff --no-index --no-prefix -- "$SRC" "b/$F" ) > "$T/changelog.patch"
 ```
-
-NOTE on tempfile content: deploy.sh's changelog-insertion `awk` reads the entry file via `getline` (not `-v entry=...`) precisely because BSD awk on macOS rejects newlines in `-v` values. If a future edit re-introduces the `-v entry=` pattern, multi-bullet changelogs will fail mid-deploy on macOS hosts with `awk: newline in string`. See bash-rules §V (BSD awk vs gawk portability).
 
 ### Step 4: Show the plan, then run
 
@@ -109,10 +104,8 @@ Present to the user (no prompt — this is the human-in-the-loop step, /deploy i
 
 ```
 Deploying v<CURRENT> → v<NEW> (<level>)
-Changelog entries (<count>):
-  - ...
-  - ...
-Pattern: bump + changelog commit on main → push main → tag → trigger workflow(s) from DEPLOY_WORKFLOWS
+Changelog entry: <the lines the patch adds, or "none — the project has no changelog rule">
+Pattern: bump (+ changelog) commit on main → push main → tag → trigger workflow(s) from DEPLOY_WORKFLOWS
 ```
 
 Then run:
@@ -120,12 +113,14 @@ Then run:
 ```bash
 .claude/skills/gitflow/scripts/deploy.sh \
     --level <level> \
-    --changelog-file /tmp/deploy-changelog-<random>.md
+    --changelog-patch <the patch from Step 3>
 ```
 
-If the invocation named a service subset (e.g. `/deploy worker`, or `/deploy worker rest`), forward those bare service names as trailing positional args (`… --changelog-file <file> worker rest`); the script maps each to `deploy-<service>.yml` and validates it before the bump. Adjust the plan's last line to name the targeted workflow(s) instead of the full `DEPLOY_WORKFLOWS`. A raw `--workflow <file>` from the invocation forwards unchanged. With no service named, omit both — the full fleet ships.
+Pass `--changelog-patch` only when Step 3 wrote one. The script checks the patch before it bumps anything: one that changes any file but `changelog.md`, or does not apply, stops it at exit 14 with nothing changed. Fix the patch and run Step 4 again.
 
-The script bumps, commits bump + changelog on `main` as `🚀 release: v<NEW>`, pushes `main` directly to origin, tags `v<NEW>` at the bump SHA, pushes the tag, then — **if `MIGRATE_WORKFLOW` is set — runs the migration workflow first and watches it to completion, aborting the whole deploy (exit 18/19) if it fails before any app deploy fires** — and finally triggers each workflow listed in `DEPLOY_WORKFLOWS` (resolved from `.claude/sync-substitutions.json`; falls back to `deploy.yml` if unset AND no `MIGRATE_WORKFLOW`), watching each run sequentially. A migrate-only repo (`MIGRATE_WORKFLOW` set, `DEPLOY_WORKFLOWS` empty) stops after the migration — see pipeline.md §2.1 "Migration phase."
+If the invocation named a service subset (e.g. `/deploy worker`, or `/deploy worker rest`), forward those bare service names as trailing positional args (`… --level <level> worker rest`); the script maps each to `deploy-<service>.yml` and validates it before the bump. Adjust the plan's last line to name the targeted workflow(s) instead of the full `DEPLOY_WORKFLOWS`. A raw `--workflow <file>` from the invocation forwards unchanged. With no service named, omit both — the full fleet ships.
+
+The script bumps, applies the patch, commits both on `main` as `🚀 release: v<NEW>`, pushes `main` directly to origin, tags `v<NEW>` at the bump SHA, pushes the tag, then — **if `MIGRATE_WORKFLOW` is set — runs the migration workflow first and watches it to completion, aborting the whole deploy (exit 18/19) if it fails before any app deploy fires** — and finally triggers each workflow listed in `DEPLOY_WORKFLOWS` (resolved from `.claude/sync-substitutions.json`; falls back to `deploy.yml` if unset AND no `MIGRATE_WORKFLOW`), watching each run sequentially. A migrate-only repo (`MIGRATE_WORKFLOW` set, `DEPLOY_WORKFLOWS` empty) stops after the migration — see pipeline.md §2.1 "Migration phase."
 
 The direct push to `main` requires require-PR to be OFF on the consumer repo's `main` (the default — see pipeline.md §1.1). With require-PR set, GitHub rejects the push.
 
@@ -176,7 +171,7 @@ Only in a project with `CODEBUILD_PROMOTE_PREFIX` set. Nothing is bumped, built,
    .claude/skills/gitflow/scripts/deploy.sh promote <version> [<service>...]
    ```
 
-   It authenticates with `DEPLOY_PROMOTE_AWS_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` in `.env` — a key separate from the deploy key, scoped to the promote projects; whoever holds it may promote. It starts `<CODEBUILD_PROMOTE_PREFIX><service>` for each service with the release tag as the source and `VERSION` set, waits, and on success publishes the GitHub Release for that tag (none for a version that already has one).
+   It authenticates with `DEPLOY_PROMOTE_AWS_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` in `.env` — a key separate from the deploy key, scoped to the promote projects; whoever holds it may promote. It starts `<CODEBUILD_PROMOTE_PREFIX><service>` for each service with the release tag as the source and `VERSION` set, waits, and on success publishes the GitHub Release for that tag (none for a version that already has one). It then runs the project's own release step, `.claude/project-release.sh <version>`, when the project has one.
 
 4. **Report** by exit code:
 
@@ -188,12 +183,13 @@ Only in a project with `CODEBUILD_PROMOTE_PREFIX` set. Nothing is bumped, built,
 | 23 | No such release tag on origin |
 | 12 / 13 | The promotion did not start / did not succeed. The build log says whether Prod was touched; a failed migration restarts the previous version |
 | 24 | Prod IS on the new version, but the GitHub Release was not created — the script prints the command to create it |
+| 28 | Prod IS on the new version and its Release is published, but the project's own release step (`.claude/project-release.sh`) failed — the script shows its output and the command to repeat it |
 
 ## What this command does
 
 - Runs the **full test suite only on code with no passing record** (above) — here, or in CodeBuild under `TEST_RUNNER` `aws`.
 - Runs **no build gate**. `/merge` owns it, and builds while the PR is still open so a failure is fixed on the branch that caused it. A `/ship-main` commit reaches `/deploy` without a PR by design — re-adding a gate here would defeat the point of `/ship-main`.
-- Commits the bump + changelog on `main` and pushes `main` directly (require-PR off, the default) — no release branch, no PR
+- Commits the bump, with the changelog patch when there is one, on `main` and pushes `main` directly (require-PR off, the default) — no release branch, no PR
 - Tags after the bump commit lands on main (the tag lives on the bump SHA on main)
 - Runs a **gated migration phase first** if `MIGRATE_WORKFLOW` is set (per-project sync-substitution, runtime-read; `--migrate-workflow <file>` overrides). Migration is deploy step 1 — watched to completion, real failure aborts before any app deploy. The migrate workflow's body owns no-op-as-success / trap-real-failures semantics (pipeline.md §2.1). Migration is never invoked standalone. **Skipped entirely** when `MIGRATE_PATHS` (per-project sync-substitution, runtime-read; `--migrate-paths <path>...` overrides, space-separated) is set and nothing under those paths changed since the last deploy's tag — no runner is spun up (that's where the ~2 min goes: runner boot + `npm ci` to reach a no-op). Empty/missing `MIGRATE_PATHS` → the migration always fires. The reference is the previous deploy's tag, so a failed-then-recovered migration is unaffected (pipeline.md §2.1).
 - Dispatches every service in `DEPLOY_WORKFLOWS` (per-project sync-substitution, runtime-read; falls back to `deploy.yml` if unset AND no `MIGRATE_WORKFLOW`) to the compute named by `DEPLOY_BACKEND` (`codebuild`, `github`, `custom` or `none`). Under `codebuild` — the default — each name maps to a CodeBuild project via `CODEBUILD_PROJECT_PREFIX` and the fleet is dispatched concurrently and polled together; under `github` each is a `workflow_dispatch:`-only workflow watched in turn. A migrate-only repo (`MIGRATE_WORKFLOW` set + `DEPLOY_WORKFLOWS` empty) ships no app artifact. Under `custom` or `none` nothing is dispatched and nothing is bumped — see "Repo and account requirements".
@@ -203,7 +199,7 @@ Only in a project with `CODEBUILD_PROMOTE_PREFIX` set. Nothing is bumped, built,
 
 - Does NOT open a release PR or admin-merge anything — the bump commit pushes straight to `main` (require-PR off, the default). No command admin-merges, so nothing needs `enforce_admins: false` (`/sync-dev-kit` does no git at all).
 - Does NOT auto-bump on every feature-PR merge — auto-bump-on-merge causes version-skew between source and deployed artifact. NEVER restore it (see pipeline.md §2.6).
-- Does NOT generate the changelog from PR descriptions — uses commit subjects since last tag
+- Does NOT decide anything about a changelog's content — header, placement, format, audience are the project's rule. Without one, a release carries no changelog entry
 
 ## Blocking conditions
 

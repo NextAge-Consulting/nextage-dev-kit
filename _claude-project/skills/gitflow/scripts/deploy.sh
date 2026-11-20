@@ -1,8 +1,8 @@
 #!/bin/bash
-# gitflow deploy: bump version + write changelog + ship through the same
-# protected-main PR gate as every other change, then tag + trigger deploy.
+# gitflow deploy: bump version + apply the project's changelog patch, commit both
+# straight to main, then tag + trigger deploy.
 #
-# Usage: deploy.sh --level <patch|minor|major> --changelog-file <path>
+# Usage: deploy.sh --level <patch|minor|major> [--changelog-patch <file>]
 #                  [<service>...] [--workflow <file>]... [--migrate-workflow <file>]
 #                  [--migrate-paths <path>...] [--no-watch] [--timeout-min <minutes>]
 #        deploy.sh --check-only
@@ -10,7 +10,7 @@
 #
 # A bare positional <service> (e.g. `worker`, `rest`) is sugar for the workflow
 # `deploy-<service>.yml` and mirrors /dev's bare-workspace form — e.g.
-# `deploy.sh --level patch --changelog-file f worker` ships worker only.
+# `deploy.sh --level patch worker` ships worker only.
 # Repeatable (`... worker rest`). Each name is VALIDATED against the known
 # DEPLOY_WORKFLOWS set before any bump, so a typo fails loud rather than
 # half-deploying. `--workflow <file>` is the raw-filename escape hatch for a
@@ -41,6 +41,15 @@
 # is the PREVIOUS deploy's tag (LAST_TAG), so a failed-then-recovered migration is
 # unaffected — see the skip block at step 10 and pipeline.md §2.1.
 #
+# --changelog-patch is a unified diff of changelog.md that /deploy writes when the
+# project has a changelog rule (.claude/rules/project/changelog.md). The project
+# owns everything about the entry — header, placement, format, audience; this
+# script only applies it. A patch, not an edit in the tree, because the tree must
+# be clean at the state gates, and the bump and the entry must land in the one
+# release commit that is tagged. It is checked with `git apply --check` among the
+# state gates (exit 14), may touch only changelog.md, and is applied after the
+# bump. Without it the release commit carries the bump alone.
+#
 # ─── Design ─────────────────────────────────────────────────────────────
 # /deploy is a HUMAN-SERIALIZED release boundary, not an auto-bump-on-merge.
 # Bump and deploy fire in the same invocation, in order. The source of
@@ -66,6 +75,7 @@
 #   - On main branch, or detached exactly at origin/main (a worktree /merge kept
 #     to deploy from)
 #   - Working tree clean
+#   - The changelog patch, when given, touches only changelog.md and applies
 #   - Local main == origin/main (no stale local; nothing un-pushed)
 #   - HEAD's required check-runs are not 'failure' (read-only snapshot,
 #     not a wait — see /merge for pre-merge wait logic)
@@ -101,8 +111,8 @@
 #      `/ship-main` is for, and re-adding a gate here would defeat it.
 #   1. Bump version in the appropriate manifest (pyproject.toml or package.json
 #      via `npm version`).
-#   2. Apply changelog file under today's `### Month Day, Year` header.
-#   3. Commit bump + changelog DIRECTLY on main, subject `🚀 release: v<NEW>`.
+#   2. Apply the changelog patch, when given.
+#   3. Commit the bump (and the changelog) DIRECTLY on main, subject `🚀 release: v<NEW>`.
 #   4. Push the commit straight to main (clean fast-forward — the state gate
 #      guaranteed local main == origin/main). No branch, no PR, no admin-merge.
 #   5. Tag v<NEW> at that commit, push tag (tags aren't behind branch
@@ -178,6 +188,8 @@
 #  11  push failed
 #  12  workflow trigger failed
 #  13  deploy workflow run failed
+#  14  the changelog patch does not apply to changelog.md, or touches another
+#      file — checked as a state gate before any mutation
 #  17  tag push failed
 #  18  migration workflow failed to trigger
 #  19  migration run failed (or its run id could not be resolved) — deploy
@@ -190,6 +202,8 @@
 #      (check-ui-status.mjs) — checked as a state gate before any mutation
 #  23  promote: no such release tag on origin
 #  24  promote: the promotion succeeded but the GitHub Release was not created
+#  28  promote: the promotion succeeded and the Release is published, but the project's
+#      own release step (.claude/project-release.sh) failed
 #  25  a PR in this release names `Needs <org-repo>#N` and that change is not live
 #      (the org PR not merged, or no merged PR closes the org issue), or GitHub
 #      could not say — checked as a state gate before any mutation
@@ -246,7 +260,7 @@ if repo_holds_infra && { ! repo_holds_app || { [ "$DEPLOY_BRANCH" != "main" ] &&
 fi
 
 LEVEL=""
-CHANGELOG_FILE=""
+CHANGELOG_PATCH=""
 # WORKFLOWS: empty after arg parse means "read DEPLOY_WORKFLOWS from
 # .claude/sync-substitutions.json at runtime; fall back to deploy.yml if
 # unset". --workflow flags accumulate (repeatable) and override the
@@ -277,7 +291,7 @@ fi
 while [[ $# -gt 0 ]]; do
     case $1 in
         --level)             LEVEL="$2"; shift 2 ;;
-        --changelog-file)    CHANGELOG_FILE="$2"; shift 2 ;;
+        --changelog-patch)   CHANGELOG_PATCH="$2"; shift 2 ;;
         --workflow)          WORKFLOWS+=("$2"); shift 2 ;;
         --migrate-workflow)  MIGRATE_WF="$2"; shift 2 ;;
         --migrate-paths)     MIGRATE_PATHS="$2"; shift 2 ;;
@@ -604,6 +618,22 @@ if [ "$PROMOTE" -eq 1 ]; then
             exit 24
         fi
     fi
+
+    # The project's own release step: what this project adds to a published release —
+    # files its builds stored for the version, a notice to send. The kit holds none of
+    # it. When .claude/project-release.sh exists it runs from the repository root with
+    # the version, in this script's environment, so the promotion key is the one in
+    # force; a non-zero exit fails the promotion's last step, with Prod already live.
+    if [ -f ".claude/project-release.sh" ]; then
+        echo "deploy.sh: running the project's release step (.claude/project-release.sh $PROMOTE_VERSION)..." >&2
+        if ! bash .claude/project-release.sh "$PROMOTE_VERSION" >&2; then
+            echo "deploy.sh: $PROMOTE_VERSION IS live and its GitHub Release is published, but the project's release step failed. Repeat it with:" >&2
+            echo "  bash .claude/project-release.sh $PROMOTE_VERSION" >&2
+            exit 28
+        fi
+    else
+        echo "deploy.sh: project release step: none (.claude/project-release.sh does not exist)." >&2
+    fi
     echo "deploy.sh: $PROMOTE_VERSION promoted across ${#WORKFLOWS[@]} project(s)." >&2
     exit 0
 fi
@@ -614,8 +644,8 @@ if [ "$CHECK_ONLY" -eq 0 ]; then
         *) echo "deploy.sh: --level must be patch|minor|major (got: '$LEVEL')" >&2; exit 2 ;;
     esac
 
-    if [ -z "$CHANGELOG_FILE" ] || [ ! -f "$CHANGELOG_FILE" ]; then
-        echo "deploy.sh: --changelog-file must point to an existing file" >&2
+    if [ -n "$CHANGELOG_PATCH" ] && [ ! -f "$CHANGELOG_PATCH" ]; then
+        echo "deploy.sh: --changelog-patch $CHANGELOG_PATCH not found" >&2
         exit 2
     fi
 fi
@@ -781,6 +811,29 @@ if [ -n "$(git status --porcelain)" ]; then
     echo "deploy.sh: working tree is dirty. Commit or stash before deploying." >&2
     git status --short >&2
     exit 4
+fi
+
+# The changelog patch is the project's content; this script only checks that it
+# lands where a changelog lands, and that it applies, before anything is bumped.
+CHANGELOG_PATH=""
+if [ -n "$CHANGELOG_PATCH" ]; then
+    if ! PATCH_FILES=$(git apply --numstat "$CHANGELOG_PATCH" 2>&1); then
+        echo "deploy.sh: the changelog patch is not a patch git can read. Nothing was bumped." >&2
+        printf '  %s\n' "$PATCH_FILES" >&2
+        exit 14
+    fi
+    PATCH_FILES=$(printf '%s\n' "$PATCH_FILES" | cut -f3 | sort -u)
+    case "$PATCH_FILES" in
+        changelog.md|CHANGELOG.md) CHANGELOG_PATH="$PATCH_FILES" ;;
+        *)
+            echo "deploy.sh: the changelog patch may change only changelog.md; it changes: $(printf '%s' "$PATCH_FILES" | tr '\n' ' '). Nothing was bumped." >&2
+            exit 14 ;;
+    esac
+    if ! APPLY_OUT=$(git apply --check "$CHANGELOG_PATCH" 2>&1); then
+        echo "deploy.sh: the changelog patch does not apply to $CHANGELOG_PATH. Nothing was bumped." >&2
+        printf '  %s\n' "$APPLY_OUT" >&2
+        exit 14
+    fi
 fi
 
 LOCAL_SHA=$(git rev-parse HEAD)
@@ -1067,54 +1120,17 @@ else
 fi
 echo "deploy.sh: bumped to $NEW ($PROJECT_TYPE)" >&2
 
-# --- Apply changelog ----------------------------------------------------
+# --- Apply the changelog patch -------------------------------------------
+# Checked at the state gates; the bump touches only the manifests, so it still applies.
 
-TODAY=$(date "+%B %-d, %Y")
-HEADER="### $TODAY"
-
-CHANGELOG_PATH="changelog.md"
-[ -f "CHANGELOG.md" ] && [ ! -f "changelog.md" ] && CHANGELOG_PATH="CHANGELOG.md"
-
-if [ ! -f "$CHANGELOG_PATH" ]; then
-    echo "deploy.sh: $CHANGELOG_PATH not found; creating." >&2
-    printf '# Changelog\n\nAll notable changes to this project will be documented in this file.\n\n' > "$CHANGELOG_PATH"
+if [ -n "$CHANGELOG_PATCH" ]; then
+    if ! git apply "$CHANGELOG_PATCH"; then
+        echo "deploy.sh: the changelog patch passed its check but did not apply. The version is bumped in the working tree and nothing is committed." >&2
+        exit 14
+    fi
 fi
 
-if grep -qF "$HEADER" "$CHANGELOG_PATH"; then
-    # Header exists — insert entry under it.
-    # Read entry via getline (file path), not -v entry= (string). BSD awk on
-    # macOS rejects newlines in -v values; gawk on Linux does not. See
-    # bash-rules §V.
-    awk -v hdr="$HEADER" -v entry_file="$CHANGELOG_FILE" '
-        BEGIN {
-            entry = ""
-            while ((getline line < entry_file) > 0) {
-                entry = entry (entry == "" ? "" : "\n") line
-            }
-            close(entry_file)
-        }
-        $0 == hdr { print; print ""; print entry; next }
-        { print }
-    ' "$CHANGELOG_PATH" > "${CHANGELOG_PATH}.tmp"
-else
-    # New header — insert at top after the file preamble (line 4 in canonical).
-    # Same getline pattern as above (BSD awk -v newline trap).
-    awk -v hdr="$HEADER" -v entry_file="$CHANGELOG_FILE" '
-        BEGIN {
-            entry = ""
-            while ((getline line < entry_file) > 0) {
-                entry = entry (entry == "" ? "" : "\n") line
-            }
-            close(entry_file)
-        }
-        NR==4 && !inserted { print; print ""; print hdr; print ""; print entry; inserted=1; next }
-        { print }
-        END { if (!inserted) { print ""; print hdr; print ""; print entry } }
-    ' "$CHANGELOG_PATH" > "${CHANGELOG_PATH}.tmp"
-fi
-mv "${CHANGELOG_PATH}.tmp" "$CHANGELOG_PATH"
-
-# --- Commit bump + changelog directly on main ---------------------------
+# --- Commit the release directly on main ---------------------------
 # No branch protection (pipeline.md §1.1): main requires no PR and accepts
 # direct pushes, so the release bump lands STRAIGHT on main — no release branch, no PR, no
 # admin-merge. The state gates above already guarantee local main ==
@@ -1130,7 +1146,7 @@ else
     [ -f uv.lock ] && git add uv.lock 2>/dev/null || true
     [ -f poetry.lock ] && git add poetry.lock 2>/dev/null || true
 fi
-git add "$CHANGELOG_PATH"
+[ -n "$CHANGELOG_PATH" ] && git add "$CHANGELOG_PATH"
 git commit --no-verify -m "🚀 release: v${NEW}" >&2
 
 # HEAD:main, so a detached worktree release pushes the same commit main would.

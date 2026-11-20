@@ -13,14 +13,18 @@
  *       every yes is written to that file as a pending item for the human's walk-through
  *       (check-ui-status.mjs reads it), keyed by question, place and what the candidate
  *       says it is about (`about`: the rule, token, class or other piece), carrying the
- *       candidate's `note`, with the fingerprint of the line it names. An item leaves the ledger on the human's
- *       word alone — design-accepted or design-deferred on the line, or on a comment-only
- *       line directly above it — or when the line's code changes; a later no from the judge
- *       is a re-asked question, not an answer, and removes nothing. A candidate that names
- *       the lines its yes may rest on (`anchor`, the changed lines of a screen) is a yes only
- *       when a quote is one of those lines, and the item is placed on that line. Exit 0
- *       whether or not there were yeses: the judge never stops a commit. Exit 2 when it
- *       cannot run.
+ *       candidate's `note`. An item leaves the ledger on the human's word, or when the code
+ *       it rests on changes (check-ui-status.mjs, `itemState`): a line, by design-accepted or
+ *       design-deferred on it or on a comment-only line directly above it, or by its code
+ *       changing; quoted sentences, by any of them leaving its file, or the same word above
+ *       one; a whole file, by its `ui-status` becoming approved or deferred. A later no from
+ *       the judge is a re-asked question, not an answer, and removes nothing. A candidate
+ *       that names the lines its yes may rest on (`anchor`, the changed lines of a screen)
+ *       is a yes only when a quote is one of those lines, and the item is placed on that
+ *       line. A candidate that names the texts its quotes come from (`sentences`: a rule, or
+ *       each of two rules) rests on the sentence quoted from each, and is kept only when one
+ *       of them is on a line the change touched. Exit 0 whether or not there were yeses: the
+ *       judge never stops a commit. Exit 2 when it cannot run.
  *   node judge.mjs --list
  *       Prints the questions the references file holds.
  *
@@ -43,7 +47,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { excepted, fingerprint, lineCode } from '../../ui-patterns/scripts/check-ui-status.mjs'
+import { excepted, fingerprint, itemState, lineCode, linesOfText } from '../../ui-patterns/scripts/check-ui-status.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 export const LEDGER = '.claude/ui-pending.json'
@@ -262,6 +266,30 @@ export function anchorLine(anchor, quotes) {
   return null
 }
 
+/**
+ * What a yes rests on when its candidate names the texts its quotes come from: for each of
+ * `sentences` — `{ file, from, changed }`, `from` the candidate field holding that file's
+ * text — the first quote found in it, as `{ file, text, line }`. `touched` is whether one of
+ * them is on a line its file's `changed` list names; a file with no list is changed whole.
+ */
+export function restsOf(sentences, candidate, quotes) {
+  const rests = []
+  let touched = false
+  for (const s of sentences) {
+    const source = get(candidate, s.from)
+    if (typeof source !== 'string') continue
+    for (const q of quotes) {
+      if (!/\w/.test(q)) continue
+      const span = linesOfText(source, q)
+      if (!span) continue
+      rests.push({ file: s.file, text: q.replace(/\s+/g, ' ').trim(), line: span[0] })
+      if (!s.changed || s.changed.some((n) => n >= span[0] && n <= span[1])) touched = true
+      break
+    }
+  }
+  return { rests, touched }
+}
+
 /** Every fixture under judge-fixtures/<NAME>/: { name, file, answer, candidate }. */
 export function fixturesFor(name, dir = FIXTURES) {
   const folder = path.join(dir, name)
@@ -300,29 +328,28 @@ export function readLedger(file) {
 }
 
 /**
- * The ledger after a run: existing items kept while their line is unchanged and not
- * excepted; each yes added or refreshed. A no removes nothing: only the human's word on
- * the line, or a change to its code, settles an item.
+ * The ledger after a run: existing items kept while they stand (check-ui-status.mjs,
+ * `itemState`); each yes added or refreshed. A no removes nothing: only the human's word,
+ * or a change to the code an item rests on, settles it. An item resting on sentences is
+ * one per question, files and what it is about: a yes quoting other sentences replaces it.
  */
 export function mergeLedger(repo, items, { yes = [] }) {
-  const keyOf = (i) => `${i.question}\u0000${i.at}\u0000${i.about ?? ''}`
+  const keyOf = (i) => (Array.isArray(i.rests) ? `${i.question}\u0000${i.rests.map((r) => r.file).sort().join('\u0001')}\u0000${i.about ?? ''}` : `${i.question}\u0000${i.at}\u0000${i.about ?? ''}`)
   const out = new Map()
-  for (const i of items) {
-    const now = placeFingerprint(repo, i.at)
-    if (!now || now.excepted || now.fingerprint !== i.fingerprint) continue
-    out.set(keyOf(i), i)
-  }
+  for (const i of items) if (itemState(repo, i) === 'stands') out.set(keyOf(i), i)
   for (const y of yes) {
-    const now = placeFingerprint(repo, y.at)
-    if (!now || now.excepted) continue
-    out.set(keyOf(y), { question: y.question, at: y.at, ...(y.about ? { about: y.about } : {}), ...(y.note ? { note: y.note } : {}), quote: y.quote, fingerprint: now.fingerprint, since: y.since ?? new Date().toISOString().slice(0, 10) })
+    if (itemState(repo, y) !== 'stands') continue
+    const rests = Array.isArray(y.rests) ? y.rests.map((r) => ({ file: r.file, text: r.text })) : null
+    const mark = rests ? fingerprint(rests.map((r) => r.text).join('\n')) : placeFingerprint(repo, y.at)?.fingerprint
+    out.set(keyOf(y), { question: y.question, at: y.at, ...(y.about ? { about: y.about } : {}), ...(y.note ? { note: y.note } : {}), quote: y.quote, ...(rests ? { rests } : {}), ...(mark ? { fingerprint: mark } : {}), since: y.since ?? new Date().toISOString().slice(0, 10) })
   }
   return [...out.values()].sort((a, b) => a.at.localeCompare(b.at) || a.question.localeCompare(b.question) || (a.about ?? '').localeCompare(b.about ?? ''))
 }
 
 /**
  * Ask every candidate in a JSON-lines file, all at once: { yes, no, unchanged, errors, cost,
- * asked }. `unchanged` holds each yes whose evidence is no line the candidate's anchor names.
+ * asked }. `unchanged` holds each yes whose evidence is no line the change touched: none of
+ * the candidate's anchor lines, or no quoted sentence on a changed line.
  */
 export async function judgeCandidates(questions, text, opts = {}) {
   const yes = []
@@ -357,7 +384,12 @@ export async function judgeCandidates(questions, text, opts = {}) {
     cost += r.cost
     if (r.answer === 'yes') {
       const item = { question: q.name, at: c.at, ...(c.about ? { about: c.about } : {}), ...(c.note ? { note: c.note } : {}), quote: r.quotes.join(' | ') }
-      if (!c.anchor) yes.push(item)
+      if (c.sentences) {
+        const { rests, touched } = restsOf(c.sentences, c.candidate, r.yesQuotes)
+        if (!rests.length) errors.push(`${c.at} ${q.name}: a yes that quotes no sentence of ${c.sentences.map((s) => s.file).join(' or ')}`)
+        else if (!touched) unchanged.push(item)
+        else yes.push({ ...item, at: `${rests[0].file}:${rests[0].line}`, rests: rests.map(({ file, text }) => ({ file, text })) })
+      } else if (!c.anchor) yes.push(item)
       else {
         const n = anchorLine(c.anchor, r.yesQuotes)
         if (n === null) unchanged.push(item)
@@ -389,13 +421,13 @@ async function main() {
     const repo = path.resolve(opt('--repo') ?? process.cwd())
     const text = readFileSync(path.resolve(candidatesFile), 'utf8')
     const { yes: every, no, unchanged, errors, cost, asked } = await judgeCandidates(questions, text, { runs, model })
-    // A line the human has answered for is theirs: its yes is neither shown nor recorded.
-    const yes = every.filter((y) => !placeFingerprint(repo, y.at)?.excepted)
+    // What the human has answered for is theirs: its yes is neither shown nor recorded.
+    const yes = every.filter((y) => itemState(repo, y) !== 'answered')
     for (const y of yes) console.log(`  ✗ ${y.at}  ${y.question}${y.about ? ` (${y.about})` : ''}${y.note ? `\n      ${y.note}` : ''}\n      ${y.quote}`)
     for (const e of errors) console.log(`  ! ${e}`)
     const left = [
       unchanged.length ? `${unchanged.length} yes resting on a line the change did not touch, not kept` : '',
-      every.length - yes.length ? `${every.length - yes.length} yes on a line the human has answered for, not kept` : '',
+      every.length - yes.length ? `${every.length - yes.length} yes the human has answered for, not kept` : '',
     ].filter(Boolean)
     const tally = `judge: ${yes.length} yes, ${no.length} no from ${asked} question(s) asked${left.length ? `; ${left.join('; ')}` : ''}`
     const ledger = opt('--ledger')

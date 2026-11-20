@@ -216,7 +216,7 @@ and commit again. If you judge a finding wrong, commit with `SKIP_RULE_REVIEW=1`
 **The design judge printed a finding at `/commit`.** The commit went through: a finding is a
 pending item in `.claude/ui-pending.json`, listed by the UI status check. Claude fixes each
 one that changes nothing on screen or in behaviour, and puts the rest to you in the same
-turn, where you approve the line, defer it or have it changed. `/deploy` waits for it;
+turn, where you approve it, defer it or have it changed. `/deploy` waits for it;
 nothing else does.
 
 **`/commit` stopped on the test judge.** It judged the tests of the TypeScript you

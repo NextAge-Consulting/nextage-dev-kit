@@ -7,14 +7,17 @@
  *
  * Prints one JSON object per line. A `question` line is a candidate for one judge
  * question (references/judge-questions.md) with the fields that question is Given, and
- * `at` (file:line) for the pending item a yes becomes. Where one place can hold several
+ * `at` for the pending item a yes becomes: file:line, or the file alone when the question
+ * is about a component as a whole. Where one place can hold several
  * candidates of a question, the line carries `about` — the other thing that candidate names:
  * the token, the class, the rule's file, the other role, block or rule — so each yes is its
  * own item and says what it is a yes about; `note` adds what whoever acts on the yes would
  * otherwise look up (a token's purpose). A FOLLOWS-RULE line also carries `anchor` — the
  * screen's changed lines, the only lines a yes may rest on; the judge places the item on the
- * one its evidence quotes. A `finding` line is decided by code alone — a second block of one
- * type — and needs no judge.
+ * one its evidence quotes. A RULE-REACH or RULE-CONFLICT line carries `sentences` — each
+ * rule file with the candidate field that holds its text, and for a conflict the lines of it
+ * the change touched — and the judge rests the item on the sentence it quotes from each. A
+ * `finding` line is decided by code alone — a second block of one type — and needs no judge.
  *
  * The change mode reads the lines changed since <ref> (default: where this work left
  * origin/main, else HEAD) in the UI source the DESIGN_* keys name, the token stylesheets
@@ -24,7 +27,9 @@
  * untouched: a header, a pointer or an import added to every file judges nothing, and so
  * does code moved into another file or a new shared one. A component, recipe or rule the
  * human has answered for — `ui-status: approved` or `deferred` — is not asked about its
- * own contents; a screen's use of it still is. `--all` reads a whole layer and asks
+ * own contents; a screen's use of it still is. Nor is what a Design Pack installs, in the
+ * change that adds it: each file carrying the pack's pointer, and each role those files
+ * read that the change declares. `--all` reads a whole layer and asks
  * everything: tokens,
  * components, references or screens (default every layer).
  *
@@ -121,7 +126,16 @@ function codeChanges(repo, changed, base) {
   const out = new Map()
   const newFiles = new Set()
   const removed = removedCode(repo, base)
+  // A file is new in the change when what the change is measured from did not hold it,
+  // whether or not a commit along the way has taken it in.
+  let before = null
+  try {
+    before = new Set(execFileSync('git', ['-C', repo, 'ls-tree', '-r', '--name-only', '-z', base ?? 'HEAD'], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }).split('\0'))
+  } catch {
+    // No commit to measure from: only a file git does not track yet is known to be new.
+  }
   for (const [file, lines] of changed) {
+    if (lines === ALL || (before && !before.has(file))) newFiles.add(file)
     if (!/\.tsx?$/.test(file)) {
       out.set(file, lines)
       continue
@@ -133,7 +147,6 @@ function codeChanges(repo, changed, base) {
       continue
     }
     const text = source.split('\n')
-    if (lines === ALL) newFiles.add(file)
     const imports = importLines(repo, file, source)
     const kept = new Set()
     for (const n of lines === ALL ? text.map((_, i) => i + 1) : [...lines].sort((a, b) => a - b)) {
@@ -198,9 +211,61 @@ const touched = (R, file, from, to = from) => {
 }
 const fileTouched = (R, file) => !R.changed || R.changed.has(file)
 const isNew = (R, file) => !!R.changed && R.newFiles.has(file)
+/** A file a Design Pack installed says so in its opening lines: `// ui-pack:` in code,
+ * `pack:` in a reference. */
+const PACK_POINTER = /^(?:\/\/ ui-pack:|pack:)\s*\S+\/\S+\s+@\s+\S+/m
+/** A pack's file in the change that adds it. It was judged where it was made, and the
+ * human approves it on the pack's reference pages; from the next change on it is asked
+ * about as any other file is. */
+const arrived = (R, file) => isNew(R, file) && PACK_POINTER.test((R.sources.get(file) ?? R.refs.get(file) ?? '').split('\n', 20).join('\n'))
 /** A piece the human has answered for — approved, or deferred — is not asked about at a
- * commit: its own contents are theirs. An audit (`--all`) asks everything. */
-const answered = (R, file) => !!R.changed && /ui-status:\s*(?:approved|deferred)\b/.test(R.sources.get(file) ?? R.refs.get(file) ?? '')
+ * commit: its own contents are theirs. Nor is a pack's file as it arrives. An audit
+ * (`--all`) asks everything. */
+const answered = (R, file) => !!R.changed && (arrived(R, file) || /ui-status:\s*(?:approved|deferred)\b/.test(R.sources.get(file) ?? R.refs.get(file) ?? ''))
+
+/** The roles the pack files arriving in this change read: a role declared with them was
+ * fitted by the install, which already asked whether the project had one for the job. */
+function arrivingRoles(R) {
+  const out = new Set()
+  if (!R.changed) return out
+  const types = rolesOf(R.css).typeRoles
+  for (const [file, src] of R.sources) {
+    if (!arrived(R, file)) continue
+    for (const m of src.matchAll(/var\((--[A-Za-z0-9-]+)/g)) out.add(m[1])
+    for (const raw of classText(src).split(/\s+/)) {
+      const cls = raw.replace(/^["'`]+|["'`,]+$/g, '')
+      if (!/^[\w!@[-]/.test(cls)) continue
+      const base = cls.split(':').pop().replace(/^!|!$/g, '')
+      if (types.has(base)) out.add(base)
+      for (const t of R.tokensOf?.(file, cls) ?? []) out.add(t)
+    }
+  }
+  // And what those roles rest on: a type role names the size, weight and line height it
+  // is made of, and a token the token it points at.
+  const made = new Map(roles(R).map((r) => [r.name, r.value]))
+  for (const [, css] of R.css) for (const m of css.matchAll(/^\s*(--[A-Za-z0-9-]+)\s*:\s*([^;]+);/gm)) if (!made.has(m[1])) made.set(m[1], m[2])
+  const queue = [...out]
+  while (queue.length) {
+    for (const m of (made.get(queue.pop()) ?? '').matchAll(/var\((--[A-Za-z0-9-]+)/g)) {
+      if (out.has(m[1])) continue
+      out.add(m[1])
+      queue.push(m[1])
+    }
+  }
+  // A theme alias of one of them (`--spacing-x: var(--x)`) is the same role under the name
+  // Tailwind reads, which its build replaces with what it points at.
+  for (let grew = true; grew; ) {
+    grew = false
+    for (const [name, value] of made) {
+      const to = value.trim().match(/^var\((--[A-Za-z0-9-]+)\)$/)?.[1]
+      if (to && out.has(to) && !out.has(name)) {
+        out.add(name)
+        grew = true
+      }
+    }
+  }
+  return out
+}
 
 /** A component file's name as the catalogue keys it: its own, or its folder's for an index. */
 const stemOf = (file) => {
@@ -303,8 +368,11 @@ function roles(R) {
 
 function* tokens(R) {
   const all = roles(R)
+  const withPack = arrivingRoles(R)
+  // A role is asked about when the change touched it, unless it came in with a pack.
+  const asked = (r) => touched(R, r.file, r.line) && !withPack.has(r.name)
   for (const r of all) {
-    if (!touched(R, r.file, r.line)) continue
+    if (!asked(r)) continue
     yield { question: 'ROLE-NAME', at: `${r.file}:${r.line}`, candidate: { name: r.name, purpose: r.purpose, value: r.value } }
   }
   const byFamily = new Map()
@@ -314,7 +382,7 @@ function* tokens(R) {
       for (let j = i + 1; j < list.length; j++) {
         const a = list[i]
         const b = list[j]
-        if (!touched(R, a.file, a.line) && !touched(R, b.file, b.line)) continue
+        if (!asked(a) && !asked(b)) continue
         if (!a.purpose && !b.purpose) continue
         yield { question: 'DUPLICATE-ROLE', at: `${b.file}:${b.line}`, about: a.name, candidate: { a: { name: a.name, purpose: a.purpose, value: a.value }, b: { name: b.name, purpose: b.purpose, value: b.value } } }
       }
@@ -345,7 +413,15 @@ export async function classTokens(repo) {
 /** The custom properties a class's declarations read, Tailwind's own (`--tw-…`) left out. */
 export function tokensIn(declarations) {
   const out = new Set()
-  for (const value of declarations.values()) for (const m of value.matchAll(/var\((--[\w-]+)/g)) if (!m[1].startsWith('--tw-')) out.add(m[1])
+  for (const [key, value] of declarations) {
+    // A declaration is keyed by the rules it sits in, then `|`, then its property.
+    const property = key.slice(key.lastIndexOf('|') + 1)
+    // A declaration that sets a token gives it a value under this class — a theme, a scope
+    // an app marks its root with — and is no use of the tokens it is made from. Tailwind's
+    // own variables (`--tw-shadow`) are how a utility applies one, and still count.
+    if (property.startsWith('--') && !property.startsWith('--tw-')) continue
+    for (const m of value.matchAll(/var\((--[\w-]+)/g)) if (!m[1].startsWith('--tw-')) out.add(m[1])
+  }
   return [...out]
 }
 
@@ -478,7 +554,7 @@ function* components(R) {
   for (const file of blocks) {
     if (!fileTouched(R, file) || answered(R, file)) continue
     const src = R.sources.get(file)
-    yield { question: 'NAMED-FOR-DATA', at: `${file}:1`, candidate: { name: componentName(R, file), blockType: blockType(R, file) ?? '(none named)', summary: summary(R, file), screens: usedBy(file) } }
+    yield { question: 'NAMED-FOR-DATA', at: file, candidate: { name: componentName(R, file), blockType: blockType(R, file) ?? '(none named)', summary: summary(R, file), screens: usedBy(file) } }
   }
 
   // A variant finished by its callers: grouped per component and variant, two or more sites.
@@ -494,7 +570,7 @@ function* components(R) {
     if (answered(R, target)) continue
     if (!fileTouched(R, target) && !list.some((s) => touched(R, s.file, s.line))) continue
     const definition = classText(R.sources.get(target)).split('\n').map((l) => l.trim()).filter(Boolean).join(' ')
-    yield { question: 'VARIANT-INCOMPLETE', at: `${target}:1`, about: variant, candidate: { component: componentName(R, target), variant, definition, callSites: list.map((s) => `${s.file}:${s.line} ${s.tag}`) } }
+    yield { question: 'VARIANT-INCOMPLETE', at: target, about: variant, candidate: { component: componentName(R, target), variant, definition, callSites: list.map((s) => `${s.file}:${s.line} ${s.tag}`) } }
   }
 
   // A new block against its neighbours; a second block of a type is code's finding.
@@ -506,7 +582,7 @@ function* components(R) {
     const same = others.filter((f) => type && blockType(R, f) === type)
     for (const f of same) {
       const { line } = rowFor(R, f)
-      yield { finding: 'SECOND-BLOCK', at: `${file}:1`, about: componentName(R, f), text: `${name} is a second block of type ${type}; the first is ${componentName(R, f)} (${f})${line ? ` — its inventory line: ${line.trim()}` : ''}. Same thing: fold in as a variant. Different: the human's reason goes on the new line.` }
+      yield { finding: 'SECOND-BLOCK', at: file, about: componentName(R, f), text: `${name} is a second block of type ${type}; the first is ${componentName(R, f)} (${f})${line ? ` — its inventory line: ${line.trim()}` : ''}. Same thing: fold in as a variant. Different: the human's reason goes on the new line.` }
     }
     // Neighbours both ways: the types the new one is not to be confused with, and the types
     // that name the new one as theirs.
@@ -516,7 +592,7 @@ function* components(R) {
       if (!t || !neighbourTypes.has(t) || same.includes(f)) continue
       yield {
         question: 'DUPLICATE-BLOCK',
-        at: `${file}:1`,
+        at: file,
         about: componentName(R, f),
         candidate: {
           new: { name, type: type ?? '(none named)', code: summary(R, file, 80) },
@@ -549,6 +625,25 @@ function governs(R, ref, file) {
 /** Whether two references can meet on one screen: either governs every app, or they share one. */
 const shareApp = (a, b) => !a.apps || !b.apps || a.apps.some((x) => b.apps.includes(x))
 
+/**
+ * The lines of a reference a yes about it may rest on, for the judge: null when any line
+ * may — an audit, a new file, or a change to the `block-types:` or `apps:` line, which
+ * changes what every sentence of the file governs — else the lines the change touched.
+ */
+function changedOf(R, ref) {
+  if (!R.changed) return null
+  const lines = R.changed.get(ref.file)
+  if (!lines) return []
+  if (lines === ALL) return null
+  const text = ref.text.split('\n')
+  if ([...lines].some((n) => /^(?:block-types|apps):/.test(text[n - 1] ?? ''))) return null
+  return [...lines].sort((a, b) => a - b)
+}
+const sentencesOf = (R, ref, from) => {
+  const changed = changedOf(R, ref)
+  return { file: ref.file, from, ...(changed ? { changed } : {}) }
+}
+
 function* references(R) {
   const refs = refMeta(R)
   const blocks = [...R.sources.keys()].filter((f) => isComponent(f) && !R.isAtomFile(f))
@@ -559,7 +654,7 @@ function* references(R) {
       if (!t || !rule.blockTypes.includes(t) || !governs(R, rule, f)) continue
       if (!fileTouched(R, rule.file) && !fileTouched(R, f)) continue
       if (answered(R, rule.file) && answered(R, f)) continue
-      yield { question: 'RULE-REACH', at: `${rule.file}:1`, about: componentName(R, f), candidate: { rule: rule.text, blockTypes: `block-types: ${rule.raw}`, block: { name: componentName(R, f), type: t, summary: summary(R, f), inventoryLine: rowFor(R, f).line.trim() } } }
+      yield { question: 'RULE-REACH', at: rule.file, about: componentName(R, f), sentences: [{ file: rule.file, from: 'rule' }], candidate: { rule: rule.text, blockTypes: `block-types: ${rule.raw}`, block: { name: componentName(R, f), type: t, summary: summary(R, f), inventoryLine: rowFor(R, f).line.trim() } } }
     }
   }
   for (let i = 0; i < refs.length; i++) {
@@ -576,7 +671,7 @@ function* references(R) {
       const shared = aAll && bAll ? ['every surface'] : aAll ? b.blockTypes : bAll ? a.blockTypes : a.blockTypes.filter((t) => b.blockTypes.includes(t))
       if (!shared.length) continue
       const surface = shared.join(', ')
-      yield { question: 'RULE-CONFLICT', at: `${b.file}:1`, about: path.basename(a.file), candidate: { surface, a: { file: path.basename(a.file), text: a.text }, b: { file: path.basename(b.file), text: b.text } } }
+      yield { question: 'RULE-CONFLICT', at: b.file, about: path.basename(a.file), sentences: [sentencesOf(R, b, 'b.text'), sentencesOf(R, a, 'a.text')], candidate: { surface, a: { file: path.basename(a.file), text: a.text }, b: { file: path.basename(b.file), text: b.text } } }
     }
   }
   yield* tokenUses(R, [...R.refs.keys()].filter((f) => fileTouched(R, f) && !answered(R, f)), 'rule')
@@ -591,7 +686,7 @@ function* screens(R, only = null) {
   const typesText = [...R.types.definitions].map(([t, d]) => `${t}: ${d}`).join('\n')
   const blockRows = R.inventoryLines.filter((l) => /^\|\s*`/.test(l))
   for (const file of files) {
-    if (!fileTouched(R, file)) continue
+    if (!fileTouched(R, file) || arrived(R, file)) continue
     const src = R.sources.get(file)
     const h = headers(src)
     const recipe = h.recipe ? refs.find((r) => path.basename(r.file) === h.recipe) : null
@@ -617,7 +712,7 @@ function* screens(R, only = null) {
       yield { question: 'SCREEN-BOX', at: `${file}:${t.line}`, candidate: { tag: oneLine(t.open), children: context(src, last + 2, 1), file, blockTypes: typesText, blocks: blockRows } }
     }
   }
-  yield* tokenUses(R, files, 'screen')
+  yield* tokenUses(R, files.filter((f) => !arrived(R, f)), 'screen')
 }
 
 /** The changed lines of a file with `around` lines each side, joined; gaps marked. */

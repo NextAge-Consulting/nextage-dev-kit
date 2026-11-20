@@ -36,6 +36,10 @@ case "$*" in
   "api repos/{owner}/{repo}/commits/"*) echo 0 ;;
   "api graphql "*"o=acme -f r=acme-org -F n=12 "*) echo "${FAKE_ORG_STATE:-merged}" ;;
   "api graphql "*) echo "GraphQL: Could not resolve to a Repository" >&2; exit 1 ;;
+  # A release: FAKE_RELEASE_EXISTS says it is already published; every create is logged.
+  "release view "*) [ -n "${FAKE_RELEASE_EXISTS:-}" ] && exit 0; exit 1 ;;
+  "release list "*) echo "v0.9.0" ;;
+  "release create "*) printf '%s\n' "$*" >> "${FAKE_GH_LOG:-/dev/null}"; exit "${FAKE_RELEASE_RC:-0}" ;;
   *) exit 0 ;;
 esac
 GH
@@ -78,6 +82,10 @@ Needs acme/acme-org#99"
 cat > "$tmp/fake/npm" <<'NPM'
 #!/bin/bash
 case "$*" in audit*) if [ -n "${FAKE_AUDIT:-}" ]; then printf '%s\n' "$FAKE_AUDIT"; else echo '{"vulnerabilities":{}}'; fi; exit 0 ;; esac
+# `npm version patch` bumps the manifest's patch figure, as the real one does.
+case "$*" in "version patch"*)
+    v=$(jq -r .version package.json); n="${v%.*}.$(( ${v##*.} + 1 ))"
+    jq --arg n "$n" '.version = $n' package.json > package.json.tmp && mv package.json.tmp package.json; exit 0 ;; esac
 echo "npm $*"
 case "$*" in *test:preflight*) printf '%s\n' "${FAKE_PREFLIGHT_OUT:-}"; exit "${FAKE_PREFLIGHT_RC:-0}" ;; esac
 if [ -n "${NO_COLOR+set}" ]; then
@@ -278,17 +286,68 @@ git checkout -q --detach origin/main
 git checkout -q main
 printf '{"DEPLOY_BACKEND":"github","DEPLOY_WORKFLOWS":"deploy.yml"}\n' > .claude/sync-substitutions.json
 printf '{"name":"app","version":"3.0.0"}\n' > package.json
+printf '# Changelog\n\nWhat changed.\n' > changelog.md
 land "🔧 chore: app only"
 land "✨ feat: one more"
 git checkout -q --detach HEAD~1
 [ "$(run)" = 3 ] && grep -q "detached HEAD that is not origin/main" "$tmp/out" \
     && ok "detached anywhere but origin/main stops at the branch gate (3)" || bad "detached elsewhere: $(cat "$tmp/out")"
 git checkout -q --detach origin/main
-printf '### Added\n- a thing\n' > "$tmp/notes.md"
-PATH="$tmp/fake:$PATH" bash "$bin/deploy.sh" --level patch --changelog-file "$tmp/notes.md" --no-watch >"$tmp/out" 2>&1; rc=$?
+
+# ─── The changelog patch: the project's content, applied in the release commit ──
+release(){ PATH="$tmp/fake:$PATH" bash "$bin/deploy.sh" --level patch "$@" --no-watch >"$tmp/out" 2>&1; echo $?; }
+printf '# Changelog\n\n## The entry\n\nWhat changed.\n' > changelog.md
+git diff > "$tmp/entry.patch"
+sed 's/^ What changed\./ Something else./' "$tmp/entry.patch" > "$tmp/stale.patch"
+git checkout -q -- changelog.md
+printf 'edited\n' >> package.json; git diff > "$tmp/other.patch"; git checkout -q -- package.json
+before=$(git rev-parse origin/main)
+[ "$(release --changelog-patch "$tmp/stale.patch")" = 14 ] && grep -q "does not apply to changelog.md. Nothing was bumped" "$tmp/out" \
+  && [ -z "$(git status --porcelain)" ] && [ "$(git rev-parse origin/main)" = "$before" ] && grep -q '"3.0.0"' package.json \
+    && ok "a changelog patch that does not apply refuses before the bump (14), nothing changed" || bad "stale patch: $(cat "$tmp/out")"
+[ "$(release --changelog-patch "$tmp/other.patch")" = 14 ] && grep -q "may change only changelog.md" "$tmp/out" \
+  && [ -z "$(git status --porcelain)" ] && [ "$(git rev-parse origin/main)" = "$before" ] \
+    && ok "a changelog patch touching another file refuses before the bump (14)" || bad "other-file patch: $(cat "$tmp/out")"
+rc=$(release --changelog-patch "$tmp/entry.patch")
 rel=$(git log -1 --format=%s origin/main)
 { [ "$rc" -eq 0 ] && [ "$(git rev-parse origin/main)" = "$(git rev-parse HEAD)" ] && [ "${rel#🚀 release: v}" != "$rel" ] \
-  && git ls-remote --exit-code --tags origin "${rel#🚀 release: }" >/dev/null; } \
-    && ok "a release from detached origin/main pushes the bump to main, and its tag" || bad "detached release (rc=$rc): $(cat "$tmp/out")"
+  && git ls-remote --exit-code --tags origin "${rel#🚀 release: }" >/dev/null \
+  && git show --name-only --format= HEAD | grep -qx changelog.md && git show HEAD:changelog.md | grep -q "^## The entry$"; } \
+    && ok "a release from detached origin/main lands the bump and the changelog patch in one commit on main, and its tag" || bad "detached release (rc=$rc): $(cat "$tmp/out")"
+
+git checkout -q main; git pull -q --ff-only origin main
+land "🐛 fix: no entry"
+cl_before=$(git rev-parse HEAD:changelog.md)
+rc=$(release)
+{ [ "$rc" -eq 0 ] && [ "$(git log -1 --format=%s origin/main)" != "$rel" ] \
+  && ! git show --name-only --format= HEAD | grep -qx changelog.md && [ "$(git rev-parse HEAD:changelog.md)" = "$cl_before" ]; } \
+    && ok "no changelog patch: the release commits the bump alone, changelog.md untouched" || bad "no patch (rc=$rc): $(cat "$tmp/out")"
+
+# ─── Promotion: the project's own release step ────────────────────────────
+# After the promotion builds succeed and the release is published, the project's
+# .claude/project-release.sh runs with the version. The kit knows nothing of what it does.
+jq '. + {DEPLOY_BACKEND: "codebuild", CODEBUILD_PROJECT_PREFIX: "app-deploy-", CODEBUILD_PROMOTE_PREFIX: "app-promote-", DEPLOY_WORKFLOWS: "deploy-web.yml", AWS_REGION: "us-east-1"}' .claude/sync-substitutions.json > "$tmp/subs.json" && mv "$tmp/subs.json" .claude/sync-substitutions.json
+printf 'DEPLOY_PROMOTE_AWS_ACCESS_KEY_ID=promote-key-id\nDEPLOY_PROMOTE_AWS_SECRET_ACCESS_KEY=promote-secret\n' > .env
+export FAKE_GH_LOG="$tmp/gh.log"
+promote(){ : > "$FAKE_GH_LOG"; PATH="$tmp/fake:$PATH" bash "$bin/deploy.sh" promote v1.0.0 >"$tmp/out" 2>&1; echo $?; }
+rm -f .claude/project-release.sh
+[ "$(promote)" = 0 ] && grep -q "release create v1.0.0" "$FAKE_GH_LOG" && grep -q "project release step: none" "$tmp/out" && grep -q "v1.0.0 promoted across 1 project" "$tmp/out" \
+    && ok "promote: with no project release step, the release is published and the promotion ends, saying there is none" || bad "promote none: $(cat "$tmp/out")"
+printf '#!/bin/bash\necho "attached for $1 with ${AWS_ACCESS_KEY_ID}" >> "%s"\n' "$tmp/step.log" > .claude/project-release.sh
+: > "$tmp/step.log"
+[ "$(promote)" = 0 ] && grep -qx "attached for v1.0.0 with promote-key-id" "$tmp/step.log" && grep -q "running the project's release step" "$tmp/out" \
+    && ok "promote: the project's release step runs after the release is published, with the version and the promotion key" || bad "promote step: $(cat "$tmp/out") / $(cat "$tmp/step.log")"
+: > "$tmp/step.log"
+[ "$(FAKE_RELEASE_EXISTS=1 promote)" = 0 ] && ! grep -q "release create" "$FAKE_GH_LOG" && grep -qx "attached for v1.0.0 with promote-key-id" "$tmp/step.log" \
+    && ok "promote: a version promoted again publishes no second release, and the project's step runs all the same" || bad "promote again: $(cat "$tmp/out")"
+printf '#!/bin/bash\necho "could not fetch the files" >&2\nexit 3\n' > .claude/project-release.sh
+[ "$(promote)" = 28 ] && grep -q "could not fetch the files" "$tmp/out" && grep -q "IS live and its GitHub Release is published, but the project's release step failed" "$tmp/out" && grep -q "bash .claude/project-release.sh v1.0.0" "$tmp/out" \
+    && ok "promote: a failing project step stops with 28, showing its output and the command to repeat it" || bad "promote fail: $(cat "$tmp/out")"
+: > "$tmp/step.log"
+printf '#!/bin/bash\necho ran >> "%s"\n' "$tmp/step.log" > .claude/project-release.sh
+[ "$(FAKE_RELEASE_RC=1 promote)" = 24 ] && [ ! -s "$tmp/step.log" ] \
+    && ok "promote: a release that could not be published stops with 24 before the project's step" || bad "promote 24: $(cat "$tmp/out")"
+[ "$(FAKE_CB_RESULT=FAILED promote)" = 13 ] && [ ! -s "$tmp/step.log" ] \
+    && ok "promote: a failed promotion build stops with 13, and the project's step never runs" || bad "promote 13: $(cat "$tmp/out")"
 
 exit "$fail"

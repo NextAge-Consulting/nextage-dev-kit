@@ -4,7 +4,8 @@
 # Checks the PR TITLE only — branch commits are NOT checked.
 # - Repo squash-merges with `commit title = PR_TITLE`. Branch commits
 #   are discarded; the PR title is what lands on main, and /deploy reads
-#   those subjects to pick the version bump and write the changelog.
+#   those subjects to pick the version bump and, under the project's own
+#   changelog rule, write its entry.
 # - Local gitflow does NOT validate commit messages. /commit and /ship-main
 #   instruct Claude to compose a conventional message from
 #   `.claude/skills/gitflow/references/commit-types.md`; commit.sh and

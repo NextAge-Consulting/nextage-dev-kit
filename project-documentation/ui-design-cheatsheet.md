@@ -91,6 +91,28 @@ Nothing stops a commit. Claude fixes each judge finding that changes nothing on 
   with a reason (`design-accepted — <reason>`), or defer it (`design-deferred`). Claude
   never recommends a look. Nothing changes without your answer, and you can stop part-way.
 
+## Design Packs — a piece of one project's system in another
+
+```
+/design-pack extract <piece>              # cut a recipe or rule (by file name) or a block (by inventory name)
+/design-pack install <piece or app pack> --app <workspace>   # take one into one app, under this project's look
+/design-pack approve                      # approve everything the install landed, on your word
+/design-pack compare [<file>]             # what the pack has changed since you installed
+```
+
+- **Extract** needs everything committed and nothing pending, and never changes this
+  project. You get a folder under `project-documentation/temporary/design-pack/`;
+  publishing it is yours.
+- **Install** refuses until this project's design system is complete, then copies nothing
+  until you have answered for each piece that would stand beside one of yours: use yours,
+  replace yours, or keep both. You review its roles once, look over its reference pages as
+  a whole, and approve it in one step.
+- **Compare** shows each change; you merge it by hand or leave it. Nothing syncs.
+- **Packs from another repository:** `--from <its address>` on install and compare;
+  `--out` on extract to write into a checkout of it.
+
+The whole of it: `design-packs-guide.md`.
+
 ---
 
 ## A design's life

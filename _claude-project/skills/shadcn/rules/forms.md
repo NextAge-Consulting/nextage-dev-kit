@@ -36,7 +36,7 @@ Use `Field orientation="horizontal"` for settings pages. Use `FieldLabel classNa
 - Dropdown with predefined options → `Select`
 - Searchable dropdown → `Combobox`
 - Native HTML select (no JS) → `native-select`
-- Boolean toggle → `Switch` (for settings) or `Checkbox` (for forms)
+- Boolean toggle → `Switch` or `Checkbox`, whichever the project's behaviour rule for booleans names
 - Single choice from few options → `RadioGroup`
 - Toggle between 2–5 options → `ToggleGroup` + `ToggleGroupItem`
 - OTP/verification code → `InputOTP`

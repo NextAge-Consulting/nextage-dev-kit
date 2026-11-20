@@ -44,7 +44,7 @@ The pipeline does not rely on GitHub branch protection. The merge gate lives in 
 
 For quick infra / emergency / "get it in and back to clean" work, a full branch→PR→CI→merge cycle is theater. `/ship-main` commits a conventional message **directly on `main`** and pushes — no branch, no PR, no CI (a push to `main` triggers nothing; CI is `pull_request`-only, and deploys start only when `/deploy` dispatches them). It runs the same local gates as `/commit` — typecheck, lint, the integration tests reaching the change and the headless reviews (the assist that stays). Works as long as `main` does not require a PR (§1.1) — the default.
 
-**The gate is explicit invocation, never inference.** A bare `/commit` on `main` still auto-branches (the safety for accidental-on-main); `/ship-main` is the opposite, on purpose, and only when asked for by name. Its commits land on `main` and feed the next `/deploy`'s bump + changelog exactly like a merged-PR squash commit. See `.claude/commands/ship-main.md`.
+**The gate is explicit invocation, never inference.** A bare `/commit` on `main` still auto-branches (the safety for accidental-on-main); `/ship-main` is the opposite, on purpose, and only when asked for by name. Its commits land on `main` and feed the next `/deploy`'s bump exactly like a merged-PR squash commit. See `.claude/commands/ship-main.md`.
 
 ## 1.2 The gitflow subsystem (the workflow model)
 
@@ -62,7 +62,7 @@ Git operations route exclusively through gitflow — slash commands backed by sc
 
 Design choices baked in:
 
-- **Changelog is local, not a CI action.** Claude composes it during `/deploy` from commit subjects since the last tag, applying editorial rules (filter `refactor`/`style`/`test`/`docs`/`chore`, rewrite internals as user-facing prose) that template tools (release-please) can't. Single-writer (`/deploy` only) eliminates duplicate-bullet bugs. No `ANTHROPIC_API_KEY` secret, no runner. §2.3 / §2.4.
+- **The changelog is the project's, written locally.** Claude writes the release's entry during `/deploy` by the project's own rule (`.claude/rules/project/changelog.md`); the kit holds no opinion on its content. Single-writer (`/deploy` only) eliminates duplicate entries. No `ANTHROPIC_API_KEY` secret, no runner. §2.3 / §2.4.
 - **Version bump is local, not auto-on-merge.** See §1.3 — auto-bump-on-merge is a NEVER-restore anti-pattern.
 - **PR title is the conventional-commit source.** Squash merge sets the squash commit = PR title; `commitlint` validates the **title only** (not branch commits — machine-generated PRs produce malformed branch commits with clean titles). The title drives the bump level. §3.1 / §3.1.
 - **No persistent working branch.** After merge you're on `main`; next task gets a fresh descriptively-named branch. Branch-per-body-of-work is the entry model; kitmaintainer-handbook.md §3.2.
@@ -202,12 +202,13 @@ File: `.claude/skills/gitflow/scripts/deploy.sh`. Slash command spec: `.claude/c
    - `chore(...):` / `docs(...):` / `test(...):` / `style(...):` / `ci(...):` / `build(...):` → patch (Option B — chore counts as a release)
    - Highest wins. NEVER skip the bump when there are commits to deploy.
 
-3. **Changelog entry** (Claude generates from commit subjects since last tag, applying `references/changelog-rules.md`): one or more bullets in `- **<emoji> <Title Case>** - <user-impact>` form. Group related fixes. Pure infra commits get a single `Dependency Updates` / `Internal Tooling` line.
+3. **Changelog entry**, when the project has a changelog rule (`.claude/rules/project/changelog.md`): Claude writes the entry the rule describes as a patch to `changelog.md` — §2.4. No rule, no entry.
 
-4. **Script execution** (`deploy.sh --level <patch|minor|major> --changelog-file <path>`):
+4. **Script execution** (`deploy.sh --level <patch|minor|major> [--changelog-patch <file>]`):
+   - Among the state gates, before anything is bumped: the patch must change only `changelog.md` and apply (`git apply --check`), or the script stops at exit 14 with nothing changed
    - `npm version <level> --no-git-tag-version` (Node) or `sed` rewrite of `version = "x.y.z"` (Python)
-   - Insert changelog entry under today's date header in `changelog.md`
-   - Commit bump + changelog ON `main` as `🚀 release: v<NEW>` (`--no-verify`; validation already ran)
+   - `git apply` the changelog patch, when there is one
+   - Commit the bump (and the changelog) ON `main` as `🚀 release: v<NEW>` (`--no-verify`; validation already ran)
    - **Push `main` directly** to origin. A rejected push — require-PR still on, or `origin/main` advanced since the state gate — stops the script with exit 11 before anything is tagged; the release commit stays local, one ahead of `origin/main`, and is undone before `/deploy` runs again. The bump commit + tag are the release record — no release branch, no PR, no admin-merge.
    - `git tag v<NEW> <bump-sha>` and `git push origin v<NEW>` (tags aren't gated by `branches/*` protection rules; tag-protection rules are separate and only need configuration if cross-account tag pollution is a concern)
    - **Migration phase (if `MIGRATE_WORKFLOW` is set):** dispatch the migration — `aws codebuild start-build` on the migrate project under the default `codebuild` backend, `gh workflow run <migrate-wf> --ref main` under `github` — then watch it to completion **gated**: a real migration failure aborts the deploy here (exit 18 trigger / 19 run) BEFORE any app deploy is dispatched. Always watched, even under `--no-watch` (that flag only governs the app-deploy watch). Deploying app images against a failed/half-applied schema is the failure mode this gate exists to prevent. **Skipped entirely** when `MIGRATE_PATHS` is set and `git diff --name-only <last-tag>..HEAD -- <MIGRATE_PATHS>` is empty (no migration files changed since the last deploy) — no build is started. See the **Migration phase** subsection below.
@@ -220,7 +221,7 @@ File: `.claude/skills/gitflow/scripts/deploy.sh`. Slash command spec: `.claude/c
 - Does NOT run a CI, lint, typecheck or build pass — those gates already fired on the merged feature PRs, and `/merge` owns the production build gate while the PR is still open. A `/ship-main` commit reaches `/deploy` with no gate by design.
 - Does NOT open a release PR or admin-merge anything — the bump commit pushes straight to `main` (require-PR off, the default).
 - Does NOT auto-bump on every feature-PR merge (the bot-PR pattern caused version-skew; see §2.6).
-- Does NOT infer the changelog from PR descriptions — uses commit subjects since last tag.
+- Does NOT decide anything about a changelog's content — that is the project's rule.
 
 **`/sync-dev-kit` does NO git in the project.** Sync only applies the accepted kit updates to the working tree and stamps the lockfile — it does not commit or push. The synced files are left uncommitted; the user lands them with `/ship-main` (or `/commit`). Committing is gitflow's job, not sync's — see kitmaintainer-handbook.md §9.4.1.
 
@@ -249,7 +250,7 @@ File: `.claude/skills/gitflow/scripts/deploy.sh`. Slash command spec: `.claude/c
 - **The reference is `LAST_TAG` — the PREVIOUS deploy's tag, captured at the state gate before this run creates its own tag.** This is load-bearing: a fresh `git describe` at the migrate step would return *this run's* just-pushed tag, making the diff empty every time → always-skip (silently broken). Never recompute it.
 - Empty / missing `MIGRATE_PATHS` → **no skip; the workflow always fires**. The skip is strictly opt-in per project.
 - **Safe under the failed-migration recovery model.** If a prior deploy's migration failed, that deploy's tag still exists → re-running `/deploy` stops at the "no commits since tag" gate, forcing the documented manual recovery (which applies the migration); the migrate workflow stays idempotent as the backstop. The only way to skip a genuinely-pending migration is to actively ignore a failed deploy and force past its abort — operator error, not a design hole. `git diff` failure → exit 20 (fail-loud, never skip on an errored check).
-- Does **not** reorder anything: the bump/changelog/tag block stays before the deploy, exactly as it must (the app image bakes in `package.json`'s version + changelog, so the bump has to precede the build). The skip is a guard in front of the migrate trigger, nothing more.
+- Does **not** reorder anything: the bump/tag block stays before the deploy, exactly as it must (every build runs from post-bump HEAD, so the version it carries is the bumped one). The skip is a guard in front of the migrate trigger, nothing more.
 
 **Dispatch backend (`DEPLOY_BACKEND` substitution).** Which compute `/deploy` dispatches to. **`codebuild` is the default and the stance.** It starts AWS CodeBuild projects via `aws codebuild start-build`, so everything that touches AWS runs on AWS compute — no workflow holds an AWS credential, and the only remaining GitHub dependency is the git clone. `github` fires GitHub Actions workflows via `gh workflow run`, and stays in the script because a repo deploying somewhere with no AWS account behind it has nowhere to put a build project.
 
@@ -307,57 +308,27 @@ NEVER skip the bump when there are commits to deploy. "Deploy + no version chang
 
 ## 2.3 Changelog ownership (single writer = `/deploy`)
 
-**`changelog.md` has exactly one writer: `/deploy`.** No CI workflow, no `changelog.yml`, no per-PR entries on feature branches. Claude composes the consolidated release entry locally during `/deploy` from commit subjects since the last `v*.*.*` tag and applies `skills/gitflow/references/changelog-rules.md` to filter and rewrite. `deploy.sh` then inserts that entry under today's date header in `changelog.md` as part of the bump commit pushed directly to `main`.
+**`changelog.md` has exactly one writer: `/deploy`.** No CI workflow, no `changelog.yml`, no per-PR entries on feature branches. `deploy.sh` applies the release's entry in the release commit pushed directly to `main`.
 
-**Why single-writer.** Feature-PR scripts do not touch `changelog.md` at all — the only place a `--changelog-file` is consumed is `deploy.sh` (there is no such flag on `open-pr.sh`). A single writer is what prevents duplicate bullets landing under the same date header.
+**The content is the project's.** Who reads the changelog, what goes in, how an entry reads, what heads it and where it sits are set by the project's rule in `.claude/rules/project/changelog.md`, which loads when `changelog.md` is read. The kit holds no opinion on any of it. A project with no rule gets no changelog: its releases still ship, the release commit carrying the bump alone.
 
-**What this means for slash-command flow.**
+**Why single-writer.** Feature-PR scripts do not touch `changelog.md` at all — `deploy.sh` is the only script taking a changelog argument. A single writer is what keeps duplicate entries out.
+
 - `/open-pr` does not write to `changelog.md`. It pushes the branch and creates the PR, full stop.
 - `/merge` does not write to `changelog.md`. It squash-merges the feature PR.
 - `/deploy` is the only command that touches `changelog.md`. The entry covers every commit since the last tag — typically multiple feature PRs grouped into one release.
 
-**Cost vs. value.** Per-PR entries had no consumer (the only readers of `changelog.md` see the consolidated release entries). The CI cost was nonzero (Claude API per PR) and the duplication tax compounded across every release. Removing it loses no information.
+## 2.4 The changelog patch (not a workflow)
 
-## 2.4 Changelog generation (not a workflow)
-
-Changelog generation is NOT a GitHub Action and has exactly one writer: `/deploy`. Claude composes the consolidated release entry locally during `/deploy` from commit subjects since the last `v*.*.*` tag. `deploy.sh` inserts that entry under today's date header in `changelog.md` as part of the bump commit pushed directly to `main`. Feature-PR scripts (`commit.sh`, `open-pr.sh`, `merge.sh`) do not touch `changelog.md`.
-
-Rationale:
-- Zero CI infrastructure (no `changelog.yml`, no `ANTHROPIC_API_KEY` secret, no runner dependency).
-- `changelog-rules.md` requires editorial intelligence (filter `refactor/style/test/docs/chore`, rewrite internals as user-facing prose) that template tools like release-please cannot provide.
-- Single-writer eliminates the duplicate-bullet bug from the earlier two-writer design (one entry per feature PR + one per release = two copies of the same line in main). See §2.3.
+Changelog writing is NOT a GitHub Action. Claude writes the entry locally during `/deploy`, and `deploy.sh` lands it.
 
 **Procedure (`/deploy`):**
-1. `/deploy` lists conventional commit subjects since the last `v*.*.*` tag.
-2. Claude applies `changelog-rules.md` to generate one or more bullets in `- **<emoji> <Title Case>** - <user-impact>` form. Pure infra commits collapse to a single `Internal Tooling` / `Dependency Updates` line.
-3. Claude writes the entries to a tempfile and invokes `deploy.sh --changelog-file <path>`.
-4. The script inserts the entry under today's date header in `changelog.md`, bumps the manifest version, commits everything as `🚀 release: v<NEW>` on `main`, and pushes `main` directly (require-PR off, the default — no release branch, no PR; see §2.1).
-5. The script deletes the tempfile on success.
+1. `/deploy` reads `.claude/rules/project/changelog.md`. With none, it skips to the release with no patch.
+2. Claude reads `changelog.md`, writes the release's entry into a temporary copy as the rule says — the new version is known from the bump level — and diffs the copy into a unified patch carrying only the new lines (`commands/deploy.md` Step 3).
+3. Claude invokes `deploy.sh --changelog-patch <file>`.
+4. Among its state gates the script checks that the patch changes only `changelog.md` and applies; a patch that fails either stops the deploy at exit 14 before anything is bumped. After the bump it applies the patch, commits both as `🚀 release: v<NEW>` on `main`, and pushes `main` directly (§2.1).
 
-There is no `--no-changelog` mode and no `--changelog-file` flag on `open-pr.sh`. Releases without user-facing entries still get a one-line `Internal Tooling` bullet — every release commits exactly one new bullet, never zero.
-
-**The changelog format `deploy.sh` writes:**
-
-```markdown
-# Changelog
-
-All notable changes to this project will be documented in this file.
-
-### October 23, 2026
-
-- **🐛 Tracking Number Whitespace** - User-facing description of the fix.
-
-### October 9, 2026
-
-- ...
-```
-
-- Date headers are h3, long-form: `### Month Day, Year`, the machine's local date when `/deploy` runs.
-- A release on a day that already has a header goes under that header. A new day's header goes in after the file's fourth line, so the preamble keeps its first three lines — a title, a blank line, a sentence — and a fourth line, blank.
-- A project with no `changelog.md` gets one created with that preamble.
-- Entries are `- **<emoji> <Title Case>** - <user-impact>` bullets.
-
-See `commands/deploy.md` and `skills/gitflow/references/changelog-rules.md`.
+**Why a patch, not an edit in the tree.** `deploy.sh` refuses a dirty working tree (exit 4) before it bumps, and the bump and the entry must land in the one release commit that is tagged — and stay local together when the push is rejected (exit 11). A patch keeps all three, and carries only the new lines however long the changelog grows.
 
 ## 2.5 Deploy trigger contract (MANDATORY)
 
@@ -477,6 +448,7 @@ deploy buildspec. Checklist row: E67.
 - `22`: UI awaiting the human's approval, or out of step with the UI inventory → walk the pending items (the `design-system` skill's review); caught before anything mutated
 - `23`: `promote` named a version with no release tag on origin
 - `24`: `promote` succeeded and Prod is on the new version, but the GitHub Release was not created → run the `gh release create` the script printed
+- `28`: `promote` succeeded and the Release is published, but the project's own release step failed → read its output, then run the `bash .claude/project-release.sh <version>` the script printed
 - `25`: a commit in the release names `Needs <org-repo>#N` and that change is not live → `/deploy` it in the org repo first; caught before anything mutated
 - `26`: the test suite failed, could not run, or ran without the integration tests the repository has → fix it on a branch and ship the fix; caught before anything mutated (`testing.md` §3)
 - `27`: under `ASSURANCE_LEVEL` `strict`, a high or critical vulnerability with a fix is past the dependency policy's window with no current exception, or the check could not run → run the dependency pass, or record an exception the human approves; caught before anything mutated (§3.3)
@@ -492,6 +464,7 @@ For a project whose Prod is its own environment, `/deploy` releases to Test and 
 - **Planned downtime:** stop, migrate, start. A failed migration restarts the previous version. The rollout has the same version-checked health and completion marker as a deploy.
 - **The image is tagged `prod-<version>`,** so a registry lifecycle can keep what Prod has run apart from Test's deploys.
 - **Then `deploy.sh` publishes the GitHub Release** for the tag. A version that already has one (a rollback) publishes nothing.
+- **Then the project's own release step runs, when it has one:** `.claude/project-release.sh <version>`, from the repository root, in `deploy.sh`'s environment, so the promote key is the credential in force. It is the project's file, never synced: what it adds to the release — files a build stored for the version, a notice — where they come from, and what the promote key may read to fetch them are the project's own. It runs on a re-promotion too, so it replaces what it attached before. A non-zero exit ends the promotion with 28.
 - **Its own key,** `DEPLOY_PROMOTE_AWS_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY`, scoped to the promote projects (`new-project-setup.md` §7c). Whoever holds it may promote.
 
 ---
@@ -764,7 +737,7 @@ Each dev's noise tolerance differs. This section maps every email GitHub sends o
 
 **Browser JavaScript served by a non-JavaScript server goes in a `static/` directory** (python-rules.md): knip has no import to follow from a Python page to its script, and treats everything there as a served asset whose exports the page may call. Drizzle configs are read, never executed: they throw without a database URL, which is every CI run.
 
-**There is no per-project ignore list.** A finding that is not dead code is a gap in `knip.config.ts`: raise it on the kit and fix it there, for every project. The exemptions the file does carry are kit-wide — the vendored shadcn atoms and the test harness are API surfaces, and the exports of `src/server.ts`, the design-system config and the Drizzle schema are consumed by a tool, not an import.
+**There is no per-project ignore list.** A finding that is not dead code is a gap in `knip.config.ts`: raise it on the kit and fix it there, for every project. The exemptions the file does carry are kit-wide — the vendored shadcn atoms, the files a Design Pack installed and the project's own files standing in for one (each says so in its opening lines, with `// ui-pack:` or `// ui-pack-for:`) and the test harness are API surfaces, and the exports of `src/server.ts`, the design-system config and the Drizzle schema are consumed by a tool, not an import.
 
 **The gate is the project's call, `KNIP_GATE`.** A codebase reaches zero findings once, in a cleanup, and the gate holds it there.
 

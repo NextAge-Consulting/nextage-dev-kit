@@ -21,9 +21,15 @@
  *
  * The judge's ledger. A yes from the judge (design-system skill, scripts/judge.mjs) is a
  * pending item in .claude/ui-pending.json, keyed by question, place and what it is about
- * (the rule, token, class or other piece), with the fingerprint of the line it names. It is pending until the human approves
- * the line (design-accepted), defers it (design-deferred) or the line changes, when it is
- * re-judged at the next commit.
+ * (the rule, token, class or other piece). What it rests on decides when it leaves:
+ *   a line        (`at` is file:line, with the line's fingerprint) — until the human approves
+ *                 the line (design-accepted), defers it (design-deferred) or the line changes;
+ *   sentences     (`rests`, each a file and the text quoted from it: a rule's sentence, or one
+ *                 from each of two rules) — until any of them is no longer in its file, or the
+ *                 human's word is on the line one starts on or the comment-only line above it;
+ *   a whole file  (`at` is the file: a question about a component as a whole) — until the
+ *                 human answers for the file, `ui-status: approved` or `deferred`.
+ * Whatever changed is re-judged at the next commit.
  *
  * Pointers. Every file names what governs it at its top, and the check confirms each
  * pointer names something real:
@@ -35,7 +41,8 @@
  *                   on content and wiring — a feature file, a root document, a layout
  *                   route, a router, a provider, a helper;
  *   a recipe        frontmatter `kind: recipe`, `frame: <component>`, `reference: <screen
- *                   file>`, `block-types:`;
+ *                   file>`, `block-types:`; one installed from a Design Pack (`pack:`)
+ *                   names its reference screen once the project has built one;
  *   a behaviour rule frontmatter `kind: behaviour`, `code: [<files>]`, `block-types:`; every
  *                   file in `code` points back at the rule.
  *   Either may carry `apps: [<workspace>, …]` — the workspaces the root package.json
@@ -112,6 +119,73 @@ export function excepted(lines, n) {
   return has(lines[n - 1]) || (above !== undefined && lineCode(above) === '' && has(above))
 }
 
+const fold = (s) => String(s).replace(/\s+/g, ' ').trim()
+
+/**
+ * The lines `text` spans in `source`, whitespace folded on both sides: `[first, last]`,
+ * 1-based, or null when the text is not there. A sentence wrapped over several lines, or
+ * wrapped differently since it was quoted, is still found.
+ */
+export function linesOfText(source, text) {
+  const want = fold(text)
+  if (!want) return null
+  let folded = ''
+  const lineAt = []
+  let line = 1
+  let gap = false
+  for (let k = 0; k < source.length; k++) {
+    const ch = source[k]
+    if (/\s/.test(ch)) {
+      if (ch === '\n') line++
+      gap = folded.length > 0
+      continue
+    }
+    if (gap) {
+      folded += ' '
+      lineAt.push(line)
+      gap = false
+    }
+    folded += ch
+    lineAt.push(line)
+  }
+  const i = folded.indexOf(want)
+  return i < 0 ? null : [lineAt[i], lineAt[i + want.length - 1]]
+}
+
+/** Whether the human has answered for a whole file: its status is approved or deferred. */
+const fileAnswered = (text) => /ui-status:\s*(?:approved|deferred)\b/.test(text)
+
+/**
+ * Where a ledger item stands, by what it rests on (the header above): `stands` while it
+ * awaits the human; `answered` once their word is on it; `changed` once the code it rests
+ * on is no longer what was judged; `gone` when its file is.
+ */
+export function itemState(repo, item) {
+  const read = (f) => (existsSync(path.join(repo, f)) ? readFileSync(path.join(repo, f), 'utf8') : null)
+  if (Array.isArray(item.rests)) {
+    let answered = false
+    for (const r of item.rests) {
+      const source = read(r.file)
+      if (source === null) return 'gone'
+      const span = linesOfText(source, r.text)
+      if (!span) return 'changed'
+      if (excepted(source.split('\n'), span[0])) answered = true
+    }
+    return answered ? 'answered' : item.rests.length ? 'stands' : 'gone'
+  }
+  const at = String(item.at ?? '')
+  const m = at.match(/^(.*):(\d+)$/)
+  if (!m) {
+    const source = at ? read(at) : null
+    return source === null ? 'gone' : fileAnswered(source) ? 'answered' : 'stands'
+  }
+  const lines = read(m[1])?.split('\n')
+  const line = lines?.[Number(m[2]) - 1]
+  if (line === undefined) return 'gone'
+  if (excepted(lines, Number(m[2]))) return 'answered'
+  return item.fingerprint !== undefined && fingerprint(lineCode(line)) !== item.fingerprint ? 'changed' : 'stands'
+}
+
 /** Every tracked or new file, gitignored ones left out. */
 function repoFiles(repo) {
   const out = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], {
@@ -144,6 +218,21 @@ function atomTest(repo) {
   const file = path.join(repo, '.claude/sync-substitutions.json')
   const dir = existsSync(file) ? String(JSON.parse(readFileSync(file, 'utf8')).DESIGN_VENDORED_DIR ?? '').trim().replace(/\/$/, '') : ''
   return dir ? (f) => f.startsWith(`${dir}/`) : (f) => f.includes('components/ui/')
+}
+
+/**
+ * Where the vendored atoms stand: restyled onto the project's roles
+ * (`DESIGN_VENDORED_RESTYLED` is "true"), set aside on the human's word (empty, and listed in
+ * `_intentionally_empty`), or undecided. Null when the project names no vendored folder.
+ */
+function vendoredState(repo) {
+  const file = path.join(repo, '.claude/sync-substitutions.json')
+  if (!existsSync(file)) return null
+  const subs = JSON.parse(readFileSync(file, 'utf8'))
+  const dir = String(subs.DESIGN_VENDORED_DIR ?? '').trim().replace(/\/$/, '')
+  if (!dir) return null
+  if (String(subs.DESIGN_VENDORED_RESTYLED ?? '').trim() === 'true') return { dir, state: 'restyled' }
+  return { dir, state: (subs._intentionally_empty ?? []).includes('DESIGN_VENDORED_RESTYLED') ? 'set-aside' : 'undecided' }
 }
 
 /** The UI source folders, when the project names its UI package; null means every folder. */
@@ -322,7 +411,10 @@ export function checkUiStatus(repo, { files = repoFiles(repo), sourceDirs = sour
       recipeOf.set(f, fm)
       if (!fm.frame) problems.push(`${f}: a recipe names its frame — \`frame: <component>\``)
       else if (!parts.some((c) => isComponent(c) && fileKey(c) === key(fm.frame.split('/').at(-1)))) problems.push(`${f}: frame \`${fm.frame}\` names no component file`)
-      if (!fm.reference) problems.push(`${f}: a recipe names one reference screen — \`reference: <screen file>\``)
+      // A recipe installed from a pack ahead of its first screen is pending until it has one.
+      if (!fm.reference) {
+        if (!fm.pack) problems.push(`${f}: a recipe names one reference screen — \`reference: <screen file>\``)
+      }
       else if (!files.includes(fm.reference)) problems.push(`${f}: reference \`${fm.reference}\` is not a file in this repository`)
       else if (apps?.length && !apps.includes(appOf(fm.reference, apps))) problems.push(`${f}: reference \`${fm.reference}\` is not in an app its \`apps:\` line names`)
     } else {
@@ -400,7 +492,7 @@ export function checkUiStatus(repo, { files = repoFiles(repo), sourceDirs = sour
     })
   }
 
-  // --- the judge's ledger: a yes is pending until the human answers or the line changes ---
+  // --- the judge's ledger: a yes is pending until the human answers or what it rests on changes ---
   let judged = 0
   const ledgerPath = path.join(repo, LEDGER)
   if (existsSync(ledgerPath)) {
@@ -411,10 +503,7 @@ export function checkUiStatus(repo, { files = repoFiles(repo), sourceDirs = sour
       problems.push(`${LEDGER}: not JSON — the judge's ledger cannot be read`)
     }
     for (const i of Array.isArray(items) ? items : []) {
-      const m = String(i.at ?? '').match(/^(.*):(\d+)$/)
-      const lines = m && existsSync(path.join(repo, m[1])) ? readFileSync(path.join(repo, m[1]), 'utf8').split('\n') : null
-      const line = lines?.[Number(m[2]) - 1]
-      if (line === undefined || fingerprint(lineCode(line)) !== i.fingerprint || excepted(lines, Number(m[2]))) continue
+      if (itemState(repo, i) !== 'stands') continue
       judged++
       pending.push(`${i.at} (judge ${i.question}${i.about ? `, ${i.about}` : ''}) — ${i.note ? `${i.note} — ` : ''}${String(i.quote ?? '').split('\n')[0].slice(0, 100)}`)
     }
@@ -461,6 +550,16 @@ export function checkUiStatus(repo, { files = repoFiles(repo), sourceDirs = sour
   }
   if (existsSync(inventoryPath)) {
     for (const f of parts) if (!listed.has(f)) problems.push(`${f}: not in ${INVENTORY}`)
+  }
+
+  // The vendored atoms are a layer of their own: until they are restyled onto the roles the
+  // token check does not read them, and every layer above stands on them.
+  const vendored = vendoredState(repo)
+  if (vendored && vendored.state !== 'restyled') {
+    const atoms = parts.filter((f) => isComponent(f) && f.startsWith(`${vendored.dir}/`)).length
+    const what = `${vendored.dir} (vendored atoms): ${atoms} control(s) still carry the styling they were downloaded with, which the token check does not read`
+    if (atoms && vendored.state === 'set-aside') deferred.push(`${what} — set aside by DESIGN_VENDORED_RESTYLED in _intentionally_empty`)
+    else if (atoms) pending.push(`${what} — list what is off the roles with \`node .claude/skills/design-system/scripts/check-design-tokens.mjs --controls\`, then restyle them and set DESIGN_VENDORED_RESTYLED to "true", or list the key in _intentionally_empty on the human's word`)
   }
 
   return {

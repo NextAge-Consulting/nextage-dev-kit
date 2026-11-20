@@ -20,7 +20,7 @@ $ARGUMENTS
 - `/work`, `/commit` or `/open-pr` reported `main has moved` with files changed on both sides.
 - `/merge` refused with exit 23.
 - `gh pr view <N>` reports `mergeStateStatus: DIRTY` / `mergeable: CONFLICTING` after another PR merged.
-- You know `main` has changed in a way that affects your branch (changelog overlap, file touched by both PRs, schema migration).
+- You know `main` has changed in a way that affects your branch (a file touched by both PRs, a schema migration).
 - Before opening a PR on a long-lived branch that has lagged main by more than a couple of merges.
 
 Do NOT invoke when:
@@ -57,7 +57,7 @@ Confirm no merge is already in progress (`--continue` / `--abort` cover that cas
 The script exits non-zero (code 6) and lists conflicting paths. Resolve each file using `Edit`:
 
 1. Open the file. Locate the `<<<<<<<`, `=======`, `>>>>>>>` markers.
-2. Decide which side to keep, or write a manual merge. For changelog overlap, the typical resolution is: keep both entries, ordered by merge time (newer above older).
+2. Decide which side to keep, or write a manual merge.
 3. Repeat for each conflicting file.
 4. Verify nothing was missed: `git diff --check` should exit clean.
 

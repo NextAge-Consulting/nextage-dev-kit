@@ -78,7 +78,7 @@
   <text x="671" y="592" text-anchor="middle" fill="#312e81" font-weight="600">project</text>
   <rect x="742" y="542" width="640" height="92" rx="6" fill="#ffffff" stroke="#9ca3af"/>
   <text x="758" y="564" fill="#374151"><tspan font-weight="600">token check</tspan> · CI, end of work — every class a role, restyled once; arbitrary spacing never</text>
-  <text x="758" y="582" fill="#374151"><tspan font-weight="600">status check</tspan> · deploy, /work, /handoff — listed in the inventory's atoms table</text>
+  <text x="758" y="582" fill="#374151"><tspan font-weight="600">status check</tspan> · deploy, /work, /handoff — listed in the inventory; restyled, or set aside by the human</text>
   <text x="758" y="600" fill="#374151"><tspan font-weight="600">a11y rules</tspan> · every edit, CI — type on buttons, names on icon buttons, focus visible</text>
 
   <!-- Role tokens -->

@@ -141,11 +141,13 @@ function parseDecls(body, publishAtStart = true) {
  * reading of a purpose comment — the publisher, the token check and the judge's locator all
  * take it from here. `beside` is the text after the declaration's `;`, `above` the comment
  * on the line before, already stripped of its markers. A check's marker beside a token
- * (`contrast-accepted: …`) and a group header above it say nothing about what it is for.
+ * (`contrast-accepted: …`), the human's answer on its line (`design-accepted — …`,
+ * `design-deferred …`) and a group header above it say nothing about what it is for.
  */
 export function usageOf(beside, above) {
-  const trailing = [...(beside ?? '').matchAll(/\/\*(.*?)\*\//g)].map((c) => c[1].trim()).find((c) => c && !/^contrast-accepted:/.test(c)) ?? '';
-  return trailing || (above && !HEADER.test(above) ? above : '');
+  const MARKER = /^(?:contrast-accepted:|design-accepted\b|design-deferred\b)/;
+  const trailing = [...(beside ?? '').matchAll(/\/\*(.*?)\*\//g)].map((c) => c[1].trim()).find((c) => c && !MARKER.test(c)) ?? '';
+  return trailing || (above && !HEADER.test(above) && !MARKER.test(above) ? above : '');
 }
 
 const clean = (s) =>

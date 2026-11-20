@@ -26,7 +26,7 @@ In a repo holding infrastructure (`REPO_KIND` is `org` or `combo`) the script re
 
 ### Step 2: Compose a conventional commit message
 
-Same rules as `/commit` — `<emoji> <type>(<scope>): <subject>`. **Conventional format is required**, not optional: `/ship-main` commits land on `main` and are read by the next `/deploy` (commit subjects since the last tag) to compute the bump level + changelog, exactly like a merged-PR squash commit. A malformed subject mis-classifies the release.
+Same rules as `/commit` — `<emoji> <type>(<scope>): <subject>`. **Conventional format is required**, not optional: `/ship-main` commits land on `main` and are read by the next `/deploy` (commit subjects since the last tag) to compute the bump level, exactly like a merged-PR squash commit. A malformed subject mis-classifies the release.
 
 ### Step 3: Decide which linked issues are code complete
 

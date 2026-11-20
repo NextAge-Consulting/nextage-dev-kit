@@ -60,7 +60,7 @@ This rule subsumes any prior or training-data instinct toward "one issue per PR.
 
 - Does not run git commands directly. All mechanics live in `/commit`, `/checkpoint`, `/open-pr`, `/merge`, `/deploy` commands, which in turn call scripts in `skills/gitflow/scripts/`.
 - Does not bypass validation. `commit.sh` and `ship-main.sh` run the gates in `gates.sh` before committing — typecheck, biome, knip, semgrep, the integration gate and the headless reviews, each saying what it checked or why it does not apply here — and `git-guard.sh` fires regardless. If either blocks, fix the underlying issue — do not attempt to bypass.
-- Does not auto-bump version or auto-write changelog at merge time. Version bump + changelog generation happen at `/deploy` time only (human-in-the-loop). Merging to main does not ship.
+- Does not auto-bump version or auto-write changelog at merge time. The version bump and the changelog entry happen at `/deploy` time only (human-in-the-loop). Merging to main does not ship.
 
 ## Usage procedure
 
@@ -181,8 +181,8 @@ After `/merge` completes, the squash commit lands on main. **Nothing fires autom
 To ship the accumulated commits to production, run `/deploy`:
 
 1. Detects bump level (patch/minor/major) from conventional commit subjects since the last `v*.*.*` tag
-2. Generates a user-facing changelog entry from the same commits
-3. Bumps `package.json` (or `pyproject.toml`), writes the changelog entry, commits the bump, tags `v<NEW>`, pushes
+2. Writes the release's changelog entry as a patch, by the project's own rule in `.claude/rules/project/changelog.md` — no rule, no entry
+3. Bumps `package.json` (or `pyproject.toml`), applies the changelog patch, commits both, tags `v<NEW>`, pushes
 4. Dispatches the migration (if any) and every service's deploy — CodeBuild projects by default, GitHub workflows under the `github` backend — and watches them
 
 `/deploy` is the changelog's only writer — `/open-pr` never touches it. See `commands/deploy.md`.
@@ -194,7 +194,6 @@ To ship the accumulated commits to production, run `/deploy`:
 Load these only when needed for the task:
 
 - **`references/commit-types.md`** — Emoji/type mapping for commit message construction.
-- **`references/changelog-rules.md`** — Changelog entry rules (applied by Claude during `/deploy` to write the release entry).
 
 ## Scripts
 
@@ -211,7 +210,7 @@ The commands invoke these scripts in `skills/gitflow/scripts/`:
 | `wait-for-pr-ready.sh` | Poll until CI green + (if a `/gemini review` comment was posted for the current HEAD) Gemini Code Assist has posted its review; under `TEST_RUNNER` `aws`, also the `full-suite` status; fail-loud timeout. Trigger-aware: no trigger comment for HEAD → CI-only ready. `GEMINI_NOT_INSTALLED="true"` short-circuits the Gemini path entirely. A CI failure exits at once and says whether a review is still due; `--review-only` rejoins that wait, ignoring CI, while the fix sits in the tree. Invoked by `/open-pr`, `/triage`, `/merge`. |
 | `merge.sh` | Refuse uncommitted changes, build locally while waiting for PR readiness, squash-merge via gh, land this checkout back on `main`, delete the merged local branch, reinstall deps if manifests changed |
 | `worktree-remove.sh` | Remove a finished worktree and its local branch, from the primary checkout |
-| `deploy.sh`, `deploy-org.sh` | `/deploy`: release gates, bump, changelog, tag, dispatch; in a repo holding infrastructure, apply and merge a Terraform PR |
+| `deploy.sh`, `deploy-org.sh` | `/deploy`: release gates, bump, the project's changelog patch, tag, dispatch; in a repo holding infrastructure, apply and merge a Terraform PR |
 | `gates.sh` | The gates `/commit`, `/ship-main`, `/merge` and `/deploy` run; the typecheck, integration and build gates skip on an unchanged code fingerprint |
 | `rule-review.sh`, `sql-review.sh`, `test-review.sh` | The headless reviews, run side by side by `gates.sh` |
 | `design-judge.sh` | The design judge: locates every candidate in the change and asks the judge one yes/no question each; a yes is a pending item in `.claude/ui-pending.json`, never a failed commit |

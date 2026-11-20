@@ -235,14 +235,30 @@ if (uiPackage && feedBarrel && existsSync(resolve(root, uiPackage, feedBarrel)))
   }
 }
 
+// A file a Design Pack installed says so in its opening lines:
+// `// ui-pack: <piece>/<file> @ <version>`. So does a file of the project's own that
+// stands in for one: `// ui-pack-for: <piece>/<file>`. Either is that piece's published
+// API, which the screens not yet written consume.
+const packPointer = /^\/\/ ui-pack(?::\s*\S+\/\S+\s+@\s+\S+|-for:\s*\S+\/\S+)/m;
+const packInstalled = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "*.ts", "*.tsx"], {
+  cwd: root,
+  encoding: "utf8",
+  maxBuffer: 64 * 1024 * 1024,
+})
+  .split("\0")
+  .filter((f: string) => f !== "" && !excludedDirs.test(f) && existsSync(resolve(root, f)))
+  .map(toPosix)
+  .filter((f: string) => packPointer.test(readFileSync(resolve(root, f), "utf8").split("\n", 20).join("\n")));
+
 // API surfaces whose unused members are not dead code: the vendored shadcn atoms, the
-// feed barrel and the modules it publishes, and the kit's test harness, which tests not
-// yet written consume.
+// feed barrel and the modules it publishes, the files a Design Pack installed, and the
+// kit's test harness, which tests not yet written consume.
 const apiSurfaces = [
   ...(uiPackage && feedBarrel ? [`${uiPackage}/${feedBarrel}`] : []),
   ...feedModules,
   "**/src/components/ui/**",
   ...(vendoredDir ? [`${vendoredDir}/**`] : []),
+  ...packInstalled,
   ...(sharedModule ? [sharedModule === "." ? harness : `${sharedModule}/${harness}`] : []),
 ];
 

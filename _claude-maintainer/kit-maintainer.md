@@ -7,34 +7,34 @@ pass straight through. (On a consumer machine there's no marker, so it blocks.)
 So you may edit kit files, from the kit repo or from inside any consumer
 project, and propagate them out.
 
-## THE KIT IS PUBLIC — sanitize everything that goes into its history
+## THE KIT IS PUBLIC — keep private data out of its history
 
 `NextAge-Consulting/nextage-dev-kit` is a **public, open-source repository**.
 Anything written there is world-readable, permanently, including via forks and
 the commit history. A secret committed and reverted is still leaked.
 
-So every kit edit is also a publication decision. Before writing anything to the
-kit's files, commit messages, branch names or PR titles and bodies, strip:
+**Before writing anything to the kit's files, commit messages, branch names or PR
+titles and bodies, leave out what is private to a real client, a real person or a
+real system:**
 
-- **Client and project names** — no consumer project name, no customer or end-client
-  name, no branding. Write "a consumer project", "the tenant database".
-- **People** — no names, emails, usernames, or handles. Not in examples, not in
-  sample data, not in commit messages.
+- **Real clients and people** — a client's or end-customer's name, a project name
+  that names a client, and any person's name, email, username or handle. Not in
+  examples, not in sample data, not in commit messages.
 - **Infrastructure identity** — hostnames, domains, database and endpoint names,
   bucket names, account ids, ARNs, IPs, connection strings, ports that reveal a
   deployment.
 - **Anything resembling a credential** — keys, tokens, hashes, salts. Including
   fake-looking ones: no reader can tell.
-- **Business specifics** — schema drawn from a real client's model, row counts,
-  volumes, or measurements that identify a system.
+- **A client's own data** — real records, figures, row counts, volumes or
+  measurements that identify their system.
 
-Examples must be **invented and generic**: `example.com`, `alice@example.com`,
-`app_user`, `mytable.mycolumn`. When a real case motivated the rule, describe the
-*shape* of the problem, never the instance.
+**Domain vocabulary is not private.** `payment`, `invoice`, `property`, the name of
+a kind of screen or a kind of record are ordinary words: use the word that says
+what the thing is. Name a thing generically where that makes it easier to
+recognise and reuse, never because the plain word is a secret.
 
-The consumer projects are private; the kit is not. A fact that is fine in a
-project's `project-documentation/` may be a leak in the kit's. When in doubt it
-stays in the project.
+Examples that need a client, a person or a system use invented ones:
+`example.com`, `alice@example.com`, `app_user`, `mytable.mycolumn`.
 
 **A kit change made in the session is just the work — edit, propagate, done; no
 issue.** An issue is for kit work left for later, yours or a client's, and it is
