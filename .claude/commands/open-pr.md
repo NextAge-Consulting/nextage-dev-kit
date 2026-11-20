@@ -154,7 +154,7 @@ The author keeps it unless a taker is named:
 
 ### Step 7: Invoke the script
 
-`/open-pr` does NOT touch `changelog.md`. The changelog is owned exclusively by `/deploy`, which composes the consolidated release entry from commit subjects since the last tag at version-bump time. There is no flag for a per-PR entry.
+`/open-pr` does NOT touch `changelog.md`. The changelog is owned exclusively by `/deploy`, which writes the release's entry at version-bump time, by the project's own changelog rule. There is no flag for a per-PR entry.
 
 ```bash
 .claude/skills/gitflow/scripts/open-pr.sh \
@@ -233,9 +233,9 @@ On PR open:
 - `ci.yml` runs typecheck + Biome + Semgrep + tests (if installed). Its vitest job runs the full suite and posts the `full-suite` commit status `/deploy` trusts; under `TEST_RUNNER` `aws` it runs the unit tests only and the CodeBuild test project runs the full suite and posts that status
 - `pr-title.yml` validates the PR title format (if installed)
 
-`changelog.md` is **not** modified on the feature branch. It receives one consolidated release entry at `/deploy` time, covering every commit since the last `v*.*.*` tag — see pipeline.md §2.1.
+`changelog.md` is **not** modified on the feature branch. It receives one release entry at `/deploy` time, when the project has a changelog rule — see pipeline.md §2.1.
 
-Post-merge, **nothing fires automatically**. To ship to production, run `/deploy` — it bumps version, writes the consolidated changelog entry, tags, pushes, and dispatches the deploy (CodeBuild projects by default), which nothing else may start — see pipeline.md §2.5.
+Post-merge, **nothing fires automatically**. To ship to production, run `/deploy` — it bumps version, applies the project's changelog entry, tags, pushes, and dispatches the deploy (CodeBuild projects by default), which nothing else may start — see pipeline.md §2.5.
 
 ## Blocking conditions
 

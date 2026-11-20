@@ -269,6 +269,13 @@ test('spacing between steps is judged only against the project\'s own scale; wit
   assert.ok(notes.some((n) => /spacing scale: the project declares none/.test(n)))
 })
 
+test('a caller may give the spacing scale for a tree that has no config to read it from', async () => {
+  const dir = await prepared(screen('<div className="p-5 gap-2" />'))
+  const { problems, notes } = await checkDesignTokens(dir, { all: true, spacingSteps: [0, 1, 2, 3, 4, 6, 8, 12] })
+  assert.deepEqual(problems.filter((p) => /spacing scale/.test(p)).map((p) => p.split('  ')[1]), ['p-5'])
+  assert.ok(notes.some((n) => /spacing scale: .*given by the caller/.test(n)))
+})
+
 test("a project's own spacing steps replace the kit's", async () => {
   const dir = await withConfig({ 'packages/ui/design-system/design-system.config.mjs': CONFIG.replace('steps: [0, 1, 2, 3, 4, 6, 8, 12]', 'steps: [0, 1, 2, 3, 4, 5, 6, 8, 12]'), ...screen('<div className="p-5 gap-10" />') })
   const { problems, notes } = await checkDesignTokens(dir)
@@ -594,6 +601,13 @@ test('ships: a class used only in a workspace the app imports but its stylesheet
   assert.equal(counts.shipsEntries, 1)
   assert.ok(counts.shipsClasses > 0)
   assert.match(notes.join(' '), /ships: 1 app stylesheet\(s\) compiled/)
+})
+
+test('ships: the line named is one that uses the class itself, never a fraction or a half step that starts with it', { skip: SHIPS_SKIP }, async () => {
+  const dir = withTailwind(await prepared({ ...SHARED, 'apps/web/src/styles.css': ENTRY_UI_ONLY, 'packages/ui/src/aaa-fraction.tsx': 'export const c = "md:py-4/5 py-4.5"\n' }))
+  const ships = (await checkDesignTokens(dir)).problems.filter((p) => p.startsWith('apps/web/src/styles.css') && / py-4 /.test(p))
+  assert.equal(ships.length, 1, ships.join('\n'))
+  assert.match(ships[0], /used in packages\/web\/src\/components\/shell\.tsx:2 .* does not scan packages\/web\/src/)
 })
 
 test('ships: the same app with the folder scanned passes, and a class Tailwind makes no rule of is never a finding', { skip: SHIPS_SKIP }, async () => {

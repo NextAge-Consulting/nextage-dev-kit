@@ -339,7 +339,7 @@ For a TanStack Start app that will face a security audit or a client's security 
 
 Screens are built from the project's design system. Where it comes from depends on the project:
 
-- **A new project** — pick and adjust a theme at [tweakcn](https://tweakcn.com), then hand Claude its Tailwind v4 code. Claude puts it in the UI package's token stylesheet, names the first roles over it and generates `design.md`. A Design Pack, when one exists, installs a finished system instead.
+- **A new project** — pick and adjust a theme at [tweakcn](https://tweakcn.com), then hand Claude its Tailwind v4 code. Claude puts it in the UI package's token stylesheet, names the first roles over it and generates `design.md`. A Design Pack, when one exists, then adds finished blocks, recipes and behaviour rules over those tokens, pending for your review.
 - **An existing app** — Claude extracts the system the app already shows into a token stylesheet and generates `design.md`, bringing each thing drawn several ways to you as a choice. A tweakcn theme can be merged over it as the path forward.
 - **A project arriving with a `design.md` and no stylesheet** — the DESIGN.md tool's export writes its tokens as Tailwind CSS, which becomes the base of the token stylesheet; `design.md` is then regenerated from the stylesheet.
 
@@ -674,7 +674,9 @@ puts a release that already ran on Test onto Prod, through promote projects name
 key above could start a promotion. Write a second user the same way —
 `<project>-promote-trigger`, allowed `codebuild:StartBuild` and `codebuild:BatchGetBuilds`
 on `arn:aws:codebuild:<region>:<account>:project/<CODEBUILD_PROMOTE_PREFIX>*` and nothing
-else — and put its key in `.env` only on the machines of the people who may promote:
+else, unless the project has a release step of its own (`.claude/project-release.sh`,
+`pipeline.md` §2.9), which runs under this key: grant it then exactly the read access
+that script uses — and put its key in `.env` only on the machines of the people who may promote:
 
 ```bash
 DEPLOY_PROMOTE_AWS_ACCESS_KEY_ID=<promote key>

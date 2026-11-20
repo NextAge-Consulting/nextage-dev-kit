@@ -22,7 +22,7 @@
 #   - Folds any unpushed /checkpoint commits into the one commit it makes, so no
 #     `🔖 wip:` subject reaches main for /deploy to read.
 #   - Commits with a CONVENTIONAL message so the next /deploy classifies it for
-#     bump-level + changelog exactly like a merged-PR squash commit.
+#     bump level exactly like a merged-PR squash commit.
 #   - Pushes straight to main; rebases the commit onto origin/main if it advanced.
 #
 # Requires main to NOT require a PR — the default; the pipeline uses no branch

@@ -5,13 +5,15 @@ import fs from 'node:fs'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
-import { captureScript, classesIn, inlineAssets, inlineImages, page, rewriteUrls, slug, styles, swapClasses, withAncestors } from './render-comparison.mjs'
+import { captureScript, classesIn, isMarker, inlineAssets, inlineImages, page, rewriteUrls, slug, styles, swapClasses, withAncestors } from './render-comparison.mjs'
 
 const SCRIPT = new URL('./render-comparison.mjs', import.meta.url).pathname
 
 test('classes are read from class attributes, and swapped whole, there only', () => {
   const html = '<div class="card p-4 shadow-card"><p class=\'p-4x\' data-x="p-4">p-4</p></div>'
   assert.deepEqual(classesIn(html), ['card', 'p-4', 'shadow-card', 'p-4x'])
+  assert.deepEqual(['group', 'group/row', 'peer', 'lucide', 'lucide-star', 'grouped', 'lucid'].filter(isMarker), ['group', 'group/row', 'peer', 'lucide', 'lucide-star'])
+  assert.deepEqual(classesIn('<i class="[&amp;_svg]:size-4 data-[state=&quot;open&quot;]:flex"></i>'), ['[&_svg]:size-4', 'data-[state="open"]:flex'])
   assert.equal(swapClasses(html, [['p-4', 'p-2 gap-1'], ['shadow-card', 'shadow-raised']]), '<div class="card p-2 gap-1 shadow-raised"><p class="p-4x" data-x="p-4">p-4</p></div>', 'a class that only starts the same, an attribute and the text are left alone')
 })
 

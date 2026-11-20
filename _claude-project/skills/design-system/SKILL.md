@@ -123,8 +123,8 @@ The token stylesheets hold the roles; `check-design-tokens.mjs --roles` lists th
 
 **A project with no system yet builds one, pending, in the same pass**: the base theme's
 tokens go in the token stylesheet, the roles the first screen needs are named over them,
-and the first blocks are built from the atoms. Nothing halts. A project arriving with a
-Design Pack installs it instead (`uxes-design-packs.md` in the kit's docs).
+and the first blocks are built from the atoms. Nothing halts. A Design Pack's pieces
+install over that base, each pending (`uxes-design-packs.md` in the kit's docs).
 
 ### 2. Build from the system
 
@@ -290,8 +290,9 @@ component whose canvas render differs from its plain render by a pixel. The
   answers and the majority wins. It runs at `/commit` and `/ship-main`
   (`skills/gitflow/scripts/design-judge.sh`); a yes is a pending item held in
   `.claude/ui-pending.json`, sorted by step 5 of the procedure. It never stops a commit, and an item
-  leaves the ledger only on the human's word or when its line's code changes; a no from a
-  second asking is not an answer. A comment, an import, or code that only moved is not a
+  leaves the ledger only on the human's word or when the code it rests on changes — a
+  line, the sentence quoted from a rule, or a whole component, which the human answers
+  for by approving or deferring it; a no from a second asking is not an answer. A comment, an import, or code that only moved is not a
   change: a header added to every file, or markup lifted into a shared file, judges
   nothing. Nor is an approved or deferred component, recipe or rule asked about its own
   contents at a commit. A changed screen is held to its rules on the

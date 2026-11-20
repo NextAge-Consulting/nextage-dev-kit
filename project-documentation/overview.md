@@ -23,8 +23,8 @@ is yours. Read this once; after that, read only your own guide.
    goes up for review with `/open-pr`, and CI plus an AI reviewer check every PR.
 3. **Merge.** `/merge` squashes the PR onto `main` once CI is green. Merging does not ship
    anything.
-4. **Release.** `/deploy` is the one step that ships: it bumps the version, writes the
-   changelog, tags, runs any database migration, and starts the deploy. Several merges
+4. **Release.** `/deploy` is the one step that ships: it bumps the version, adds the
+   changelog entry when the project keeps a changelog, tags, runs any database migration, and starts the deploy. Several merges
    usually ride one release. A project with a separate Prod releases to Test this way,
    and `/deploy promote <version>` then puts a tested release onto Prod.
 

@@ -37,7 +37,9 @@ departs from one, say so before anything else, in the line's own words.**
   code as such. The line is only where a change is found and its answer recorded. No
   design change, no question: a comment, a header, an import or code that only moved
   judges nothing, an untouched line is never held to a rule, and a piece the human has
-  approved or deferred is not asked about its own contents at a commit.
+  approved or deferred is not asked about its own contents at a commit. What a Design
+  Pack installs is not asked about in the change that adds it: the human approves it on
+  the pack's reference pages.
 - **The changed line is the unit, and the locator decides what "changed" means.** The
   judge, the ledger's key and fingerprint, and the status check all take that from it.
 - **Code decides what is mechanical; the judge is asked only what code cannot decide.** A
@@ -50,8 +52,14 @@ departs from one, say so before anything else, in the line's own words.**
   shows or how the app behaves.
 - **The status words are `pending`, `approved` and `deferred`.** A check says pass or fail,
   a judge yes or no; `approved` is the human's word alone. `deferred` is not `approved`.
-- **A ledger item leaves on the human's word on the line, or when the line's code
-  changes.** A later no removes nothing.
+  A recipe or behaviour rule a Design Pack lands arrives `approved`: the human's word is
+  the choice to install the pack, and the rule is proved by building with it. The code a
+  pack lands is approved whole, in one word, once the human has reviewed the roles it
+  brought and looked over its reference pages.
+- **A ledger item leaves on the human's word, or when the code it rests on changes.** It
+  rests on a line, on the sentence quoted from a rule — one from each of two rules in
+  conflict — or on a whole component. The human's word is on the line or the sentence, or
+  is the component's own status. A later no removes nothing.
 - **Every piece lands in exactly one kind, and every block in one type.** The types are
   generic kinds, each project designs its own look for each, and a project's piece is
   sorted into them, never added to them.
@@ -67,8 +75,8 @@ change in the same change whatever the edit makes untrue.
 
 | Touch | Moves with it |
 |---|---|
-| What counts as changed — `codeChanges`, `importLines`, `anchor` in `locate.mjs`; `changedLines` and `screenBase` in `check-design-tokens.mjs` | `anchorLine` and `mergeLedger` in `judge.mjs`; the ledger's key (question, place, what it is about) and fingerprint; the status check's reading of the ledger; `design-judge.sh`'s cache key; a migration for the ledgers consumers already hold |
-| `fingerprint`, `lineCode`, `excepted` in `check-ui-status.mjs` | `judge.mjs` and `locate.mjs`, which import them; the fingerprint on every ledger item; every `design-deferred` marker and deferred inventory line in every consumer, which carry their output — a migration |
+| What counts as changed — `codeChanges`, `importLines`, `anchor`, `sentences` and `changedOf` in `locate.mjs`; `changedLines` and `screenBase` in `check-design-tokens.mjs` | `anchorLine` and `mergeLedger` in `judge.mjs`; the ledger's key (question, place, what it is about) and fingerprint; the status check's reading of the ledger; `design-judge.sh`'s cache key; a migration for the ledgers consumers already hold |
+| `fingerprint`, `lineCode`, `excepted`, `linesOfText`, `itemState` in `check-ui-status.mjs` | `judge.mjs` and `locate.mjs`, which import them; the fingerprint on every ledger item; every `design-deferred` marker and deferred inventory line in every consumer, which carry their output — a migration |
 | A judge question's fields in `judge-questions.md` | The candidate keys `locate.mjs` writes for it; its cases under `scripts/judge-fixtures/`; the passes table in `design-audit.md`; "What checks what" in the `design-system` skill; the handbook and the diagram |
 | A candidate the locator finds, or stops finding | The question that reads it; the "What is not a question" list; the token checker, when the matter becomes mechanical or stops being so |
 | `block-types.md` — a type, a neighbour, a Wraps cell | `block-types.mjs`, which parses it; the status check (a Type on the list); the token check (frame atoms a screen may not import); the locator (neighbours for the duplicate question); every consumer's inventory lines and `ui-block` headers — a rename or removal ships with its migration |
@@ -78,6 +86,8 @@ change in the same change whatever the edit makes untrue.
 | When a check runs — `run_design_gate` and `run_headless_reviews` in `gates.sh`, the UI status gate in `deploy.sh` | The report steps of `commit.md` and `ship-main.md`; exit 22 in `deploy.md`; step 5 of the `design-system` skill's procedure; CI's design step; the diagram's WHEN column |
 | A `DESIGN_*` key | `readKeys` in `check-design-tokens.mjs`, which the locator shares; `ui-sources.mjs`; the claude-design engine's config; `dest_for_kit_path` in the sync engine; the key's entry in `_claude-project/sync-substitutions.json`; the handbook's placeholder table |
 | A token stylesheet convention — a purpose comment, the `publish:` markers, a role's shape | `check-design-tokens.mjs`, `claude-design/scripts/resolve.mjs`, `design-md.mjs` and the engine's build, which all read the same stylesheet and must never disagree about what it holds |
+| What a piece holds, and which piece a file belongs to — `classify`, `workOut`, `pieceJson` and `packReference` in `design-pack.mjs` | `planInstall` in `install.mjs`, which reads every `piece.json` field; `project-documentation/uxes-design-packs.md`; the `design-packs` skill; kitmaintainer-handbook.md §12a.12; every piece already published, whose folder and `piece.json` are that code's output |
+| The pointer an installed file carries, or where a file lands — `landedCode`, `landedReference`, `destOf` in `install.mjs` | `installedFiles` and `compare`, which read the pointer back; every project that has installed a piece — a migration |
 | A sentence in a skill, a rule or the inventory template that tells a project's session what to do | The same matter in `_claude-project/commands/uxes.md`, and in any migration `PROMPT.md` that gives the same instruction |
 
 ## How a change reaches a project

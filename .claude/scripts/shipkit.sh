@@ -5,8 +5,9 @@
 #       Read-only. Prints JSON for the release about to be made: its version, the base
 #       it is measured from (the last release tag, or origin/main before the first), the
 #       migrations it adds with each one's Kind, its title, every new migration with no
-#       Estimate, and every added line naming a project that syncs this kit on this
-#       machine — the kit is public, and those names are not.
+#       Estimate, every added line naming a project that syncs this kit on this
+#       machine — the kit is public, and those names are not — and whether the Design
+#       Packs checkout beside the kit holds work no pack release has.
 #
 #   shipkit.sh --release --version <v> --base <ref> --notes-file <path>
 #       On main, after /merge: write VERSION, commit `🚀 release: <v>`, push main, tag <v>,
@@ -146,11 +147,25 @@ if [ "$MODE" = "plan" ]; then
     fi
     rm -f "$NAMES_FILE"
 
+    # The Design Packs checkout beside this clone: work there that no pack release holds.
+    # A kit release does not publish it; /shippack does.
+    PACK_NOTE=""
+    PACKS_URL=$(sed -n "s/^export const PACKS_REPOSITORY = '\(.*\)'.*/\1/p" "_claude-project/skills/design-packs/scripts/design-pack.mjs" 2>/dev/null)
+    PACKS_DIR="$(dirname "$KIT")/$(basename "${PACKS_URL:-uxes-design-packs}")"
+    if [ -d "$PACKS_DIR/.git" ]; then
+        PACK_BASE=$(git -C "$PACKS_DIR" describe --tags --abbrev=0 --match '20[0-9][0-9].[0-9][0-9].[0-9][0-9]*' 2>/dev/null || true)
+        [ -n "$PACK_BASE" ] || PACK_BASE="HEAD"
+        PACK_N=$({ git -C "$PACKS_DIR" diff --name-only "$PACK_BASE" -- 2>/dev/null; git -C "$PACKS_DIR" ls-files --others --exclude-standard 2>/dev/null; } | awk 'NF && !seen[$0]++' | wc -l | tr -d ' ')
+        if [ "$PACK_N" -gt 0 ]; then
+            PACK_NOTE="$PACK_N file(s) in $PACKS_DIR are in no pack release — /shippack releases them"
+        fi
+    fi
+
     jq -n --arg version "$NEXT" --arg base "$BASE" --arg previous "$PREV" \
-        --arg title "$(title_for "$NEXT" "$NAMES")" \
+        --arg title "$(title_for "$NEXT" "$NAMES")" --arg pack "$PACK_NOTE" \
         --argjson migrations "$MIGS" --argjson missing "$MISSING" --argjson hits "$HITS" \
         '{version: $version, base: $base, previous_release: $previous, title: $title,
-          migrations: $migrations, missing_estimate: $missing, consumer_name_hits: $hits}'
+          migrations: $migrations, missing_estimate: $missing, consumer_name_hits: $hits, unshipped_pack: $pack}'
     exit 0
 fi
 

@@ -117,6 +117,19 @@ describe('parseTokenBlocks', () => {
     ])
   })
 
+  it("keeps the human's answer on a token's line out of its usage, beside a usage comment or alone", () => {
+    const [block] = parseTokenBlocks(`:root {
+  --gap: 8px; /* buttons in a row */ /* design-accepted — reviewed with the install */
+  --pad: 12px; /* design-accepted — reviewed with the install */
+  --rim: 2px; /* design-deferred 1a2b3c4d */
+}`)
+    assert.deepEqual(block.decls, [
+      { name: 'gap', value: '8px', usage: 'buttons in a row' },
+      { name: 'pad', value: '12px', usage: '' },
+      { name: 'rim', value: '2px', usage: '' },
+    ])
+  })
+
   it('recognises the common dark-theme selectors', () => {
     for (const selector of ['.dark', 'html[data-theme="dark"]', '[data-theme=dark]', ':root.dark']) {
       const blocks = parseTokenBlocks(`:root {\n  --a: oklch(1 0 0);\n}\n${selector} {\n  --a: oklch(0 0 0);\n}`)

@@ -118,7 +118,9 @@ backlog. The test for every sentence: does it change how the next screen is buil
 Write a new reference with `ui-status: pending` in its frontmatter and add its inventory
 line as pending in the same pass. The human approves it at the review (the
 `design-system` skill, "Prove, then put it to the human"), and it becomes `approved` in
-both places. **Never mark a reference approved yourself.** One the human sets aside is
+both places. **Never mark a reference approved yourself.** One a Design Pack lands arrives approved,
+with a `pack:` line, and its recipe names a reference screen once this project has built
+a real screen of the type. One the human sets aside is
 `deferred`, with its file's fingerprint on its inventory line, and is pending again when
 the file changes.
 

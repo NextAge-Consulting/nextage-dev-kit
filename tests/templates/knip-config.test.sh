@@ -49,4 +49,24 @@ expect_used() {
 expect_used "an icons.tsx the design-system config names is in use, and so is what it imports" icons.tsx
 expect_used "an icons.ts the design-system config names is in use" icons.ts
 
+# A file a Design Pack installed is a piece's published API: its unused exports and types
+# are not reported. The same exports in a file with no pointer are.
+pack_case() {
+    local r report
+    r=$(repo "pack" icons.ts)
+    printf "import { used } from './landed';\nimport { mine } from './own';\nexport const x = [used, mine];\n" > "$r/packages/ui/src/index.ts"
+    printf "// ui-status: pending\n// ui-pack: a-piece/packages/ui/src/landed.ts @ 1.0\nexport const used = 1;\nexport const spare = 2;\nexport type Spare = number;\n" > "$r/packages/ui/src/landed.ts"
+    printf "export const mine = 1;\nexport const idle = 2;\n" > "$r/packages/ui/src/own.ts"
+    printf "import { kept } from './standin';\nexport const y = kept;\n" >> "$r/packages/ui/src/index.ts"
+    printf "// ui-status: approved\n// ui-pack-for: a-piece/packages/ui/src/standin.ts\nexport const kept = 1;\nexport const offered = 2;\n" > "$r/packages/ui/src/standin.ts"
+    git -C "$r" add -A
+    report=$(cd "$r" && npx --yes "knip@$KNIP" --no-progress --no-config-hints --reporter json 2>&1) || true
+    if ! jq -e . >/dev/null 2>&1 <<<"$report"; then bad "pack: knip printed no report: $(head -3 <<<"$report")"; return; fi
+    if grep -q '"spare"\|"Spare"' <<<"$report"; then bad "a pack-installed file's unused export is reported: $report"; return; fi
+    if grep -q '"offered"' <<<"$report"; then bad "an unused export of a file standing in for a pack file is reported: $report"; return; fi
+    if ! grep -q '"idle"' <<<"$report"; then bad "an unused export of the project's own file is not reported: $report"; return; fi
+    ok "a file a Design Pack installed is an API surface; the project's own file is still checked"
+}
+pack_case
+
 exit "$fail"

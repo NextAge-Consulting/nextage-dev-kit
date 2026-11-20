@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { catalogueRows, checkUiStatus, excepted, fingerprint, frontmatter, headers, INVENTORY, isComponent, isPattern, isScreen, key, lineCode, NOT_APPLICABLE, patternBlockTypes } from './check-ui-status.mjs'
+import { catalogueRows, checkUiStatus, excepted, fingerprint, frontmatter, headers, INVENTORY, isComponent, isPattern, isScreen, itemState, key, lineCode, linesOfText, NOT_APPLICABLE, patternBlockTypes } from './check-ui-status.mjs'
 
 const dirs = []
 after(() => {
@@ -54,6 +54,21 @@ test('everything approved, catalogued and pointed passes, with counts', () => {
   assert.deepEqual(out.pending, [])
   assert.deepEqual(out.problems, [])
   assert.deepEqual(out.counts, { components: 3, references: 1, screens: 1, stylesheets: 0, catalogue: 4, deferredLines: 0, judged: 0 })
+})
+
+test('vendored atoms not restyled wait on the human; set aside on their word they block nothing; restyled they are silent', () => {
+  const SUBS = '.claude/sync-substitutions.json'
+  const subs = (extra) => JSON.stringify({ DESIGN_VENDORED_DIR: 'packages/ui/src/components/ui', ...extra })
+  const undecided = run({ ...CLEAN, [INVENTORY]: CLEAN_INV, [SUBS]: subs({ DESIGN_VENDORED_RESTYLED: '' }) })
+  assert.equal(undecided.pending.length, 1)
+  assert.match(undecided.pending[0], /^packages\/ui\/src\/components\/ui \(vendored atoms\): 1 control\(s\) still carry the styling they were downloaded with/)
+  const aside = run({ ...CLEAN, [INVENTORY]: CLEAN_INV, [SUBS]: subs({ DESIGN_VENDORED_RESTYLED: '', _intentionally_empty: ['DESIGN_VENDORED_RESTYLED'] }) })
+  assert.deepEqual([aside.pending, aside.deferred.length], [[], 1])
+  assert.match(aside.deferred[0], /set aside by DESIGN_VENDORED_RESTYLED in _intentionally_empty/)
+  const done = run({ ...CLEAN, [INVENTORY]: CLEAN_INV, [SUBS]: subs({ DESIGN_VENDORED_RESTYLED: 'true' }) })
+  assert.deepEqual([done.pending, done.deferred], [[], []])
+  const none = run({ ...CLEAN, [INVENTORY]: CLEAN_INV, [SUBS]: JSON.stringify({ DESIGN_VENDORED_DIR: '' }) })
+  assert.deepEqual([none.pending, none.deferred], [[], []])
 })
 
 test('no component or reference files: does not apply', () => {
@@ -188,6 +203,16 @@ test("a project's own atom, outside the vendored folder, is listed with no block
     [INVENTORY]: `${CLEAN_INV}\n| Atom | Use for | Status |\n|---|---|---|\n| \`date-field\` | every date input | approved |\n`,
   })
   assert.deepEqual(out.problems, [])
+})
+
+test('a recipe installed from a pack needs no reference screen, whatever its status; any other recipe names one', () => {
+  const at = '.claude/skills/ui-patterns/references/list.md'
+  const recipe = (status) => `---\nkind: recipe\nframe: icon-button\nblock-types: [Row]\nui-status: ${status}\npack: list/references/list.md @ 1.0\n---\n`
+  const check = (status) => run({ ...CLEAN, [at]: recipe(status), [INVENTORY]: `${CLEAN_INV}\n| File | Page type | Frame | Status |\n|---|---|---|---|\n| \`list.md\` | Row | \`icon-button\` | ${status} |\n` })
+  assert.ok(!check('pending').problems.some((p) => /reference screen/.test(p)), check('pending').problems.join('\n'))
+  assert.ok(!check('approved').problems.some((p) => /reference screen/.test(p)), check('approved').problems.join('\n'))
+  const own = run({ ...CLEAN, [at]: recipe('approved').replace(/^pack:.*\n/m, ''), [INVENTORY]: `${CLEAN_INV}\n| File | Page type | Frame | Status |\n|---|---|---|---|\n| \`list.md\` | Row | \`icon-button\` | approved |\n` })
+  assert.ok(own.problems.some((p) => /a recipe names one reference screen/.test(p)))
 })
 
 test('a reference is a recipe or a behaviour rule, with the pointers of its kind, and block-types from the list or cross-cutting', () => {
@@ -360,4 +385,40 @@ test('a marker on a comment-only line answers for the line beneath it: accepted,
   assert.deepEqual(live.pending, [`${SCREEN}:5 (judge FOLLOWS-RULE, saving.md) — p-2`])
   const answered = run({ ...base, [SCREEN]: `${screen()}export const S = () => (\n  {/* design-accepted — the brand's own card */}\n${code}\n)\n`, '.claude/ui-pending.json': `${JSON.stringify([item])}\n` })
   assert.deepEqual(answered.pending, [])
+})
+
+test('a quoted sentence is found by its text, however it is wrapped: the lines it spans, or null once it is gone', () => {
+  const text = '---\nkind: behaviour\n---\n# Saving\n\nSave is first. A failed save shows\n  a banner at the top\nof the form. Close is last.\n'
+  assert.deepEqual(linesOfText(text, 'A failed save shows a banner at the top of the form.'), [6, 8])
+  assert.deepEqual(linesOfText(text, 'A failed save shows\na banner at the top of the form.'), [6, 8], 'quoted with its own line breaks')
+  assert.deepEqual(linesOfText(text, 'Close is last.'), [8, 8])
+  assert.deepEqual(linesOfText(text.replace(/\n/g, '\r\n'), 'Close is last.'), [8, 8])
+  assert.equal(linesOfText(text, 'A failed save shows its line.'), null)
+  assert.equal(linesOfText(text, '  '), null)
+})
+
+test('the judge\'s ledger: an item resting on sentences is pending while each is in its file; one about a whole file while the file awaits the human', () => {
+  const sentence = 'A failed save shows a banner at the top of the form.'
+  const browse = (body = `${sentence}\n`) => `${recipe()}\n${body}`
+  const base = { ...CLEAN, [INVENTORY]: CLEAN_INV }
+  const rests = { question: 'RULE-CONFLICT', at: `${BROWSE}:10`, about: 'saving.md', quote: sentence, rests: [{ file: BROWSE, text: sentence }, { file: BROWSE, text: '# Browse' }] }
+  const whole = { question: 'NAMED-FOR-DATA', at: ICON, quote: 'IconButton' }
+  const ledger = (items) => ({ '.claude/ui-pending.json': `${JSON.stringify(items)}\n` })
+
+  const live = run({ ...base, [BROWSE]: browse(), ...ledger([rests]) })
+  assert.deepEqual(live.problems, [])
+  assert.deepEqual(live.pending, [`${BROWSE}:10 (judge RULE-CONFLICT, saving.md) — ${sentence}`])
+  assert.equal(live.counts.judged, 1)
+  assert.deepEqual(run({ ...base, [BROWSE]: browse('A failed save shows its line above the actions.\n'), ...ledger([rests]) }).pending, [], 'the sentence rewritten')
+  assert.deepEqual(run({ ...base, [BROWSE]: browse(`<!-- design-accepted — a page form's own -->\n${sentence}\n`), ...ledger([rests]) }).pending, [], 'the human\'s word above it')
+
+  const r = repo({ ...base, [BROWSE]: browse() })
+  assert.equal(itemState(r.dir, rests), 'stands')
+  assert.equal(itemState(r.dir, { ...rests, rests: [{ file: BROWSE, text: 'Not there.' }] }), 'changed')
+  assert.equal(itemState(r.dir, { ...rests, rests: [{ file: 'none.md', text: sentence }] }), 'gone')
+  assert.equal(itemState(r.dir, whole), 'answered', 'an approved file')
+  assert.equal(itemState(r.dir, { ...whole, at: 'none.tsx' }), 'gone')
+  assert.deepEqual(run({ ...base, ...ledger([whole]) }).pending, [], 'a whole-file item on a file the human has approved')
+  const waiting = run({ ...base, [ICON]: block('ModalShell', 'pending'), [INVENTORY]: CLEAN_INV.replace('icon-only | approved', 'icon-only | pending'), ...ledger([whole]) })
+  assert.deepEqual(waiting.pending, [`${ICON} (component)`, `${ICON} (judge NAMED-FOR-DATA) — IconButton`], 'and on one still pending')
 })

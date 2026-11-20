@@ -71,6 +71,15 @@ printf 'nothing to see in notakit\n' >> "$KIT/_claude-project/rule.md"
 out=$(plan)
 jq -e '[.consumer_name_hits[] | select(test("notes.md:1:.*AcmeApp"))] | length == 1' <<<"$out" >/dev/null \
     && ok "plan: a project that syncs the kit, named in an added line, is reported" || bad "name hits: $(jq -c .consumer_name_hits <<<"$out")"
+# The Design Packs checkout beside the kit: unreleased work there is said, never shipped.
+[ "$(jq -r .unshipped_pack <<<"$out")" = "" ] && ok "plan: with no packs checkout beside the kit, nothing is said about packs" || bad "no packs: $(jq -c .unshipped_pack <<<"$out")"
+mkdir -p "$ROOT/uxes-design-packs/pieces"; git -C "$ROOT/uxes-design-packs" init -q
+echo x > "$ROOT/uxes-design-packs/README.md"; git -C "$ROOT/uxes-design-packs" add -A; git -C "$ROOT/uxes-design-packs" commit -qm base
+[ "$(jq -r .unshipped_pack <<<"$(plan)")" = "" ] && ok "plan: a packs checkout with nothing unreleased says nothing" || bad "clean packs: $(plan | jq -c .unshipped_pack)"
+echo y > "$ROOT/uxes-design-packs/pieces/new.json"
+jq -r .unshipped_pack <<<"$(plan)" | grep -q "^1 file(s) in .*uxes-design-packs are in no pack release — /shippack releases them$" \
+    && ok "plan: unreleased pack work is reported, naming /shippack" || bad "unshipped: $(plan | jq -c .unshipped_pack)"
+rm -rf "$ROOT/uxes-design-packs"
 jq -e '[.consumer_name_hits[] | select(test("notakit"))] | length == 0' <<<"$out" >/dev/null \
     && ok "plan: a folder that does not sync the kit is not a project name" || bad "non-consumer flagged"
 rm "$KIT/notes.md"; git -C "$KIT" checkout -q -- _claude-project/rule.md

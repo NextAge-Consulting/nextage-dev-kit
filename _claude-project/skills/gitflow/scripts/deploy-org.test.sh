@@ -169,17 +169,17 @@ export FAKE_PLAN_projects_web_prod='[{"address":"aws_s3_bucket.d","change":{"act
 rc=$(run --check-only)
 { [ "$rc" = 2 ] && ! grep -q '^plan' "$tmp/calls" && ! grep -q '^merge' "$tmp/calls"; } \
     && ok "combo, --check-only on a PR branch: refused before any plan, nothing applied" || bad "check-only (rc=$rc): $(cat "$tmp/calls"; cat "$tmp/out")"
-rc=$(run --level minor --changelog-file "$tmp/missing.md")
+rc=$(run --level minor --changelog-patch "$tmp/missing.patch")
 { [ "$rc" = 2 ] && ! grep -q '^plan' "$tmp/calls" && grep -q "not found" "$tmp/out"; } \
-    && ok "combo, a changelog file that does not exist: refused before any plan" || bad "missing changelog (rc=$rc): $(cat "$tmp/out")"
-printf -- '- entry\n' > "$tmp/cl.md"
-rc=$(run --level minor --changelog-file "$tmp/cl.md")
-{ [ "$rc" = 0 ] && called "apply projects/web/prod" && called "release --level minor --changelog-file $tmp/cl.md" \
+    && ok "combo, a changelog patch that does not exist: refused before any plan" || bad "missing changelog (rc=$rc): $(cat "$tmp/out")"
+printf -- '- entry\n' > "$tmp/cl.patch"
+rc=$(run --level minor --changelog-patch "$tmp/cl.patch")
+{ [ "$rc" = 0 ] && called "apply projects/web/prod" && called "release --level minor --changelog-patch $tmp/cl.patch" \
   && [ "$(grep -n '^merge' "$tmp/calls" | cut -d: -f1)" -lt "$(grep -n '^release' "$tmp/calls" | cut -d: -f1)" ]; } \
     && ok "combo, app and Terraform: applied, merged, then released with the arguments given" || bad "combo release (rc=$rc): $(cat "$tmp/calls"; cat "$tmp/out")"
 ! called "board deployed 12" && ok "…the board move left to the release" || bad "combo board moved twice: $(cat "$tmp/calls")"
 back
-rc=$(FAKE_REF_FAIL=1 run --level minor --changelog-file "$tmp/cl.md")
+rc=$(FAKE_REF_FAIL=1 run --level minor --changelog-patch "$tmp/cl.patch")
 { [ "$rc" = 29 ] && ! grep -q '^release' "$tmp/calls" && grep -q "release it with /deploy on main once the reference is on main" "$tmp/out"; } \
     && ok "combo, the reference fails after the merge: no release, and how to finish named" || bad "combo ref fail (rc=$rc): $(cat "$tmp/calls"; cat "$tmp/out")"
 back

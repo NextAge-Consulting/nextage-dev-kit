@@ -31,7 +31,10 @@ Never asked at a commit, whatever the question:
 - a line that is a comment, an import, or code the same change only moved from elsewhere;
 - the contents of a component, recipe or rule the human has answered for
   (`ui-status: approved` or `deferred`). A screen's use of it is still asked, and
-  `/design-audit` asks everything.
+  `/design-audit` asks everything;
+- what a Design Pack installs, in the change that adds it: the contents of each file
+  carrying its `// ui-pack:` or `pack:` line, and each role those files read that the
+  change declares. An edit in a later change is asked about as any other is.
 
 ## The format
 
@@ -39,6 +42,11 @@ Each question below is one `##` section. `scripts/judge.mjs` reads the bold fiel
 **Asked about** (the one candidate), **Given** (the fields the judge receives, each a key
 of the candidate), **Quote** (what the answer must quote, which must appear in the
 candidate), **Yes when**, **No when**, **Example yes**, **Example no**.
+
+Code decides what a yes rests on, never the judge: the line the candidate names; for
+FOLLOWS-RULE, RULE-REACH and RULE-CONFLICT, what the answer quotes; and for a question
+about a component as a whole — VARIANT-INCOMPLETE, NAMED-FOR-DATA, DUPLICATE-BLOCK — the
+component's file, whose status is the human's answer.
 
 ---
 
@@ -188,6 +196,8 @@ balance and tenancy actions → no: it is specific to its object; whether it bel
 **Quote:** the rule sentence that does not fit, or the block-types line when the rule
 fits.
 
+Code places the item on the quoted sentence, where it starts in the rule's file.
+
 **Yes when:** at least one sentence of the rule, applied to this block, demands
 something the block cannot have by its nature or by the deliberate difference its
 inventory line records (a Pager rule demanding a page-size control, reaching a Pager the
@@ -213,6 +223,9 @@ type BrowseToolbar → no: the rule fits; whether the toolbar does it is another
 `a.file`, `a.text`, `b.file`, `b.text`.
 
 **Quote:** one sentence from each.
+
+Code keeps a yes only when one of the two sentences is on a line the change touched,
+and rests the item on both: it leaves when either is rewritten.
 
 **Yes when:** for one situation on that surface, a builder following rule A must do
 something rule B forbids, or place something where B places something else. The two

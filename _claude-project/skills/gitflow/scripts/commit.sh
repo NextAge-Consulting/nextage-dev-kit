@@ -35,7 +35,7 @@
 #   - On any other branch: commit in place.
 #
 # Not responsibilities:
-#   - Changelog: handled by /open-pr (Claude-generated, committed to feature branch pre-push)
+#   - Changelog: /deploy is its only writer, under the project's own rule
 #   - Version bump + tag: handled by /deploy (local, human-in-the-loop) — not by any GitHub Action
 
 set -e

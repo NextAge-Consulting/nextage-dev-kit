@@ -22,6 +22,9 @@ the same thing looks the same, sits in the same place and acts the same on every
 - **The project** owns every value, block, recipe, rule and screen.
 - **The human** approves what is new. `approved`, `deferred`, `design-accepted` and
   `design-deferred` are the human's words alone; you write one only when they have said it.
+  A recipe or behaviour rule a Design Pack lands arrives `approved` by the install, and
+  the human approves everything else it lands in one word, after reviewing its roles and
+  its reference pages.
 
 ## The layers
 
@@ -74,7 +77,7 @@ before any of them. Bringing an existing app onto the system runs bottom up in t
 |---|---|---|
 | The file's `ui-status` line and its inventory line, which must agree | A component's, recipe's or rule's status | You write `pending` on building it; `approved` or `deferred` on the human's word |
 | A token's comment | `ui-status: pending` on a new role | You remove it on the human's word |
-| The judge's ledger, `.claude/ui-pending.json` | Each yes, keyed by question, place and what it is about — the rule, token, class or other piece — with the line's fingerprint | The human's `design-accepted — <reason>` or `design-deferred <fingerprint>` on the line or on a comment line directly above it, or the line's code changing |
+| The judge's ledger, `.claude/ui-pending.json` | Each yes, keyed by question, place and what it is about — the rule, token, class or other piece — resting on a line, on the sentence quoted from a rule, or on a whole component | The human's `design-accepted — <reason>` or `design-deferred <fingerprint>` on the line or on a comment line directly above it — for a rule's sentence, above the line it starts on — or that line or sentence changing. A yes about a whole component: the human approving or deferring the component |
 
 - **The judge sees only the candidate it is given.** It knows nothing of what the human
   approved in conversation, so a yes on a screen the human has already seen is expected,
@@ -95,10 +98,12 @@ before any of them. Bringing an existing app onto the system runs bottom up in t
 | A change the human asked for that does not change the kind of thing it is | A new variant, or a new option on a closed list |
 | A behaviour change the human asked for by name | A behaviour change that comes as a side effect of something else, even with nothing new to see |
 | Writing an approved decision into its recipe or rule | |
+| A recipe or behaviour rule a Design Pack lands: it arrives approved, for the apps the install names | A component a Design Pack lands, until the human approves the install whole |
 | A change `node .claude/skills/design-system/scripts/compare-ui-values.mjs` proves leaves every visible value the same | A `deferred` piece or line whose code changed |
 
 A comment, a header, an import or code that only moved is not a change, and an approved or
-deferred piece is not asked about its own contents at a commit. `deferred` is the human choosing not to
+deferred piece is not asked about its own contents at a commit. Nor is what a Design Pack
+installs, in the change that adds it. `deferred` is the human choosing not to
 look: it blocks nothing, needs no reason, and carries a fingerprint.
 
 ## Who decides
@@ -207,3 +212,4 @@ Before the first edit, read in full the recipe, rule or component the change tou
 | What this project already has | `.claude/rules/project/ui-inventory.md` |
 | Publishing, and a design's life in Claude Design | `.claude/skills/claude-design/SKILL.md` |
 | Auditing a whole layer, when the human asks | `/design-audit` |
+| Cutting a piece of the system into a Design Pack, or installing one, when the human asks | `.claude/skills/design-packs/SKILL.md` |

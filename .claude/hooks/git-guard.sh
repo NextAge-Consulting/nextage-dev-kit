@@ -4,7 +4,7 @@
 #   1. Destructive operations that can cause data loss (reset, restore, revert,
 #      clean, checkout-of-files).
 #   2. Raw `git commit` — commits must go through the gitflow commands so the
-#      changelog, conventional-commit format, and version bookkeeping stay correct.
+#      conventional-commit format and version bookkeeping stay correct.
 #
 # The commit block does NOT interfere with gitflow itself. This hook inspects the
 # top-level command string of a Bash tool call; gitflow's own `git commit
@@ -141,7 +141,7 @@ for PART in "${PARTS[@]}"; do
     # `git commit-tree` and other `git commit*` subcommands are unaffected: the
     # (\s|$) anchor requires whitespace or end-of-string right after "commit".
     if echo "$PART" | grep -qE "^git commit(\s|$)"; then
-        deny "GIT COMMIT BLOCKED\\n\\nAttempted: $PART\\n\\nRaw commits bypass changelog, conventional-commit format, and version bookkeeping.\\nUse the gitflow commands instead:\\n\\n  /commit       - full conventional commit with changelog\\n  /checkpoint   - quick timestamped WIP commit\\n  /ship-main    - commit and push straight to main\\n\\nEmergency override: SKIP_GIT_GUARD=1 (user authorization required)."
+        deny "GIT COMMIT BLOCKED\\n\\nAttempted: $PART\\n\\nRaw commits bypass conventional-commit format and version bookkeeping.\\nUse the gitflow commands instead:\\n\\n  /commit       - full conventional commit\\n  /checkpoint   - quick timestamped WIP commit\\n  /ship-main    - commit and push straight to main\\n\\nEmergency override: SKIP_GIT_GUARD=1 (user authorization required)."
     fi
 done
 

@@ -16,9 +16,8 @@
 #
 # Why this exists. Two related failure modes:
 #   - Feature branch falls behind main while in flight. The eventual /merge
-#     may hit a 3-way conflict GitHub can't auto-resolve (e.g. both branches
-#     inserted entries under the same changelog anchor — observed 2026-05-12
-#     on PRs #147/#148). Code touched by the upstream change diverges from
+#     may hit a 3-way conflict GitHub can't auto-resolve. Code touched by the
+#     upstream change diverges from
 #     the branch's assumptions, surfacing as runtime breakage post-merge.
 #   - Local main goes stale between sessions. A dev starts /work two days
 #     after another dev's merges + deploys; /work fast-forwards main when it

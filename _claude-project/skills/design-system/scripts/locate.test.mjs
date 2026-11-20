@@ -320,6 +320,42 @@ test('a piece the human has answered for is not asked about at a commit; the sam
   assert.ok(audit['NAMED-FOR-DATA'].some((c) => c.candidate.name === 'NoticeBox'), 'an audit asks an approved piece')
 })
 
+test('what a Design Pack installs is not asked about in the change that adds it; an edit after that is', () => {
+  const { dir, git } = fixture()
+  loadTypeScript(dir)
+  const base = git('rev-parse', 'HEAD').trim()
+  const put = (rel, text) => {
+    fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true })
+    fs.writeFileSync(path.join(dir, rel), text)
+  }
+  const pointer = (f) => `// ui-pack: a-piece/${f} @ 1.0\n`
+  const block = 'packages/ui/src/components/pack-box.tsx'
+  const page = 'apps/web/src/routes/pack-page.tsx'
+  const blockText = `// ui-status: pending\n${pointer(block)}// ui-block: ErrorState\nexport function PackBox() {\n  return <p className="type-pack-note rounded-panel">a</p>\n}\n`
+  put(block, blockText)
+  put(page, `// ui-status: pending\n${pointer(page)}// ui-recipe: record.md\nexport function PackPage() {\n  return <div className="rounded-panel border p-4">a</div>\n}\n`)
+  // The same block with no pointer, and a role each of them reads.
+  put('packages/ui/src/components/own-box.tsx', blockText.replace(pointer(block), '').replaceAll('PackBox', 'OwnBox').replace('type-pack-note', 'type-own-note'))
+  fs.appendFileSync(path.join(dir, 'packages/ui/src/type.css'), '\n/* a note under a pack box */\n@utility type-pack-note {\n  font-size: 12px;\n}\n/* a note under an own box */\n@utility type-own-note {\n  font-size: 12px;\n}\n')
+  const arriving = [...locate(readRepo(dir, { base, tokensOf }))]
+  const about = (list, name) => list.filter((c) => JSON.stringify(c).includes(name))
+  assert.deepEqual(about(arriving, 'pack-box').map((c) => c.question ?? c.finding).filter((q) => q !== 'DUPLICATE-BLOCK' && q !== 'SECOND-BLOCK'), [], 'the pack block is asked nothing of its own')
+  assert.deepEqual(about(arriving, 'pack-page'), [], 'nor is the pack page')
+  assert.ok(!arriving.some((c) => c.question === 'ROLE-NAME' && c.candidate.name === 'type-pack-note'), 'nor the role that came with it')
+  assert.ok(!arriving.some((c) => c.question === 'DUPLICATE-ROLE' && !JSON.stringify(c.candidate).includes('type-own-note') && JSON.stringify(c.candidate).includes('type-pack-note')))
+  assert.ok(arriving.some((c) => c.question === 'NAMED-FOR-DATA' && c.at === 'packages/ui/src/components/own-box.tsx'), "the project's own new block is asked")
+  assert.ok(arriving.some((c) => c.question === 'ROLE-NAME' && c.candidate.name === 'type-own-note'), "and its own new role")
+  // Once it is in, an edit to the pending pack block is asked about like any other.
+  git('add', '-A')
+  git('commit', '-qm', 'the pack lands')
+  const landed = git('rev-parse', 'HEAD').trim()
+  put(block, blockText.replace('rounded-panel', 'rounded-control'))
+  const later = [...locate(readRepo(dir, { base: landed, tokensOf }))]
+  assert.ok(later.some((c) => c.at.startsWith(block)), 'an edit made after it landed is asked about')
+  // An audit asks everything.
+  assert.ok([...locate(readRepo(dir, { all: true, tokensOf }), { layer: 'components' })].some((c) => c.question === 'NAMED-FOR-DATA' && c.at === block))
+})
+
 test('a changed screen is asked about with its changed lines as the only lines a yes may rest on', () => {
   const { dir, git } = fixture()
   loadTypeScript(dir)
@@ -345,6 +381,8 @@ test('the tokens a class reads are the custom properties in its compiled declara
   assert.deepEqual(tokensIn(d({ '|letter-spacing': 'var(--tracking-eyebrow)' })), ['--tracking-eyebrow'])
   assert.deepEqual(tokensIn(d({ '|border-radius': 'min(var(--radius-notice),12px)' })), ['--radius-notice'], 'a token inside an arbitrary value')
   assert.deepEqual(tokensIn(d({ '|line-height': 'var(--tw-leading, var(--text-sm--line-height))' })), ['--text-sm--line-height'])
+  assert.deepEqual(tokensIn(d({ '|--size-field': 'var(--size-control)', '|--step-18': '18px' })), [], 'a class that sets tokens — a scope an app marks its root with — uses none of them')
+  assert.deepEqual(tokensIn(d({ '|--tw-shadow': '0 1px var(--shadow-card)', '|box-shadow': 'var(--tw-shadow)' })), ['--shadow-card'], "Tailwind's own variable is how a utility applies a token")
 })
 
 test('a tag is the component its import names: a second component of the same name elsewhere is not it', () => {
@@ -398,4 +436,32 @@ test('a tag wrapped over several lines is handed over whole, with what follows i
   assert.match(box.candidate.children, /<h2>Title<\/h2>/, 'the lines after the tag ends, not its own attributes')
   const variant = every.find((c) => c.question === 'VARIANT-INCOMPLETE' && c.about === '{kind}')
   assert.deepEqual(variant.candidate.callSites.map((x) => x.replace(/^\S+ /, '')), ['<Card variant={kind} className="p-2" >', '<Card variant={kind} className="p-2" >'], 'a call site carries the classes it adds, and a variant given as an expression is its own group')
+})
+
+test('a rule question names the texts its quotes come from, and a conflict the lines of each the change touched; a question about a whole component is placed on its file', () => {
+  const { dir, git } = fixture()
+  loadTypeScript(dir)
+  const base = git('rev-parse', 'HEAD').trim()
+  const FG = '.claude/skills/ui-patterns/references/field-groups.md'
+  const SV = '.claude/skills/ui-patterns/references/saving.md'
+  const pending = RULE.replace('ui-status: approved', 'ui-status: pending')
+  fs.writeFileSync(path.join(dir, FG), pending.replace('above the actions.', 'above the actions.\n\nFields stack.'))
+  fs.writeFileSync(path.join(dir, 'packages/ui/src/components/notice-box.tsx'), NOTICE)
+  const q = byQ([...locate(readRepo(dir, { base }))])
+  const pair = q['RULE-CONFLICT'].find((c) => c.candidate.a.file === 'field-groups.md' && c.candidate.b.file === 'saving.md')
+  assert.equal(pair.at, SV)
+  assert.deepEqual(pair.sentences, [{ file: SV, from: 'b.text', changed: [] }, { file: FG, from: 'a.text', changed: [5, 10, 11] }], 'the untouched rule offers no line; the changed one its changed lines')
+  const reach = q['RULE-REACH'].find((c) => c.candidate.block.name === 'Card')
+  assert.deepEqual([reach.at, reach.sentences], [FG, [{ file: FG, from: 'rule' }]], 'a rule reaching a block: any sentence of the rule')
+  const whole = ['NAMED-FOR-DATA', 'DUPLICATE-BLOCK'].flatMap((name) => q[name]).filter((c) => c.at.includes('notice-box'))
+  assert.ok(whole.length >= 2)
+  for (const c of whole) assert.equal(c.at, 'packages/ui/src/components/notice-box.tsx', `${c.question} is about the file, not a line of it`)
+
+  fs.writeFileSync(path.join(dir, FG), pending.replace('block-types: [FieldGroup]', 'block-types: [FieldGroup, PageBanner]'))
+  const retyped = byQ([...locate(readRepo(dir, { base }))])['RULE-CONFLICT'].find((c) => c.candidate.a.file === 'field-groups.md' && c.candidate.b.file === 'saving.md')
+  assert.deepEqual(retyped.sentences[1], { file: FG, from: 'a.text' }, 'a changed block-types line changes what every sentence governs: any line may hold the evidence')
+
+  const audit = [...locate(readRepo(dir, { all: true }))]
+  for (const c of audit.filter((x) => ['NAMED-FOR-DATA', 'VARIANT-INCOMPLETE', 'DUPLICATE-BLOCK', 'SECOND-BLOCK', 'RULE-REACH', 'RULE-CONFLICT'].includes(x.question ?? x.finding))) assert.ok(!/:\d+$/.test(c.at), `${c.question ?? c.finding} names no line`)
+  assert.ok(audit.filter((c) => c.question === 'RULE-CONFLICT').every((c) => c.sentences.every((s) => !('changed' in s))), 'an audit: any line')
 })

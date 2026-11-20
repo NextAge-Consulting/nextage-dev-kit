@@ -19,7 +19,7 @@
 #   4. Every root's fresh plan is applied.
 #   5. merge.sh squash-merges the PR, so main only ever holds what is live.
 #   6. The infrastructure reference is regenerated from the new state and committed
-#      straight to main, as a release commits its changelog — a commit of generated
+#      straight to main, as a release commits its version bump — a commit of generated
 #      docs waits on no CI run.
 #   7. The issues the PR closes (its `Closes #N` line) move to the board's deploy
 #      status, as every /deploy moves what it shipped.
@@ -101,8 +101,8 @@ for arg in "$@"; do
         echo "deploy-org.sh: on a PR branch /deploy applies and merges — it has no check-only mode. Nothing was run." >&2
         exit 2
     fi
-    if [ "$prev" = "--changelog-file" ] && [ ! -f "$arg" ]; then
-        echo "deploy-org.sh: changelog file $arg not found. Nothing was run." >&2
+    if [ "$prev" = "--changelog-patch" ] && [ ! -f "$arg" ]; then
+        echo "deploy-org.sh: changelog patch $arg not found. Nothing was run." >&2
         exit 2
     fi
     prev="$arg"

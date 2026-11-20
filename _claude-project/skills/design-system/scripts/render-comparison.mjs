@@ -40,10 +40,20 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-/** Every class written in the markup's class attributes. */
+/** A class that draws nothing by itself and so needs no rule: `group`, `peer`, and the name
+ * an icon set writes on each glyph it renders (`lucide`, `lucide-star`). */
+export const isMarker = (cls) => /^(?:group|peer)(?:\/|$)/.test(cls) || /^lucide(?:-|$)/.test(cls)
+
+const ENTITIES = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&#x27;': "'" }
+
+/** Every class written in the markup's class attributes, as the browser reads it: an
+ * attribute's `&amp;` is `&`, so `[&amp;_svg]:size-4` is the class `[&_svg]:size-4`. */
 export function classesIn(html) {
   const out = new Set()
-  for (const m of html.matchAll(/\sclass\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) for (const c of (m[1] ?? m[2]).split(/\s+/)) if (c) out.add(c)
+  for (const m of html.matchAll(/\sclass\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) {
+    const value = (m[1] ?? m[2]).replace(/&(?:amp|lt|gt|quot|#39|#x27);/g, (e) => ENTITIES[e])
+    for (const c of value.split(/\s+/)) if (c) out.add(c)
+  }
   return [...out]
 }
 
@@ -75,8 +85,9 @@ export const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/
  * reads no project token, so it never borrows or lends a style. */
 const FRAME = `
 [data-cmp-row]{display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start;padding:24px}
-[data-cmp-name]{all:initial;display:block;font:600 12px/1.4 system-ui,sans-serif;color:#666;margin:0 0 8px;white-space:nowrap}
-[data-cmp-theme]{all:initial;position:fixed;right:12px;bottom:12px;font:12px system-ui,sans-serif;padding:4px 10px;border:1px solid #999;border-radius:6px;background:#fff;color:#111;cursor:pointer;z-index:2147483647}`
+[data-cmp-name]{all:initial;display:block;font:600 12px/1.4 system-ui,sans-serif;color:#666;margin:0 0 8px;white-space:nowrap}`
+/** The switch's own style. */
+const SWITCH_STYLE = `[data-cmp-theme]{all:initial;position:fixed;right:12px;bottom:12px;font:12px system-ui,sans-serif;padding:4px 10px;border:1px solid #999;border-radius:6px;background:#fff;color:#111;cursor:pointer;z-index:2147483647}`
 const SWITCH = `<button data-cmp-theme type="button" onclick="var h=document.documentElement;h.dataset.theme=h.dataset.theme==='dark'?'light':'dark';h.classList.toggle('dark',h.dataset.theme==='dark');this.textContent=h.dataset.theme">theme</button>`
 
 /**
@@ -179,7 +190,7 @@ export function page({ title = 'Comparison', html = {}, body = {}, css = [], lin
 <title>${esc(columns[0].of ? `${columns[0].of[0]} of ${columns[0].of[1]} — ${columns[0].title ?? columns[0].name} · ${title}` : title)}</title>
 ${links.map((h) => `<link rel="stylesheet" href="${esc(h)}">`).join('\n')}
 ${css.map((c) => `<style>\n${c.replace(/<\/style/gi, '<\\/style')}\n</style>`).join('\n')}
-${bare ? '' : `<style>${FRAME}\n</style>`}
+${bare ? '' : `<style>${FRAME}\n${SWITCH_STYLE}\n</style>`}
 </head>
 <body${attrs(body)}>
 ${cols}
@@ -357,8 +368,8 @@ async function main() {
     const classes = [...new Set([...spec.options.flatMap((o) => classesIn(o.html)), ...(spec.html?.class ?? '').split(/\s+/), ...(spec.body?.class ?? '').split(/\s+/)].filter(Boolean))]
     const css = tw.css(classes)
     const file = write(path.resolve(out), page({ title: spec.title, html: spec.html, body: spec.body, css: [css], columns: spec.options }))
-    // A marker class (`group`, `peer`) draws nothing by itself; the page's own root classes switch a theme.
-    const drawn = [...new Set(spec.options.flatMap((o) => classesIn(o.html)))].filter((c) => !/^(?:group|peer)(?:\/|$)/.test(c))
+    // A marker class draws nothing by itself; the page's own root classes switch a theme.
+    const drawn = [...new Set(spec.options.flatMap((o) => classesIn(o.html)))].filter((c) => !isMarker(c))
     finish([file], drawn.filter((c) => !styles(css, c)), [`a sample on ${tw.entry}: ${spec.options.length} option(s), ${classes.length} class(es) compiled by the project's Tailwind`], [...tw.absent])
     return
   }

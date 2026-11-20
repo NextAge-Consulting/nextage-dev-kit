@@ -3,6 +3,7 @@
  * Every design token family is set by a ROLE, and the tokens underneath resolve.
  *
  *   node .claude/skills/design-system/scripts/check-design-tokens.mjs [--base <ref> | --all]   (npm run lint:tokens)
+ *   node .claude/skills/design-system/scripts/check-design-tokens.mjs --controls [--repo <root>]   (every line, the vendored atoms read whatever DESIGN_VENDORED_RESTYLED says)
  *   node .claude/skills/design-system/scripts/check-design-tokens.mjs --roles [--repo <root>]   (every role, one family per line)
  *   node .claude/skills/design-system/scripts/check-design-tokens.mjs --purposes [--repo <root>]   (every token and utility with what it is for)
  *
@@ -653,8 +654,9 @@ export function screenBase(repo, base) {
 /** Run every check over a repository. `keys` replaces the substitutions read from
  * the repository — for running the check against a tree that has none yet. The screen
  * rules judge only the lines changed since `base` (default: where this work left
- * `origin/main`); `all: true` judges every line. */
-export async function checkDesignTokens(repo, { keys: given, base, all = false } = {}) {
+ * `origin/main`); `all: true` judges every line. `spacingSteps` gives the spacing scale
+ * for a tree that has no design-system config to read it from. */
+export async function checkDesignTokens(repo, { keys: given, base, all = false, spacingSteps: givenSteps = null } = {}) {
   const problems = []
   const notes = []
   const add = (at, cls, why) => problems.push(`${at}  ${cls}  — ${why}`)
@@ -737,9 +739,9 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
   if (!screenScope) notes.push('screen rules: every line judged')
   // The spacing scale is the project's: its steps in its claude-design config. The kit has
   // no scale of its own, so without a config the between-steps rule does not apply.
-  let spacingSteps = null
+  let spacingSteps = givenSteps
   const scaleConfig = path.join(pkg, 'design-system/design-system.config.mjs')
-  if (existsSync(scaleConfig)) {
+  if (!spacingSteps && existsSync(scaleConfig)) {
     const { readConfig } = await import(new URL('../../claude-design/scripts/config.mjs', import.meta.url).href)
     const { ctx } = await readConfig(scaleConfig)
     if (ctx?.CONFIG?.spacing?.steps) spacingSteps = ctx.CONFIG.spacing.steps
@@ -748,7 +750,7 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
   const scaleList = (spacingSteps ?? []).map((n) => `${n * 4}`).join(', ')
   notes.push(
     spacingSteps
-      ? `spacing scale: ${scaleList}px, from ${pkgRel}/design-system/design-system.config.mjs; judged on changed lines only`
+      ? `spacing scale: ${scaleList}px, ${givenSteps ? 'given by the caller' : `from ${pkgRel}/design-system/design-system.config.mjs`}; judged on changed lines only`
       : 'spacing scale: the project declares none (no design-system config), so a step between steps is not judged',
   )
   const touched = (file, from, to = from) => {
@@ -1219,7 +1221,7 @@ export async function checkDesignTokens(repo, { keys: given, base, all = false }
             for (const f of files) {
               if (!existsSync(path.join(repo, f))) continue
               const lines = readFileSync(path.join(repo, f), 'utf8').split('\n')
-              const n = lines.findIndex((l) => l.includes(cls) && new RegExp(`(?<![\\w-])${cls.replace(/[^\w-]/g, '\\$&')}(?![\\w-])`).test(l))
+              const n = lines.findIndex((l) => l.includes(cls) && new RegExp(`(?<![\\w-])${cls.replace(/[^\w-]/g, '\\$&')}(?![\\w/-]|\\.\\d)`).test(l))
               if (n !== -1) return `${f}:${n + 1}`
             }
             return null
@@ -1302,7 +1304,17 @@ async function main() {
   }
   const at = argv.indexOf('--base')
   const base = at >= 0 ? argv[at + 1] : process.env.DESIGN_TOKENS_BASE || undefined
-  const { problems, notes, counts, notApplicable } = await checkDesignTokens(repo, { base, all: argv.includes('--all') })
+  // --controls reads the vendored atoms whatever DESIGN_VENDORED_RESTYLED says, over the
+  // whole project: what restyling them onto the roles would have to change.
+  const controls = argv.includes('--controls')
+  const rootAt = argv.indexOf('--repo')
+  const root = rootAt >= 0 ? path.resolve(argv[rootAt + 1]) : repo
+  const read = controls ? readKeys(root) : null
+  const { problems, notes, counts, notApplicable } = await checkDesignTokens(root, {
+    base,
+    all: controls || argv.includes('--all'),
+    ...(read?.keys ? { keys: { ...read.keys, DESIGN_VENDORED_RESTYLED: 'true' } } : {}),
+  })
   if (notApplicable) {
     console.log(`✓ ${notApplicable}`)
     return

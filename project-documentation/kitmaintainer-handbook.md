@@ -19,7 +19,7 @@ The kit is just another project — it has its own `.claude/` with project-custo
 | `_statusline/statusline.sh` | `~/.claude/statusline.sh` via `/install-statusline` (one-time) | The kit's custom statusline asset; referenced by `install-statusline.md`. |
 | `.github/` | Nowhere — this repo's own GitHub automation | The `stack-watch` workflow and its script (§9.13). Consumer workflows live in `_github-project/`, never here. |
 | `tests/` | Nowhere — sync reads only the `_*-project/` folders | Tests for kit-shipped files that must not ship with them, e.g. `tests/templates/check-workspace-tiers.test.sh`. Each case copies the real script into a throwaway repo where sync would put it. |
-| `.claude/` | This kit repo's own active config | Mirror of `_claude-project/` PLUS kit-custom commands and scripts that only make sense in this repo: `install-cpl`, `install-statusline`, `shipkit` (commands + their helper scripts) and `uxes` (§12a.11). These never propagate anywhere. |
+| `.claude/` | This kit repo's own active config | Mirror of `_claude-project/` PLUS kit-custom commands and scripts that only make sense in this repo: `install-cpl`, `install-statusline`, `shipkit` and `shippack` (commands + their helper scripts) and `uxes` (§12a.11). These never propagate anywhere. |
 
 ### Why consumers get nothing globally
 
@@ -431,9 +431,9 @@ A checkpoint already on a remote is never folded — rewriting it would need a f
 | Wait for CI green + (if `/gemini review` was triggered for current HEAD) Gemini review on HEAD | `wait-for-pr-ready.sh` (invoked by `/open-pr`, `/triage`, `/merge`) | Local poll loop |
 | Walk Gemini comments one at a time | Claude (via `/triage`) | Local or cloud |
 | Verify CI + Gemini ready on HEAD, squash-merge PR | Claude (via `/merge`) | Local or cloud |
-| Bump version + write changelog + tag + push + trigger deploy | Claude (via `/deploy`) | Local |
+| Bump version + the project's changelog entry + tag + push + trigger deploy | Claude (via `/deploy`) | Local |
 
-Dev actions per PR: `/open-pr` to start, `/triage` if Gemini has items, `/merge` to land on main. **`/merge` does NOT ship.** Multiple merged PRs accumulate on main; when ready to release, run `/deploy` to bump version, generate the consolidated changelog entry, tag, push, and dispatch the deploy (CodeBuild projects by default). The readiness wait inside `/open-pr` / `/triage` / `/merge` is the same poll loop — the user sits at the keyboard while CI/Gemini run, the script blocks until ready or fails loud on timeout.
+Dev actions per PR: `/open-pr` to start, `/triage` if Gemini has items, `/merge` to land on main. **`/merge` does NOT ship.** Multiple merged PRs accumulate on main; when ready to release, run `/deploy` to bump version, add the project's changelog entry, tag, push, and dispatch the deploy (CodeBuild projects by default). The readiness wait inside `/open-pr` / `/triage` / `/merge` is the same poll loop — the user sits at the keyboard while CI/Gemini run, the script blocks until ready or fails loud on timeout.
 
 ### 6.2. `/open-pr` procedure
 
@@ -511,7 +511,7 @@ See `commands/triage.md` for the full procedure and edge cases.
 
 - **Validation stays.** The script runs `check-types`, `biome lint`, `knip` (when `KNIP_GATE` is on), `semgrep`, the project gate, the integration gate, the headless reviews and the design judge over the files the commit touches — the same gates as `/commit` (§4.2 step 9), and they matter more here: a finding that slips through does not sit on a branch awaiting review, it lands on the default branch and breaks CI for everyone. `--skip-typecheck` is a true-emergency override for the TYPECHECK alone; every other gate sits outside that guard, and only a review has its own human-authorized `SKIP_*_REVIEW=1`.
 - **Pushes straight to main.** If `origin/main` advanced, it rebases the commit onto it and re-pushes; conflict → stop and resolve.
-- **Feeds `/deploy` like any main commit.** `/ship-main` commits land on `main` and are read by the next `/deploy` (commit subjects since the last tag) to compute the bump level + changelog, exactly like a merged-PR squash commit. Conventional format is therefore required, not optional.
+- **Feeds `/deploy` like any main commit.** `/ship-main` commits land on `main` and are read by the next `/deploy` (commit subjects since the last tag) to compute the bump level, exactly like a merged-PR squash commit. Conventional format is therefore required, not optional.
 - **Requires require-PR off** (the default — pipeline.md §1.1). With require-PR set, GitHub rejects the direct push.
 
 Full spec: `commands/ship-main.md`.
@@ -542,7 +542,7 @@ combo repo refuses only a PR `changed-roots.sh` finds Terraform in.
   branch holds all of main (exit 30, 31), CI green (`wait-for-pr-ready.sh`), a fresh plan
   per root compared with the PR's block, apply, `merge.sh` with
   `GITFLOW_ORG_DEPLOY=1`, `gen-reference.sh` committed straight to main (as `deploy.sh`
-  commits the changelog, so no CI run waits on generated docs; exit 29 if it fails), then every issue the PR closes moved to
+  commits the release, so no CI run waits on generated docs; exit 29 if it fails), then every issue the PR closes moved to
   the deploy status. A mismatch stops before any apply (exit 26); a failed apply stops
   before the merge (exit 28). A root whose fresh plan is empty is already live and is not
   re-applied, so a re-run after a failed merge only merges.
@@ -557,7 +557,7 @@ combo repo refuses only a PR `changed-roots.sh` finds Terraform in.
   commits and refuses (exit 25) until each is live — the org PR merged, or a merged PR
   that closes the org issue, whatever the repository's auto-close setting.
 
-## 7. Commit and changelog rules
+## 7. Commit types and the changelog
 
 ### 7.1. Commit types
 
@@ -577,14 +577,9 @@ See `skills/gitflow/references/commit-types.md`. Summary:
 
 Format: `<emoji> <type>: <description>` (imperative mood, first line <72 chars).
 
-### 7.2. Changelog rules
+### 7.2. The changelog
 
-See `skills/gitflow/references/changelog-rules.md`. Summary:
-
-- Changelog is **public-facing**. Write entries as if a customer reads them.
-- Include: `feat`, `fix`, `perf`, `BREAKING`.
-- Exclude: `refactor`, `style`, `test`, `docs`, `chore`.
-- Format: `- **<emoji> <Feature Name>** - User-visible description`.
+The kit ships no changelog rules. A project's changelog is set by its own `.claude/rules/project/changelog.md` — audience, content, format, headers, placement — and `/deploy` writes an entry only when that rule exists. The kit owns the mechanics: `/deploy` Step 3 writes the entry as a patch, and `deploy.sh --changelog-patch` checks it among the state gates and lands it in the release commit (pipeline.md §2.3–§2.4).
 
 ---
 
@@ -757,7 +752,7 @@ Current kit-referenced placeholders (authoritative list is in `_claude-project/s
 | `DESIGN_TYPE_FILE` | the engine and the token checker (runtime-read) | The stylesheet defining the `@utility type-*` roles. Empty → no type roles |
 | `DESIGN_STYLES_FILE` | the engine and the token checker (runtime-read) | The UI package's Tailwind entry stylesheet. Empty → none |
 | `DESIGN_VENDORED_DIR` | the token checker (runtime-read) | The vendored shadcn `components/ui` folder. Empty → nothing vendored |
-| `DESIGN_VENDORED_RESTYLED` | the token checker (runtime-read) | `"true"` when the vendored atoms are restyled onto the project's roles, so every class rule applies to them. Empty → they keep registry defaults and only the arbitrary-spacing rule applies |
+| `DESIGN_VENDORED_RESTYLED` | the token checker and the status check (runtime-read) | `"true"` when the vendored atoms are restyled onto the project's roles, so every class rule applies to them. Empty and listed in `_intentionally_empty` → set aside on the human's word: they keep registry defaults, only the arbitrary-spacing rule applies, and the status check counts them as set aside. Missing, or empty and unlisted → undecided: the status check holds them pending, so `/work` shows them and `/deploy` refuses |
 | `DESIGN_FIELD_LOOK_CLASSES` | the token checker (runtime-read) | Classes that paint a text field's look; a raw `<input>` or `<textarea>` carrying one fails. Empty → only `rounded-*` is checked |
 | `DESIGN_EXEMPT_COMPONENTS` | the token checker (runtime-read) | Headless primitives and `currentColor` glyphs a call site may style. Empty → none |
 | `ORG_AUDIT` | `open-pr.sh`, `deploy-org.sh` (runtime-read) | Org repos. `on` → `/deploy` refuses without `infrastructure-access-and-change.md` (exit 32) and an org `/open-pr` refuses a PR linking no issue (exit 15). Off during setup. Empty and listed in `_intentionally_empty` → off |
@@ -997,6 +992,18 @@ One run, in the kit, when the maintainer types it:
 4. `shipkit.sh --release` on `main`: `VERSION`, the commit `🚀 release: <version>`, the push, the tag and the GitHub release.
 
 **Versions are UTC dates** — `2026.10.23`, and `2026.10.23.2` for a second release that day. **The title states the migration impact:** `2026.10.25 — 2 migrations, 1 asks for decisions`, or `— no migrations`. The GitHub releases are the kit's one record of what changed.
+
+### 9.15. Releasing the Design Packs — `/shippack`
+
+**The Design Packs repository is its own public repository, released from the kit session by `/shippack`.** `/shipkit` never publishes it; its plan reports `unshipped_pack` when the packs checkout beside the kit holds work no pack release has.
+
+One run, in the kit, when the maintainer types it with the project the pieces were cut from:
+
+1. `.claude/scripts/shippack.sh --plan`, read-only: the packs checkout (the folder beside the kit named as `PACKS_REPOSITORY` is, or `--packs`), the version, the files changed since the last release, the coverage of the reference pages, and `private_hits` — every line that names a project beside the kit that syncs it, or carries an email that is not an example one, a cloud resource name, an access key or an address. Claude reads each and takes out what is real.
+2. `shippack.sh --prove --source <project>`: `design-pack.mjs prove-all`, which proves a piece once. Each proof is recorded in `pieces/proved.json` with the piece's fingerprint (`pieceFingerprint`): every file in its folder, and every file of each piece it depends on, directly or through another. Only a piece whose fingerprint has moved — it changed, or one it is built on did — is proved again (`provedState`); `--all` proves every piece.
+3. `shippack.sh --release --version <v>` on `main`: refuses while any piece has no recorded proof of what it is now (`prove-all --check`), then the commit `📦 release: <version>`, the push, and the tag.
+
+**Versions are UTC dates**, as the kit's are. `git describe` on the packs checkout gives the version an install writes into each file's pointer, so the first release is what lets `compare` show a project what a pack has changed since.
 
 ## 10. Environment variables
 
@@ -1353,8 +1360,9 @@ rules that govern the block types it touches. Neither rule restates the skill.
 
 A project with no system halts nothing. The first UI task puts the base theme's tokens in
 the token stylesheet, names the roles the screen needs over them, builds the first blocks
-from the atoms, and marks all of it pending for the human's review. A project arriving
-with a Design Pack installs it instead.
+from the atoms, and marks all of it pending for the human's review. A project taking a
+Design Pack names its tokens and roles the same way, and the pack's pieces install over
+them, pending.
 
 ### 12a.4. `design.md` is generated
 
@@ -1404,7 +1412,11 @@ untouched screen is never blocked. The spacing scale is the project's own, from 
 design-system config; without one, a step between steps is not judged. A project's own
 checks are `*.mjs` under `<UI package>/design-system/checks/`.
 
-**The status check** (`skills/ui-patterns/scripts/check-ui-status.mjs`) is §12a.5's. Its
+**The status check** (`skills/ui-patterns/scripts/check-ui-status.mjs`) is §12a.5's. It
+reports the vendored atoms as a layer (`vendoredState`): pending while
+`DESIGN_VENDORED_RESTYLED` is undecided, set aside when the key is empty and listed in
+`_intentionally_empty`, silent once it is `"true"`; the token check's `--controls` lists
+what restyling them would change. Its
 `--maturity` prints, per commit that added a screen, how many inventory lines the system
 gained: a maturing system trends to zero.
 
@@ -1434,10 +1446,18 @@ names, is not a change, and a file with no other change is untouched, so a heade
 pointer or an import added to every file judges nothing. A line whose code the same change
 removed elsewhere only moved, and is not a change either. A component, recipe or rule
 carrying `ui-status: approved` or `deferred` is not asked about its own contents at a commit:
-the human has answered for it, and `/design-audit` still asks. A changed screen is held to its
+the human has answered for it, and `/design-audit` still asks. What a Design Pack installs is
+not asked about in the change that adds it (`arrived`, `arrivingRoles` in `locate.mjs`): each
+file carrying the pack's pointer that the change's starting point did not hold, and each role
+those files read, with what a type role is made of and its theme alias; an edit in a later
+change is asked about as any other. A changed screen is held to its
 rules on the lines the change touched: the lines around them are the judge's context, a
 yes that quotes none of the touched lines is not kept, and the item is placed on the
-touched line its evidence quotes. `scripts/judge.mjs` asks one question per candidate from
+touched line its evidence quotes. A yes about rules rests the same way on the sentences it
+quotes — one from a rule that reaches a block it was not written for, one from each of two
+rules in conflict, kept only when one is on a touched line — found by their text, so a
+sentence wrapped over several lines or moved down its file is still the one judged. A yes
+about a component as a whole rests on its file. `scripts/judge.mjs` asks one question per candidate from
 `references/judge-questions.md` — one narrow yes/no with the evidence quoted, a fresh
 headless Claude given that candidate and nothing else, three times, majority wins; a
 quote not in the candidate discards the answer. The three answers, and the candidates
@@ -1452,14 +1472,19 @@ The kit's gate runs the cases before a release (§9.11).
 `skills/gitflow/scripts/design-judge.sh` runs at `/commit` and `/ship-main` beside the
 rule, SQL and test reviews. Every yes is written to `.claude/ui-pending.json` with what it
 is about — the token, class, rule or other piece the candidate named — a token's purpose,
-and the fingerprint of the line it names, so two flags on one line are two items and none
-has to be traced again. The session sorts them in the same turn: one that can be settled
+and what it rests on: a line with its fingerprint, the quoted sentences with their files,
+or a component's file. Two flags on one line are two items and none has to be traced
+again. The session sorts them in the same turn: one that can be settled
 with nothing changing on screen or in behaviour it fixes on the flagged line, proved by
 `compare-ui-values.mjs`; only one that changes what shows or how the app behaves goes to
 the human. The status check lists each item as pending until the human
 approves the line (`design-accepted — <reason>`), defers it (`design-deferred
 <fingerprint>`) — either on the line or on a comment-only line directly above it — or the
-line's code changes, when it is re-judged; a no from a later asking
+line's code changes, when it is re-judged. An item resting on sentences leaves the same
+way: the human's word above the line a sentence starts on, or any of its sentences no
+longer in its file. An item about a whole component leaves when the human approves or
+defers the component. `itemState` in `check-ui-status.mjs` decides all three, for the
+status check and for the judge's own merge of the ledger; a no from a later asking
 removes nothing. The judge never fails a commit,
 and a judge that cannot run says so and exits clean: it is advice, and `/deploy` still
 waits on whatever the ledger holds. `/design-audit` asks the same questions over a whole
@@ -1529,6 +1554,127 @@ statement is what shows the human the briefing was applied.
 Both are instructions about the same system as the skills, the rules and the inventory
 template, at a different depth. A change to how the system works changes them in the same
 change; the kit's file lists what it must stay true to.
+
+### 12a.12. Design Packs
+
+A Design Pack carries behaviour, recipes and layout from one project to another that keeps
+its own look; the design is `uxes-design-packs.md`. `/design-pack` and the `design-pack`
+skill drive two scripts in `skills/design-packs/scripts/`: `design-pack.mjs` (the command
+line, extract and prove) and `install.mjs` (install and compare). Packs live in the public
+repository `PACKS_REPOSITORY` names, as `pieces/<piece>/` folders and `packs/<name>.json`
+lists; the kit holds every tool.
+
+**Extract cuts; the session then adjusts the piece in its folder** into what any project
+would use: what the source project added for itself comes out there, in the code and in
+`piece.json`, and the comments and prose are reworded. Extract takes no settings. The
+answers a person gives during an install — `standIn` and `beside` — are kept in
+`project-documentation/temporary/design-pack-answers.json` while it is under way.
+
+**Every file has one home piece, read from its own header** (`classify`): a file carrying
+one rule travels in that rule's piece; a file carrying several is a piece of its own, which
+depends on each of those rules, and which they name a carrier; a recipe's frame carrying no
+rule travels with the recipe; any other block is its own piece. A rule is whole without
+its carriers, unless it has no code of its own, when it is installed with them. A vendored atom is a control: a piece of its own (`kind: 'control'`), which the pieces importing it record under `atoms` with its `piece`, and which install adds to the order where the project has no file for it; an atom the project made
+travels, with the rule it carries or with whatever imports it, and one no component imports (`carriedByAComponent`) is a piece of its own that every recipe or rule naming it in its prose depends on. A helper with no pointer travels with what imports it,
+unless it is built on a generated file — the class-merge helper — which the receiving
+project has its own of. A piece's files come from the UI package and from each workspace of
+the system another workspace depends on; an app's own code, a screen, server code and code
+outside those workspaces are the source project's own. Listed as a rule's code they stay
+behind and are named for the guide; imported by a piece's file they refuse the piece. The
+exception is a file every project built on the kit has one of its own, by name
+(`EVERY_PROJECT_HAS`: the logger and the user-facing error class): a piece expects the
+receiving project's and never holds it.
+
+**`extract <piece>`** works the piece out from those homes and TypeScript's own resolution
+of every import (`workOut`), and refuses, naming each: an import of the source project's
+own code or of a generated file, an import that resolves to nothing, a recipe whose frame
+is an app's own. A piece is found and reused by what it is called, so extract lists, as
+advice that refuses nothing, each line in the source project's own domain words
+(`businessWords`): the words of its repository, its packages and their scopes, its apps,
+its feature folders and its routes, less the words its own blocks, references and block
+types are named with. It writes the piece folder: the code at its path in the source
+project, with each workspace's package name on an import replaced by
+`@design-pack/<its folder>`; the reference, without its `apps:` and `reference:` lines and
+without the code that stayed behind; `inventory.md`; and `piece.json`:
+
+| Field | Holds |
+|---|---|
+| `files` | What travels |
+| `pieces` | The pieces it is installed with: what its code imports, and each rule its files carry |
+| `carriers` | For a rule, the pieces that carry it beside other rules |
+| `atoms` | Each file it expects the project to have, with the exports taken from it and, under `uses`, each prop the piece gives an export with the literal values it passes |
+| `roles` | Each role its classes use, with its purpose and the classes that read it: a type role or named utility, and the tokens Tailwind's build says each class reads. A role the app pack's `carries` names (`whyCarried`) also holds the source project's `value` (`valuesOf`) and the pack's `why`; `extract --pack <file>` reads the list, and `roles <folder>` prints every role with its value for the human to choose from |
+| `packages` | Each library it imports, at the version installed |
+| `themes` | The themes the source project's roles hold values for: light, and dark where its token files redefine them |
+| `workspaces` | Each source workspace its files sat in, with its pack name |
+| `imports` | Each package-name import, with the pack file it meant |
+
+It prints what a person has still to do: the comments and prose to reword, every string a
+user reads, and the wiring the source project does with the piece.
+
+**`prove <piece folder>`** runs after the session has adjusted and reworded the piece. It
+says which files' code now differs from the source project's with comments left out
+(`codeOnly`, TypeScript's printer) and whether `piece.json` does, and counts the domain
+words still in the folder; none of that refuses. What holds an adjusted piece is the
+proof that follows, run from the folder's own `piece.json`. It then builds a project in a
+temporary folder (`proveInFixture`), laid out as the source project is, holding the piece,
+every piece it depends on from the folders beside it, the source project's stylesheets and
+ambient declarations, and nothing else of the source project: each expected file is a
+stand-in typed from the declarations the compiler writes for the source file, and each
+library is linked from the source project's `node_modules`. There the piece must typecheck
+under the source project's compiler options, build with the source project's Vite, pass
+the token check with every line judged — a token only the rest of the source project
+reached is marked `not-yet-built` first — read back the same roles `piece.json` names, and
+pass the status check. Extract refuses an uncommitted tree or anything the status check holds, and writes
+nothing into the source project but the piece folder; prove reads the project as it
+stands.
+
+**`install <piece or app pack>`** first asks whether the project is ready (`compliance`):
+the token check over the whole project with the vendored atoms read whatever
+`DESIGN_VENDORED_RESTYLED` says, and the status check. A file a pack already landed is the
+install's own work and is not counted, nor is what waits on the human once an install is
+under way; anything else either check names refuses the install. It then plans, and
+copies only with `--apply` (`planInstall`, `applyInstall`). `--app <workspace>` names
+the apps the pieces are for: each landed recipe and behaviour rule gains `apps:` naming
+them (`landedReference`), and a rule that would land with no app named stops the install,
+because a reference with no `apps:` governs every app of the project. The plan orders the pieces with each dependency ahead of
+it; lands each file in the workspace named as its own where the receiving project has one
+in its system, else in the UI package, a component named as its folder's files are
+(`destOf`); rewrites each import to the file it meant — a relative path inside a workspace,
+the package's name and the subpath its `exports` gives across them (`specifierFor`); finds
+the project's own file for each one the pieces expect, by path, by name, or as the one file
+exporting everything taken (`findExpected`); and lists the roles and libraries the project
+lacks, the themes the pieces are built for that the project's token files hold no values
+for, each lacking role with its classes and, once files have landed, the installed files
+still using them. Under each stand-in it lists what the pieces pass it that its file never
+mentions — a variant, an option — and which exports it lacks; neither waits, and both are
+fitted after the copy. It copies nothing while anything waits on a person (`blockers`): an
+expected file not found at all, or a file that would stand beside one of the project's own
+— the same path, the same name, a block of the same type, or a helper of its folder
+exporting the same name — until `beside` answers `use-existing`, `replace` or
+`keep-both: <the human's reason>` for it. A code file lands `pending` and a recipe or
+behaviour rule `approved`; `approve` (`approveInstalled`), run on the human's word after
+the role review and the look over the reference pages, marks every installed file still
+pending approved with its inventory line and drops the judge's ledger items resting on
+those files, leaving any about a role. A file of the project's own that takes a pack
+file's place under `use-existing` is marked `// ui-pack-for: <piece>/<file>` by the copy
+(`plan.standsIn`, `standingIn`): `approve` treats it as installed, and `knip.config.ts`
+reads both marks as a piece's published API. Each lands with its
+pointer, `// ui-pack: <piece>/<file> @ <version>` in code and `pack:` in a reference's
+frontmatter; a reference's `code:` names what landed; a rule already installed gains each
+carrier that lands later; a file of the project's own that a rule now lists as its code is
+pointed back at the rule; and the inventory lines land, a component's pending and a
+rule's approved, in the region their rows
+belong to, only for files that landed, each named as it landed and by its path where the
+project has another of that name. A recipe carrying `pack:` lands with no `reference:` line and needs none
+(`check-ui-status.mjs`): it names one once the project has built a real screen of the
+type. `coverage <folder of pieces>` reports which components of a pack no reference page
+— a pack file headed `// ui-recipe:` — reaches through its imports. The version is the packs checkout's own (`git describe`). Fitting roles, building a
+missing atom and the guide's wiring are the session's, by the skill's steps.
+
+**`compare [<file>]`** reads every file carrying a pointer (`installedFiles`) and prints
+what the pack's history has changed in its pack file since the version it points at. It
+merges nothing.
 
 ## 12b. Autonomous mode
 
@@ -1698,7 +1844,6 @@ Fully independent — can start anytime. None of the three pieces started.
 
 - `skills/gitflow/SKILL.md` — gitflow skill, trigger metadata and routing
 - `skills/gitflow/references/commit-types.md` — commit type emoji/format reference
-- `skills/gitflow/references/changelog-rules.md` — changelog entry rules
 - `skills/gitflow/scripts/*.sh` — the scripts that actually do git operations
 - `.claude/rules/git.md` — git workflow rule (reminder layer)
 - `.claude/hooks/git-guard.sh` — raw-git blocker (commit + destructive ops)
