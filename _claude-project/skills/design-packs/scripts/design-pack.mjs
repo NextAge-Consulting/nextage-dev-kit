@@ -109,12 +109,16 @@ export function readSystem(repo) {
   const inSystem = (f) => !R.workspaces.length || homes.some((w) => f.startsWith(`${w}/`))
   // A piece's files come from the workspaces others build on: the UI package, and any
   // workspace of the system another workspace depends on. An app's own code is its own.
+  const manifests = new Map()
   const manifest = (w) => {
-    try {
-      return JSON.parse(fs.readFileSync(path.join(root, w, 'package.json'), 'utf8'))
-    } catch {
-      return {}
+    if (!manifests.has(w)) {
+      try {
+        manifests.set(w, JSON.parse(fs.readFileSync(path.join(root, w, 'package.json'), 'utf8')))
+      } catch {
+        manifests.set(w, {})
+      }
     }
+    return manifests.get(w)
   }
   const dependsOn = (w, name) => ['dependencies', 'devDependencies', 'peerDependencies'].some((k) => name && manifest(w)[k] && Object.hasOwn(manifest(w)[k], name))
   const shared = homes.filter((w) => w === R.pkgRel || R.workspaces.some((o) => o !== w && dependsOn(o, manifest(w).name)))

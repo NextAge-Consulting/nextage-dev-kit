@@ -109,12 +109,16 @@ export function readProject(repo) {
   const ui = keys.DESIGN_UI_PACKAGE.replace(/\/$/, '')
   const workspaces = workspaceDirs(root).dirs
   const homes = uiPackages(root, ui).packages.filter((w) => w !== '.')
+  const manifests = new Map()
   const manifest = (w) => {
-    try {
-      return JSON.parse(read(path.join(root, w, 'package.json')))
-    } catch {
-      return {}
+    if (!manifests.has(w)) {
+      try {
+        manifests.set(w, JSON.parse(read(path.join(root, w, 'package.json'))))
+      } catch {
+        manifests.set(w, {})
+      }
     }
+    return manifests.get(w)
   }
   const files = execFileSync('git', ['-C', root, 'ls-files', '-z', '--cached', '--others', '--exclude-standard'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
     .split('\0')
@@ -360,7 +364,10 @@ export function planInstall(repo, from, target, { swap = {}, map = {}, apps = []
     for (const f of p.json.files) {
       const text = read(path.join(p.dir, f))
       if (f.startsWith('references/')) {
-        plan.references.push({ piece: p.name, file: f, dest: `${REFERENCES}/${path.basename(f)}`, text, code: listOf((frontmatter(text) ?? {}).code).map((c) => ({ pack: c, dest: lands(c) ?? carried(c) })) })
+        const dest = `${REFERENCES}/${path.basename(f)}`
+        // A recipe or rule a pack already landed here stays as this project has it.
+        const installed = P.files.has(dest) && /^pack:/m.test(read(path.join(P.repo, dest)))
+        plan.references.push({ piece: p.name, file: f, dest, installed, text, code: listOf((frontmatter(text) ?? {}).code).map((c) => ({ pack: c, dest: lands(c) ?? carried(c) })) })
         continue
       }
       if (useExisting.has(f) || owner.get(f) !== p.name) continue
@@ -549,7 +556,7 @@ export function applyInstall(repo, plan) {
   const kinds = new Map()
   for (const r of plan.references) {
     kinds.set(path.basename(r.file), (frontmatter(r.text) ?? {}).kind)
-    if (fs.existsSync(path.join(root, r.dest)) && /^pack:/m.test(read(path.join(root, r.dest)))) continue
+    if (r.installed) continue
     freshPieces.add(r.piece)
     write(r.dest, landedReference(r, plan.version, plan.apps ?? []))
   }

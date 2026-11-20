@@ -216,6 +216,10 @@ test('a recipe or rule lands governing the apps the pieces are for, and never wi
   assert.deepEqual([named.apps, blockers(named)], [['apps/shop'], []])
   applyInstall(dir, named)
   assert.match(fs.readFileSync(path.join(dir, '.claude/skills/ui-patterns/references/date-entry.md'), 'utf8'), /^apps: \[apps\/shop\]$/m)
+  // Planned again with the rule already here: it lands nothing, so it asks for no app.
+  const again = planInstall(dir, pack(), 'date-entry')
+  assert.deepEqual(again.references.map((r) => r.installed), [true])
+  assert.doesNotMatch(blockers(again).join('\n'), /no app is named/)
 })
 
 test('the plan names the roles and libraries the project lacks', () => {

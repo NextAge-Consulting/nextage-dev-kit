@@ -100,21 +100,19 @@ if [ "$MODE" = "plan" ]; then
 
     # Names that are not the pack's to publish: every project beside the kit that syncs
     # it. Matched as whole words in everything a release would publish.
-    NAMES_FILE=$(mktemp); HITS="[]"
+    NAMES_FILE=$(mktemp)
     for d in "$(dirname "$KIT")"/*/; do
         [ -f "$d.claude/.kit-sync.json" ] && basename "$d"
     done >"$NAMES_FILE"
     ALL=$(mktemp)
     (cd "$PACKS" && pack_files | xargs -0 grep -n -H -I '' 2>/dev/null) >"$ALL"
-    add_hits() {
-        while IFS= read -r hit; do
-            [ -n "$hit" ] && HITS=$(jq -c --arg h "$hit" '. + [$h]' <<<"$HITS")
-        done
-    }
-    [ -s "$NAMES_FILE" ] && add_hits < <(grep -i -w -F -f "$NAMES_FILE" "$ALL" | cut -c1-240)
-    # An email that is not an example one, a cloud resource name, an access key, an address.
-    add_hits < <(grep -E -i '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+' "$ALL" | grep -E -v -i '@example\.(com|org|net)|@[0-9]|@design-pack/|@tanstack/|@dnd-kit/|@radix-ui/|@types/|@internationalized/|@fontsource|@tailwindcss/|@vitejs/' | cut -c1-240)
-    add_hits < <(grep -E 'arn:aws:|AKIA[0-9A-Z]{16}|(^|[^0-9.])(1?[0-9]{1,2}|2[0-4][0-9]|25[0-5])(\.(1?[0-9]{1,2}|2[0-4][0-9]|25[0-5])){3}([^0-9.]|$)' "$ALL" | grep -E -v '(^|[^0-9.])(0\.0\.0\.0|127\.0\.0\.1)([^0-9.]|$)' | cut -c1-240)
+    # A project's name; an email that is not an example one; a cloud resource name, an
+    # access key or an address. One line per hit.
+    HITS=$({
+        if [ -s "$NAMES_FILE" ]; then grep -i -w -F -f "$NAMES_FILE" "$ALL"; fi
+        grep -E -i '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+' "$ALL" | grep -E -v -i '@example\.(com|org|net)|@[0-9]|@design-pack/|@tanstack/|@dnd-kit/|@radix-ui/|@types/|@internationalized/|@fontsource|@tailwindcss/|@vitejs/'
+        grep -E 'arn:aws:|AKIA[0-9A-Z]{16}|(^|[^0-9.])(1?[0-9]{1,2}|2[0-4][0-9]|25[0-5])(\.(1?[0-9]{1,2}|2[0-4][0-9]|25[0-5])){3}([^0-9.]|$)' "$ALL" | grep -E -v '(^|[^0-9.])(0\.0\.0\.0|127\.0\.0\.1)([^0-9.]|$)'
+    } | cut -c1-240 | jq -R . | jq -c -s .)
     rm -f "$NAMES_FILE" "$ALL"
 
     COVERAGE=$(node "$CLI" coverage "$PACKS/pieces" 2>&1 | sed -n '1,2p' | tr '\n' ' ')
