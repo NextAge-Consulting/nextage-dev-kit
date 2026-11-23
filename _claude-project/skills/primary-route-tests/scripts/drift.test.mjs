@@ -110,10 +110,24 @@ test('the score is items added plus items removed over the snapshot size, each w
   assert.equal(score({}, { routes: ['/x'] }).score, Number.POSITIVE_INFINITY)
 })
 
-test('an app with no primary-route tests is reported as such', () => {
+test('an app with no primary-route tests and no snapshot is reported as never audited', () => {
   const r = checkUnit(repo(MONOREPO), 'apps/shop')
   assert.equal(r.status, 'none')
-  assert.match(r.message, /apps\/shop has no primary-route tests — run \/primary-route-audit apps\/shop/)
+  assert.match(r.message, /apps\/shop has no primary-route tests and no test\/primary-routes\/snapshot\.json .* run \/primary-route-audit apps\/shop/)
+})
+
+test('an audited app whose primary-route tests all live in the shared module is measured, not none', () => {
+  const dir = repo({ ...MONOREPO, 'apps/shared/test/primary-routes/billing.primary.integration.test.ts': '' })
+  writeSnapshot(dir, 'apps/shop')
+  assert.equal(checkUnit(dir, 'apps/shop').status, 'ok')
+  write(dir, { 'apps/shop/src/routes/account.tsx': "createFileRoute('/account')\n", 'apps/shop/src/routes/orders.tsx': "createFileRoute('/orders')\n" })
+  assert.equal(checkUnit(dir, 'apps/shop').status, 'drifted')
+})
+
+test('an audited service with nothing the script recognises and no tests of its own is unmeasured', () => {
+  const dir = repo({ ...MONOREPO, 'apps/ingest/package.json': { name: 'ingest' }, 'apps/ingest/src/server.ts': 'import { total } from "@acme/shared"\nexport const handle = total\n' })
+  writeSnapshot(dir, 'apps/ingest')
+  assert.equal(checkUnit(dir, 'apps/ingest').status, 'unmeasured')
 })
 
 test('primary-route tests with no snapshot are reported, not passed', () => {
@@ -152,7 +166,7 @@ test('check --changed reports only the units the changed source files fall in', 
   const dir = repo(MONOREPO)
   const list = path.join(dir, 'changed.txt')
   fs.writeFileSync(list, 'apps/shop/src/server/cart.ts\napps/office/README.md\npackages/ui/src/x.ts\n')
-  assert.equal(cli(dir, 'check', '--changed', list), 'none\tapps/shop\tapps/shop has no primary-route tests — run /primary-route-audit apps/shop\n')
+  assert.equal(cli(dir, 'check', '--changed', list), 'none\tapps/shop\tapps/shop has no primary-route tests and no test/primary-routes/snapshot.json — its primary routes have never been agreed — run /primary-route-audit apps/shop\n')
 })
 
 test('the command names the units, writes a snapshot, and refuses a folder that is not a unit', () => {

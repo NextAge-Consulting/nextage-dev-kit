@@ -252,8 +252,10 @@ fi
 
 # ─── Primary routes: every app the PR touches has one, and it is current ──────
 # The primary-route-tests skill's drift.mjs reports each app (and the shared module) the
-# branch changes: no primary-route tests, no snapshot, or moved past the kit's drift
-# threshold since the snapshot. A unit it cannot measure is named, and neither warned
+# branch changes: never audited (no snapshot and no primary-route tests of its own), tests
+# with no snapshot, or moved past the kit's drift threshold since the snapshot. An app
+# whose primary routes all call shared functions has its tests in the shared module and
+# only its snapshot of its own. A unit it cannot measure is named, and neither warned
 # about nor passed silently. Under the assist assurance level (the default) that
 # is a warning naming /primary-route-audit <app>, and the PR opens.
 #

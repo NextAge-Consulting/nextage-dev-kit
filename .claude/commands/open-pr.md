@@ -165,8 +165,8 @@ The author keeps it unless a taker is named:
 
 Optional: `--draft` to open as draft PR, `--base <branch>` if targeting something other than main.
 
-If the script warns about an app's primary-route tests — none, no snapshot, or moved past the kit's
-drift threshold — relay each warning as it printed it and offer `/primary-route-audit <app>`; under
+If the script warns about an app's primary-route tests — never audited, tests with no snapshot, or moved past
+the kit's drift threshold — relay each warning as it printed it and offer `/primary-route-audit <app>`; under
 the default assurance level (`ASSURANCE_LEVEL` `assist`) the PR opens regardless. Under
 `strict` the same warnings — or a check that could not run — refuse the PR (exit 16)
 before anything is pushed: run `/primary-route-audit <app>` for each app named, then `/open-pr`

@@ -163,7 +163,7 @@ git add -A; git commit -qm "chore: an app"; git push -q origin main 2>/dev/null
 branch feat/shop-noprimary
 printf "createFileRoute('/cart')\n" > apps/shop/src/routes/cart.tsx; git add -A; git commit -qm "feat: cart"
 open; rc=$?
-{ [ "$rc" -eq 0 ] && grep -q "WARNING — apps/shop has no primary-route tests — run /primary-route-audit apps/shop" "$tmp/out" && grep -q "pr create" "$FAKE_LOG"; } \
+{ [ "$rc" -eq 0 ] && grep -q "WARNING — apps/shop has no primary-route tests and no test/primary-routes/snapshot.json — its primary routes have never been agreed — run /primary-route-audit apps/shop" "$tmp/out" && grep -q "pr create" "$FAKE_LOG"; } \
     && ok "primary routes: an app with none is warned about, naming /primary-route-audit, and the PR opens" || bad "no primary-route tests (rc=$rc): $(cat "$tmp/out")"
 branch feat/shop-strict
 printf "createFileRoute('/cart')\n" > apps/shop/src/routes/cart.tsx

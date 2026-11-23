@@ -13,7 +13,8 @@
  *        writes the unit's snapshot (SNAPSHOT below), the record drift is measured from
  *   node .claude/skills/primary-route-tests/scripts/drift.mjs check [<unit>…] [--changed <file>] [--repo <dir>]
  *        one line per unit: `<status>\t<unit>\t<what it means>`, status one of
- *        ok, none (no primary-route tests), unsnapshotted, drifted, unreadable, or unmeasured
+ *        ok, none (no snapshot and no primary-route tests of its own: never audited),
+ *        unsnapshotted, drifted, unreadable, or unmeasured
  *        (a snapshot holding nothing this script recognises, so staleness cannot be measured).
  *        With --changed,
  *        the units are those the listed paths (one per line, `-` for stdin) fall in; with
@@ -194,9 +195,14 @@ const snapshotPath = (repo, unit) => path.join(repo, unit === '.' ? SNAPSHOT : `
 /** One unit's standing: { status, unit, message }. */
 export function checkUnit(repo, unit, all = units(repo).units) {
   const fix = `run /primary-route-audit ${unit}`
-  if (!hasPrimaryTests(repo, unit, all)) return { status: 'none', unit, message: `${unit} has no primary-route tests — ${fix}` }
+  // The snapshot is the audit's record — written last, once the primary routes are agreed and
+  // their tests pass. A unit whose primary routes all call shared functions has its tests in
+  // the shared module and none of its own, so its own folder cannot be what proves the audit.
   const file = snapshotPath(repo, unit)
-  if (!existsSync(file)) return { status: 'unsnapshotted', unit, message: `${unit} has primary-route tests but no ${SNAPSHOT}, so how far it has moved is unknown — ${fix}` }
+  if (!existsSync(file)) {
+    if (!hasPrimaryTests(repo, unit, all)) return { status: 'none', unit, message: `${unit} has no primary-route tests and no ${SNAPSHOT} — its primary routes have never been agreed — ${fix}` }
+    return { status: 'unsnapshotted', unit, message: `${unit} has primary-route tests but no ${SNAPSHOT}, so how far it has moved is unknown — ${fix}` }
+  }
   let snap
   try {
     snap = readJson(file)
