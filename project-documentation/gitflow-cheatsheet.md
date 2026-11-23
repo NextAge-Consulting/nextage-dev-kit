@@ -102,7 +102,7 @@ No new branch, no stash. Just link and keep working.
                 #   asked ("Does this PR finish #42, or is it part of #42?"); neither → no PR
                 # a finished issue → "Staged" with its Staged comment; a part gets `Part of #N`
                 #   instead of `Closes #N`, closes nothing, and stays where it is on the board
-                # warns, and still opens, when an app it touches has no primary-route tests or has moved
+                # warns, and still opens, when an app it touches was never audited or has moved
                 #   past the drift limit since its snapshot — run /primary-route-audit <app>
                 # does NOT touch changelog.md — single-writer model, /deploy owns it (pipeline.md §2.3)
 /catchup      # on main: fast-forward local main from origin/main (just want latest code)

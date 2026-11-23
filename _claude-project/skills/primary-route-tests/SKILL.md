@@ -33,7 +33,8 @@ quarter of them are new or gone, `/open-pr` says it is time to agree them again.
 - **An app's** go in `<app>/test/primary-routes/`; which folders are units is what
   `drift.mjs units` lists.
 - **The shared module's** go in `<SHARED_MODULE_DIR>/test/primary-routes/` — a function in the
-  shared module is tested there once, never from each app that calls it.
+  shared module is tested there once, never from each app that calls it. An app whose
+  primary routes all call shared functions holds only its snapshot.
 - **Each file is named `<subject>.primary.integration.test.ts`** and is an integration test
   like any other: `dbTest`, inserting the rows its assertions depend on — it may read
   stable reference data — and the real function handed the test's transaction
@@ -49,6 +50,7 @@ quarter of them are new or gone, `/open-pr` says it is time to agree them again.
 - `inventory <unit>` — the unit's routes, server functions and tables, each with the files
   using it, the foreign keys pointing at a table, and the fix commits that touched it.
 - `snapshot <unit>` — writes `test/primary-routes/snapshot.json`.
-- `check [<unit>…]` — each unit's standing: `ok`, `none`, `unsnapshotted`, `drifted`,
+- `check [<unit>…]` — each unit's standing: `ok`, `none` (no snapshot and no primary-route
+  tests of its own: never audited), `unsnapshotted`, `drifted`,
   `unreadable` or `unmeasured` — a unit with nothing the script recognises, whose staleness
   it cannot measure. `/open-pr` runs it on the units a PR touches.
