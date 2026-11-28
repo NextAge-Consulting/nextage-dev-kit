@@ -240,7 +240,12 @@ if (uiPackage && feedBarrel && existsSync(resolve(root, uiPackage, feedBarrel)))
 // stands in for one: `// ui-pack-for: <piece>/<file>`. Either is that piece's published
 // API, which the screens not yet written consume.
 const packPointer = /^\/\/ ui-pack(?::\s*\S+\/\S+\s+@\s+\S+|-for:\s*\S+\/\S+)/m;
-const packInstalled = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "*.ts", "*.tsx"], {
+// A file copied whole from another kit, which checks that its copy stays complete, says so
+// in its opening lines: `// kit-copy: <kit>/<path>`, optionally ` @ <version>`. The app may
+// switch on only part of what was copied, so a copied file nothing imports yet is that
+// kit's API, and an entry, so the packages it imports count as used.
+const kitCopyPointer = /^\/\/ kit-copy:\s*\S+\/\S+(?:\s+@\s+\S+)?\s*$/m;
+const sourceHeads = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "*.ts", "*.tsx"], {
   cwd: root,
   encoding: "utf8",
   maxBuffer: 64 * 1024 * 1024,
@@ -248,17 +253,24 @@ const packInstalled = execFileSync("git", ["ls-files", "--cached", "--others", "
   .split("\0")
   .filter((f: string) => f !== "" && !excludedDirs.test(f) && existsSync(resolve(root, f)))
   .map(toPosix)
-  .filter((f: string) => packPointer.test(readFileSync(resolve(root, f), "utf8").split("\n", 20).join("\n")));
+  .map((f: string) => ({ file: f, head: readFileSync(resolve(root, f), "utf8").split("\n", 20).join("\n") }));
+const packInstalled = sourceHeads.filter(({ head }) => packPointer.test(head)).map(({ file }) => file);
+const kitCopies = sourceHeads.filter(({ head }) => kitCopyPointer.test(head)).map(({ file }) => file);
+for (const file of kitCopies) {
+  const { ws, path } = inWorkspace(file);
+  entriesOf(ws).push(path);
+}
 
 // API surfaces whose unused members are not dead code: the vendored shadcn atoms, the
-// feed barrel and the modules it publishes, the files a Design Pack installed, and the
-// kit's test harness, which tests not yet written consume.
+// feed barrel and the modules it publishes, the files a Design Pack installed, the files
+// copied from another kit, and the kit's test harness, which tests not yet written consume.
 const apiSurfaces = [
   ...(uiPackage && feedBarrel ? [`${uiPackage}/${feedBarrel}`] : []),
   ...feedModules,
   "**/src/components/ui/**",
   ...(vendoredDir ? [`${vendoredDir}/**`] : []),
   ...packInstalled,
+  ...kitCopies,
   ...(sharedModule ? [sharedModule === "." ? harness : `${sharedModule}/${harness}`] : []),
 ];
 
