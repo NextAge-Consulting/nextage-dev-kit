@@ -693,6 +693,14 @@ Test it the way it breaks, running the rendered host script through `bash -s` wi
 complete; with the health stub answering the previous version, and with an `exit 0`
 injected before the restart, the build must fail.
 
+**The host keeps one image per service.** Once the release is confirmed serving, the host
+script runs `docker image prune -af </dev/null`: every image no container runs is
+deleted. A plain `prune -f` removes only images that lost their tag, and a deploy that
+tags each release with its version never untags the previous one — so every release stays
+on the host until its disk fills and the next deploy cannot write its files. Prune after
+the version check, never before: a release that fails keeps the previous image, and the
+host-side `flock` keeps a concurrent deploy's freshly pulled image out of reach.
+
 ## Logs
 
 A bind-mounted `logs/` volume fills the root disk given long enough. Rotate them, and
